@@ -3756,6 +3756,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.back": "トーク一覧へ",
   "rooms.members": "{n, plural, one {メンバー#人} other {メンバー#人}}",
   "rooms.membersTitle": "メンバー",
+  "rooms.nameOpensInfo": "トークルームの情報を開く",
   "rooms.ai.hint": "AIに聞く",
   "rooms.lastFiles": "{n, plural, one {ファイル#件} other {ファイル#件}}",
   "rooms.deleted": "このメッセージは削除されました",

@@ -359,11 +359,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         <div className="min-w-0 flex-1">
           <h1 className="flex min-w-0 text-base font-medium text-ink">
             {/* a phone: the count on its own line under the name (the name keeps the whole width) */}
-            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} aria-haspopup="dialog" className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
               {peerId && peerState !== 'offline' && <PresenceDot state={peerState} className="self-center md:hidden" />}
               <span className="truncate" data-testid="room-title">
                 {room ? title(room) : ''}
               </span>
+              {/* a screen reader hears what the name does: it is the way to the members and the room's name (QA TC-257) */}
+              <span className="sr-only">{t('rooms.nameOpensInfo')}</span>
               {peerId && <PresenceText userId={peerId} offline />}
               {!wide && muted && <BellOff size={13} className="shrink-0 self-center text-faint" role="img" aria-label={t('rooms.notify.button', { level: t('rooms.notify.off') })} data-testid="room-muted" />}
               {room && room.kind !== 'dm' && (

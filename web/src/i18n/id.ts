@@ -3800,6 +3800,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.back": "Kembali ke obrolan",
   "rooms.members": "{n} anggota",
   "rooms.membersTitle": "Anggota",
+  "rooms.nameOpensInfo": "Buka info ruang",
   "rooms.ai.hint": "Tanya AI",
   "rooms.lastFiles": "{n} file",
   "rooms.deleted": "Pesan ini sudah dihapus",

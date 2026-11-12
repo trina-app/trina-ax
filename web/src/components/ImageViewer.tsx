@@ -635,13 +635,13 @@ function Viewer({ open }: { open: ViewerOpen }) {
       {/* a document's ‹ › beside "2 / 3": a narrow window with a mouse, and a phone's frame (HTML, SVG), where a swipe
           cannot step (a finger swipes elsewhere; the edge arrows would sit on the text) */}
       {docMode && prev && (
-        <BarButton label={stepLabel(prev, 'prev')} onClick={() => go(prev)} testId="image-viewer-bar-prev" className={clsx('md:hidden', !framed && 'pointer-coarse:hidden')}>
+        <BarButton label={stepLabel(prev, 'prev')} onClick={() => go(prev)} testId="image-viewer-bar-prev" className={clsx('md:hidden', !framed && 'pointer-coarse:sr-only')}>
           <ChevronLeft size={20} />
         </BarButton>
       )}
       {count && <span className="mx-2 shrink-0 text-xs whitespace-nowrap text-white/70 tabular-nums max-md:mx-0.5 max-md:min-w-11 max-md:text-center" data-testid="image-viewer-count">{count}</span>}
       {docMode && next && (
-        <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className={clsx('md:hidden', !framed && 'pointer-coarse:hidden')}>
+        <BarButton label={stepLabel(next, 'next')} onClick={() => go(next)} testId="image-viewer-bar-next" className={clsx('md:hidden', !framed && 'pointer-coarse:sr-only')}>
           <ChevronRight size={20} />
         </BarButton>
       )}

@@ -74,9 +74,17 @@ async function openRoom(page: Page) {
 /** the test ids of the controls a finger can reach in `where` (drawn, not hidden) */
 const visibleControls = (where: Locator) =>
   where.evaluate((el) => [...el.querySelectorAll<HTMLElement>('button, a[href]')]
-    .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden' })
+    // seen on screen: a screen-reader-only button (sr-only, 1×1 px) is left out
+    .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 1 && r.height > 1 && getComputedStyle(b).visibility !== 'hidden' })
     .map((b) => b.dataset.testid ?? b.getAttribute('aria-label') ?? '?'))
 const box = async (l: Locator) => (await l.boundingBox())!
+/** not on screen, yet there for a screen reader (VoiceOver and TalkBack take the swipe, so they step with these) */
+const forScreenReaders = async (l: Locator) => {
+  await expect(l).toBeAttached()
+  const b = await l.boundingBox()
+  expect(b === null || (b.width <= 1 && b.height <= 1)).toBe(true)
+  await expect(l).toHaveAccessibleName(/.+/)
+}
 const viewer = (page: Page) => page.getByTestId('image-viewer')
 /** Back as the phone does it (the swipe, Android's Back): the history's own */
 const back = (page: Page) => page.goBack({ waitUntil: 'commit' })
@@ -198,7 +206,9 @@ export function roomHeaderCases() {
     // a PDF pinches and swipes: no zoom toolbar, no arrows
     await expect(viewer(page).getByTestId('pdf-toolbar')).toBeHidden()
     expect(await visibleControls(viewer(page).getByTestId('image-viewer-actions'))).toEqual(['image-viewer-download', 'image-viewer-ask-trina', 'image-viewer-thread', 'image-viewer-close'])
-    for (const t of ['image-viewer-prev', 'image-viewer-next', 'image-viewer-bar-prev', 'image-viewer-bar-next']) await expect(page.getByTestId(t)).toBeHidden()
+    for (const t of ['image-viewer-prev', 'image-viewer-next']) await expect(page.getByTestId(t)).toBeHidden()
+    // the bottom bar's step buttons stay for screen readers only
+    for (const t of ['image-viewer-bar-prev', 'image-viewer-bar-next']) await forScreenReaders(page.getByTestId(t))
     await targets(bottom)
     // the document sits between the bars
     const body = await box(viewer(page).getByTestId('file-viewer-body'))
@@ -220,7 +230,7 @@ export function roomHeaderCases() {
     await targets(bottom)
     await page.getByTestId('image-viewer-bar-prev').tap()
     await expect(page.getByTestId('image-viewer-name')).toHaveText(PDF_NAME)
-    await expect(page.getByTestId('image-viewer-bar-prev')).toBeHidden()
+    await forScreenReaders(page.getByTestId('image-viewer-bar-prev'))
     // ✕ in the bottom bar closes it too
     await page.getByTestId('image-viewer-close').tap()
     await expect(viewer(page)).toHaveCount(0)
@@ -252,10 +262,10 @@ export function roomHeaderCases() {
   })
 }
 
-/** every control in the bar is a 44 px target */
+/** every control on screen in the bar is a 44 px target (a screen-reader-only one, 1×1 px, is not on screen) */
 async function targets(bar: Locator) {
   const sizes = await bar.evaluate((el) => [...el.querySelectorAll<HTMLElement>('button')]
-    .filter((b) => b.getBoundingClientRect().width > 0)
+    .filter((b) => b.getBoundingClientRect().width > 1)
     .map((b) => { const r = b.getBoundingClientRect(); return { id: b.dataset.testid, w: Math.round(r.width), h: Math.round(r.height) } }))
   expect(sizes.length).toBeGreaterThan(0)
   for (const s of sizes) {
