@@ -442,7 +442,8 @@ test('the HWP plugin to-do shows with a button to the plugin, and "not needed" k
   const row = page.getByTestId('attention-after-hwp-plugin')
   await expect(row).toContainText(t['adminHome.after.hwp-plugin'])
   await row.getByRole('button', { name: t['adminHome.after.hwp-plugin.go'] }).click()
-  await expect(page).toHaveURL(/\/admin\/plugins\?focus=app\.trina\.hwp-preview$/)
+  // the plugin's page has its own address (TC-267); the to-do's ?focus= leads there
+  await expect(page).toHaveURL(/\/admin\/plugins\/app\.trina\.hwp-preview$/)
   // the link opens the plugin's own page
   await expect(page.getByTestId('plugin-detail')).toHaveAttribute('data-plugin', 'app.trina.hwp-preview')
   await expect(page.getByTestId('plugin-back')).toBeFocused()

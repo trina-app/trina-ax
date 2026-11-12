@@ -563,7 +563,7 @@ test('a big team: the list shows the first hundred and says how many more; typin
 })
 
 for (const locale of ['ko', 'es'] as const) {
-  test(`375px wide: the list above the answer, nothing wider than the screen (${locale})`, async ({ page }) => {
+  test(`375px wide: the list, then the person's answer as a page of its own; nothing wider than the screen (${locale})`, async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 })
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
@@ -575,15 +575,15 @@ for (const locale of ['ko', 'es'] as const) {
     await expect(page.getByTestId('access-summary')).toBeVisible()
     await page.getByTestId('access-hidden-toggle').click()
     await expect(row(page, 'finance')).toBeVisible()
-    const list = await page.getByTestId('access-person-list').boundingBox()
-    const answer = await page.getByTestId('access-answer').boundingBox()
-    expect(answer!.y).toBeGreaterThanOrEqual(list!.y + list!.height)
+    // a phone (TC-268): the person is a page over the list, not under it
+    await expect(page.getByTestId('access-person-list')).toBeHidden()
     await noOverflow(page)
     // each row stays inside the card
     for (const r of await page.getByTestId('access-row').all()) {
       const b = (await r.boundingBox())!
       expect(b.x + b.width).toBeLessThanOrEqual(375)
     }
+    await page.goBack()
     await option(page, 'new').click()
     await expect(page.getByTestId('access-new-setup')).toBeVisible()
     await noOverflow(page)

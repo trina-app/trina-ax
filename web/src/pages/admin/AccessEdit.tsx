@@ -49,11 +49,14 @@ export interface AccessEditProps {
   guard?: MutableRefObject<() => Promise<boolean>>
   /** opened from By person: closing goes back there, and the way out says so */
   returnLabel?: string
+  /** a phone's page under Admin's bar (its ‹ is the way back, AccessTree.tsx gives the editor its own history entry): no
+   * full-screen panel of its own, no second way back */
+  inPage?: boolean
 }
 
-export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel }: AccessEditProps) {
+export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel, inPage }: AccessEditProps) {
   const t = useT()
-  const narrow = useNarrow()
+  const narrow = useNarrow() && !inPage
   const root = path === ''
   const headingId = useId()
   const box = useRef<HTMLElement>(null)
@@ -173,7 +176,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
       data-testid="edit-panel"
       data-path={path}
     >
-      {returnLabel && !narrow && (
+      {returnLabel && !narrow && !inPage && (
         <button type="button" onClick={() => void requestClose()} className="-mx-2 mb-2 inline-flex items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink" data-testid="edit-return">
           <ArrowLeft size={15} aria-hidden /> {returnLabel}
         </button>
@@ -186,7 +189,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
         )}
         <div className={clsx('min-w-0 flex-1', narrow && 'pt-1')}>
           {/* one line: what the panel does and for which folder */}
-          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className="text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none">
+          {/* a phone's page: the bar says what it is, ‹ names the folder; the heading is for screen readers */}
+          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className={clsx('text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none', inPage && 'sr-only')}>
             {hadRules ? t('accessEdit.title') : t('accessTree.addRules')}
             <span aria-hidden className="mx-1.5 font-normal text-faint">·</span>
             <span className="font-normal text-muted" data-testid="edit-path">
@@ -194,7 +198,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
             </span>
           </h3>
         </div>
-        {!narrow && (
+        {!narrow && !inPage && (
           <IconButton label={t('common.close')} onClick={() => void requestClose()} className="-mt-1 -mr-1 shrink-0 focus-visible:-outline-offset-2" data-testid="edit-close">
             <X size={18} />
           </IconButton>

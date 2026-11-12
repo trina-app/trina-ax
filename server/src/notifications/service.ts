@@ -55,7 +55,9 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
 export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : 'notification_inbox'
+export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
+const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -64,9 +66,10 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
- * a member's ask to add an app with its answer (migration 343) and a password reset link made for the person (migration 119)
+ * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
+ * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -225,6 +228,13 @@ export class Notifications {
    * link signs its holder in as them, and only they know whether they asked for it (QA TC-202). */
   resetLinkMade(userId: string, resetId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'account.reset_link', resetId, createdAt, true)
+  }
+  /** The hosting service copied the team's AI connections' key or took a full export (system/cli.ts; source: the audit
+   * row), or the relay stopped taking this server's key because the team address moved to another key
+   * (relay-client/index.ts; source: the relay event). Shown always: only the owners and admins know whether they asked
+   * for it (QA TC-348, TC-350). The words are the event's own; nothing else is stored or read. */
+  hostingNotice(userId: string, event: HostingNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, event, sourceId, createdAt, true)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -568,6 +578,8 @@ export class Notifications {
     }
     // a reset link made for me: by the server or by whom (a name while the account is there), and whether it still works
     // (unused, not replaced, not expired: read now, so the advice to change the password goes once it no longer helps)
+    // the hosting service's copy of the team's key or data, or the team address moved away: the words say it all, no link
+    if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
       const r = this.ctx.db.query('SELECT created_by, expires_at, used_at FROM password_resets WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { created_by: string | null; expires_at: string; used_at: string | null } | null
       const by = r?.created_by ? getUser(this.ctx.db, r.created_by) : null
@@ -729,6 +741,15 @@ export function notifyIntegrationRequest(ctx: AppContext, userId: string, reques
 export function notifyResetLink(ctx: AppContext, userId: string, resetId: string) {
   try { notificationsOf(ctx).resetLinkMade(userId, resetId) }
   catch { ctx.log.warn('reset link notification recording failed') }
+}
+/** One hosting notice to each active owner (`admins: false`) or owner and admin. Never throws: the copy or the move
+ * happened whether or not the notice could be recorded. */
+export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, sourceId: string, o: { admins: boolean }) {
+  try {
+    const roles = o.admins ? "'owner', 'admin'" : "'owner'"
+    const ids = (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
+    for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
+  } catch { ctx.log.warn('hosting notification recording failed') }
 }
 export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
   for (const userId of new Set(userIds)) {
