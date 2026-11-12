@@ -27,12 +27,15 @@ type Status struct {
 	Firewall    *fwstatus.Status  `json:"firewall"`
 	FirewallOK  bool              `json:"firewallOk"`
 	FirewallErr string            `json:"firewallError,omitempty"`
-	Plan        *plan.Limits      `json:"plan"`
-	PlanFile    bool              `json:"planFile"`
-	PlanErr     string            `json:"planError,omitempty"`
-	Disk        map[string]any    `json:"disk"`
-	Health      map[string]any    `json:"health"`
-	History     []json.RawMessage `json:"history"`
+	// FirewallLive: what the kernel holds now (`nft -j list table`, the same check as `firewall apply`); nil when the
+	// status file already failed. The file alone said "loaded" after `nft flush ruleset` (QA TC-310).
+	FirewallLive *bool             `json:"firewallLive,omitempty"`
+	Plan         *plan.Limits      `json:"plan"`
+	PlanFile     bool              `json:"planFile"`
+	PlanErr      string            `json:"planError,omitempty"`
+	Disk         map[string]any    `json:"disk"`
+	Health       map[string]any    `json:"health"`
+	History      []json.RawMessage `json:"history"`
 	// ServerStopped: app/state.json blocked — the bootstrap stopped starting the server because no version can run
 	// (the old version cannot read the database a newer one migrated); nil while it runs or retries
 	ServerStopped json.RawMessage `json:"serverStopped,omitempty"`
@@ -144,8 +147,18 @@ func collectStatus(e *env, in *Install) Status {
 		s.Firewall = fw
 		if err := fw.Check(e.now(), fw.EngineUID, in.ProxyPort); err != nil {
 			s.FirewallErr = err.Error()
+		} else if c, lerr := firewallLiveCheck(e); lerr != nil {
+			// the file says loaded, the kernel does not hold the table (another tool flushed it) or holds another one:
+			// recorded in the status file like `firewall status`, so the launcher refuses turns from the file too
+			live := false
+			s.FirewallLive, s.FirewallErr = &live, "the table is not in effect now: "+lerr.Error()
+			if c != nil {
+				s.Firewall = failStatus(c, e.now(), s.FirewallErr)
+				_ = fwstatus.Write(e.statusFile(), s.Firewall)
+			}
 		} else {
-			s.FirewallOK = true
+			live := true
+			s.FirewallLive, s.FirewallOK = &live, true
 		}
 	}
 	if l, ok, err := plan.Load(e.root("plan.json")); err != nil {

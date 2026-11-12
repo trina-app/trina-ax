@@ -950,7 +950,7 @@ export class TurnExec {
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
         if (this.stopReason) break
-        if (this.stoppedAtLimit(exit)) break
+        if (this.stoppedAtLimit(exit) || this.refusedForFirewall(exit)) break
         if (managed && this.switchCredential('claude-code', exclude)) {
           // another account: never continue its session (signed thinking blocks, caches): fresh, with the history
           resume = false; sid = crypto.randomUUID()
@@ -1133,7 +1133,7 @@ export class TurnExec {
         // to swap it (design tab 2 "로그인 파일")
         for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
         if (this.stopReason) break
-        if (this.stoppedAtLimit(exit)) break
+        if (this.stoppedAtLimit(exit) || this.refusedForFirewall(exit)) break
         if (managed && this.switchCredential('codex', exclude)) { attempt--; continue }
         if (this.proxyError) { this.error = this.proxyError; break }
         // agent-own: the engine account has no Codex login yet (the owner runs the codex-login command once)
@@ -1316,6 +1316,17 @@ export class TurnExec {
     if (!err) return false
     this.error = err
     this.rt.log.warn('turn stopped at its limit', { turn: this.id, signal: exit.signal })
+    return true
+  }
+
+  /** The Linux launcher refused the attempt because the engine firewall is not in effect: `firewall_off: …` (its live
+   * test before the turn found the rules gone or changed, e.g. after `nft flush ruleset`) or `firewall_not_loaded: …`
+   * (the status file). The answer says so in plain words, never "stopped partway", and is not retried as a crash: the
+   * same check would refuse again (QA TC-310). */
+  private refusedForFirewall(exit: { ev?: string; message?: unknown } | null): boolean {
+    if (exit?.ev !== 'error' || !/^firewall_(off|not_loaded):/.test(String(exit.message ?? ''))) return false
+    this.error = engineError('network_protection_off', this.spec.locale)
+    this.rt.log.error('turn refused: the engine firewall is not in effect', { turn: this.id, message: String(exit.message).slice(0, 300) })
     return true
   }
 

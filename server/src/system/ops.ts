@@ -69,6 +69,13 @@ export interface OpsOptions {
 
 /** Reported failures of the desktop app's office-network direct connection (POST /api/connect-info/lan-failure). */
 export type LanFailureCode = 'unreachable' | 'cert_mismatch' | 'timeout'
+/** A firewall reason as one plain line for the Health line: an older `mycel-ctl` wrote nft's whole answer (the echoed
+ * command and its "^^^^^" marker, QA TC-310) into the status file. The full text stays in the firewall timer's journal. */
+export const oneLineReason = (why: string): string => {
+  const line = (why.split('\n')[0] ?? '').replace(/\s*\(nft list: [^)]*$/, '').replace(/\bError:\s*/g, '').trim()
+  return line || 'not loaded'
+}
+
 const LAN_FAILURE_WINDOW_MS = 24 * 3600_000
 const LAN_FAILURE_PER_SESSION_MS = 3600_000
 
@@ -694,22 +701,27 @@ export class OpsService {
   private async linuxChecks(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
     M: typeof MAC_M, hosted: boolean) {
     const L = this.layout
+    // the launcher first: its report says whether the rules are in effect right now (it tests them as the engine
+    // account), which the status file cannot tell after another tool flushed the table (QA TC-310)
+    let st: LauncherStatus | null = null
+    const sock = this.ctx.config.engine.launcherSock
+    const probe = sock ? await probeSocket(sock).catch(() => 'error' as const) : null
+    if (sock && probe === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
+
     const fw = this.firewallStatus()
     if (!fs.existsSync(L.firewallStatusFile)) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
     else if (!fw || this.now().getTime() - Date.parse(fw.at) > 15 * 60_000) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallStale))
-    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded'))))
+    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(oneLineReason(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded')))))
+    else if (st?.firewall?.live === false) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(ML.firewallNotLive(oneLineReason(st.firewall.liveProblem ?? 'not in effect'), hosted)))
     else add('pf_anchor', 'pf_anchor', t(M.firewall), 'ok', t(ML.firewallOkLinux(fw.rules, fw.proxyPort)))
 
-    let st: LauncherStatus | null = null
-    const sock = this.ctx.config.engine.launcherSock
     if (sock) {
-      const r = await probeSocket(sock).catch(() => 'error' as const)
+      const r = probe
       if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
       else if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, null, L.unitDir)))
       else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
       else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
       else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown))
-      if (r === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
     }
     const bad: CheckStatus = hosted ? 'fail' : 'warn'
     if (!st) add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(ML.sandboxUnknown))

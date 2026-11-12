@@ -358,6 +358,7 @@ export const id: Record<MessageKey, string> = {
   "chat.error.admin.engine_missing": "Trina belum siap. Hubungkan AI agar Trina bisa menjawab.",
   "chat.error.admin.proxy_down": "AI masih bersiap. Coba lagi sebentar lagi; jika terus terjadi, penyebabnya terlihat di {path}.",
   "chat.error.admin.storage_full": "Penyimpanan server penuh, jadi AI tidak bisa menjawab. Lihat apa yang memakai ruang di {path}, lalu kosongkan sebagian.",
+  "chat.error.admin.network_protection_off": "Perlindungan jaringan server sedang mati, jadi AI tidak bisa menjawab sekarang. Biasanya aktif lagi dalam semenit; jika tidak, penyebabnya terlihat di {path}.",
 
   'chat.untitled': "Tanpa judul",
   'chat.title': 'Judul',
@@ -2412,6 +2413,7 @@ export const id: Record<MessageKey, string> = {
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.id,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.id,
+  'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.id,
   'audit.act.ai.hosted_trial_key': "Mengubah kunci AI uji coba hosting",
   'trialCredit.active': "Kredit uji coba: {used} dari {cap} terpakai · sampai {date} · AI yang Anda hubungkan dipakai lebih dulu",
   'trialCredit.used': "Kredit uji coba sudah habis ({used} dari {cap}) · Hubungkan AI Anda sendiri untuk melanjutkan",
@@ -3187,6 +3189,10 @@ export const id: Record<MessageKey, string> = {
   'admin.team.aiApps': "Akses aplikasi AI tim",
   'admin.onComputerSlack': "Membuat aplikasi Slack dan menempelkan kuncinya dilakukan di Admin pada komputer.",
   'admin.onComputerAdd': "Menambah layanan lewat alamatnya dilakukan di Admin pada komputer.",
+  'admin.onComputerFolder': "Menghubungkan folder baru dilakukan di Admin pada komputer.",
+  'admin.onComputerConnection': "Mengubah cara tim terhubung dilakukan di Admin pada komputer.",
+  'admin.onComputerUpdate': "Versi ini dipasang di komputer server. Anda juga bisa menunggu pembaruan otomatis.",
+  'admin.onComputerNoFeed': "Pembaruan dipasang di komputer server dengan program penginstal.",
   'integrations.users': 'Dipakai oleh: {who}',
   'integrations.users.nobody': 'Belum ada yang bisa memakai',
   'integrations.users.notMe': 'Tidak di obrolan Anda',

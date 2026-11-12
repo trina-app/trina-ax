@@ -299,7 +299,7 @@ test('a new version is an attention item for the owner; a failed update status i
   await answerUpdate(page, () => ({ json: NEW_STATUS }))
   await page.goto('/admin')
   const row = page.getByTestId('attention-update')
-  await expect(row.getByRole('link', { name: t['adminHome.update.off'].replace('{version}', '0.3.0') })).toHaveAttribute('href', '/admin/system')
+  await expect(row.getByRole('link', { name: t['adminHome.update.off'].replace('{version}', '0.3.0') })).toHaveAttribute('href', '/admin/system/updates')
 
   // managed (hosted) installs are updated by the provider: no item
   await page.unroute('**/api/admin/update')
@@ -410,7 +410,7 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true, hold: 'root_failed' } }))
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootFailed'].replace('{version}', '0.3.0'))
-  await expect(page.getByTestId('attention-update')).toHaveAttribute('href', '/admin/system')
+  await expect(page.getByTestId('attention-update')).toHaveAttribute('href', '/admin/system/updates')
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...NEW_STATUS, needsRoot: true } }))
   await page.goto('/admin')

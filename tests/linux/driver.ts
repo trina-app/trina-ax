@@ -103,8 +103,25 @@ if (SANDBOX) {
   const refused = await fakeTurn(srv, 'alice', { calls: [] })
   check('fail closed: no firewall status -> turn refused', refused.exit?.ev === 'error' && /firewall_not_loaded/.test(refused.exit?.message ?? ''), JSON.stringify(refused.exit))
   fs.rmSync('/run/test-ctl/fw-off.done', { force: true })
-  fs.writeFileSync('/run/test-ctl/fw-on', ''); for (let i = 0; i < 50 && !fs.existsSync('/run/test-ctl/fw-on.done'); i++) await Bun.sleep(100)
-  fs.rmSync('/run/test-ctl/fw-on.done', { force: true })
+  const rootCtl = async (what: string) => {
+    fs.writeFileSync(`/run/test-ctl/${what}`, ''); for (let i = 0; i < 50 && !fs.existsSync(`/run/test-ctl/${what}.done`); i++) await Bun.sleep(100)
+    fs.rmSync(`/run/test-ctl/${what}.done`, { force: true })
+  }
+  await rootCtl('fw-on')
+  // QA TC-310: root flushes the whole ruleset (a ufw / Docker reload does the same); run/firewall.json still says
+  // "loaded" and is fresh, so only the launcher's live test can tell. The next turn is refused before it runs.
+  await rootCtl('fw-flush')
+  await Bun.sleep(3500) // past the launcher's 3-second memory of its last good test
+  const flushed = await fakeTurn(srv, 'alice', { calls: [], probe: [{ id: 'P-net-internet', kind: 'connect', host: '1.1.1.1', port: 443 }] })
+  check('fail closed: a flushed ruleset (status file still fresh) -> turn refused', flushed.exit?.ev === 'error' && /^firewall_off:/.test(flushed.exit?.message ?? '') && !flushed.lines.some((l: any) => l.probe), JSON.stringify(flushed.exit))
+  const { launcherStatus: lstat } = await import('../../server/src/native')
+  const off = await lstat('/run/mycel-launcher/launcher.sock')
+  check('launcher status: firewall.live false after the flush', off?.firewall?.live === false && /went through/.test(off?.firewall?.liveProblem ?? ''), JSON.stringify(off?.firewall))
+  await rootCtl('fw-on')
+  const back = await fakeTurn(srv, 'alice', { calls: [] })
+  check('after the table is applied again turns run', back.exit?.ev === 'exit', JSON.stringify(back.exit))
+  const on = await lstat('/run/mycel-launcher/launcher.sock')
+  check('launcher status: firewall.live true with the table', on?.firewall?.live === true, JSON.stringify(on?.firewall))
   // the turn cgroups are gone after the turns
   await Bun.sleep(500)
   const leftover = (() => { try { return fs.readdirSync(TURNS_CG).filter((d) => d.startsWith('t-')) } catch { return [] } })()

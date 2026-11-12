@@ -78,7 +78,8 @@ test("a room's box: six files, the @ list and a long draft keep the text field a
   expect((await box(list)).height).toBeLessThanOrEqual(KB * 0.25 + 1)
   const menu = await box(page.getByTestId('mention-menu'))
   expect(Math.round(menu.y + menu.height)).toBeLessThanOrEqual(Math.round((await box(row)).y) + 1)
-  // the text field: at most 30 %, and it and send in sight
+  // the whole box (files' row, text field, buttons): at most about 35 % of what is in sight (QA TC-252); field and send in sight
+  expect((await box(page.getByTestId('room-composer'))).height).toBeLessThanOrEqual(KB * 0.35 + 2)
   expect((await box(input)).height).toBeLessThanOrEqual(KB * 0.3 + 1)
   await inSight(input)
   await inSight(page.getByTestId('room-send'))

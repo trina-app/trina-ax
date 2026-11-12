@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -114,10 +114,12 @@ export interface PushBridge {
   labelHash?(): Promise<string | null>; signedOut?(): Promise<void>
 }
 
+/** Where Back goes in the page on screen (nav-v1): `home` is true unless the page said it is on another tab. */
+export interface PageNav { canGoBack: boolean; home: boolean }
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -161,6 +163,9 @@ export class MobileReceiver {
       } else if (m.type === 'appearance') {
         if (!this.appearance || !current.capabilities.includes(APPEARANCE_CAPABILITY)) throw new Error('unsupported')
         this.appearance({ dark: m.dark, system: m.system === true })
+      } else if (m.type === 'nav') {
+        if (!this.nav || !current.capabilities.includes(NAV_CAPABILITY)) throw new Error('unsupported')
+        this.nav({ canGoBack: m.canGoBack, home: m.home !== false })
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null

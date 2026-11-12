@@ -2,18 +2,24 @@
 // the plan, storage and (office mode) the automatic updates. Laid out like a settings document (Team settings): plain
 // sections under headings, label / value rows, long explanations behind "Learn more"; no boxes. Update, restore and
 // connection changes ask for the password again. Long work runs as a job with progress from the WebSocket.
+// On a phone (below 768 px; QA TC-269) the page is a list of its parts, each its own page at /admin/system/<group>
+// (systemGroups.ts), with a short state on each row; the parts stay mounted while another shows, so a backup or an
+// export keeps its progress and the list its states. What needs the server computer (a folder path on it, the
+// connection mode, an update by its command) says "컴퓨터에서 설정해요" there (QA TC-270). Computers keep the one page.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import type { ConnectionMode, LastRestore } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { formatDateTime, formatSize } from '../../lib/format'
+import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
+import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { AdminPageHeader, BarTitleProvider, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad, useReauthCall } from './common'
+import { systemGroup, systemGroups, type SystemGroupId } from './systemGroups'
 import { forgetKeptChecks } from './overview'
 import OfficeUpdate from './OfficeUpdate'
 import { engineVersionChecks } from './plain'
@@ -89,6 +95,35 @@ function Row({ label, children, action, testId, long }: { label: ReactNode; chil
   )
 }
 
+const PHONE = '(max-width: 767.98px)'
+
+/** A group's state on a phone's list row: a short value on the right, or a badge when it needs a look. */
+type RowNote = { value?: string; badge?: { text: string; tone: 'warn' | 'danger' | 'accent' } }
+type SetNote = (id: SystemGroupId, note: RowNote | null) => void
+/** The phone's list, told by each part what to say on its row (none on a computer: there is no list). */
+const RowNotes = createContext<SetNote | null>(null)
+
+/** Tell a phone's list what this group's row says (null: nothing yet). */
+function useRowNote(id: SystemGroupId, note: RowNote | null) {
+  const set = useContext(RowNotes)
+  const key = note ? JSON.stringify(note) : null
+  useEffect(() => {
+    set?.(id, key ? (JSON.parse(key) as RowNote) : null)
+  }, [set, id, key])
+  useEffect(() => () => set?.(id, null), [set, id])
+}
+
+/** A phone in place of a computer's form (QA TC-270): "컴퓨터에서 설정해요" and what is done there. */
+function OnComputer({ text, testId, className = 'mt-4' }: { text: string; testId: string; className?: string }) {
+  const t = useT()
+  return (
+    <div className={className} data-testid={testId}>
+      <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
+      <p className="mt-1 text-sm text-muted">{text}</p>
+    </div>
+  )
+}
+
 /** A short line with its longer explanation behind "Learn more" (kept in the page, hidden, so the line reads short). */
 function LearnMore({ short, long }: { short: ReactNode; long: ReactNode }) {
   const t = useT()
@@ -104,52 +139,95 @@ function LearnMore({ short, long }: { short: ReactNode; long: ReactNode }) {
   )
 }
 
+/** office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
+ * updater's section; v null = not office mode, an error (older server) = the production section */
+const useOffice = () => useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
+type Office = ReturnType<typeof useOffice>
+
 export default function System() {
   const t = useT()
+  const me = useMeStrict()
   const loads = useLoadReport()
+  const office = useOffice()
+  // a phone: the list of the groups (no `sub`) or one group's page (systemGroups.ts); a computer: the one page
+  const phone = useMediaQuery(PHONE)
+  const sub = useParams().sub
+  // an admin's updates are office mode's: known once its status has loaded
+  const officeKnown = !!office.data || !!office.error
+  const who = { owner: isOwner(me), features: me.server.features, office: officeKnown ? !!office.data?.v : undefined }
+  const group = phone ? systemGroup(sub, who) : undefined
+  const list = phone && !group
+  const [notes, setNotes] = useState<Partial<Record<SystemGroupId, RowNote>>>({})
+  const setNote = useCallback<SetNote>((id, note) => {
+    setNotes((m) => {
+      if (JSON.stringify(m[id] ?? null) === JSON.stringify(note)) return m
+      const { [id]: _old, ...rest } = m
+      return note ? { ...rest, [id]: note } : rest
+    })
+  }, [])
+  // a group this person does not have (an admin's updates outside office mode): the list
+  if (phone && sub && !group) return <Navigate to="/admin/system" replace />
   // the sections stay mounted while hidden, so they can report that they loaded again after a retry
   return (
     <LoadReport.Provider value={loads.report}>
-      <FlatCardsProvider value>
-        <AdminPageHeader title={t('admin.system')} />
-        {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
-        <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
-          <SystemSections />
-        </div>
-      </FlatCardsProvider>
+      <RowNotes.Provider value={phone ? setNote : null}>
+        <FlatCardsProvider value>
+          {/* a phone's group says its name in the bar; its section keeps it for screen readers (BarTitle) */}
+          <BarTitleProvider value={group ? t(group.label) : null}>
+            {!group && <AdminPageHeader title={t('admin.system')} />}
+            {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
+            {list && !loads.allFailed && (
+              // the page's parts, each its own page, with its state on the right; the list reaches the screen's edges
+              <div className="-mx-4 -mt-4" data-testid="system-list">
+                <PhoneListGroup>
+                  {systemGroups({ ...who, office: !!office.data?.v }).map((g) => {
+                    const n = notes[g.id]
+                    return (
+                      <PhoneListRow key={g.id} icon={<g.icon size={16} />} title={t(g.label)} to={`/admin/system/${g.id}`} value={n?.value}
+                        badge={n?.badge ? <Badge tone={n.badge.tone}>{n.badge.text}</Badge> : undefined} testId={`system-row-${g.id}`} />
+                    )
+                  })}
+                </PhoneListGroup>
+              </div>
+            )}
+            <div hidden={loads.allFailed || list} className="max-w-3xl" data-testid="system-page" data-group={group?.id}>
+              <SystemSections office={office} shown={phone ? (group?.id ?? null) : undefined} />
+            </div>
+          </BarTitleProvider>
+        </FlatCardsProvider>
+      </RowNotes.Provider>
     </LoadReport.Provider>
   )
 }
 
-function SystemSections() {
-  // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
-  // updater's section; v null = not office mode, an error (older server) = the production section
-  const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
+/** `shown`: a phone's group on screen (null: the list, none shown); undefined: a computer's one page, as it was. */
+function SystemSections({ office, shown }: { office: Office; shown: SystemGroupId | null | undefined }) {
   const me = useMeStrict()
   // a finished backup changes the health section's "last backup" line
   const [rev, setRev] = useState(0)
   // what this deployment offers (server/src/system/deployment.ts; absent from older servers = everything)
   const features = me.server.features
+  // a phone: each group in a box of its own, shown on its page only; a computer: the sections as they were
+  const part = (id: SystemGroupId, node: ReactNode) =>
+    shown === undefined ? node : <div hidden={shown !== id} data-testid={`system-group-${id}`}>{node}</div>
   // an admin: the plan, the storage use, and (office mode) the automatic updates
   if (!isOwner(me)) return (
     <>
-      <PlanCard />
-      <Storage />
-      {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null}
+      {part('storage', <><PlanCard /><Storage /></>)}
+      {office.data?.v ? part('updates', <OfficeUpdate status={office.data.v} reload={office.reload} />) : null}
     </>
   )
   // the owner: what the team sees first (the plan, the space), then the version, the server's health, how the team
   // reaches it, and the tools (connected folders, backups, export)
   return (
     <>
-      <PlanCard />
-      <Storage />
-      {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
-      <Health rev={rev} />
-      <Connection canChange={features?.connectionChange !== false} />
-      {features?.connectedFolders !== false && <ConnectedFolders />}
-      <Backups onChanged={() => setRev((r) => r + 1)} />
-      <Export />
+      {part('storage', <><PlanCard /><Storage /></>)}
+      {part('updates', office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />)}
+      {part('health', <Health rev={rev} />)}
+      {part('connection', <Connection canChange={features?.connectionChange !== false} />)}
+      {features?.connectedFolders !== false && part('connected', <ConnectedFolders />)}
+      {part('backups', <Backups onChanged={() => setRev((r) => r + 1)} />)}
+      {part('export', <Export />)}
     </>
   )
 }
@@ -168,6 +246,9 @@ function Health({ rev }: { rev: number }) {
   }, [rev])
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
+  // a phone's list: how many checks need a look (the ones listed first here), else that all passed
+  const problems = state.data?.checks.filter((c) => c.status !== 'ok').length
+  useRowNote('health', problems === undefined ? null : problems ? { badge: { text: t('adminHome.toFix', { count: problems }), tone: 'warn' } } : { value: t('system.check.ok') })
   return (
     <Card
       title={t('system.health')}
@@ -244,6 +325,10 @@ function Storage() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.storage))
+  // a phone's list: how full the disk is, as a warning past 80% or when writes stop (Admin's list says the same)
+  const used = state.data ? `${Math.round(Math.min(100, Math.max(0, state.data.percent)))}%` : null
+  const bad = !!state.data && (state.data.level !== 'ok' || state.data.writesRefused)
+  useRowNote('storage', used === null ? null : bad ? { badge: { text: used, tone: state.data!.level === 'full' || state.data!.writesRefused ? 'danger' : 'warn' } } : { value: used })
   return (
     <Card title={t('storage.title')}>
       <Loadable state={state} lines={2}>
@@ -365,10 +450,16 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   // the Health relay line says the same, server/src/system/ops.ts)
   const pub = state.data?.publicAddress ?? null
   const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
+  // a phone: the mode is changed on a computer (a relay's address, the claim code from the account console; QA TC-270)
+  const phone = useMediaQuery(PHONE)
+  const changes = canChange && modes.length > 1
+  // a phone's list: the connection's state (none for the office network or a public address without the relay)
+  const c0 = state.data
+  useRowNote('connection', !c0 ? null : c0.mode === 'direct-only' ? { value: modeName(c0.mode) } : c0.state === 'connected' ? { value: t('system.conn.connected') } : { badge: { text: t(`system.conn.${c0.state}`), tone: c0.state === 'connecting' ? 'warn' : 'danger' } })
   return (
     // one mode only (office mode: the office network): nothing to change
     // the hosted cloud: the team address is managed by the hosting provider (no change button)
-    <Card title={t('system.connection')} actions={canChange && modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
+    <Card title={t('system.connection')} actions={changes && !phone ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <>
@@ -400,6 +491,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             </Rows>
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-[0.6875rem] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
+            {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
           </>
         )}
       </Loadable>
@@ -508,6 +600,9 @@ function ConnectedFolders() {
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
   const [asking, setAsking] = useState(false)
+  // a phone: a new folder is a path on the server computer ("/Volumes/…", Finder), set up there (QA TC-270)
+  const phone = useMediaQuery(PHONE)
+  useRowNote('connected', state.data ? (state.data.some((c) => c.lastStatus === 'error') ? { badge: { text: String(state.data.length), tone: 'warn' } } : state.data.length ? { value: String(state.data.length) } : null) : null)
   const syncing = !!state.data?.some((c) => c.syncing)
   // while a sync runs, look again every few seconds
   useEffect(() => {
@@ -557,6 +652,7 @@ function ConnectedFolders() {
             )}
             {/* top-aligned, so the hint under the path does not push the name field down; the button gets a label-high
                 spacer to line up with the inputs */}
+            {phone ? <OnComputer text={t('admin.onComputerFolder')} testId="connected-on-computer" /> : (
             <div className="mt-4 grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-start">
               <Field label={t('connected.name')}>
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="connected-name" />
@@ -569,6 +665,7 @@ function ConnectedFolders() {
                 <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
               </div>
             </div>
+            )}
           </>
         )}
       </Loadable>
@@ -601,6 +698,11 @@ function Update() {
   const state = useLoad(() => api.call(API.updateStatus))
   const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
   const setAsk = install.ask
+  // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
+  const phone = useMediaQuery(PHONE)
+  // a phone's list: the version, or the new one waiting
+  const u0 = state.data
+  useRowNote('updates', !u0 ? null : u0.available && !u0.managed ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
     <Card title={t('system.updates')}>
       <Loadable state={state} lines={2}>
@@ -631,11 +733,13 @@ function Update() {
                   <span className="font-medium">{t('system.available', { version: u.available.version })}</span>
                   <ReleaseNotes notes={u.available.notes} />
                   {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
-                  {u.needsRoot && <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>}
+                  {u.needsRoot && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
+                    : <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>)}
                 </Row>
               ) : (
                 <Row label={t('system.row.status')} long>
-                  {u.feed === false ? <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span> : <span className="text-muted">{t('system.upToDate')}</span>}
+                  {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted">{t('system.upToDate')}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (
@@ -688,6 +792,9 @@ function Backups({ onChanged }: { onChanged: () => void }) {
   const state = useLoad(() => api.call(API.listBackups))
   const runner = useJobRunner()
   const [restore, setRestore] = useState<{ id: string; createdAt: string } | null>(null)
+  // a phone's list: when the last backup was made
+  const latest = state.data?.items.reduce<string | null>((m, b) => (!m || b.createdAt > m ? b.createdAt : m), null)
+  useRowNote('backups', latest ? { value: formatRelative(latest, locale) } : null)
   return (
     <Card
       title={t('system.backups')}

@@ -357,6 +357,7 @@ export const ko = {
   "chat.error.admin.engine_missing": "트리나가 아직 준비되지 않았어요. AI를 연결하면 바로 답할 수 있어요.",
   "chat.error.admin.proxy_down": "AI가 아직 준비 중이에요. 잠시 뒤 다시 해 보고, 계속되면 {path}에서 원인을 볼 수 있어요.",
   "chat.error.admin.storage_full": "서버 저장 공간이 가득 차서 답하지 못했어요. {path}에서 무엇이 공간을 쓰는지 보고 비워 주세요.",
+  "chat.error.admin.network_protection_off": "서버의 네트워크 보호가 꺼져 있어서 지금은 AI가 답할 수 없어요. 보통 1분 안에 다시 켜져요. 아니면 {path}에서 원인을 볼 수 있어요.",
 
   'chat.untitled': "제목 없음",
   'chat.title': '제목',
@@ -2411,6 +2412,7 @@ export const ko = {
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ko,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ko,
+  'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.ko,
   'audit.act.ai.hosted_trial_key': "호스팅 체험 AI 키 변경",
   'trialCredit.active': "체험 크레딧: {used} / {cap} 사용 · {date}까지 · 내 AI를 연결하면 그걸 먼저 써요",
   'trialCredit.used': "체험 크레딧을 다 썼어요({used} / {cap}) · 내 AI를 연결하면 이어서 쓸 수 있어요",
@@ -3186,6 +3188,10 @@ export const ko = {
   'admin.team.aiApps': "팀 AI 앱 연결",
   'admin.onComputerSlack': "Slack 앱 만들기와 키 붙여넣기는 컴퓨터의 관리자 화면에서 해요.",
   'admin.onComputerAdd': "주소로 서비스를 추가하는 건 컴퓨터의 관리자 화면에서 해요.",
+  'admin.onComputerFolder': "새 폴더 연결은 컴퓨터의 관리자 화면에서 해요.",
+  'admin.onComputerConnection': "연결 방식 바꾸기는 컴퓨터의 관리자 화면에서 해요.",
+  'admin.onComputerUpdate': "이 버전은 서버 컴퓨터에서 설치해요. 자동 업데이트를 기다려도 돼요.",
+  'admin.onComputerNoFeed': "업데이트는 서버 컴퓨터에서 설치 프로그램으로 해요.",
   'integrations.users': '사용할 사람: {who}',
   'integrations.users.nobody': '아직 아무도 못 씀',
   'integrations.users.notMe': '내 대화에서는 못 씀',
