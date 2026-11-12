@@ -20,7 +20,7 @@ describe('the room rule is the web app\'s', () => {
     for (const hidden of [false, true]) for (const aiWaits of [false, true]) for (const level of ['all', 'mentions', 'off'] as const)
       for (const unread of [0, 2]) for (const threadsUnread of [0, 1]) for (const mentioned of [false, true]) for (const threadReplies of [false, true]) {
         const r: RoomWants = { hidden, aiWaits, level, unread, threadsUnread, mentioned, threadReplies }
-        const web = roomWantsMe({ kind: 'team', unreadCount: unread, threadsUnread, mentioned, muted: level === 'off', aiWaits, hidden, notify: { own: level, byDefault: 'mentions', level } }, threadReplies)
+        const web = roomWantsMe({ kind: 'team', unreadCount: unread, threadsUnread, mentioned, muted: level === 'off', ...(aiWaits ? { aiWaits } : {}), ...(hidden ? { hidden } : {}), notify: { own: level, byDefault: 'mentions', level } }, threadReplies)
         expect(roomWants(r)).toBe(web)
         cases++
       }
