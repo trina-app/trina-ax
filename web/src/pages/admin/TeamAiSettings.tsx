@@ -23,8 +23,23 @@ import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCl
 import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
+import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 
 type EnginesData = EnginesResponse
+
+/** Whether an engine may be the team default, as the server decides (routes/admin.ts updateEngines): switched on, and
+ * there on this installation (Codex turned off by office mode and the API engine without its settings show as not
+ * installed), and not Codex while it is labelled beta (never the team default). */
+const canBeDefault = (e: EnginesData['engines'][number]) => e.enabled && !e.beta && (e.id === 'claude-code' || e.installed)
+
+/** The "Default engine" list: only the engines that can be the default, by the AI's own name (the composer's
+ * ENGINE_LABEL: Claude, ChatGPT). The saved default stays in the list when it can no longer be one (switched off since,
+ * or turned off by the installation), marked off with a line under it, so the screen shows what is saved instead of
+ * quietly showing another engine; the data stays as it is until the admin picks another (the server refuses to save an
+ * engine that is off as the default, so any save of this group needs that pick) (QA TC-182). */
+export function defaultEngineChoices(engines: EnginesData['engines'], saved: EngineId): { id: EngineId; off: boolean }[] {
+  return engines.filter((e) => canBeDefault(e) || e.id === saved).map((e) => ({ id: e.id, off: !canBeDefault(e) }))
+}
 
 /** The AI groups of Team settings; `#ai` and `#ai-limits` in the address bring their group into view. `part`: a phone's
  * group of Team settings (teamSettingsGroups.ts): the engine's groups, or the usage limits alone. */
@@ -92,6 +107,8 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   useKeptDraft('ai-defaults', saved, f, setF)
   const dirty = f.defaultEngine !== saved.defaultEngine || f.defaultModel !== saved.defaultModel || f.concurrency !== saved.concurrency
   const max = data.concurrencyMax ?? 16
+  const choices = defaultEngineChoices(data.engines, data.defaultEngine)
+  const engineOff = choices.some((c) => c.id === f.defaultEngine && c.off)
   const save = async () => {
     setBusy(true)
     const r = await act(() => api.call(API.updateEngines, { body: f }), t('common.saved'))
@@ -101,11 +118,12 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   return (
     <SettingsSection title={t('teamAi.defaults')} desc={t('engines.defaultsDesc')} id="ai" testId="engine-defaults" headingRef={headingRef}>
       <SettingRow id="ai-engine" title={t('engines.defaultEngine')}
+        below={engineOff && <p className="mt-1 text-xs text-warn" id="ai-engine-off" data-testid="default-engine-off">{t('engines.defaultEngineOff')}</p>}
         control={
-          <select id="ai-engine" className={clsx(inputCls, 'md:w-64')} value={f.defaultEngine} onChange={(e) => setF({ ...f, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
-            {data.engines.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.label}
+          <select id="ai-engine" aria-describedby={engineOff ? 'ai-engine-off' : undefined} className={clsx(inputCls, 'md:w-64')} value={f.defaultEngine} onChange={(e) => setF({ ...f, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
+            {choices.map((c) => (
+              <option key={c.id} value={c.id} disabled={c.off}>
+                {c.off ? t('engines.defaultEngineOffOption', { engine: ENGINE_LABEL[c.id] }) : ENGINE_LABEL[c.id]}
               </option>
             ))}
           </select>
