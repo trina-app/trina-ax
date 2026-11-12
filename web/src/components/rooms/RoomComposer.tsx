@@ -440,8 +440,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
                 className={clsx(
                   'max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint',
+                  // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
                   files.length > 0
-                    ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-8.5rem)))]'
+                    ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
                     : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
                 )}
                 data-testid="room-input"
