@@ -2927,6 +2927,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.chatgpt.step1': 'Buka alamat ini',
   'credentials.chatgpt.step2': 'Masukkan kode ini (dalam 15 menit)',
   'credentials.chatgpt.step3': 'Masuk dengan akun ChatGPT yang akan dipakai tim lalu setujui.',
+  'credentials.chatgpt.step3Own': 'Masuk dengan akun ChatGPT Anda sendiri lalu setujui.',
   'credentials.chatgpt.waiting': 'Menunggu…',
   'credentials.chatgpt.starting': 'Menyiapkan proses masuk…',
   'credentials.chatgpt.done': 'Terhubung · ChatGPT {plan}',
