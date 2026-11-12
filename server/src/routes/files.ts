@@ -30,7 +30,7 @@ import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
 import { registerFileListRoutes } from './file-list'
 import { fileListOf } from '../file-list/service'
-import { getChatRuntime, type ChatRuntime } from '../chat/runtime'
+import { getChatRuntime } from '../chat/runtime'
 import { openableTurnChats } from '../chat/version-chats'
 import type { HistoryResponse } from '@mycel/shared/api'
 
@@ -62,11 +62,15 @@ export const filesRoutes: RouteModule = {
     registerFileListRoutes(kit, ctx)
     const C = componentC(ctx)
     /** The history with the chat of each AI save the caller may open now (FileVersion.savedChatId, current.chatId).
-     * No chat runtime (a server without chats): no links. */
+     * No chat runtime (a server without chats), or a check that fails: no links, the history as before (never a 500). */
     const withChatLinks = (userId: string, h: HistoryResponse): HistoryResponse => {
-      let rt: ChatRuntime
-      try { rt = getChatRuntime(ctx) } catch { return h }
-      const chats = openableTurnChats(rt, userId, [...h.items.map((v) => (v.savedBy ? v.savedTurnId : null)), h.current?.turnId])
+      let chats: Map<string, string>
+      try {
+        chats = openableTurnChats(getChatRuntime(ctx), userId, [...h.items.map((v) => (v.savedBy ? v.savedTurnId : null)), h.current?.turnId])
+      } catch (e) {
+        ctx.log.warn('file history: the chats of AI saves could not be checked; no links', { err: e })
+        return h
+      }
       if (!chats.size) return h
       const chatOf = (turnId: string | null | undefined) => (turnId ? chats.get(turnId) : undefined)
       return {

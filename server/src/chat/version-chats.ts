@@ -36,7 +36,8 @@ export function openableTurnChats(rt: ChatRuntime, viewer: string, turnIds: Iter
     if (c.several && t.user_id !== viewer) {
       if (!t.message_id) continue
       sight ??= new AnswerSight(rt.db, rt.files)
-      if (sight.withheld(t.chat_id, viewer).has(t.message_id)) continue
+      // a check that fails gives no link (and never fails the history)
+      try { if (sight.withheld(t.chat_id, viewer).has(t.message_id)) continue } catch { continue }
     }
     out.set(t.id, t.chat_id)
   }

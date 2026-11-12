@@ -480,6 +480,8 @@ test('version history: "기록 열기" on an AI-saved version opens the chat tha
   // v4: saved in my chat (the server names it: I may open it); v5: saved in a chat the server keeps to itself
   expect((await hook({ path: 'marketing/plan.md', chatId })).ok()).toBeTruthy()
   expect((await hook({ path: 'marketing/plan.md' })).ok()).toBeTruthy()
+  // the file as it is now: an AI save in my chat too
+  expect((await hook({ path: 'marketing/plan.md', chatId, current: true })).ok()).toBeTruthy()
   await page.goto('/files?path=marketing')
   await rowMenu(page, 'plan.md', '버전 기록')
   const list = page.getByTestId('history-list')
@@ -489,6 +491,7 @@ test('version history: "기록 열기" on an AI-saved version opens the chat tha
   await expect(unnamed.getByRole('link')).toHaveCount(0)
   // a version saved by a person: nothing either
   await expect(list.locator('[data-version="2"]').getByRole('link')).toHaveCount(0)
+  await expect(list.locator('[data-current]').getByRole('link', { name: DICTS.ko['files.openChat'] })).toHaveAttribute('href', `/c/${chatId}`)
   const open = named.getByRole('link', { name: DICTS.ko['files.openChat'] })
   await expect(open).toHaveAttribute('href', `/c/${chatId}`)
   await open.click()

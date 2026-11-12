@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { uuidv7 } from '@mycel/shared/api'
+import { AnswerSight } from '../../server/src/chat/shared-answers'
 import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { legacyProject } from '../lib/legacy-project'
 
@@ -171,6 +172,23 @@ describe('a shared project chat (projects/falcon: alice and bob see it)', () => 
       await expectLinks(p, c, turns, ['bob'])
       await expectLinks(p2, own, ownTurns, ['alice'])
     } finally { delete process.env.MYCEL_SAFE_OPS_1A }
+  })
+
+  test('a check that fails gives no link, and the history still answers (never a 500)', async () => {
+    const p = 'shared/vlink/shared-failing.md', c = chat('bob', { project: falcon, shared: true })
+    const turns = twoSaves('bob', c, p)
+    const real = AnswerSight.prototype.withheld
+    AnswerSight.prototype.withheld = () => { throw new Error('sec-vlink: the answers could not be judged') }
+    try {
+      // alice's check needs the answers (bob ran them); bob's does not
+      await expectLinks(p, c, turns, ['bob'])
+    } finally { AnswerSight.prototype.withheld = real }
+    const turnsSpy = A.ctx.db.query
+    A.ctx.db.query = ((sql: string) => { if (sql.includes('FROM turns WHERE id IN')) throw new Error('sec-vlink: no turns'); return turnsSpy.call(A.ctx.db, sql) }) as typeof turnsSpy
+    try {
+      await expectLinks(p, c, turns, [])
+    } finally { A.ctx.db.query = turnsSpy }
+    await expectLinks(p, c, turns, ['alice', 'bob'])
   })
 
   test('the same shared chat by alice for another: the link follows the viewer, not the person who saved', async () => {
