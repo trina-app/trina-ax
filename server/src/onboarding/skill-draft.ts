@@ -260,8 +260,17 @@ const HEADINGS = {
   how: { ko: '하는 방법', en: 'How to do it', id: 'Cara mengerjakan', ja: 'やり方', es: 'Cómo hacerlo' },
   rules: { ko: '지킬 것', en: 'Rules', id: 'Aturan', ja: '守ること', es: 'Reglas' },
 } satisfies Record<string, Record<Locale, string>>
+/** The Korean subject particle after a name: 이 after a final consonant, 가 after a vowel, 이(가) when the name does not
+ * end in a Hangul syllable (a number or a Latin letter: no guess). */
+export function subjectParticleKo(word: string): string {
+  const c = word.normalize('NFC').trim().slice(-1).charCodeAt(0)
+  // the particles as escapes (이, 가): Hangul literals belong in language tables (tests/unit/i18n-languages.test.ts)
+  if (!(c >= 0xac00 && c <= 0xd7a3)) return '\uc774(\uac00)'
+  return (c - 0xac00) % 28 ? '\uc774' : '\uac00'
+}
+
 const LATEST: Record<Locale, (folder: string, like: string) => string> = {
-  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}'가 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
+  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}'${subjectParticleKo(like)} 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
   en: (folder: string, like: string) => `the newest file${like ? ` whose name has '${like}'` : ''} in \`${folder}/\` (by the date in its name, else the last change)`,
   id: (folder: string, like: string) => `berkas terbaru${like ? ` yang namanya memuat '${like}'` : ''} di \`${folder}/\` (menurut tanggal di namanya, atau perubahan terakhir)`,
   ja: (folder: string, like: string) => `\`${folder}/\` フォルダーの${like ? `名前に「${like}」を含む` : ''}最新のファイル(ファイル名の日付で、なければ更新日で決めます)`,

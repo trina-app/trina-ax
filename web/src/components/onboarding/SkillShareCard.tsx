@@ -134,8 +134,10 @@ export function SkillShareCard({ chatId, answerId, formPath, onShared, onLater }
         <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> {t('skillShare.drafting')}
       </p>
     )
-  const asks = d.inputs.filter((i) => !isChoice(i)).map((i) => i.label)
-  const choices = d.inputs.filter(isChoice)
+  // only what the run form shows (at most SKILL_DRAFT_VISIBLE_INPUTS): the folded ones are under "더 자세히 정하기"
+  const shown = d.inputs.filter((i) => !i.advanced)
+  const asks = shown.filter((i) => !isChoice(i)).map((i) => i.label)
+  const choices = shown.filter(isChoice)
   const done = () => { setTitle((v) => v.trim() || d.title); setEditing(false) }
   return (
     <div className="space-y-4" data-testid="skill-share" data-state="ready">
