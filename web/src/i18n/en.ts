@@ -453,6 +453,8 @@ export const en: Record<MessageKey, string> = {
   'composer.photosDenied': "Allow access to your photos in Settings.",
   'composer.photosFailed': "Couldn't get the photos. Try again.",
   'composer.photosTooBig': "{names} couldn't be added: too large. Up to {max} per file and {total} at a time.",
+  'composer.photosTooBigOther': "{names} is too large to add from here. Choose it another way.",
+  'composer.photosPickOther': "Choose another way",
   'composer.attachments': 'Attachments',
   'composer.removeAttachment': 'Remove {name}',
   'composer.removeUploadToTrash': 'Remove {name} · its file in the project folder goes to the Trash',

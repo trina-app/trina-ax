@@ -97,6 +97,13 @@ export class StuckLoad {
 export const stillStuck = (o: { saved: string; current: string; origin: string; ready: boolean; failed: boolean }) =>
   o.current === o.saved && sameTeam(o.origin, o.current) && !o.ready && !o.failed
 
+/** The script that hands a reply to the page. Delivered only if the document on screen still has the bridge the reply
+ * answers (its nonce): a document that came in the meantime has none yet or its own, and drops it, so no file bytes
+ * (photo-pick-v1) or token reach the next page. `bootstrap`: the next config, installed first (a session reset's). */
+export function replyScript(reply: MobileReply, bootstrap = ''): string {
+  return `if(window.top===window.self&&window.mycelMobile&&window.mycelMobile.nonce===${JSON.stringify(reply.nonce)}){${bootstrap}window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));}true;`
+}
+
 /** True at most once per `ms`: open-settings, so a page cannot keep sending the person to the phone's Settings. */
 export function onceEvery(ms: number, now: () => number = Date.now): () => boolean {
   let last = -Infinity

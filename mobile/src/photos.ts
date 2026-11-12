@@ -1,6 +1,7 @@
 // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (src/protocol.ts PHOTO_PICK_CAPABILITY). Pure:
 // no native imports here (the picker and the file reads are src/photo-io.ts), so the tests run it without Expo.
 import { base64Size, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, pickChunkLength, pickedMime, safeFileName, TRANSFER_IDLE_MS, type PickedFile } from './protocol'
+import { SheetGate } from './sheet'
 
 /** What the system picker gave: the app's own copy (the uri never leaves the app), the name and type the picker says,
  * and the copy's size on disk. */
@@ -38,14 +39,23 @@ export function pickedType(a: Pick<PickedAsset, 'uri' | 'name' | 'mime'>): strin
   return ext ? TYPES[ext] ?? null : null
 }
 
-/** A safe name whose extension fits the type: a name without one, or with another (a HEIC photo iOS turned into a JPEG),
- * gets the type's. No name: photo-1.jpg, video-2.mov. */
+/** A safe name (what safeFileName keeps as it is, so the page's check passes) whose extension fits the type: a name
+ * without one, or with another (a HEIC photo iOS turned into a JPEG), gets the type's; a type this list does not know
+ * (a DNG) keeps the name's own. A long name is shortened before its extension, never failed. No name: photo-1.jpg,
+ * video-2.mov. */
 export function pickedName(name: string | null | undefined, mime: string, index: number): string {
-  const base = safeFileName(name?.trim() || `${mime.startsWith('video/') ? 'video' : 'photo'}-${index + 1}`)
-  const want = EXTENSIONS[mime], ext = extensionOf(base)
-  if (!want || (ext && TYPES[ext] === mime)) return base
-  const stem = (ext ? base.slice(0, -(ext.length + 1)) : base).slice(0, 110)
-  return safeFileName(`${stem || 'photo'}.${want}`)
+  const fallback = `${mime.startsWith('video/') ? 'video' : 'photo'}-${index + 1}`
+  const given = (name ?? '').normalize('NFC').trim()
+  const ext = extensionOf(given), want = EXTENSIONS[mime]
+  const keep = ext && (!want || TYPES[ext] === mime) ? ext : want
+  const tail = keep ? `.${keep}` : ''
+  const stem = (ext ? given.slice(0, -(ext.length + 1)) : given)
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '_').replace(/^\.+/, '')
+    .slice(0, 120 - tail.length)
+    // no half of a character where it was cut, and no dot or space before the extension
+    .replace(/[\uD800-\uDBFF]$/, '').replace(/[. ]+$/, '')
+  const out = `${stem || fallback}${tail}`
+  return safeFileName(out) === out ? out : `${fallback}${tail}`
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -73,15 +83,16 @@ interface Active {
 }
 type Owner = { id: string; generation: number; nonce: string }
 
-/** One pick at a time, bound to the document that asked (envelope id, nonce, generation). The picker on screen blocks
- * another; a fence (navigation, session reset, team change: `clear`) drops the pick and deletes the app's copies, also
- * when the picker answers after it. Chunks go in order, one at a time, each exactly as long as the file says; anything
- * else ends the pick. 60 seconds without a chunk ends it too. */
+/** One pick at a time, bound to the document that asked (envelope id, nonce, generation). The picker opens through the
+ * app's sheet gate (src/sheet.ts): not while another sheet is up, nor within 1.5 s after one closed, so a page cannot
+ * reopen it without a tap. A fence (navigation, session reset, team change: `clear`) drops the pick and deletes the
+ * app's copies, also when the picker answers after it. Chunks go in order, one at a time, each exactly as long as the
+ * file says; anything else ends the pick. 60 seconds without a chunk ends it too. */
 export class PhotoPicks {
   private active: Active | null = null
   private opening = false
   private used = new Set<string>()
-  constructor(private io: PickIO, private timeout = TRANSFER_IDLE_MS) {}
+  constructor(private io: PickIO, private timeout = TRANSFER_IDLE_MS, private gate = new SheetGate()) {}
   private touch(p: Active) {
     if (p.timer) clearTimeout(p.timer)
     p.timer = setTimeout(() => { void this.cancel(p) }, this.timeout)
@@ -101,13 +112,13 @@ export class PhotoPicks {
     return p
   }
   async pick(m: Owner & { limit: number }): Promise<Picks> {
-    if (this.opening || this.active || this.used.has(m.id) || this.used.size >= 200) throw new Error('photo_busy')
+    if (this.opening || this.active || !this.gate.ready || this.used.has(m.id) || this.used.size >= 200) throw new Error('photo_busy')
     const limit = Math.min(Math.max(1, Math.floor(m.limit)), MAX_PICK_FILES)
     this.used.add(m.id)
     const p: Active = { id: m.id, generation: m.generation, nonce: m.nonce, files: [], seq: 0, index: 0, offset: 0, reading: false, cancelled: false, timer: null }
     this.active = p; this.opening = true
     let assets: PickedAsset[]
-    try { assets = await this.io.launch(limit) } catch (error) {
+    try { assets = await this.gate.run(() => this.io.launch(limit)) } catch (error) {
       if (this.active === p) this.active = null
       throw error
     } finally { this.opening = false }

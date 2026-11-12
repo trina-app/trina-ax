@@ -452,6 +452,8 @@ export const ko = {
   'composer.photosDenied': "설정에서 사진 접근을 허용해 주세요.",
   'composer.photosFailed': "사진을 가져오지 못했어요. 다시 해 주세요.",
   'composer.photosTooBig': "{names}은(는) 커서 넣지 못했어요. 하나에 {max}, 한 번에 {total}까지 넣을 수 있어요.",
+  'composer.photosTooBigOther': "{names}은(는) 커서 여기서는 넣을 수 없어요. 다른 방법으로 골라 주세요.",
+  'composer.photosPickOther': "다른 방법으로 고르기",
   'composer.attachments': '첨부 파일',
   'composer.removeAttachment': '{name} 빼기',
   'composer.removeUploadToTrash': '{name} 빼기 · 프로젝트 폴더에 저장된 파일은 휴지통으로 가요',

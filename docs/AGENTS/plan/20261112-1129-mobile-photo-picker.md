@@ -81,3 +81,7 @@ Built as planned in https://github.com/trina-app/trina-ax/pull/607.
   input did); SVG is refused as a picked type; the e2e also runs in WebKit, where Playwright's route shows no file part
   bytes, so the exact upload bytes are checked in Chromium and the size and type in both.
 - An Android QA build (edition qa, versionName 1.0.5) built; no device was connected, so it was not installed.
+- After the security review: replies are delivered only to the document whose bridge nonce they carry
+  (`replyScript`); long names are shortened before their extension instead of failing the pick (an Android DNG); the
+  picker and the share sheet share a gate with a 1.5 s wait after one closes (`src/sheet.ts`); a file over 50 MB in a
+  box that takes bigger files is offered through the page's photo input; the page counts as busy while the bytes come.

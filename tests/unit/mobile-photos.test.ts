@@ -2,8 +2,11 @@
 // (mobile/src/photos.ts: one at a time, chunks in order and exactly as long as the file, limits, cancel, fences, idle
 // expiry, the copies deleted) and the receiver's routing. The page's side is in web/test/unit/mobile.test.ts.
 import { expect, test } from 'bun:test'
-import { FileTransfers, MobileReceiver, type TransferIO } from '../../mobile/src/bridge'
-import { base64Bytes, PhotoPicks, PhotoRefused, pickedName, pickedType, type PickedAsset, type PickIO } from '../../mobile/src/photos'
+import { FileTransfers, MobileReceiver, replyScript, type TransferIO } from '../../mobile/src/bridge'
+import { SHEET_COOLDOWN_MS, SheetGate } from '../../mobile/src/sheet'
+import { base64Bytes, PhotoPicks as Picks, PhotoRefused, pickedName, pickedType, type PickedAsset, type PickIO } from '../../mobile/src/photos'
+/** the app's picks without the cooldown between sheets (tested on its own below) */
+class PhotoPicks extends Picks { constructor(io: PickIO, timeout?: number) { super(io, timeout, new SheetGate(0)) } }
 import { MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MOBILE_CAPABILITIES, parseMessage, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, validConfig, validPicks, type MobileConfig } from '../../mobile/src/protocol'
 
 const owner = { id: 'pick-request-1', generation: 1, nonce: 'a'.repeat(64) }
@@ -257,4 +260,86 @@ test('the receiver: a session reset or a page change during the picker drops the
   await tick()
   fourth.p.fail(new Error('/private/var/mobile/secret path'))
   expect(await broken).toMatchObject({ ok: false, error: 'mobile_operation_failed' })
+})
+
+test('long names: shortened before the extension, never failing the pick; a type the list does not know keeps its own', () => {
+  const cases: [string, string][] = [
+    ['a'.repeat(200) + '.dng', 'image/x-adobe-dng'], ['b'.repeat(200) + '.HEIC', 'image/jpeg'], ['c'.repeat(300), 'image/x-adobe-dng'],
+    ['x'.repeat(114) + '.  tail.dng', 'image/x-adobe-dng'], ['d' + '😀'.repeat(80) + '.dng', 'image/x-adobe-dng'], ['사진'.repeat(90) + '.mov', 'video/quicktime'],
+    ['..' + 'e'.repeat(130) + '. .jpg', 'image/jpeg'], ['f'.repeat(119) + ' ', 'image/x-canon-cr3'],
+  ]
+  for (const [name, mime] of cases) {
+    const out = pickedName(name, mime, 0)
+    expect(out.length).toBeLessThanOrEqual(120)
+    expect(validPicks([{ name: out, mime, size: 1 }], [out], 1)).toBe(true)
+  }
+  expect(pickedName('a'.repeat(200) + '.dng', 'image/x-adobe-dng', 0)).toBe('a'.repeat(116) + '.dng')
+  expect(pickedName('b'.repeat(200) + '.HEIC', 'image/jpeg', 0)).toBe('b'.repeat(116) + '.jpg')
+  expect(pickedName('IMG_7.DNG', 'image/x-adobe-dng', 0)).toBe('IMG_7.dng')
+  expect(pickedName('d' + '😀'.repeat(80) + '.dng', 'image/x-adobe-dng', 0)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+})
+
+test('a long DNG name from Android goes through the receiver\'s check instead of failing the whole pick', async () => {
+  const { p, r } = receiver()
+  const asked = r.receive(msg({ type: 'photo-pick', limit: 2 }), 'https://team.example/')
+  await tick()
+  p.pick([{ name: 'RAW_' + 'z'.repeat(190) + '.dng', mime: 'image/x-adobe-dng', bytes: bytes(8) }, { name: 'ok.jpg', mime: 'image/jpeg', bytes: bytes(4) }])
+  const reply = await asked
+  expect(reply?.ok).toBe(true)
+  expect(reply?.files?.map((f) => f.name)).toEqual(['RAW_' + 'z'.repeat(112) + '.dng', 'ok.jpg'])
+})
+
+test('one system sheet at a time, and none within 1.5 s after one closed: a page cannot reopen the picker or the share sheet without a tap', async () => {
+  let now = 1000
+  const gate = new SheetGate(SHEET_COOLDOWN_MS, () => now)
+  const p = phone(), picks = new Picks(p.io, undefined, gate)
+  const first = picks.pick({ ...owner, limit: 1 })
+  await tick()
+  // the share sheet waits for the picker
+  await expect(gate.run(async () => 'shared')).rejects.toThrow('sheet_busy')
+  p.cancel()
+  expect((await first).files).toEqual([])
+  // right after it closed: refused, and the picker does not open again
+  now += SHEET_COOLDOWN_MS - 1
+  await expect(picks.pick({ ...owner, id: 'pick-request-2', limit: 1 })).rejects.toThrow('photo_busy')
+  await expect(gate.run(async () => 'shared')).rejects.toThrow('sheet_busy')
+  expect(p.launches()).toBe(1)
+  now += 1
+  const again = picks.pick({ ...owner, id: 'pick-request-3', limit: 1 })
+  await tick(); p.cancel()
+  expect((await again).files).toEqual([])
+  expect(p.launches()).toBe(2)
+  // a share sheet closing starts the wait too
+  now += SHEET_COOLDOWN_MS
+  expect(await gate.run(async () => 'shared')).toBe('shared')
+  await expect(picks.pick({ ...owner, id: 'pick-request-4', limit: 1 })).rejects.toThrow('photo_busy')
+  // a picker that failed to open counts as closed as well
+  now += SHEET_COOLDOWN_MS
+  const failing = picks.pick({ ...owner, id: 'pick-request-5', limit: 1 })
+  await tick(); p.fail(new Error('no view controller'))
+  await expect(failing).rejects.toThrow('no view controller')
+  expect(gate.ready).toBe(false)
+})
+
+test('a reply reaches only the document that asked: a page that came meanwhile (no bridge yet, or its own) drops it', () => {
+  const reply = { v: 1 as const, type: 'mobile-result' as const, id: 'pick-request-1', nonce: 'a'.repeat(64), generation: 1, for: 'photo-chunk' as const, ok: true, seq: 0, b64: 'AAAA' }
+  const run = (script: string, bridge: { nonce: string } | undefined) => {
+    const heard: unknown[] = []
+    const win = Object.assign(new EventTarget(), { mycelMobile: bridge, booted: 0 }) as EventTarget & { mycelMobile?: { nonce: string }; booted: number; top?: unknown; self?: unknown }
+    win.top = win; win.self = win
+    win.addEventListener('mycel:mobile', (e) => heard.push((e as CustomEvent).detail))
+    expect(script.endsWith('true;')).toBe(true)
+    new Function('window', 'CustomEvent', script)(win, CustomEvent)
+    return { heard, booted: win.booted }
+  }
+  expect(run(replyScript(reply), { nonce: 'a'.repeat(64) }).heard).toEqual([reply])
+  expect(run(replyScript(reply), undefined).heard).toEqual([])
+  expect(run(replyScript(reply), { nonce: 'b'.repeat(64) }).heard).toEqual([])
+  // a session reset's next config goes in only with its reply, on the same document
+  const boot = 'window.booted++;'
+  expect(run(replyScript({ ...reply, for: 'session-reset', nextGeneration: 2 }, boot), { nonce: 'a'.repeat(64) }).booted).toBe(1)
+  expect(run(replyScript({ ...reply, for: 'session-reset', nextGeneration: 2 }, boot), { nonce: 'c'.repeat(64) }).booted).toBe(0)
+  // the reply is data, never code
+  const odd = { ...reply, error: "x'});alert(1);//</script>" }
+  expect(run(replyScript(odd), { nonce: 'a'.repeat(64) }).heard).toEqual([odd])
 })

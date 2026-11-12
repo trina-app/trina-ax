@@ -6,7 +6,9 @@
 //   WKFileUploadPanel) shows its own short menu for any input that takes pictures, the photo library first. The phone
 //   app from 1.0.5 skips it (photo-pick-v1, lib/mobile.ts pickPhotosFromApp): it opens the system photo picker itself
 //   (PHPicker, Android's photo picker) for as many as the box still takes, and hands the files over; they go to
-//   `onFiles` like the input's. An older app or a browser: the input, as before.
+//   `onFiles` like the input's. A file over the bridge's 50 MB in a box that takes bigger ones (the AI chat, the side
+//   chat): the message offers the input (WebKit's picker reaches the library and takes big videos; the 파일 row's Files
+//   browser does not reach the library). An older app or a browser: the input, as before.
 // - 사진 찍기: the camera (`capture`), on iOS and Android alike.
 // - 파일: any file. On iOS it asks for any data file (`application/octet-stream`, WebKit's public.data, which every file
 //   is but a folder): an input that takes no picture or video type opens the Files browser at once, without iOS's menu.
@@ -17,6 +19,7 @@
 import { Camera, FileText, FolderOpen, Images, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocale, useT } from '../../i18n'
+import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { appPicksPhotos, PHOTO_PICK_LIMITS, pickPhotosFromApp } from '../../lib/mobile'
 import { toast } from '../../store/ui'
@@ -29,11 +32,13 @@ export const iosWebKit = () =>
 /** What the 파일 row's input takes: on iOS any data file, so the Files browser opens without iOS's menu; elsewhere any. */
 export const filesAccept = () => (iosWebKit() ? 'application/octet-stream' : undefined)
 
-export function AttachSheet({ onFiles, room, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
+export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
   /** files picked from the phone (pictures, a photo just taken, files) */
   onFiles: (files: File[]) => void
   /** how many more files the box takes: the phone app's photo picker stops there (the box still checks) */
   room?: number
+  /** the largest file the box takes (a room's 50 MB); absent: no limit of its own (the AI chat's uploads) */
+  fileMax?: number
   /** opens the box's team-file picker; absent: no 팀 파일 row */
   onTeam?: () => void
   /** false: files from the phone are not taken here (only 팀 파일) */
@@ -66,6 +71,8 @@ export function AttachSheet({ onFiles, room, onTeam, computer = true, icon, test
     alive.current = true
     return () => { alive.current = false }
   }, [])
+  // bytes on their way: an update waits before it reloads the page, as for an upload
+  useEffect(() => (fetching ? markBusy('upload') : undefined), [fetching])
   const pickPhotos = () => {
     if (!appPicksPhotos()) return photos.current?.click()
     if (fetching) return
@@ -73,8 +80,11 @@ export function AttachSheet({ onFiles, room, onTeam, computer = true, icon, test
     pickPhotosFromApp(Math.min(Math.max(1, room ?? PHOTO_PICK_LIMITS.files), PHOTO_PICK_LIMITS.files))
       .then(({ files: picked, tooBig }) => {
         if (!alive.current) return
-        // one line for all left out: a file over 50 MB, or past 200 MB in one pick
-        if (tooBig.length) toast({ level: 'warn', text: t('composer.photosTooBig', { names: tooBig.join(', '), max: formatSize(PHOTO_PICK_LIMITS.file, locale), total: formatSize(PHOTO_PICK_LIMITS.pick, locale) }) })
+        // one line for all left out: a file over 50 MB, or past 200 MB in one pick. A box that takes bigger files offers
+        // the input, which has no such limit (a long video from the library)
+        const names = tooBig.join(', ')
+        if (tooBig.length && (fileMax === undefined || fileMax > PHOTO_PICK_LIMITS.file)) toast({ level: 'warn', ms: 12_000, text: t('composer.photosTooBigOther', { names }), action: { label: t('composer.photosPickOther'), run: () => photos.current?.click(), primary: true } })
+        else if (tooBig.length) toast({ level: 'warn', text: t('composer.photosTooBig', { names, max: formatSize(PHOTO_PICK_LIMITS.file, locale), total: formatSize(PHOTO_PICK_LIMITS.pick, locale) }) })
         if (picked.length) latest.current(picked)
       }, (e: unknown) => {
         // cancelled is no error; a page that moved on says nothing either

@@ -8,10 +8,11 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { FileTransfers, MobileReceiver, replyScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
 import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
+import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
@@ -437,6 +438,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
     const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
+    const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) {
@@ -458,9 +461,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       if (!padRef.current.selfPadded) void rememberSelfPadded(address.origin, true)
     }, nav => setPageNav(p => p?.canGoBack === nav.canGoBack && p.home === nav.home ? p : nav), async text => {
       // share-text-v1: the phone's own share sheet (the team invite message to KakaoTalk, Slack, a text message)
-      await Share.share({ message: text })
+      await sheets.run(() => Share.share({ message: text }))
     // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (no iOS menu before the library)
-    }, new PhotoPicks(photoPickIO()))
+    }, new PhotoPicks(photoPickIO(), undefined, sheets))
     void receiver.current.disable()
   }
   const r = receiver.current
@@ -627,8 +630,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (session !== null) { setSignedIn(session); setAnswered(true); return }
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
-          const script = (reply.nextGeneration ? bootstrap(r.config) : '') + `window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));true;`
-          web.current?.injectJavaScript(script)
+          // only to the document that asked (its nonce): a page that came meanwhile drops it (src/bridge.ts replyScript)
+          web.current?.injectJavaScript(replyScript(reply, reply.nextGeneration ? bootstrap(r.config) : ''))
         }).catch(() => {})
       }}
       onFileDownload={event => { const url = event.nativeEvent.downloadUrl; if (sameTeam(address.origin, url)) web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('mycel:download',{detail:{url:${JSON.stringify(url)}}}));true;`) }}

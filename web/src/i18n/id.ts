@@ -453,6 +453,8 @@ export const id: Record<MessageKey, string> = {
   'composer.photosDenied': "Izinkan akses ke foto di Pengaturan.",
   'composer.photosFailed': "Foto tidak bisa diambil. Coba lagi.",
   'composer.photosTooBig': "{names} tidak bisa ditambahkan karena terlalu besar. Maksimal {max} per berkas dan {total} sekaligus.",
+  'composer.photosTooBigOther': "{names} terlalu besar untuk ditambahkan dari sini. Pilih dengan cara lain.",
+  'composer.photosPickOther': "Pilih cara lain",
   'composer.attachments': 'Lampiran',
   'composer.removeAttachment': 'Hapus {name}',
   'composer.removeUploadToTrash': 'Hapus {name} · berkasnya di folder proyek dipindahkan ke Sampah',

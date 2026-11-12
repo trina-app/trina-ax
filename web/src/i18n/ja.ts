@@ -437,6 +437,8 @@ export const ja: Record<MessageKey, string> = {
   'composer.photosDenied': "設定で写真へのアクセスを許可してください。",
   'composer.photosFailed': "写真を読み込めませんでした。もう一度お試しください。",
   'composer.photosTooBig': "{names}は大きすぎるため追加できませんでした。1ファイル{max}、一度に{total}までです。",
+  'composer.photosTooBigOther': "{names}は大きすぎるため、ここからは追加できません。別の方法で選んでください。",
+  'composer.photosPickOther': "別の方法で選ぶ",
   'composer.attachments': "添付ファイル",
   'composer.removeAttachment': "{name}を削除",
   'composer.removeUploadToTrash': '{name}を削除 · プロジェクトのフォルダーのファイルはゴミ箱に移動します',
