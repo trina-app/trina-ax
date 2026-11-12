@@ -28,7 +28,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Navigate, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
+import { CONNECTOR_DOCS, connectorFor, connectorLogo, CONNECTORS, isConnected, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { canonicalService, connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
@@ -369,7 +369,7 @@ function ListedPage({ c }: { c: Connector }) {
       <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate('/connectors')}
         action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
           : list.data?.personalAllowed ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button> : null}
-        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} noTools={have.length > 0}>
+        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} docs={have.length ? undefined : CONNECTOR_DOCS[c.id]} noTools={have.length > 0}>
         {have.length > 0 && <MineRows items={have} />}
       </ConnectorDetail>
     </McpShell>
