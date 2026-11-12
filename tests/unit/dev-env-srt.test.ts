@@ -1215,6 +1215,7 @@ describe('the tracker', () => {
 })
 
 describe('the team\'s sites (admins)', () => {
+  beforeAll(() => addTestPerson('carolen', { id: 'carol', name: 'Carol Park', role: 'admin', locale: 'en' }))
   test('read and change; bad domains refused; the next run gets them', async () => {
     const r = await h.api('carol').call(API.devEnvTeam, {})
     expect(r).toMatchObject({ setting: { extraDomains: [] }, plan: { plan: 'starter', maxRunning: 1 } })
@@ -1227,7 +1228,6 @@ describe('the team\'s sites (admins)', () => {
     expect(lastSettings().network.allowedDomains).toContain('api.example.net')
   })
   test('the refusals answer in the admin\'s language (ko / en), the English detail stays', async () => {
-    addTestPerson('carolen', { id: 'carol', name: 'Carol Park', role: 'admin', locale: 'en' })
     const put = async (who: string, body: unknown) => {
       const r = await h.req(who, '/api/admin/dev-env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       return { status: r.status, error: (await r.json()).error }
@@ -1239,7 +1239,7 @@ describe('the team\'s sites (admins)', () => {
     const enBad = await put('carolen', { extraDomains: ['localhost'] })
     expect(enBad.error.message).toBe("'localhost' cannot be added. An address needs at least two parts, for example example.com.")
     expect(enBad.error.fields['body.extraDomains']).toBe(koBad.error.fields['body.extraDomains'])
-    expect((await put('carol', { extraDomains: ['*.com'] })).error.message).toContain('.com')
+    expect((await put('carol', { extraDomains: ['*.com'] })).error.message).toBe("'*.com' 사이트를 추가할 수 없어요. .com 같은 끝부분 전체는 범위가 너무 넓어서 허용할 수 없어요.")
     expect((await put('carol', { scope: { mode: 'selected', groupIds: ['nope'], userIds: [] } })).error.message).toBe('없는 부서가 들어 있어요.')
     expect((await put('carolen', { scope: { mode: 'selected', groupIds: [], userIds: ['nobody'] } })).error.message).toBe('Unknown person.')
     // every reason of extraDomainProblem has a sentence in each language (none falls back to English words)

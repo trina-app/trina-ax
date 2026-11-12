@@ -7,8 +7,8 @@ type L = Record<Locale, string>
 
 export const DEV_ENV_MESSAGES = {
   noNetwork: { ko: '지금은 개발 환경에서 쓸 수 있는 네트워크가 없어요.', en: 'The dev environment has no network for you now.', id: 'Saat ini lingkungan dev tidak punya jaringan untuk Anda.', ja: '現在、開発環境で使えるネットワークがありません。', es: 'El entorno de desarrollo no tiene red para usted ahora.' },
-  fullUnavailable: { ko: '이 서버는 전체 인터넷을 쓸 수 있게 할 수 없어요.', en: 'This server cannot run Full internet.', id: 'Server ini tidak dapat menjalankan Internet penuh.', ja: 'このサーバーでは「すべてのインターネット」を使えません。', es: 'Este servidor no puede ofrecer Internet completo.' },
-  fullWarning: { ko: '먼저 전체 인터넷 주의 사항을 확인하고 동의해 주세요.', en: 'Accept the Full internet warning first.', id: 'Setujui dulu peringatan Internet penuh.', ja: '先に「すべてのインターネット」の注意事項に同意してください。', es: 'Acepte primero la advertencia de Internet completo.' },
+  fullUnavailable: { ko: '이 서버는 전체 인터넷을 쓸 수 있게 할 수 없어요.', en: 'This server cannot run Full internet.', id: 'Server ini tidak dapat menjalankan Internet penuh.', ja: 'このサーバーでは「フルインターネット」を使えません。', es: 'Este servidor no puede ofrecer Internet completo.' },
+  fullWarning: { ko: '먼저 전체 인터넷 주의 사항을 확인하고 동의해 주세요.', en: 'Accept the Full internet warning first.', id: 'Setujui dulu peringatan Internet penuh.', ja: '先に「フルインターネット」の注意事項に同意してください。', es: 'Acepte primero la advertencia de Internet completo.' },
   warning: { ko: '먼저 개발 환경 주의 사항을 확인하고 동의해 주세요.', en: 'Accept the dev environment warning first.', id: 'Setujui dulu peringatan lingkungan dev.', ja: '先に開発環境の注意事項に同意してください。', es: 'Acepte primero la advertencia del entorno de desarrollo.' },
   unavailable: { ko: '이 서버는 개발 환경을 실행할 수 없어요.', en: 'This server cannot run the dev environment.', id: 'Server ini tidak dapat menjalankan lingkungan dev.', ja: 'このサーバーでは開発環境を実行できません。', es: 'Este servidor no puede ejecutar el entorno de desarrollo.' },
   maxSites: { ko: '사이트는 최대 {n}개까지 추가할 수 있어요.', en: 'At most {n} sites.', id: 'Paling banyak {n} situs.', ja: 'サイトは最大{n}件まで追加できます。', es: 'Como máximo {n} sitios.' },
@@ -20,7 +20,7 @@ export const DEV_ENV_MESSAGES = {
 
 export type DevEnvMessageKey = keyof typeof DEV_ENV_MESSAGES
 export const devEnvMsg = (key: DevEnvMessageKey, locale: Locale, vars: Record<string, string | number> = {}): string =>
-  Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), DEV_ENV_MESSAGES[key][locale] ?? DEV_ENV_MESSAGES[key].en)
+  (DEV_ENV_MESSAGES[key][locale] ?? DEV_ENV_MESSAGES[key].en).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
 
 /** Reasons of extraDomainProblem(), keyed by its English text. */
 const SITE_REASONS: Record<string, L> = {
