@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import { SlidersHorizontal } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { useT } from '../i18n'
+import { useOverlayEntry } from '../lib/backCloses'
 import { useMediaQuery } from './ui'
 
 /** `active`: how many of the filters are away from their first choice. `children`: the filters. */
@@ -15,6 +16,8 @@ export function PhoneFilters({ active, children, testId = 'phone-filters' }: { a
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [open, setOpen] = useState(false)
   const id = useId()
+  // Back folds them away first, and stays on the page (lib/backCloses.ts; a filter chosen meanwhile is kept)
+  useOverlayEntry(phone && open, () => setOpen(false))
   if (!phone) return <>{children}</>
   return (
     <>
