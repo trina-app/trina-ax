@@ -50,15 +50,17 @@ export interface RoomRow {
   sort_at: string
   /** counts in the unread number (unread and COUNTED_SQL) */
   counted: boolean
+  /** in a room the person muted (its 대화 badge counts nothing: the phone counts the row on 나) */
+  muted: boolean
   group: Group
 }
 interface Group { ids: string[]; roomId: string; place: string | null; from: number; to: number }
-type Listed = { id: string; user_id: string; event_type: 'room.dm' | 'room.mention'; source_id: string; room_id: string; created_at: string; read_at: string | null; last_at: string; last_seq: number | null; seq: number; place: string | null; counted: number }
+type Listed = { id: string; user_id: string; event_type: 'room.dm' | 'room.mention'; source_id: string; room_id: string; created_at: string; read_at: string | null; last_at: string; last_seq: number | null; seq: number; place: string | null; counted: number; muted: number }
 
 /** The person's Inbox rows of rooms (within the Inbox's 30 days), newest first. */
 export function roomRows(db: Database, userId: string, cutoff: string): RoomRow[] {
   const rows = db.query(`SELECT n.id, n.user_id, n.event_type, n.source_id, n.room_id, n.created_at, n.read_at, COALESCE(n.last_at, n.created_at) last_at, n.last_seq,
-      m.seq, m.thread_root_id place, ${COUNTED_SQL} counted
+      m.seq, m.thread_root_id place, ${COUNTED_SQL} counted, rm.muted
     FROM room_notices n JOIN room_messages m ON m.id = n.source_id JOIN room_members rm ON rm.room_id = n.room_id AND rm.user_id = n.user_id JOIN rooms r ON r.id = n.room_id
     WHERE n.user_id = ? AND n.suppressed = 0 AND n.created_at >= ? AND ${READABLE_SQL} AND ${LISTED_SQL}`).all(userId, cutoff) as Listed[]
   // one row per place and reading: what is unread there, or what was read together (one read_at)
@@ -75,6 +77,7 @@ export function roomRows(db: Database, userId: string, cutoff: string): RoomRow[
       id: newest.id, user_id: userId, event_type: newest.event_type, source_id: newest.source_id, created_at: newest.created_at, read_at: newest.read_at, suppressed: 0,
       sort_at: g.reduce((t, x) => (x.last_at > t ? x.last_at : t), newest.created_at),
       counted: !newest.read_at && g.some((x) => !!x.counted),
+      muted: !!newest.muted,
       group: {
         ids: g.map((x) => x.id), roomId: newest.room_id, place: newest.place, from: Math.min(...g.map((x) => x.seq)), to: Math.max(...g.map((x) => Math.max(x.seq, x.last_seq ?? x.seq))),
       },
