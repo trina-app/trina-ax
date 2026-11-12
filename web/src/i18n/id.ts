@@ -1256,6 +1256,7 @@ export const id: Record<MessageKey, string> = {
   'feed.tab.mentions': 'Mention',
   'feed.tab.threads': 'Thread',
   'feed.unreads': 'Belum dibaca',
+  'feed.markAllRead': 'Tandai semua dibaca',
   'feed.search': 'Cari aktivitas',
   'feed.today': 'Hari ini',
   'feed.settings': 'Pengaturan notifikasi',

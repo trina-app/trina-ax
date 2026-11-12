@@ -23798,3 +23798,27 @@ Version impact: **minor** (new route, migration 288).
   same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
   first" step (the owner: ask right away).
 - Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.
+
+## Activity: "Mark all as read" for the open tab (feat/activity-mark-all-read, 2026-11-13, QA TC-457)
+
+넣을 곳: trina-ax `web/src/pages/Activity.tsx`, `server/src/notifications/service.ts` (`readAll`) and
+`shared/src/api/notifications.ts`, 이유: Activity and the notices are core.
+
+Activity cleared notices one click at a time.
+
+- **One call for the tab, on the server.** `POST /api/notifications/read` `{ tab, only? }` → `{ read }`. All: every
+  unread notice of mine (not suppressed, inside the 30 days) and every unread conversation row; `only: 'rooms'` (대화's
+  멘션·스레드 page, CHATS_FILTERS) the conversation rows alone; DMs / Mentions / Threads the conversation rows the tab
+  shows. The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
+  rows not loaded yet are read too. Only mine, nothing deleted, a second call marks nothing.
+- **A conversation row reads as opening it does.** Opening a row reads its notices and then the room (or the thread) at
+  its newest message. Mark all moves my place in the room (`markRead`), or for a thread's row in the thread
+  (`markThreadRead`), to the row's newest message, as a notification's "Mark as read" does with `room.seq`. So the
+  room's unread count, its @ mark, the attention count (tab title, Dock, the phone icon's number) follow, and my other
+  windows and devices hear it through the existing `room.read`, `room.thread` and `notifications.changed` events. A
+  room's plain messages after the row's newest one stay unread.
+- **The button** is a quiet text button at the end of the tools row ("Mark all as read", 모두 읽음 표시), shown only while
+  the open tab has an unread row (loaded rows, or for All the server's unread count), disabled while the call runs. The
+  rows and dots read at once; the page then reads the list again, and so do the sidebar's count and the tab dots.
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (tab by tab, only mine, idempotent, room places),
+  `web/test/unit/activity-mark-all.test.tsx`, `web/test/e2e/activity-mark-all-read.spec.ts` (1440 and 390).

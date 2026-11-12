@@ -1228,6 +1228,7 @@ export const ja: Record<MessageKey, string> = {
   'feed.tab.mentions': 'メンション',
   'feed.tab.threads': 'スレッド',
   'feed.unreads': '未読',
+  'feed.markAllRead': 'すべて既読にする',
   'feed.search': 'アクティビティを検索',
   'feed.today': '今日',
   'feed.settings': '通知設定',
