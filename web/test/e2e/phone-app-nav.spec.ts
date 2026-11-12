@@ -43,7 +43,7 @@ async function app(page: Page, nav: boolean) {
 const navs = (page: Page) => page.evaluate(() => (window as unknown as Win).mobileMessages.filter((m) => m.type === 'nav').map((m) => ({ canGoBack: (m as Nav).canGoBack, home: (m as Nav).home })))
 /** what the app heard last */
 const heard = async (page: Page) => (await navs(page)).at(-1) ?? null
-const loads = (page: Page) => page.evaluate(() => (window as unknown as Win).loads)
+const loads = (page: Page) => page.evaluate(() => (window as unknown as Win).loads ?? 0)
 
 test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, Back from a room and from a sheet', async ({ page }) => {
   await reset(page)
