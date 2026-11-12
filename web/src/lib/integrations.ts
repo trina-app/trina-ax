@@ -448,3 +448,11 @@ export function requestIdFrom(search: string): string | null {
 export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>): boolean {
   return i.auth === 'oauth' && !i.hasSecret
 }
+
+/** What a connection's line in Connectors' "Your connectors" says (own and made from a team template alike):
+ * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
+ * Reconnect; any other problem → Needs attention. */
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status'>): 'signin' | 'connected' | 'reconnect' | 'attention' {
+  if (awaitingFirstSignIn(i)) return 'signin'
+  return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
+}
