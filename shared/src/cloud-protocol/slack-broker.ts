@@ -36,8 +36,11 @@
 //   2. redeem          { handoff, codeVerifier, sealKey }   → { install, token }
 //      The handoff works once, only for the owner that started, only with the verifier of step 1, within
 //      SLACK_BROKER_HANDOFF_TTL_MS. Refused (and nothing is stored or handed out) when the workspace is installed for
-//      another owner that is still served (`workspace_taken`), an organization-wide install (`enterprise_install`), a
-//      grant without every bot scope (`missing_scope`).
+//      another owner that still exists, served or not (`workspace_taken`; a suspended team or a disabled server keeps
+//      its workspace: it is free again only once that owner is gone, the app is removed in Slack, or the hosting
+//      service's operator removes it, and each of those first makes the old bot token useless at Slack), the person who
+//      allowed it in Slack is not an admin or owner of the workspace (`not_workspace_admin`), an organization-wide
+//      install (`enterprise_install`), a grant without every bot scope (`missing_scope`).
 //   3. token           { sealKey }                          → { install, token }    the same bot token again (a restore)
 //   4. poll            { ack, waitMs }                      → { install | null, events }
 //      Long poll: answered at once when an envelope is queued for this owner, else after `waitMs` (at most
@@ -46,7 +49,9 @@
 //      handles an event id once). Events wait at most SLACK_BROKER_EVENT_TTL_MS, and only while the owner polled in the
 //      last SLACK_BROKER_OFFLINE_MS (a server that stopped polling gets nothing queued).
 //   5. uninstall       {}                                   → { slack: 'removed' | 'unavailable' }
-//      The control plane removes the app from the workspace (apps.uninstall) and forgets the install and its token.
+//      The control plane removes the app from the workspace (apps.uninstall; else auth.revoke of the bot token), then
+//      forgets the install and its token. 'unavailable': Slack could not be asked, so the token may still work there;
+//      the install stays this owner's (no other owner gets the workspace with that token) until it can be ended.
 //   6. signin/start    { returnState, codeChallenge }       → { authorizationUrl, expiresAt }
 //      "Sign in with Slack" (OpenID Connect) with the official app, to link a person's own Slack account: only for the
 //      owner's installed workspace (`team` in Slack's URL), the same one redirect URL, and back on the owner's address
@@ -105,7 +110,8 @@ export const SLACK_BROKER_BOT_SCOPES = ['app_mentions:read', 'channels:read', 'c
 export const SLACK_BROKER_MAX_BODY_BYTES = 16_384
 export const SLACK_BROKER_MAX_SKEW_MS = 60_000
 export const SLACK_BROKER_STATE_TTL_MS = 10 * 60_000
-export const SLACK_BROKER_HANDOFF_TTL_MS = 2 * 60_000
+/** a handoff, from Slack's return to redeem: long enough to sign in to the team server first (like Slack's own code) */
+export const SLACK_BROKER_HANDOFF_TTL_MS = 10 * 60_000
 /** the longest a poll is held */
 export const SLACK_BROKER_POLL_MAX_WAIT_MS = 25_000
 /** events in one poll answer */
@@ -156,11 +162,15 @@ export interface SlackBrokerTokenAnswer { install: SlackBrokerInstallInfo; token
  * One envelope for the owner. `kind`:
  *   events_api   `payload` = Slack's event_callback (app_mention, message in the app's DM), its `token` field removed
  *   interactive  `payload` = Slack's block_actions, its `token` field removed (its response_url is the owner's to use)
- *   lifecycle    `payload` = { event: 'uninstalled' | 'tokens_revoked' | 'removed' }: the app was removed from the
- *                workspace in Slack, Slack revoked the bot token, or the hosting service's operator removed the install.
- *                The install is gone (status and poll answer install: null); "Add to Slack" again to go on.
+ *   lifecycle    `payload` = SlackBrokerLifecycle { event: 'uninstalled' | 'tokens_revoked' | 'removed', installId }:
+ *                the app was removed from the workspace in Slack, Slack revoked the bot token, or the hosting service's
+ *                operator removed the install `installId`. That install is gone (status and poll answer install: null
+ *                or another one); "Add to Slack" again to go on. The owner acts on it only when `installId` is the
+ *                install it holds: a notice of an earlier install (still queued when it was added again) says nothing
+ *                about the new one. A new install clears the owner's queued notices.
  */
 export interface SlackBrokerEvent { id: string; kind: 'events_api' | 'interactive' | 'lifecycle'; payload: unknown; receivedAt: string }
+export interface SlackBrokerLifecycle { event: 'uninstalled' | 'tokens_revoked' | 'removed'; installId: string }
 export interface SlackBrokerPollAnswer { install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[] }
 export interface SlackBrokerUninstallAnswer { slack: 'removed' | 'unavailable' }
 export interface SlackBrokerSigninAnswer { slackUserId: string; slackTeamId: string; enterpriseId: string | null }
@@ -177,8 +187,10 @@ export const SLACK_BROKER_ERRORS = {
   not_hosted: 403,
   /** this owner has no install now (token, uninstall, sign-in): "Add to Slack" first */
   not_installed: 404,
-  /** the workspace is installed for another team or server that is still served */
+  /** the workspace is installed for another team or server that still exists (served or not) */
   workspace_taken: 409,
+  /** the person who allowed the install in Slack is not an admin or owner of that workspace */
+  not_workspace_admin: 403,
   /** an organization-wide (Enterprise Grid) install: not supported */
   enterprise_install: 409,
   /** Slack's grant lacks a bot scope of SLACK_BROKER_BOT_SCOPES */
@@ -263,6 +275,14 @@ export function parseSlackBrokerInstallInfo(raw: unknown): SlackBrokerInstallInf
     installId: o.installId as string, teamId: o.teamId as string, teamName: o.teamName as string, enterpriseId: o.enterpriseId as string | null,
     botUserId: o.botUserId as string, appId: o.appId as string, scopes: o.scopes as string[], installedAt: o.installedAt as string,
   }
+}
+
+/** A `lifecycle` event's payload as the owner reads it; null when it is not one (then it is about no install). */
+export function parseSlackBrokerLifecycle(raw: unknown): SlackBrokerLifecycle | null {
+  const o = plain(raw)
+  if (!o || (o.event !== 'uninstalled' && o.event !== 'tokens_revoked' && o.event !== 'removed')) return null
+  if (typeof o.installId !== 'string' || !SLACK_BROKER_EVENT_ID.test(o.installId)) return null
+  return { event: o.event, installId: o.installId }
 }
 
 /** A sealed bot token as the owner reads it from an answer; null when it is not one. */
