@@ -165,7 +165,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await make('Hiring', '')
       await make(budget, 'Draft next year\'s budget.')
       await page.goto('/projects')
-      await expect(page.getByText(t['projects.desc'], { exact: true })).toBeVisible()
+      // the page's one line of what projects are: on a computer (a phone has "+" in its top bar and no intro: QA TC-254)
+      await expect(page.getByText(t['projects.desc'], { exact: true })).toHaveCount(vp.phone ? 0 : 1)
       const cards = page.getByTestId('project-card')
       await expect(cards).toHaveCount(3)
 

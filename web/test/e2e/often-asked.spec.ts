@@ -101,15 +101,23 @@ test('Admin › Team settings turns it off for everyone', async ({ page, browser
   await b.context().close()
 })
 
-test('phones: the lines are 44px rows under the box, no frame', async ({ browser, page }) => {
+test('phones: the lines are one row of 44px chips right above the box at the bottom (QA TC-253); More is its last chip', async ({ browser, page }) => {
   await reset(page)
   await setLists(page, { team: TEAM })
   const b = await asBob(browser, 390)
   await expect(list(b)).toBeVisible()
-  const first = list(b).getByTestId('often-asked-item').first()
-  const box = (await first.boundingBox())!
-  expect(box.height).toBeGreaterThanOrEqual(44)
+  const items = list(b).getByTestId('often-asked-item')
+  await expect(items).toHaveCount(3)
+  const boxes = await Promise.all([0, 1, 2].map(async (i) => (await items.nth(i).boundingBox())!))
+  for (const box of boxes) expect(box.height).toBeGreaterThanOrEqual(44)
+  // one row, side by side
+  expect(new Set(boxes.map((x) => Math.round(x.y))).size).toBe(1)
+  expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x)
   const composer = (await b.getByTestId('composer-input').boundingBox())!
-  expect(box.y).toBeGreaterThan(composer.y)
+  expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(composer.y)
+  // More: the row's last chip, the rest in the same row
+  await list(b).getByTestId('often-asked-more').click()
+  await expect(items).toHaveCount(5)
+  expect(Math.round((await items.nth(4).boundingBox())!.y)).toBe(Math.round(boxes[0]!.y))
   await b.context().close()
 })

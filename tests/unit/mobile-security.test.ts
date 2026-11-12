@@ -86,7 +86,9 @@ test('the first-run screen speaks Korean or English; the questions name both tea
   expect(Object.keys(ko).sort()).toEqual(Object.keys(en).sort())
   for (const v of Object.values(en)) expect(/[\uAC00-\uD7A3\u3130-\u318F]/.test(v)).toBe(false)
   expect(fill(ko.switchTitle, { old: 'acme.trina.app', new: 'beta.trina.app' })).toBe('acme.trina.app에서 나가고 beta.trina.app에 연결할까요?')
-  expect(fill(ko.switchBody, { old: 'acme.trina.app' })).toBe('이제 acme.trina.app 알림은 이 휴대폰으로 오지 않아요.')
+  expect(fill(ko.switchBody, { old: 'acme.trina.app' })).toBe('이 휴대폰에서 acme.trina.app은(는) 로그아웃되고 알림도 오지 않아요.')
+  // QA TC-369: leaving a team signs out of it, and the question says so
+  expect(fill(en.switchBody, { old: 'acme.trina.app' })).toBe("You'll be signed out of acme.trina.app on this phone, and its notifications will stop.")
   expect(fill(ko.backTo, { team: 'acme.trina.app' })).toBe('acme.trina.app(으)로 돌아가기')
   expect(fill(ko.teamUnknown, { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
   // a value is never read as a pattern
@@ -103,7 +105,7 @@ test('the phone has no "create a team" link (App Review 3.1.1, Google Play payme
   // leaving happens in connect(), which only the box's yes (or a first team) reaches
   expect(app.match(/leaveTeam\(/g)?.length).toBe(1)
   // the new team is saved before the old one is left: a refused save leaves the phone where it was
-  const connect = app.slice(app.indexOf('  async function connect(address: TeamAddress) {'), app.indexOf('  async function connect(address: TeamAddress) {') + 600)
+  const connect = app.slice(app.indexOf('  async function connect(address: TeamAddress) {'), app.indexOf('  async function connect(address: TeamAddress) {') + 1200)
   expect(connect.indexOf('await saveTeamUrl(address.origin)')).toBeGreaterThan(0)
   expect(connect.indexOf('if (old) await leave(old)')).toBeGreaterThan(connect.indexOf('await saveTeamUrl(address.origin)'))
   const leave = app.slice(app.indexOf('  async function leave(origin: string) {'), app.indexOf('  async function leave(origin: string) {') + 400)

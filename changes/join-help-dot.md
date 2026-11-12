@@ -1,1 +1,0 @@
-- Phones: the "Join your team" screen no longer leaves a stray dot after "I don't know the address" when the two help links wrap onto two lines.

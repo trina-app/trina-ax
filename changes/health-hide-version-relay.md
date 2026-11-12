@@ -1,1 +1,0 @@
-- A team's internet address on the relay no longer tells signed-out visitors which version, database schema and uptime the server has; it only says that it is up. Signed-in people, the server itself and the office network still see them.

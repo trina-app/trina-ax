@@ -199,9 +199,10 @@ test('the AI chat at its bottom: the newest answer stays right above the box', a
     expect(a.y + a.height).toBeLessThanOrEqual(b.y)
     expect(a.y + a.height).toBeGreaterThan(b.y - 200)
     expect(b.y + b.height).toBeLessThanOrEqual(KB_TOP)
-    // under the box only the line that says who sees the chat (always shown), then the keyboard
-    await expect(page.getByTestId('composer-phone-footer')).toBeVisible()
-    await onKeyboard(page, page.getByTestId('composer-phone-footer'))
+    // under the box the keyboard: a chat only I see puts its "나만 봐요" away while I type (QA TC-252; a shared chat
+    // keeps its line, phone-composer-keyboard.spec.ts)
+    await expect(page.getByTestId('composer-phone-footer')).toBeHidden()
+    await onKeyboard(page, page.getByTestId('composer'))
     await closeKeyboard(page, kind)
     await expect.poll(() => gap(list)).toBeLessThanOrEqual(1)
   }

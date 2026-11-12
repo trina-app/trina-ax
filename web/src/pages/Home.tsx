@@ -12,26 +12,24 @@
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): Home is the 트리나 tab, where the app opens. No cards; the greeting and the box come first, the
-// "one thing" (the setup row, the goal) is the first quiet row under the box (the goal opens its next step in place),
-// then the three latest AI chats as plain rows ("트리나 기록"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
-// the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
-// chat ("/?project=") shows neither: the goal and the setup row are about the team.
+// Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like the ChatGPT and Claude apps (QA
+// TC-253): the "one thing" (the setup row, the goal, the welcome or lead card, the no-AI card) at the top, without a
+// frame; the greeting, the one row of suggestions (the block under the box on a computer, as chips that scroll
+// sideways) and the box at the bottom, the box docked there so it stays in sight while the rest scrolls. No list of
+// the AI's chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal
+// and no setup row: they are about the team.
 // Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
 // it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
-// no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team"; on a phone the first row under
-// the box.
+// no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
-// HandoverCard.tsx, docs/DECISIONS.md "W6"), on a phone the first row under the box.
+// HandoverCard.tsx, docs/DECISIONS.md "W6").
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
-import clsx from 'clsx'
-import { ChevronRight } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { Chat, Project } from '@mycel/shared/api'
+import type { Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { useMediaQuery } from '../components/ui'
@@ -40,10 +38,8 @@ import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
-import { aiName, landingPath } from '../lib/tabs'
+import { landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { isUnused, SessionMarker, useChatMarker } from '../components/chat/ChatState'
-import { needsMe } from '../lib/sessionMarkers'
 import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
@@ -115,16 +111,36 @@ export default function Home() {
 
   if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
+  // the box: on a computer under the greeting, before the suggestions; on a phone after them, held at the bottom of the
+  // screen, so the order things are read and reached in is the order they are seen
+  const dock = (
+    <div className="max-md:sticky max-md:bottom-0 max-md:z-10 max-md:bg-canvas max-md:pt-2 max-md:pb-3 md:contents" data-testid="home-dock">
+      <NewChatComposer
+        projectId={projectId}
+        project={project}
+        initialText={preset?.text}
+        resetKey={preset?.n ?? 0}
+        // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
+        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+        aiLine={!noAi}
+        waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
+      />
+    </div>
+  )
+  // the one thing at the top (the lead link's card, the welcome card, the no-AI card, else the setup row or the goal)
+  const oneThing = leadCard ? leadCard : welcomeCard ? welcomeCard : noAi ? welcomeKnown && <NoAiCard /> : top
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 max-md:min-h-0">
-        {/* phones: the greeting and the box at one place (a third of the way down) and the rows under the box hanging
-            below them, so opening one (the goal's next step) moves nothing above it and a long list scrolls. From 768px
-            one centred column (the wrappers are display: contents there) */}
-        <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
-          <div className="md:hidden" aria-hidden />
-          <div className="md:contents" data-testid="home-head">
-            {leadCard ? !phone && leadCard : welcomeCard ? !phone && welcomeCard : noAi ? welcomeKnown && <NoAiCard /> : !phone && top}
+    <div className="flex h-full flex-col overflow-y-auto" data-testid="home-scroll">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 max-md:justify-start max-md:pt-4 max-md:pb-0">
+        {/* phones: the one thing at the top; the greeting, the suggestions' one row and the box at the bottom, the box
+            docked there (it stays in sight while the rest scrolls), like the ChatGPT and Claude apps. From 768px one
+            centred column, the box under the greeting and the suggestions under the box (the wrappers are display:
+            contents there) */}
+        <div className="w-full max-w-[720px] max-md:flex max-md:flex-1 max-md:flex-col" data-testid="home-column">
+          <div className="md:contents" data-testid="home-top">
+            {oneThing}
+          </div>
+          <div className="max-md:mt-auto max-md:pt-6 md:contents" data-testid="home-head">
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -133,71 +149,23 @@ export default function Home() {
                 · {t('home.inProject')}
               </p>
             )}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance max-md:mb-4 sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
-            <NewChatComposer
-              projectId={projectId}
-              project={project}
-              initialText={preset?.text}
-              resetKey={preset?.n ?? 0}
-              // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
-              autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
-              aiLine={!noAi}
-              waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
-            />
           </div>
-          <div className="max-md:pb-6 md:contents" data-testid="home-tail">
+          {!phone && dock}
+          <div className="md:contents" data-testid="home-tail">
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
-            {/* phones: the top row is the first row under the box */}
-            {phone && (leadCard || welcomeCard || top) && <div className="mt-3">{leadCard || welcomeCard || top}</div>}
-            {phone && extras && !projectId && <RecentChats />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
             {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
             {/* what my group often asks, in the same place once "팀에 준비된 것" has nothing (one block at a time) */}
             {suggest && chatsLoaded && prepared === false && <OftenAsked key={`asked-${me.user.id}`} onChoose={choose} />}
           </div>
+          {phone && dock}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>
     </div>
-  )
-}
-
-/** Phones: the three AI chats I used last, as plain rows under the box (the drawer has them all). Nothing until there
- * is one. */
-export function RecentChats() {
-  const t = useT()
-  const chats = useChats((s) => s.chats)
-  const recent = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3), [chats])
-  if (!recent.length) return null
-  return (
-    <section className="mt-6" aria-labelledby="home-recents" data-testid="home-recents">
-      <h2 id="home-recents" className="px-3 pb-1 text-xs text-muted">
-        {t('sidebar.aiChats', { name: aiName(t) })}
-      </h2>
-      <ul>
-        {recent.map((c) => (
-          <RecentChat key={c.id} chat={c} />
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/** One of them: its session marker (docs/DECISIONS.md "Session markers": "?", a spinner or a dot) at the right end,
- * before the arrow, and its reason in the link's name. */
-function RecentChat({ chat }: { chat: Chat }) {
-  const t = useT()
-  const { marker, reason } = useChatMarker(chat)
-  return (
-    <li data-marker={marker?.kind}>
-      <Link to={`/c/${chat.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
-        <span className={clsx('min-w-0 flex-1 truncate', needsMe(marker) && 'font-medium')}>{chat.title || t('chat.untitled')}</span>
-        {marker && <SessionMarker marker={marker} label={reason} />}
-        <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-      </Link>
-    </li>
   )
 }
 

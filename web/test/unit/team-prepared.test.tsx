@@ -13,7 +13,7 @@
 // - no AI (a member): rows and 예시, no 써 보기 / 물어보기 / question;
 // - owners and admins: no filled button; nothing prepared: "스킬 넣기 · 팀 파일 넣기" (팀 스킬 with the ready-made skills
 //   unfolded, 파일), no question;
-// - a phone: a skill row's tap is 써 보기 and says so at its end, 예시 its own target; the files row is one row;
+// - a phone: a skill chip's tap is 써 보기 and says so (named by what it shows), 예시 its own target; the files chip is one target;
 // - a failed read: the calm notice (components/LoadError.tsx), never red under the box and never the empty state; the
 //   connection: it reads again by itself and the block shows; a skill change reads again;
 // - the invite step's line: an empty team only, its links (the welcome steps' or the pages'), never for a member.
@@ -299,14 +299,16 @@ describe('a member', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone: a skill row\'s tap is 써 보기, 예시 is its own target; the files row is one row', async () => {
+  test('a phone: a skill chip\'s tap is 써 보기, 예시 is its own target; the files chip is one target', async () => {
     const m = await open({ phone: true })
     try {
       await m.until(() => m.find('team-prepared'), 'the block')
       const first = rows(m)[0]!
       const tap = first.querySelector('[data-testid="team-prepared-try"]')!
-      expect(tap.getAttribute('aria-label')).toBe(ko('home.prepared.tryNamed', { title: '자연스러운 글' }))
+      // named by what it shows (QA TC-253's chips): the title, its line and 써 보기
+      expect(tap.getAttribute('aria-label')).toBeNull()
       expect(tap.textContent).toContain('자연스러운 글')
+      expect(tap.textContent!.endsWith(ko('home.prepared.try'))).toBe(true)
       // the row says what its tap does, at its end (the first row's in the accent colour: the member's filled one)
       expect(tap.querySelector('[data-testid="team-prepared-try-label"]')!.textContent).toBe(ko('home.prepared.try'))
       expect(tap.querySelector('[data-testid="team-prepared-try-label"]')!.className).toContain('text-accent-text')
