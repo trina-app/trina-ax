@@ -23103,6 +23103,63 @@ Plan: `docs/AGENTS/plan/20261112-0623-connector-approval-gate.md`.
   count it, and "Not now" leaves it. Google apps keep Reconnect on their own page; a member's team connection still
   says an admin fixes it.
 
+## Slack through the official Trina AX app: "Add to Slack", nothing copied by hand (feat/slack-official-app, 2026-11-12, the owner, QA TC-203)
+
+- **Problem.** Each team made its own internal Slack app from our manifest and pasted four values (bot token,
+  app-level token, client id, client secret). That is the step owners failed at.
+- **Rule (owner, 2026-11-12).** One official, publicly distributed Slack app, "Trina AX", held by the hosting service.
+  Where the hosting service serves the server (a hosted team, or a self-installed server it registered: the same
+  registry and rule as the Drive broker) and no own app is saved, Admin › Slack shows one **Add to Slack** button.
+  Anywhere else the own app's four steps stay as they were. Both modes stay (`slack_config.mode`: `own` | `official`).
+- **The app-level token never reaches a team server.** It is app-wide: its Socket Mode connection gets the events of
+  every workspace the app is in. The hosting service holds the one connection, acknowledges each envelope to Slack at
+  once and queues it only for the one owner that installed that workspace (`team_id`, the official app's `api_app_id`,
+  the envelope's other workspace fields agreeing). The team server checks again: every envelope goes through the same
+  `onEnvelope` as one from its own socket (the workspace and the app id installed here).
+- **Long poll, not a WebSocket.** The team server connects out with signed `poll` calls (≤ 25 s each, explicit acks):
+  the same trust as every other broker call (a suspended team, a disabled server or a removed install stops at its
+  next poll), it passes Cloudflare, idle timeouts and office proxies, and it needs no public address. At least once:
+  an unacknowledged event comes again; the team server handles a broker event id, a Slack event id and a message once.
+  A feed that stops (Turn off, removed) acknowledges what it took at once, so a stale "removed" is never handed out
+  after the owner added the app again.
+- **The bot token.** Each workspace's xoxb token goes only to the server it was installed for, sealed in transit to a
+  one-time X25519 key of that request (`X25519-HKDF-SHA256-A256GCM`, the install as additional data; a TLS-terminating
+  proxy never sees it) and sealed at rest in `<secrets>/integrations/slack` as before. Before it is kept, Slack itself
+  must say it is that workspace's bot (`auth.test`: team, bot user, scopes), so the hosting service cannot hand a server
+  another workspace's token. The team server posts its answers to Slack directly.
+- **Bound like Sign in with Slack.** "Add to Slack" is a flow of the owner who pressed it (state hashed, PKCE verifier
+  sealed, 10 minutes, used once, the newest only); only a browser signed in as that owner finishes it (no session: sign
+  in first and the fixed return page brings the handoff back; another person: refused). Slack's code is exchanged by
+  the hosting service only at redeem, with this flow's verifier. The owner must still be the owner when it finishes.
+- **Sign in with Slack** works with the official app through the hosting service's one redirect URL: it checks the
+  id_token and revokes the person's user token, and answers only who signed in; the team server checks the workspace
+  again and does every check it did before (`users.info`: a person of this workspace).
+- **Removed in Slack** (`app_uninstalled`, `tokens_revoked`, the operator's remove, an install the hosting service no
+  longer has, or a token Slack refuses at a post): the token is forgotten here, the links stay, Admin › Slack says
+  "removed from Slack, add it again". **Remove** asks the hosting service to take the app off the workspace
+  (`apps.uninstall`), then forgets everything here as before; unreachable, it is removed here anyway. A token that no
+  longer opens here (a restore on a new machine) is fetched again (`token`).
+- **Review fixes (2026-11-12).** A lifecycle notice names its install and acts only on the install held here (a
+  "removed" of an earlier install never wipes one added again). A workspace stays its team's while that team exists,
+  served or not, and is freed only after its token is useless at Slack (control plane SB-10). Only a Slack workspace
+  admin or owner can add the app (`not_workspace_admin`). The handoff lasts 10 minutes (sign in here first). When
+  Slack cannot be reached for the `auth.test` check, the install is kept and checked again (`install_pending`), never
+  removed for that. Details: the plan's Result, `docs/AGENTS/plan/20261112-0242-slack-official-app.md`.
+- **When it is used.** Only with `MYCEL_SLACK_BROKER_URL` (falls back to `MYCEL_GOOGLE_DRIVE_BROKER_URL`: both brokers
+  are on the same console; `off` turns it off), and only once `status` answers yes. Merging this changes nothing on a
+  server until then.
+- **Not done (later).** The HTTP Events API (the broker's queue, routing and this contract stay the same), the Slack
+  Marketplace listing, organization-wide (Enterprise Grid) installs, moving an own-app team to the official app
+  automatically (the owner removes the own app, then adds the official one).
+- **Where.** Contract `shared/src/cloud-protocol/slack-broker.ts` (MIT, vendored by the control plane at a pinned
+  commit); client `server/src/integrations/slack/broker.ts`; the connector's official mode in `service.ts`; routes
+  `POST /api/admin/slack/official/install` and `GET /api/integrations/slack/official/callback`; migration
+  `345_c_slack_official.sql`. Tests: `tests/unit/c-slack-broker.test.ts` (the seal vector shared with the control
+  plane, signatures, refusals, the feed) and `tests/unit/c-slack-official.test.ts` (a fake broker: install, isolation,
+  sign-in, removed, restore, broker down, Remove, nothing secret in logs or rows).
+
+Version impact: minor (a new way to set up Slack; the own-app setup keeps working unchanged; additive migration 345).
+
 ## The chat's connect card trusts the app's list (fix/connect-card-trust, 2026-11-12, QA TC-135, bugs 2, 4, 5)
 
 Adds to "Connecting a service from a chat". Before, the card showed whatever name and address the AI put in
