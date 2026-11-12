@@ -23494,3 +23494,31 @@ later, a team's own Mac mini.
   (owner, 2026-11-06); a team that had people before migration 236 stays off. Team admins turn it off.
 - Open: preview on srt (`mycel-sandbox port-forward`, `docs/research/srt-dev-env.md` §5), Ubuntu 24.04 (the installer
   already writes `apparmor-bwrap.in` for bwrap; `install-srt.sh` needs the same for srt's apply-seccomp), macOS.
+
+## Dev environment on srt: Ubuntu 24.04 stays off (feat/srt-ubuntu-apparmor, 2026-11-12)
+
+Owner (pras), 2026-11-12: Ubuntu 24.04 is the most common server system of customers. The task was to give srt an
+AppArmor profile there (spike S6). A real Ubuntu 24.04 VM (EC2, 24.04.5, systemd 255.4, polkitd 124,
+`kernel.apparmor_restrict_unprivileged_userns=1`) showed that AppArmor is not the stop. The owner chose route C: Ubuntu
+stays off with the real reason; route A is the follow-up.
+
+- **AppArmor needs no profile of its own.** srt runs `/usr/bin/bwrap`, which the installer's `<ID>-bwrap` profile
+  (step 4, unconfined with `userns`) covers. srt's `apply-seccomp` has no attachment of its own, so it inherits that
+  profile. One srt command as the server account under `no_new_privs` ran: label `mycel-bwrap (unconfined)`,
+  `NoNewPrivs: 1`, `Seccomp: 2`, and `unshare -U` refused (srt's own filter). A `trina-srt` profile for apply-seccomp
+  also worked (the exec transition works under `no_new_privs`), but it gives `userns` to that file outside bwrap as
+  well. So: no extra profile. The sysctl stays on.
+- **The stop is polkit.** `busctl monitor` of polkit: `systemd-run --scope` (StartTransientUnit) sends
+  `org.freedesktop.systemd1.manage-units` with an empty details array on systemd 255, no `unit` and no `verb`. Debian
+  13 (systemd 257) sends them (spike S1). `devenv.rules.in` needs the unit name to allow only `trina-dev-<16>.scope`; a
+  rule without it would let the server account start a transient `.service` with `User=root`. Not done.
+- **What changes.** `install-srt.sh` stops on Ubuntu 24.04 with this reason, before it changes anything.
+  `install-linux.sh` says the same reason when it keeps the dev environment off there (`--dev-env` stops with it).
+  Where the kernel restricts user namespaces, `install-srt.sh` checks bwrap as the server account and runs one command
+  in srt with `no_new_privs`, as the server unit runs it (`NoNewPrivileges=yes`), so the follow-up has its check.
+  Debian 13 does not change.
+- **Follow-up, route A.** Runs become instances of a root-installed template unit (`trina-dev@.service`), started with
+  StartUnit. On systemd 255 StartUnit sends `unit` and `verb` (checked on the VM with `trina-dev-probe@x.service`), so a
+  narrow rule works: the server account may start and stop `trina-dev@<16>.service` only. It changes the runner
+  (`server/src/devenv/srt/system.ts`), so it starts after the preview PR. Route B (the server account's user manager
+  with linger, `systemd-run --user --scope`) also worked on the VM, but moves the root ceiling to `user-<uid>.slice`.

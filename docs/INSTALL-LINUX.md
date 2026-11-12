@@ -253,6 +253,11 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   `<base>/root/dev-env-srt/install-srt.sh` after the server answers. `--no-dev-env` keeps it off; `--dev-env` stops the
   install when the system cannot have it (Ubuntu 24.04, Debian 12, `--minimal`, `--no-systemd`). `mycel-ctl update`
   brings new srt files in; `uninstall` removes them.
+- **Ubuntu 24.04: no dev environment yet** (`docs/DECISIONS.md` "Dev environment on srt: Ubuntu 24.04 stays off"). The
+  reason is not AppArmor: srt's `apply-seccomp` inherits the installer's `<id>-bwrap` profile, and the sysctl
+  `kernel.apparmor_restrict_unprivileged_userns` stays on. The reason is polkit: systemd 255 gives polkit no unit name
+  when the server starts a transient scope, so the rule cannot limit the server account to its run scopes. The installer
+  and `install-srt.sh` say so.
 - **Removed: the box runner** (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"). The dev
   environment runs only in srt (`scripts/dev-env/srt/install-srt.sh`). Up to v0.5.0-beta.1 every kit had
   `root/mycel-boxd`, and `scripts/dev-env/install-trial.sh` could add the box runner to a server. On a server where it

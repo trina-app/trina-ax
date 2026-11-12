@@ -1,55 +1,44 @@
-# Dev environment on srt: Ubuntu 24.04 (AppArmor profile for apply-seccomp)
+# Dev environment on srt: Ubuntu 24.04 (AppArmor spike S6; result: stays off, the reason is polkit)
 
 - Date (UTC): 2026-11-12 14:09
 - Branch: `feat/srt-ubuntu-apparmor`
-- Status: in progress
+- Status: done
 - Where: trina-ax, scripts/dev-env/srt and scripts/install-linux.sh. Why: the open installer and its dev environment
   are core (docs/REPOSITORY-RULES.md).
-- Version impact: minor. A self-install on Ubuntu 24.04 gets the dev environment, a new feature for those servers.
+- Version impact: patch. Ubuntu 24.04 stays off; the installer gives the real reason, and install-srt.sh gets a check.
 - Depends on: #614 (the installer runs install-srt.sh on Debian 13).
 
 ## Goal
 
-Ubuntu 24.04 is the most common server system of customers. Today install-srt.sh stops there: Ubuntu restricts
-unprivileged user namespaces with AppArmor (kernel.apparmor_restrict_unprivileged_userns=1), and srt's apply-seccomp
-helper makes a nested user namespace. After this change the dev environment works on Ubuntu 24.04, and the installer
-turns it on by default, as on Debian 13.
+Ubuntu 24.04 is the most common server system of customers. install-srt.sh stopped there with "needs an AppArmor
+profile for srt's apply-seccomp (spike S6)". The first plan: a profile for apply-seccomp, then the dev environment on by
+default on Ubuntu 24.04.
 
-## Scope
+## Scope (after the VM run)
 
-In:
-- `scripts/dev-env/srt/apparmor-srt.in`: one profile `trina-srt` that gives `userns` only to srt's apply-seccomp
-  (/opt/trina/srt/<version>/.../vendor/seccomp/<arch>/apply-seccomp). The global sysctl stays on.
-- install-srt.sh: accept Ubuntu 24.04; where the sysctl is 1, write and load the profile, and check that bwrap can make a
-  user namespace as the server account. srt runs /usr/bin/bwrap, which the installer's `<ID>-bwrap` profile covers
-  already; no second bwrap profile (two profiles on one path cancel each other).
-- uninstall-srt.sh and `install-linux.sh uninstall` remove the profile.
-- install-linux.sh: the dev environment is on by default on Debian 13 and Ubuntu 24.04.
-- The kit and image file lists carry the new template.
-
-Out: Debian 12; other Ubuntu releases; changes to srt itself.
+In: the real reason in install-srt.sh and install-linux.sh; no extra AppArmor profile; the bwrap check and an srt probe
+with no_new_privs where user namespaces are restricted; tests; DECISIONS, INSTALL-LINUX, the srt README, a changelog
+fragment.
+Out: route A (template unit + StartUnit), after the preview PR (server/src/devenv/srt/system.ts).
 
 ## Steps
 
-1. The profile template and install-srt.sh / uninstall-srt.sh.
-2. install-linux.sh: the DEVENV_ON rule, the uninstall fallback, comments and help text.
-3. build-bundle.ts and build-ami.sh file lists.
-4. Unit tests: the template (attachment path = the path install-srt.sh checks), the OS rule, uninstall.
-5. Docs: DECISIONS entry, INSTALL-LINUX note, changes/srt-ubuntu-apparmor.md.
-6. A real run on a temporary Ubuntu 24.04 EC2 VM: kit build, install, a real run through the server, uninstall --purge,
-   vm-check.sh.
+1. Profile and installer changes; kit built and installed on a temporary Ubuntu 24.04 EC2 VM.
+2. The VM showed: apply-seccomp inherits <ID>-bwrap (no profile needed); polkit gets no unit name from systemd 255 for a
+   transient scope, so the scope check fails.
+3. Owner decision: route C. The profile is dropped; Ubuntu stays off with the real reason.
+4. VM again with the final kit: install, the reason, uninstall --purge, nothing left.
 
 ## Risks
 
-- AppArmor exec transition from the bwrap profile to trina-srt under NoNewPrivileges may be refused. The VM run checks a
-  real run that the server unit starts, and the label of apply-seccomp.
-- Debian 13 must not change: the profile is written only where the sysctl is 1.
+Debian 13 must not change: the new checks run only where the sysctl is 1, and Debian 13 has no such sysctl.
 
 ## Tests
 
-`bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, tests/unit/g-scripts.test.ts,
-tests/unit/dev-env-srt.test.ts, tests/unit/g-bundle-linux.test.ts, tests/unit/system-packages.test.ts; the VM run.
+tests/unit/g-srt-ubuntu.test.ts (the OS rules run in bash, the checks), g-scripts, g-bundle-linux, system-packages;
+typecheck, check:docs, check:i18n; the VM run.
 
 ## Result
 
-(at the end)
+Ubuntu 24.04 stays off with the real reason (polkit on systemd 255). No AppArmor profile is added. Route A is the
+follow-up (docs/DECISIONS.md "Dev environment on srt: Ubuntu 24.04 stays off").
