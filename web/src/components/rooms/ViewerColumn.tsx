@@ -199,7 +199,7 @@ export function ViewerSheet({ onClose, children }: { onClose: () => void; childr
       <div
         ref={sheet}
         className={clsx(
-          'absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-2xl bg-surface text-ink shadow-xl starting:translate-y-full',
+          'absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-2xl bg-surface text-ink shadow-xl starting:translate-y-full [--typing-bg:var(--c-surface)]',
           drag === null && 'transition-[height,translate] duration-200 ease-out',
           full ? 'h-[calc(100%-var(--safe-top))]' : 'h-[70%] in-[.keyboard-open]:h-[calc(100%-var(--safe-top))]',
         )}

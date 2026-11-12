@@ -2,7 +2,8 @@
 // member's `room.typing` frames (the mock's POST /__test/typing stands for the server, whose rules
 // tests/unit/b-room-typing.test.ts checks) show one quiet line over the room's box or the thread's box, for that place
 // only; it runs out by itself; the box does not move when it comes or goes; what this page sends while I type (GET
-// /__test/typing): "typing" for the room or the thread, "stopped" on send. With SHOTS_DIR set, the last tests save the
+// /__test/typing): "typing" for the room or the thread, "stopped" on send; scrolled up (a long room opened around an older
+// message), the line has the page's background and stays under "to newest". With SHOTS_DIR set, the last tests save the
 // screens for review (1440 and 390, light and dark).
 import fs from 'node:fs'
 import path from 'node:path'
@@ -77,6 +78,75 @@ test('typing in the room says so; sending says "stopped"; a thread\'s typing sho
   await expect.poll(async () => (await sentFrames(page)).at(-1)).toEqual(expect.objectContaining({ threadRootId: ROOT.id, typing: true }))
 })
 
+// ---------------- scrolled up: a long room, opened around an older message (?m=) ----------------
+const LONG_ROOM = '019a5f00-0000-7000-8000-000000009001'
+const mid = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
+/** a group chat of 120 messages, paged like the server (limit, cursor, around) */
+async function routeLongRoom(page: Page) {
+  const T0 = Date.now() - 86_400_000
+  const at = (n: number) => new Date(T0 + n * 60_000).toISOString()
+  const who = [SORA, MINSU, BOB]
+  const messages = Array.from({ length: 120 }, (_, i) => ({
+    id: mid(i + 1), roomId: LONG_ROOM, seq: i + 1, authorKind: 'user', author: who[i % 3], askedBy: null, visibility: 'room',
+    body: `${i + 1}번째 메시지: 회의 자료와 일정, 다음 주에 보낼 견적서를 정리하고 있어요.`, replyTo: null, mentions: [], files: [], createdAt: at(i + 1), editedAt: null, deletedAt: null,
+  }))
+  const room = { id: LONG_ROOM, kind: 'group', name: '견적 회의', canRename: true, managerId: 'olga', groupId: null, memberCount: 4, peers: who, lastSeq: 120, lastReadSeq: 120,
+    unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(120) }
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+  await page.route(/\/api\/rooms(\/|\?|$)/, async (route) => {
+    const url = new URL(route.request().url())
+    const p = url.pathname
+    if (p === '/api/rooms') return route.fulfill(json({ items: [room] }))
+    if (p === `/api/rooms/${LONG_ROOM}`) return route.fulfill(json(room))
+    if (p === `/api/rooms/${LONG_ROOM}/members`) return route.fulfill(json({ items: [{ id: 'olga', name: 'Olga' }, ...who].map((user) => ({ user, joinedAt: at(-60) })) }))
+    if (p === `/api/rooms/${LONG_ROOM}/ai`) return route.fulfill(json({ answering: 0, mine: [] }))
+    if (p === `/api/rooms/${LONG_ROOM}/ai/requests`) return route.fulfill(json({ items: [] }))
+    if (p === `/api/rooms/${LONG_ROOM}/read`) return route.fulfill(json({ lastReadSeq: 120, unreadCount: 0, mentioned: false }))
+    if (p === `/api/rooms/${LONG_ROOM}/messages`) {
+      const limit = Number(url.searchParams.get('limit') ?? 50), cursor = url.searchParams.get('cursor'), around = url.searchParams.get('around')
+      let from: number, to: number
+      if (around) { const i = messages.findIndex((m) => m.id === around); from = Math.max(0, i - limit / 2); to = Math.min(messages.length, from + limit) }
+      else if (cursor?.startsWith('o')) { const i = messages.findIndex((m) => m.seq === Number(cursor.slice(1))); to = i; from = Math.max(0, i - limit) }
+      else if (cursor?.startsWith('n')) { const i = messages.findIndex((m) => m.seq === Number(cursor.slice(1))); from = i + 1; to = Math.min(messages.length, from + limit) }
+      else { to = messages.length; from = Math.max(0, to - limit) }
+      const items = messages.slice(from, to)
+      return route.fulfill(json({ items, nextCursor: from > 0 ? `o${items[0]!.seq}` : null, ...(to < messages.length ? { newerCursor: `n${items.at(-1)!.seq}` } : {}) }))
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'not in this mock' } }) })
+  })
+}
+async function openScrolledUp(page: Page) {
+  await reset(page)
+  await routeLongRoom(page)
+  await signIn(page)
+  await page.goto(`/rooms/${LONG_ROOM}?m=${mid(20)}`)
+  await expect(page.getByTestId('room-to-newest')).toBeVisible()
+  const r = await page.request.post('/__test/typing', { data: { roomId: LONG_ROOM, threadRootId: null, userId: SORA.id, typing: true } })
+  expect(r.ok()).toBeTruthy()
+  await expect(line(page)).toHaveText('김소라님이 입력 중…')
+}
+/** the line is drawn on the page's own background (no message text shows through) and below the "to newest" button */
+async function checkOverMessages(page: Page) {
+  const l = (await line(page).boundingBox())!
+  const b = (await page.getByTestId('room-to-newest').boundingBox())!
+  expect(b.y + b.height).toBeLessThanOrEqual(l.y)
+  const bg = await line(page).evaluate((e) => getComputedStyle(e).backgroundColor)
+  const page_ = await page.getByTestId('room-scroller').evaluate((e) => {
+    let n: Element | null = e
+    while (n) { const c = getComputedStyle(n).backgroundColor; if (c !== 'rgba(0, 0, 0, 0)') return c; n = n.parentElement }
+    return getComputedStyle(document.body).backgroundColor
+  })
+  expect(bg).toBe(page_)
+}
+
+test('scrolled up: the line has the page\'s background over the messages and stays under "to newest"', async ({ page }) => {
+  await openScrolledUp(page)
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    await checkOverMessages(page)
+  }
+})
+
 // ---------------- screenshots for review (SHOTS_DIR) ----------------
 const shots = (page: Page) => {
   const dir = process.env.SHOTS_DIR!
@@ -104,6 +174,12 @@ test('screenshots at 1440: the room and a thread with the line (light and dark)'
     await tell(page, BOB.id, true, ROOT.id)
     await expect(line(page, thread)).toHaveText('Bob님이 입력 중…')
     await shot(`typing-thread-1440-${scheme}`)
+  }
+  await openScrolledUp(page)
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    await checkOverMessages(page)
+    await shot(`typing-scrolled-up-1440-${scheme}`)
   }
 })
 
@@ -140,6 +216,12 @@ test.describe('phone', () => {
       await tell(page, MINSU.id)
       await expect(line(page)).toHaveText('김소라님과 이민수님이 입력 중…')
       await shot(`typing-room-390-${scheme}`)
+    }
+    await openScrolledUp(page)
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      await checkOverMessages(page)
+      await shot(`typing-scrolled-up-390-${scheme}`)
     }
   })
 })

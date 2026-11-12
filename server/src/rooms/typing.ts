@@ -8,7 +8,7 @@
 // - Told to the room's other members; in a thread only to those who see its root. Never back to the sender.
 // - At most TYPING_BUDGET frames per TYPING_WINDOW_MS per person (the page sends one every ROOM_TYPING_EVERY_MS), at most
 //   TYPING_PLACES places at once per person; a "stopped" goes out only after a "typing" was told, and the places of a
-//   person whose last window closed are stopped at once. The receivers expire a "typing" by themselves
+//   person whose last window closed, or whose sessions the server ended, are stopped at once. The receivers expire a "typing" by themselves
 //   (ROOM_TYPING_EXPIRES_MS), so a lost "stopped" leaves nothing behind.
 import { ROOM_TYPING_EXPIRES_MS, type RoomTypingFrame } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -75,6 +75,13 @@ export class RoomTyping {
   /** The person's last window closed: their places stop now (not after the receivers' expiry). */
   windowClosed(userId: string) {
     if (this.o.hasWindows(userId)) return
+    this.ended(userId)
+  }
+
+  /** Every session of the person was ended (signed out everywhere, password changed, turned off, deleted): their places
+   * stop now. The hub tells "closed" for each window while the others are still listed, so windowClosed alone would
+   * wait for the receivers' expiry and keep their entry. */
+  ended(userId: string) {
     const p = this.people.get(userId)
     this.people.delete(userId)
     if (!p) return
@@ -119,5 +126,6 @@ export function startRoomTyping(hub: Hub, ctx: AppContext, o: Partial<TypingOpti
     try { t.frame(s.userId, f) } catch (e) { ctx.log.warn('typing frame failed', { err: e }) }
   })
   hub.onWindow((userId, _w, state) => { if (state === 'closed') t.windowClosed(userId) })
+  hub.onUserEnded((userId) => t.ended(userId))
   return t
 }

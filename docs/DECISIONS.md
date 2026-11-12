@@ -23267,12 +23267,16 @@ Adds to "The chat's connect card trusts the app's list".
   timeline. Anything else is dropped without an answer (a room's existence is not told). Relayed only to the other
   members who can read the place: in a thread those who see its root (a later member of a group chat does not). At
   most 20 frames per 10 s per person and 5 places at once; a "stopped" goes out only after a relayed "typing", to the
-  same people; a person's places stop when their last window closes.
+  same people; a person's places stop when their last window closes, and at once when the server ends all their
+  sessions (account turned off, password changed: the hub's user-ended hook, as presence uses, because each window's
+  "closed" comes while the others are still listed). Known follow-up: a ping is told to every member one by one; fine
+  for MVP, to be batched for rooms of a few hundred people.
 - **Trina answering** already has its line under the messages ("Trina is answering", `RoomAiStatus`), so the new line
   does not repeat it: one indicator per thing.
 - **Layout.** The line floats over the bottom of the messages, in space the message lists keep free (their bottom
-  padding went from 16 to 24 px), so the box never moves and no message is covered, also at 390 px in the phone app's
-  WebView. On a phone it steps aside while the "@" list floats there. A short fade, none with reduced motion.
+  padding went from 16 to 24 px), so the box never moves, also at 390 px in the phone app's WebView. Scrolled up, it is
+  drawn on the page's own background (`--typing-bg`: the canvas, or the surface in the side column and the phone's
+  sheet), so no message text shows through it, and the room's "to newest" button sits above it (bottom 32 px). On a phone it steps aside while the "@" list floats there. A short fade, none with reduced motion.
   `aria-live="polite"` and atomic; the words change only when the people change, so screen readers are not told on
   every ping.
 - Tests: `tests/unit/b-room-typing.test.ts` (readers only, not outsiders or members who cannot see a thread's root, no

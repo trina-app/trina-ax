@@ -429,9 +429,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>
       </div>
-      {/* a window around an older message (a search result, a link): one tap back to the newest */}
+      {/* a window around an older message (a search result, a link): one tap back to the newest (above the typing line,
+          components/rooms/RoomTypingLine.tsx) */}
       {detached && (
-        <button type="button" onClick={toNewest} className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm text-muted shadow-md hover:bg-hover hover:text-ink" data-testid="room-to-newest">
+        <button type="button" onClick={toNewest} className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm text-muted shadow-md hover:bg-hover hover:text-ink" data-testid="room-to-newest">
           <ArrowDown size={14} aria-hidden />
           {t('rooms.toNewest')}
         </button>

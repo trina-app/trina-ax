@@ -19,7 +19,10 @@ class MemConn implements RealtimeConn {
   private cls: (() => void)[] = []
   private msg: ((d: string) => void)[] = []
   send(d: string) { if (this.closed) throw new Error('closed'); this.raw.push(d); this.sent.push(JSON.parse(d)) }
-  close(code: number, reason?: string) { if (this.closed) return; this.closed = { code, reason }; for (const f of this.cls) f() }
+  /** a real socket says it closed later, not inside close(): set to hold the close callbacks until flushClose() */
+  lateClose = false
+  close(code: number, reason?: string) { if (this.closed) return; this.closed = { code, reason }; if (!this.lateClose) for (const f of this.cls) f() }
+  flushClose() { for (const f of this.cls) f() }
   bufferedAmount() { return 0 }
   ping() {}
   onMessage(fn: (d: string) => void) { this.msg.push(fn) }
@@ -204,5 +207,29 @@ describe('limits', () => {
     a.say({ type: 'room.typing', roomId: g, threadRootId: null, typing: true })
     expect(b.sent).toEqual([])
     for (const x of [a, b]) x.close(1000)
+  })
+})
+
+describe('the server ends a person', () => {
+  test('turned off with two windows open: their places stop at once and nothing of them is kept', async () => {
+    const eve = await addMember(h, owner, { username: 'eve' })
+    const room = (await eve.client.call('POST', '/api/rooms', { kind: 'dm', userId: ana.id })).id
+    const e1 = await connect(eve.client), e2 = await connect(eve.client), a = await connect(ana.client)
+    for (const x of [e1, e2, a]) x.clear()
+    // as Bun's sockets: the hub's own "closed" comes while both windows are still listed
+    e1.lateClose = e2.lateClose = true
+    const kept = typing.size
+    e1.say({ type: 'room.typing', roomId: room, threadRootId: null, typing: true })
+    expect(a.typing().map((f) => [f.userId, f.typing])).toEqual([[eve.id, true]])
+    expect(typing.size).toBe(kept + 1)
+    await owner.call('PATCH', `/api/admin/users/${eve.id}`, { status: 'disabled' })
+    expect(e1.closed?.code).toBe(4401)
+    expect(e2.closed?.code).toBe(4401)
+    // told now, not after the receivers' 5 s
+    expect(a.typing().map((f) => [f.userId, f.typing])).toEqual([[eve.id, true], [eve.id, false]])
+    expect(typing.size).toBe(kept)
+    e1.flushClose(); e2.flushClose()
+    expect(a.typing()).toHaveLength(2)
+    a.close(1000)
   })
 })
