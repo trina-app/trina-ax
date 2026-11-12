@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:08
 - Branch: `fix/phone-leave-signs-out`
-- Status: in progress
+- Status: done
 - Where: `mobile/`. Why: the phone app's team switch is phone code; the server's sign-out endpoint is already there.
 - Version impact: patch, a fix in the phone app (ships with the next phone build)
 
@@ -38,4 +38,6 @@ next visit to that team, whose first page signs out.
 
 ## Result
 
-(at the end)
+Built as planned: `mobile/src/leave.ts`, `leave()` and TeamWeb in `mobile/App.tsx`, the remembered sign-out reuses
+`ReinstallSignOut` with storage clearing, switch text in en and ko. Unit tests and the mobile typecheck pass; not yet
+tried on a phone (QA with the next phone build).

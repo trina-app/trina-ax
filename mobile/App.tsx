@@ -16,13 +16,14 @@ import { devicePushToken, devices, forgetDelivered, labels, notificationPermissi
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
-import { checkTeam, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { checkTeam, leftSessions, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import { LinkGate, readAppLink, type LinkOffer } from './src/team-link'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
 import { hostLineNow } from './src/team-link'
 import { readSessionCheck, sessionCheckScript } from './src/session-check'
+import { LEAVE_WAIT_MS, ended, leaveScript, oweSignOut, owesSignOut, readLeaveAnswer, signedOut } from './src/leave'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
 /** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
@@ -39,7 +40,7 @@ const LINKS = { teamDomain: service.teamDomain, loopbackHttp: false, scheme: pro
 /** The host to show for a team address: punycode with its port, as the app connected to it (never Unicode). */
 const hostOf = (origin: string) => { try { return new URL(origin).host } catch { return origin } }
 quietForeground()
-type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void }
+type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void; clearCache?(includeDiskFiles: boolean): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
 const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttributes<WebHandle>>
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
@@ -57,6 +58,20 @@ function windowLook(page: PageLook | null) {
  * sends none to an activity created again after BACK, so the bands around an older team's page kept the old look. */
 interface AppearanceModule extends TurboModule { getColorScheme(): string | null }
 const NativeAppearance = TurboModuleRegistry.get<AppearanceModule>('Appearance')
+/** React Native's networking module: on Android its cookie jar is the WebView's CookieManager (clearCookies removes the
+ * WebView's cookies too); on iOS it is the shared cookie storage the WebView copies from (sharedCookiesEnabled). */
+interface NetworkingModule extends TurboModule { clearCookies(callback: (ok: boolean) => void): void }
+const NativeNetworking = TurboModuleRegistry.get<NetworkingModule>('Networking')
+/** Every cookie the WebView holds goes (the phone is in one team at a time; called before the next team's page loads). */
+function clearWebCookies(): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, 2000)
+    const done = () => { clearTimeout(timer); resolve() }
+    try { if (NativeNetworking) NativeNetworking.clearCookies(done); else done() } catch { done() }
+  })
+}
+/** Asks the page of the team being left to sign out (TeamWeb); the server's status, 0 without an answer. */
+type Leaving = (origin: string) => Promise<number>
 const osScheme = (): string | null => { try { return NativeAppearance?.getColorScheme() ?? Appearance.getColorScheme() ?? null } catch { return Appearance.getColorScheme() ?? null } }
 function usePhoneScheme(): string | null {
   const [scheme, setScheme] = useState(osScheme)
@@ -109,6 +124,12 @@ export default function App() {
   // deleted and installed again: the team address (keychain) is still there, the session the WebView kept is ended once
   // (one object for the whole launch, so switching teams and back never signs out again)
   const signOut = useRef<ReinstallSignOut | null>(null)
+  // a team this phone left while its server did not confirm the sign-out: its first page signs out (and clears) first
+  const owed = useRef<ReinstallSignOut | null>(null), leaving = useRef<Leaving | null>(null)
+  const owedSignOut = async (origin: string) => {
+    owed.current = await owesSignOut(leftSessions, origin).catch(() => false)
+      ? new ReinstallSignOut(origin, () => signedOut(leftSessions, origin), () => Crypto.randomUUID(), true) : null
+  }
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
   const dark = isDark(page?.dark ?? null, usePhoneScheme())
@@ -130,6 +151,7 @@ export default function App() {
       device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
       // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
       if (deviceRead) await labels?.tidy(origin, device.current).catch(() => {})
+      if (origin) await owedSignOut(origin)
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })
@@ -138,12 +160,20 @@ export default function App() {
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
   /** Leave the team on this phone: notifications stop, the phone is removed from the team (now, or at a later start if
-   * that server cannot be reached). Only after the person chose another team that answered and it was saved. */
+   * that server cannot be reached), and it is signed out of it (QA TC-369: the WebView kept the session, and switching
+   * back opened the team signed in). Only after the person chose another team that answered and it was saved. */
   async function leave(origin: string) {
     device.current = null; forgetDelivered()
     // the notification extension stops asking the team left for names
     await labels?.forget().catch(() => {})
     void leaveTeam(devices, origin).catch(() => {})
+    // owed first: a sign-out that gets no answer (the server, or no page on the cannot-reach screen) is done at the next
+    // visit to that team; its page clears its storage and posts the sign-out with its own session
+    await oweSignOut(leftSessions, origin).catch(() => {})
+    const status = await (leaving.current?.(origin) ?? Promise.resolve(0)).catch(() => 0)
+    if (ended(status)) await signedOut(leftSessions, origin).catch(() => {})
+    // with or without the server: no session cookie stays on the phone
+    await clearWebCookies()
   }
   // one function for the box's [{old}(으)로 돌아가기]: Android back's handler is registered once, not on every render
   const closeAdding = useCallback(() => setAdding(false), [])
@@ -152,6 +182,7 @@ export default function App() {
     // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
     await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true
     if (old) await leave(old)
+    await owedSignOut(address.origin)
     // the new team's page starts at the link's page (TeamWeb's first address)
     setOpened(null); setPage(null); setAdding(false); setTeam(address)
   }
@@ -161,7 +192,7 @@ export default function App() {
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
-        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={owed.current?.origin === team.origin ? owed.current : signOut.current} leaving={leaving} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
@@ -354,7 +385,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   </View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
+function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
@@ -432,6 +463,28 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
     })
     return () => sub.remove()
   }, [])
+  // leaving this team (App leave): the page clears its storage and signs out with its own session; the WebView's
+  // storage goes too (iOS: local storage and IndexedDB; Android: its cache). 0 without the page or an answer in time.
+  const leaveAsk = useRef<{ token: string; done: (status: number) => void } | null>(null)
+  useEffect(() => {
+    const run: Leaving = origin => new Promise<number>(resolve => {
+      const page = web.current
+      if (origin !== address.origin || !page || !sameTeam(address.origin, currentUrl.current)) { resolve(0); return }
+      const token = Crypto.randomUUID()
+      const done = (status: number) => {
+        clearTimeout(timer)
+        if (leaveAsk.current?.token !== token) return
+        leaveAsk.current = null
+        try { page.clearCache?.(true) } catch { /* the cookies still go (App leave) */ }
+        resolve(status)
+      }
+      const timer = setTimeout(() => done(0), LEAVE_WAIT_MS)
+      leaveAsk.current = { token, done }
+      page.injectJavaScript(leaveScript(address.origin, token))
+    })
+    leaving.current = run
+    return () => { if (leaving.current === run) leaving.current = null; leaveAsk.current?.done(0) }
+  }, [address.origin, leaving])
   const clear = () => { navigation.current++; cleanup.current = r.disable(); return cleanup.current }
   /** Installs the bridge on the page that has loaded; false when it did not (a newer load, a failure, not the team). */
   async function loaded(url: string): Promise<boolean> {
@@ -529,6 +582,9 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
         setPathname(next)
       }}
       onMessage={event => {
+        // the leave sign-out's answer (its one-time token), not a bridge message
+        const left = leaveAsk.current && sameTeam(address.origin, event.nativeEvent.url) ? readLeaveAnswer(event.nativeEvent.data, leaveAsk.current.token) : null
+        if (left !== null) { leaveAsk.current?.done(left); return }
         // the reinstall sign-out's answer (its one-time token), not a bridge message
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
         // the answer to the app's own session check, not a bridge message

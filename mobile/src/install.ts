@@ -1,6 +1,7 @@
 // A reinstall of the app, and ending the session the WebView kept. No native imports: tests load this file.
 import type { Slot } from './device'
 import { sameTeam } from './protocol'
+import { WIPE_JS } from './leave'
 
 export interface InstallDeps {
   /** an id in the keychain, which iOS keeps when the app is deleted */
@@ -50,18 +51,20 @@ export async function reinstallDone(d: InstallDeps): Promise<void> {
 
 /** The sign-out after a reinstall, for one launch. Only on the team saved at launch and only on a page of it whose
  * bridge the app has just installed; at most MAX_SIGN_OUT_PAGES page loads; never again once the server answered
- * (204: the kept session is ended; 401: there was none), also after the person signed in again and switched teams. */
+ * (204: the kept session is ended; 401: there was none), also after the person signed in again and switched teams.
+ * Also the sign-out owed to a team this phone left while its server did not answer (src/leave.ts), with `wipe`: the
+ * page's storage is emptied too. */
 export class ReinstallSignOut {
   private pages = 0
   private done = false
   private token: string | null = null
-  constructor(readonly origin: string, private finish: () => Promise<void>, private newToken: () => string) {}
+  constructor(readonly origin: string, private finish: () => Promise<void>, private newToken: () => string, private wipe = false) {}
   /** The script for the page at `url` of the team `origin`, or null. */
   script(origin: string, url: string): string | null {
     if (this.done || origin !== this.origin || !sameTeam(origin, url) || this.pages >= MAX_SIGN_OUT_PAGES) return null
     this.pages++
     this.token = this.newToken()
-    return signOutScript(origin, this.token)
+    return signOutScript(origin, this.token, this.wipe)
   }
   /** A message from the page: true when it was this sign-out's answer (then it is not a bridge message). */
   answer(raw: string): boolean {
@@ -79,8 +82,8 @@ export class ReinstallSignOut {
 
 /** POST <team>/api/auth/logout (the server removes this phone's push device with the session), the answer back to the
  * app with the one-time token, and the sign-in page once the session is gone. */
-export function signOutScript(origin: string, token: string): string {
-  return `fetch(${JSON.stringify(`${origin}/api/auth/logout`)},{method:'POST',credentials:'same-origin',headers:{'x-mycel-csrf':'1'}})`
+export function signOutScript(origin: string, token: string, wipe = false): string {
+  return (wipe ? WIPE_JS : '') + `fetch(${JSON.stringify(`${origin}/api/auth/logout`)},{method:'POST',credentials:'same-origin',headers:{'x-mycel-csrf':'1'}})`
     + `.then(function(r){return r.status},function(){return 0}).then(function(s){`
     + `try{window.ReactNativeWebView.postMessage(JSON.stringify({signOut:${JSON.stringify(token)},status:s}))}catch(e){}`
     + `if(s===204||s===401)location.replace('/login')});true;`

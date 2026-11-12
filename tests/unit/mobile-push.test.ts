@@ -493,8 +493,58 @@ test('the reinstall sign-out is injected only after the bridge went on this team
   expect(app).toContain('ready.current = installed && !loadFailed.current')
   expect(app).toContain('ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null')
   expect(app).toContain('if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return')
-  // one object for the launch (not a flag per team page)
-  expect(app).toContain('signOut={signOut.current}')
+  // one object for the launch (not a flag per team page); a team left without a confirmed sign-out gets its own
+  expect(app).toContain('signOut={owed.current?.origin === team.origin ? owed.current : signOut.current}')
+})
+
+test('leaving a team signs out of it (QA TC-369): the page clears and posts the sign-out, owed until the server answered', async () => {
+  const { leaveScript, readLeaveAnswer, ended, oweSignOut, owesSignOut, signedOut } = await import('../../mobile/src/leave')
+  const { ReinstallSignOut, signOutScript } = await import('../../mobile/src/install')
+  const a = 'https://a.example', b = 'https://b.example'
+  const js = leaveScript(a, 'tok-1')
+  // the team's own origin, the page's own session, its storage cleared before the request
+  expect(js).toContain(JSON.stringify(`${a}/api/auth/logout`))
+  expect(js).toContain("credentials:'same-origin'")
+  expect(js.indexOf('localStorage.clear()')).toBeLessThan(js.indexOf('fetch('))
+  for (const part of ['sessionStorage.clear()', 'document.cookie', 'caches.delete', 'indexedDB.deleteDatabase', 'unregister()']) expect(js).toContain(part)
+  expect(js).not.toContain('location.') // the page is going away: no navigation
+  // only this leave's answer is taken
+  expect(readLeaveAnswer(JSON.stringify({ mycelLeave: 'tok-1', status: 204 }), 'tok-1')).toBe(204)
+  expect(readLeaveAnswer(JSON.stringify({ mycelLeave: 'tok-0', status: 204 }), 'tok-1')).toBeNull()
+  expect(readLeaveAnswer(JSON.stringify({ mycelLeave: 'tok-1', status: 204 }), null)).toBeNull()
+  expect(readLeaveAnswer(JSON.stringify({ signOut: 'tok-1', status: 204 }), 'tok-1')).toBeNull()
+  expect(readLeaveAnswer('{"mycelLeave":', 'tok-1')).toBeNull()
+  expect([204, 401, 0, 503].map(ended)).toEqual([true, true, false, false])
+  // owed sign-outs: one per team, kept until the server answered
+  const store = new Map<string, string>()
+  const slot = { get: async () => store.get('s') ?? null, set: async (v: string | null) => { if (v === null) store.delete('s'); else store.set('s', v) } }
+  await oweSignOut(slot, a); await oweSignOut(slot, b); await oweSignOut(slot, a)
+  expect(JSON.parse(store.get('s')!)).toEqual([b, a])
+  expect(await owesSignOut(slot, a)).toBe(true)
+  await signedOut(slot, a)
+  expect(await owesSignOut(slot, a)).toBe(false)
+  await signedOut(slot, b)
+  expect(store.has('s')).toBe(false)
+  store.set('s', 'not json')
+  expect(await owesSignOut(slot, a)).toBe(false)
+  // the next visit to a team owed a sign-out: the reinstall sign-out, with the page's storage cleared too
+  const owed = new ReinstallSignOut(a, async () => {}, () => 't', true)
+  expect(owed.script(a, `${a}/`)).toContain('localStorage.clear()')
+  expect(signOutScript(a, 't')).not.toContain('localStorage.clear()')
+})
+
+test('App leave(): owed first, the page asked, the cookies cleared with or without an answer', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  const leave = app.slice(app.indexOf('async function leave(origin: string)'), app.indexOf('const closeAdding'))
+  const order = ['leaveTeam(devices, origin)', 'oweSignOut(leftSessions, origin)', 'leaving.current?.(origin)', 'if (ended(status)) await signedOut(leftSessions, origin)', 'await clearWebCookies()']
+  for (let i = 1; i < order.length; i++) expect(leave.indexOf(order[i])).toBeGreaterThan(leave.indexOf(order[i - 1]))
+  expect(leave.indexOf(order[0])).toBeGreaterThan(-1)
+  // the old team is left before the new team's page mounts (its cookies must not be cleared)
+  const connect = app.slice(app.indexOf('async function connect('), app.indexOf('// Android: the status bar icons', app.indexOf('async function connect(')))
+  expect(connect.indexOf('if (old) await leave(old)')).toBeLessThan(connect.indexOf('setTeam(address)'))
+  // the answer is checked before the bridge sees the message, only from this team's page
+  expect(app).toContain("const left = leaveAsk.current && sameTeam(address.origin, event.nativeEvent.url) ? readLeaveAnswer(event.nativeEvent.data, leaveAsk.current.token) : null")
+  expect(app).toContain("TurboModuleRegistry.get<NetworkingModule>('Networking')")
 })
 
 test('a switch cut short (the new team saved, the old one not left yet): the old device is owed a removal at the next start', async () => {
