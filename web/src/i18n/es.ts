@@ -2082,7 +2082,7 @@ export const es: Record<MessageKey, string> = {
   'engines.defaultEngine': "Motor predeterminado",
   'engines.defaultModel': "Modelo predeterminado",
   'engines.defaultEngineOffOption': '{engine} (desactivada)',
-  'engines.defaultEngineOff': 'Esta IA está desactivada, así que los chats nuevos no pueden usarla. Elija otra o actívela en Administración › Cuentas de IA.',
+  'engines.defaultEngineOff': 'Esta IA está desactivada, así que los chats nuevos no pueden usarla. Elija otra.',
   'engines.concurrency': "Respuestas simultáneas",
   'engines.concurrencyHint': "Las respuestas adicionales esperan en la cola.",
   'engines.check': "Volver a comprobar",

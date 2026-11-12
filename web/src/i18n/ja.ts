@@ -2082,7 +2082,7 @@ export const ja: Record<MessageKey, string> = {
   'engines.defaultEngine': "既定のエンジン",
   'engines.defaultModel': "既定のモデル",
   'engines.defaultEngineOffOption': '{engine}（オフ）',
-  'engines.defaultEngineOff': 'このAIはオフのため、新しいチャットでは使えません。別のAIを選ぶか、管理 › AIアカウントでオンにしてください。',
+  'engines.defaultEngineOff': 'このAIはオフのため、新しいチャットでは使えません。別のAIを選んでください。',
   'engines.concurrency': "同時に実行する回答数",
   'engines.concurrencyHint': "超過分の回答は待機列に入ります。",
   'engines.check': "再確認",

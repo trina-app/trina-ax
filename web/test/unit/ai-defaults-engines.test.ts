@@ -23,6 +23,9 @@ describe('defaultEngineChoices', () => {
     const list = [engine('claude-code'), engine('codex', { installed: false, status: 'not_installed' }), engine('api', { installed: false, status: 'not_installed' })]
     expect(defaultEngineChoices(list, 'claude-code').map((c) => c.id)).toEqual(['claude-code'])
   })
+  test('a check that failed or timed out (installed unknown) keeps the engine listed', () => {
+    expect(defaultEngineChoices([engine('claude-code'), engine('codex', { installed: false, status: 'error' })], 'codex')).toEqual([{ id: 'claude-code', off: false }, { id: 'codex', off: false }])
+  })
   test('Claude is listed while its program is missing (the server lets it be the default)', () => {
     expect(defaultEngineChoices([engine('claude-code', { installed: false, status: 'not_installed' })], 'claude-code')).toEqual([{ id: 'claude-code', off: false }])
   })

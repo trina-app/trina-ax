@@ -28,9 +28,10 @@ import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 type EnginesData = EnginesResponse
 
 /** Whether an engine may be the team default, as the server decides (routes/admin.ts updateEngines): switched on, and
- * there on this installation (Codex turned off by office mode and the API engine without its settings show as not
- * installed), and not Codex while it is labelled beta (never the team default). */
-const canBeDefault = (e: EnginesData['engines'][number]) => e.enabled && !e.beta && (e.id === 'claude-code' || e.installed)
+ * there on this installation (Codex turned off by office mode and the API engine without its settings are
+ * "not_installed"; a check that failed or timed out is "error" and keeps it), and not Codex while it is labelled beta
+ * (never the team default). */
+const canBeDefault = (e: EnginesData['engines'][number]) => e.enabled && !e.beta && (e.id === 'claude-code' || e.status !== 'not_installed')
 
 /** The "Default engine" list: only the engines that can be the default, by the AI's own name (the composer's
  * ENGINE_LABEL: Claude, ChatGPT). The saved default stays in the list when it can no longer be one (switched off since,

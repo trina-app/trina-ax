@@ -2115,7 +2115,7 @@ export const ko = {
   'engines.defaultEngine': '기본 엔진',
   'engines.defaultModel': '기본 모델',
   'engines.defaultEngineOffOption': '{engine} (꺼짐)',
-  'engines.defaultEngineOff': '이 AI는 꺼져 있어 새 채팅에서 쓸 수 없어요. 다른 AI를 고르거나 관리자 › AI 계정에서 켜 주세요.',
+  'engines.defaultEngineOff': '이 AI는 꺼져 있어 새 채팅에서 쓸 수 없어요. 다른 AI를 골라 주세요.',
   'engines.concurrency': '동시 실행 수',
   'engines.concurrencyHint': '넘치면 대기열에서 차례를 기다려요.',
   'engines.check': '다시 확인',
