@@ -3,6 +3,7 @@
 import type { Database } from 'bun:sqlite'
 import type { AuditEntry, Page } from '@mycel/shared/api'
 import { fail } from '../http/errors'
+import { isProjectsName } from '../policy/access'
 
 /** Actions starting with "auth." are shown with source 'auth', the rest with source 'admin'. Returns the row's id. */
 export function audit(db: Database, e: { actor: string | null; action: string; target?: string | null; detail?: Record<string, unknown> | null }): number {
@@ -88,7 +89,7 @@ const namesHiddenProject = (s: string, sight?: ProjectSight) => !!sight && redac
 function pathHidden(p: string, sight?: ProjectSight): boolean {
   if (!sight) return false
   const segs = p.split('/').filter(Boolean)
-  if (segs.length >= 3 && segs[0]!.normalize('NFC').toLowerCase() === 'projects' && sight.hides(`${segs[0]}/${segs[1]}`)) return true
+  if (segs.length >= 3 && isProjectsName(segs[0]!) && sight.hides(`${segs[0]}/${segs[1]}`)) return true
   return namesHiddenProject(p, sight)
 }
 
