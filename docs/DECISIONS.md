@@ -22384,3 +22384,28 @@ task stayed on.
     sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
   - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
     the only one.
+
+## 방에 올리기…: the server asks first, as "대화방에 보내기" does (fix/room-ai-share-confirm, 2026-11-12, QA TC-329)
+
+- **Problem.** In the older "@트리나 in the room" mode (`roomAiMentions`), the app asked before posting a private preview,
+  but the server did not: one `POST /api/rooms/:id/messages/:messageId/share` posted an answer built from the asker's
+  own private files, and the others saw the numbers (Activity: `room.ai_share`). The side chat's "대화방에 보내기"
+  answers "confirm" first and posts only with its key (`room.answer_share`).
+- **Decision.** `RoomAi.share()` answers the same "confirm" (`AnswerShareConfirm`, moved to `shared/src/api/rooms.ts`
+  and used by both: `people`, `places`, `files`, `provenance`, `confirmKey`, `reason`) when the preview used material
+  some member who will see it cannot see (`decide()`'s new `missing`: the members, not the asker, who miss a folder, the
+  asker's own folder or messages from before they joined; ids only inside the server, never stored with the reasons nor
+  sent) or a source file some of them cannot open (the rows that leave the shared copy's list: named when the asker may
+  open them, else counted). Places are named as "대화방에 보내기" names them (the reasons' folders, 내 폴더, this room for
+  messages from before someone joined). The body `{ confirmKey }` of the same call posts it. The key is the side chat's
+  keyed hash (`chat/confirm-key.ts confirmMac`, now its own module so rooms/ai.ts does not import chat/answer-share.ts)
+  over the asker, room, message, who misses what and the reasons: another message's key, a change in members or access,
+  or a restart answers "confirm" again with `reason: 'changed'`. The reasons check (409 `room_ai_reasons_changed`) and the
+  refusals (409 `room_ai_hidden`, `room_ai_ask_again`) come first, as before. A preview from before migration 246 is
+  judged by its stored reasons (counts only). `room.ai_share` gets `confirmed` and `people` when it was asked.
+- **Nothing private, no new step.** A preview that used only the web or a connection, or one whose material every
+  member can see now, posts at once, as before.
+- **The app.** A preview whose reasons name material (`previewMaterial`) asks the server first and shows its "confirm"
+  in the side chat's card (`ShareConfirm`, the same words; with `sources` its rows are "참고한 파일 · 올리는 답의 출처
+  목록에서 빠져요", no attach switch: sources are left out, never copied). The rest keep the app's own confirm, then post;
+  should the server ask anyway, the card follows.

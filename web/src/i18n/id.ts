@@ -4716,6 +4716,8 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.attach": "Lampirkan",
   "shareRoom.attachWiden": "Jika dilampirkan, {n} orang lagi bisa melihatnya",
   "shareRoom.linkOnly": "Hanya tautan",
+  "shareRoom.sourcesHead": "File yang dipakai",
+  "shareRoom.sourceLeftOut": "Tidak ikut di daftar sumber jawaban yang diposting",
   "shareRoom.tooBig": "Lebih dari 50 MB, tidak bisa dilampirkan",
   "shareRoom.hidden": "{n} file yang tidak bisa saya buka",
   "shareRoom.provenance": "Jawaban ini memuat isi dari {places} yang tidak bisa dilihat {n} orang di sini",

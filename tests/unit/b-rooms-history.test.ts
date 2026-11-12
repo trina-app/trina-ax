@@ -264,7 +264,11 @@ describe('the room AI after a later member joined', () => {
     expect(forBob.body).not.toContain('HIDDEN-FROM-BOB-9')
     expect(forBob.visibility).toBe('room')
     // shown what is at stake, she may post hers (docs/DECISIONS.md "방에 올리기…"): then bob sees it, asked by her
-    const post = await h.req('alice', `/api/rooms/${roomId}/messages/${forAlice.id}/share`, { method: 'POST' })
+    const url = `/api/rooms/${roomId}/messages/${forAlice.id}/share`
+    const confirm = await (await h.req('alice', url, { method: 'POST' })).json()
+    expect(confirm).toMatchObject({ status: 'confirm', people: 1, provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }] } })
+    expect(JSON.stringify(confirm)).not.toContain('bob')
+    const post = await h.req('alice', url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmKey: confirm.confirmKey }) })
     expect(post.status).toBe(200)
     expect((await timeline('bob', roomId)).find((m) => m.id === forAlice.id)).toMatchObject({ visibility: 'room', askedBy: { id: 'alice' }, body: expect.stringContaining('HIDDEN-FROM-BOB-9') })
   })
@@ -717,7 +721,14 @@ describe('an answer built on an old answer hidden from someone', () => {
       .run(turnId, roomId, asker, chatId, qid, pid, JSON.stringify(full), d.post ? null : decisionJson(d), now, now)
     return { id: pid, questionId: qid, decision: d }
   }
-  const share = (user: string, roomId: string, id: string) => h.req(user, `/api/rooms/${roomId}/messages/${id}/share`, { method: 'POST' })
+  /** post a preview: the server's "confirm" first when it used material someone cannot see, then the same with its key */
+  const share = async (user: string, roomId: string, id: string) => {
+    const url = `/api/rooms/${roomId}/messages/${id}/share`
+    const r = await h.req(user, url, { method: 'POST' })
+    if (r.status !== 200) return r
+    const j = await r.clone().json() as { status: string; confirmKey?: string }
+    return j.status === 'confirm' ? h.req(user, url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmKey: j.confirmKey }) }) : r
+  }
   const mine = async (roomId: string, id: string, rootId?: string) => (rootId ? (await h.api('alice').call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: {} })).items : await timeline('alice', roomId)).find((m) => m.id === id)
   const fromSeq = (roomId: string, id: string) => (h.ctx.db.query('SELECT seq FROM room_messages WHERE room_id = ? AND id = ?').get(roomId, id) as { seq: number }).seq
 

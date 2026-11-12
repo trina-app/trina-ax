@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 02:49
 - Branch: `fix/room-ai-share-confirm`
-- Status: in progress
+- Status: done (PR open)
 - Where: trina-ax core (`server/src/rooms/ai.ts`, `shared/src/api/rooms.ts`, `web/src/components/rooms/`,
   `web/src/components/chat/ShareToRoom.tsx`, `web/src/i18n/`). Why: team chat rooms and their AI are core features
   (docs/REPOSITORY-RULES.md)
@@ -43,3 +43,12 @@ Out: the default side chat path (unchanged); the reasons the preview line shows 
 
 No migration. The response of the share endpoint changes shape (only the web app calls it; it is served by the same
 server). Five app languages for the two new strings.
+
+## Result
+
+- `RoomAi.share` answers `AnswerShareConfirm` (moved to `shared/src/api/rooms.ts`, shared with `shareAnswerToRoom`) and
+  posts only with its `confirmKey`; the key is `confirmMac` from the new `server/src/chat/confirm-key.ts` (the side
+  chat's secret and hash, moved so rooms/ai.ts need not import chat/answer-share.ts).
+- Web: material previews ask the server first and show `ShareConfirm` with `sources` rows; others keep the old dialog.
+- Tests: 4 new server tests in `tests/unit/b-rooms-ai.test.ts`, existing share calls go through the confirm;
+  `web/test/unit/room-ai-share-confirm.test.tsx`; `web/test/e2e/room-answer-post.spec.ts` updated.

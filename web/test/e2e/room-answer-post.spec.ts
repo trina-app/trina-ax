@@ -1,10 +1,11 @@
 // A room AI answer that stayed with its asker (docs/DECISIONS.md "방에 올리기…"): one plain line says why, and
-// "방에 올리기…" asks first, in the app's confirm, with each folder some members cannot see and how many cannot (never
-// who), and a line when it went through an earlier answer hidden from someone. 취소 leaves it private and nothing is
-// sent; 방에 올리기 posts it (it becomes the room's, asked by me). A post the server refuses because the reasons changed
-// meanwhile says why (a toast) and the notice follows the updated preview. A preview that cannot be posted has the
-// reason alone, no button. The room is answered through page.route (rooms-mock.ts); the update comes over the mock's
-// socket. SHOTS_DIR=<folder>: screenshots (1440 and 390, light and dark) go there.
+// "방에 올리기…" asks first. One that used material some members cannot see asks the server (QA TC-329): its "confirm"
+// opens the card of "대화방에 보내기" (the same words: how many people here cannot see it and where it came from, never
+// who), and its yes sends the key. 취소 leaves it private and nothing is posted; yes posts it (it becomes the room's,
+// asked by me). A post the server refuses because the reasons changed meanwhile says why (a toast) and the notice
+// follows the updated preview. A preview that cannot be posted has the reason alone, no button. The room is answered
+// through page.route (rooms-mock.ts); the update comes over the mock's socket. SHOTS_DIR=<folder>: screenshots (1440
+// and 390, light and dark) go there.
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page, type Route } from '@playwright/test'
@@ -55,12 +56,22 @@ async function routeShare(page: Page, answerWith: (route: Route, n: number) => P
 }
 const posted = () => {
   const m = answer(null)
-  return { id: m.id, roomId: ROOM_ID, seq: 9, authorKind: 'ai', author: null, askedBy: OLGA, visibility: 'room', body: ANSWER, replyTo: m.extra.replyTo, mentions: [], files: [], createdAt: '2026-11-05T09:09:00.000Z', editedAt: null, deletedAt: null, sourceCount: 0 }
+  return { status: 'sent', message: { id: m.id, roomId: ROOM_ID, seq: 9, authorKind: 'ai', author: null, askedBy: OLGA, visibility: 'room', body: ANSWER, replyTo: m.extra.replyTo, mentions: [], files: [], createdAt: '2026-11-05T09:09:00.000Z', editedAt: null, deletedAt: null, sourceCount: 0 } }
+}
+/** the server's "confirm" for the folder (how many people here cannot see it), and the key it binds */
+const confirmOf = (people: number) => ({
+  status: 'confirm', people, places: [{ kind: 'folder', path: 'groups/영업/단가표' }], otherPlaces: false, files: [],
+  provenance: { people, places: [{ kind: 'folder', path: 'groups/영업/단가표' }], otherPlaces: false }, confirmKey: `key-${people}`,
+})
+/** the server: "confirm" without the key, posted with it */
+const asksFirst = (people: number) => (route: Route) => {
+  const key = (route.request().postDataJSON() as { confirmKey?: string } | null)?.confirmKey
+  return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(key === `key-${people}` ? posted() : confirmOf(people)) })
 }
 
-test('the private answer says why in one line; 방에 올리기… asks first with the folders and counts; 취소 leaves it private', async ({ page }) => {
+test('the private answer says why in one line; 방에 올리기… asks the server first, with how many and where; 취소 leaves it private', async ({ page }) => {
   await openRoom(page, ASKABLE)
-  const calls = await routeShare(page, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(posted()) }))
+  const calls = await routeShare(page, asksFirst(2))
   const mine = page.locator('[data-visibility="private"]')
   await expect(mine.getByTestId('room-ai-private')).toContainText('나만 볼 수 있어요')
   await expect(mine.getByTestId('room-ai-preview')).toHaveText('방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고 있어요.')
@@ -71,22 +82,21 @@ test('the private answer says why in one line; 방에 올리기… asks first wi
   await mine.getByTestId('room-ai-share').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('이 답을 방에 올릴까요?')
-  await expect(dialog.getByTestId('room-ai-post-reasons')).toHaveText('단가표 · 방 사람 중 2명은 못 봐요')
-  await expect(dialog.getByTestId('room-ai-post-earlier')).toBeVisible()
+  await expect(dialog.getByTestId('share-room-provenance')).toHaveText('이 답에는 방 사람 2명이 볼 수 없는 자료의 내용이 들어 있어요: groups/영업/단가표/')
   await expect(dialog).not.toContainText('민준')
-  await dialog.getByRole('button', { name: '취소' }).click()
+  await dialog.getByTestId('share-room-back').click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('[data-visibility="private"]')).toHaveCount(1)
-  expect(calls).toHaveLength(0)
+  expect(calls).toHaveLength(1)
 
-  // asked again, and yes: it goes, and it is the room's now (asked by me)
+  // asked again, and yes: it goes with the key, and it is the room's now (asked by me)
   await mine.getByTestId('room-ai-share').click()
-  await page.getByRole('dialog').getByTestId('dialog-confirm').click()
+  await page.getByRole('dialog').getByTestId('share-room-confirm-send').click()
   await expect(page.locator('[data-visibility="private"]')).toHaveCount(0)
   const now = page.locator('[data-ai][data-visibility="room"]')
   await expect(now.getByTestId('room-ai-asked-by')).toContainText('Olga')
   await expect(page.getByTestId('room-ai-share')).toHaveCount(0)
-  expect(calls).toHaveLength(1)
+  expect(calls).toHaveLength(3)
 })
 
 test('reasons that changed meanwhile: the server says why, the notice follows, and asked again it goes', async ({ page }) => {
@@ -94,23 +104,22 @@ test('reasons that changed meanwhile: the server says why, the notice follows, a
   const calls = await routeShare(page, async (route, n) => {
     if (n === 1) {
       // what the server does: the preview again (now three cannot see the folder), then 409 with why
-      const update = { type: 'room.message.updated', data: { roomId: ROOM_ID, message: { ...posted(), seq: 3, visibility: 'private', preview: { ...ASKABLE, unable: { 'groups/영업/단가표': 3 } } } } }
+      const update = { type: 'room.message.updated', data: { roomId: ROOM_ID, message: { ...posted().message, seq: 3, visibility: 'private', preview: { ...ASKABLE, unable: { 'groups/영업/단가표': 3 } } } } }
       expect((await page.request.post('/__test/publish', { data: { event: update } })).ok()).toBeTruthy()
       return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'conflict', message: '그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', params: { reason: 'room_ai_reasons_changed' } } }) })
     }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(posted()) })
+    return asksFirst(3)(route)
   })
   const mine = page.locator('[data-visibility="private"]')
   await mine.getByTestId('room-ai-share').click()
-  await page.getByRole('dialog').getByTestId('dialog-confirm').click()
   await expect(page.getByText('그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.')).toBeVisible()
   await expect(page.locator('[data-visibility="private"]')).toHaveCount(1)
   await expect(mine.getByTestId('room-ai-share')).toBeEnabled()
   await mine.getByTestId('room-ai-share').click()
-  await expect(page.getByRole('dialog').getByTestId('room-ai-post-reasons')).toHaveText('단가표 · 다른 사람은 못 봐요')
-  await page.getByRole('dialog').getByTestId('dialog-confirm').click()
+  await expect(page.getByRole('dialog').getByTestId('share-room-provenance')).toContainText('3명')
+  await page.getByRole('dialog').getByTestId('share-room-confirm-send').click()
   await expect(page.locator('[data-visibility="private"]')).toHaveCount(0)
-  expect(calls).toHaveLength(2)
+  expect(calls).toHaveLength(3)
 })
 
 test('a private answer that cannot be posted has the reason alone and no button', async ({ page }) => {
@@ -131,12 +140,12 @@ async function shotsOf(page: Page, size: string) {
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
     await openRoom(page, ASKABLE)
-    await routeShare(page, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(posted()) }))
+    await routeShare(page, asksFirst(2))
     await shot(`after-${size}-${scheme}-1-notice`)
     await page.locator('[data-visibility="private"]').getByTestId('room-ai-share').click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await shot(`after-${size}-${scheme}-2-confirm`)
-    await page.getByRole('dialog').getByTestId('dialog-confirm').click()
+    await page.getByRole('dialog').getByTestId('share-room-confirm-send').click()
     await expect(page.locator('[data-visibility="private"]')).toHaveCount(0)
     await shot(`after-${size}-${scheme}-3-posted`)
     await page.unrouteAll({ behavior: 'ignoreErrors' })

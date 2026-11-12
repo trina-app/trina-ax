@@ -36,7 +36,7 @@
 //             replies count from their root's seq like the root, so a member who cannot see a thread keeps the answer
 //             private, as for any message from before they joined.
 import type { Database } from 'bun:sqlite'
-import { MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type ApiErrorBody, type Locale, type MessageSources, type RoomAiRun, type RoomAiState, type RoomMessage, type RoomTurnRequest, type Step } from '@mycel/shared/api'
+import { ANSWER_SHARE_FILES_MAX, MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type AnswerShareConfirm, type AnswerShareFile, type AnswerSharePlace, type ApiErrorBody, type Locale, type MessageSources, type RoomAiRun, type RoomAiState, type RoomMessage, type RoomTurnRequest, type ShareRoomMessageResult, type Step } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
@@ -44,6 +44,7 @@ import { audit } from '../admin/audit'
 import { budgetBlock } from '../admin/budgets'
 import { newChatEngine, turnEngine, type EngineModel } from '../admin/engine-choice'
 import { getChatRuntime, type ChatRuntime, type RoomTurnContext, type RoomTurns } from '../chat/runtime'
+import { confirmMac } from '../chat/confirm-key'
 import { engineError, tr } from '../chat/i18n'
 import { neutralizeTags, type RoomPrompt } from '../chat/prompt'
 import { nameSegs, readScope, roomViewers, type ReadSource } from '../chat/read-scope'
@@ -56,7 +57,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { historyKinds, openHistories } from './history'
 import { earlierSources, reasonsChanged } from './earlier-sources'
-import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seesFrom, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, groupName, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seesFrom, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 import { grantMadeFiles } from './ai-grants'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
@@ -101,8 +102,10 @@ export interface Prepared extends AskOptions { chatId: string | null; engine: En
  * hidden from some member (rooms/history.ts) was among the messages given and what it used cannot all be shown to the
  * asker, or a member's history is not worked out (never who: it would tell their access): not postable; earlier: such
  * answers were given and what they were built on (rooms/earlier-sources.ts) is in the other reasons; unable: for each
- * named folder, how many members (not the asker) cannot see it (counts only, as the share-to-room dialog). */
-export interface Decision { post: boolean; folders: string[]; otherFolders: boolean; personal: boolean; outside: boolean; joinedLater: string[]; hidden: boolean; earlier: boolean; unable: Record<string, number> }
+ * named folder, how many members (not the asker) cannot see it (counts only, as the share-to-room dialog); missing: the
+ * members (not the asker) who cannot see some of it (any folder, the asker's own folder, messages from before they
+ * joined): ids for share()'s confirm and its key, never stored with the reasons (decisionJson) nor sent. */
+export interface Decision { post: boolean; folders: string[]; otherFolders: boolean; personal: boolean; outside: boolean; joinedLater: string[]; hidden: boolean; earlier: boolean; unable: Record<string, number>; missing?: string[] }
 /** A member as decide() sees them: null = an account that cannot read anything now (disabled, deleted). */
 type Reader = { member: MemberRow; who: Principal | null }
 
@@ -637,7 +640,12 @@ export class RoomAi implements RoomTurns {
     // without names
     const named = [...folders].filter((p) => !!who && atLeast(rules.access(who, p === '' ? [] : p.split('/')), 'read')).sort()
     // an answer built on an old answer hidden from someone is never posted by itself: its asker decides, shown what it used
-    return { post: !outside && !personal && folders.size === 0 && joined.size === 0 && !hidden && !earlier, folders: named, otherFolders: named.length < folders.size, personal, outside, joinedLater, hidden, earlier, unable: Object.fromEntries(named.map((p) => [p, unable.get(p)?.size ?? 0])) }
+    // who would newly see something they cannot see now (share()'s confirm): never the asker
+    const missing = new Set<string>([...unable.values()].flatMap((x) => [...x]))
+    if (personal) for (const r of readers) missing.add(r.member.user_id)
+    for (const id of joined) missing.add(id)
+    if (askerId) missing.delete(askerId)
+    return { post: !outside && !personal && folders.size === 0 && joined.size === 0 && !hidden && !earlier, folders: named, otherFolders: named.length < folders.size, personal, outside, joinedLater, hidden, earlier, unable: Object.fromEntries(named.map((p) => [p, unable.get(p)?.size ?? 0])), missing: [...missing].sort() }
   }
 
   /** Is an old answer at or after `fromSeq` hidden from this member (room_hidden_answers), one not hidden from `exempt`
@@ -650,20 +658,27 @@ export class RoomAi implements RoomTurns {
   }
 
   // ---------------- the person's actions ----------------
-  /** Post my private preview to the room (POST /api/rooms/:id/messages/:messageId/share). */
-  share(userId: string, roomId: string, messageId: string): RoomMessage {
+  /** Post my private preview to the room (POST /api/rooms/:id/messages/:messageId/share). When it used material some
+   * member who will see it cannot see now, or a source file some of them cannot open, nothing is posted the first time:
+   * it answers "confirm" as "대화방에 보내기" does (chat/answer-share.ts: how many people, the places I may look myself,
+   * the source files, never who) with a key over what I was shown (confirmMac); the same call with that key posts it, and
+   * anything changed since (members, access, the reasons, another message, a server restart) asks again. A preview with
+   * nothing private at stake (the web alone, or nothing any more) posts at once, as before. */
+  share(userId: string, roomId: string, messageId: string, body: { confirmKey?: string } = {}): ShareRoomMessageResult {
     const db = this.db, rooms = roomsOf(this.ctx)
     const { room, me } = rooms.mine(userId, roomId)
     const m = messageRow(db, roomId, messageId)
     // only the person who asked; someone else's preview is never theirs to see (canSee): the same 404 as a message that
     // does not exist, also once it is in the room
     if (!m || m.author_kind !== 'ai' || m.asked_by !== userId || m.deleted_at || !canSee(db, m, me)) return fail('not_found')
-    if (m.visibility === 'room') return messagesOut(db, [m], me)[0]!
+    if (m.visibility === 'room') return { status: 'sent', message: messagesOut(db, [m], me)[0]! }
     // why it is private is decided again now, on what its own question used (members and rules may have changed): new
     // reasons are shown to the person first, and they post it with those in sight (the same call again)
     const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
     const scope = t ? storedScope(t.scope) : undefined
     let earlier = false
+    /** what is at stake now (null: a preview from before 246, whose stored reasons stand) */
+    let decided: Decision | null = null
     if (t && scope) {
       const asked = messageRow(db, roomId, t.question_id)
       const d = this.decide(roomId, t.chat_id, scope, asked ? seenSeq(asked) : undefined, rootOf(m), asked?.seq)
@@ -676,6 +691,7 @@ export class RoomAi implements RoomTurns {
       }
       const now = d.post ? null : decisionJson(d)
       earlier = d.earlier
+      decided = d
       if (now && reasonsChanged(t.decision, now)) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
         rooms.messageEvent('room.message.updated', m)
@@ -695,6 +711,13 @@ export class RoomAi implements RoomTurns {
     const readable = (p: Principal | null, rel: string) => { if (!p) return false; try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
     const rows = db.query('SELECT ord, path FROM room_message_sources WHERE message_id = ?').all(m.id) as { ord: number; path: string }[]
     const drop = rows.filter((r) => !people.every((p) => readable(p, r.path)))
+    // ---- the confirm: who would newly see what they cannot see now ----
+    const ask = this.shareConfirm(userId, room, m, t, decided, drop)
+    let confirmed = false
+    if (ask) {
+      if (body.confirmKey !== ask.confirmKey) return body.confirmKey === undefined ? ask : { ...ask, reason: 'changed' }
+      confirmed = true
+    }
     const now = nowIso()
     // a preview in a thread stays there (at its end); the room keeps its place in the list
     const root = m.thread_root_id ? messageRow(db, roomId, m.thread_root_id) : null
@@ -709,7 +732,7 @@ export class RoomAi implements RoomTurns {
       else db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, roomId, userId, seq)
       db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(m.id)
       // a DM's or group chat's id would let admins see who talks to whom: only the kind
-      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length, ...(earlier ? { earlier: true } : {}) } })
+      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length, ...(earlier ? { earlier: true } : {}), ...(ask ? { confirmed, people: ask.people } : {}) } })
     })()
     if (root) rooms.markThreadNoticesRead(userId, roomId, root.id, seq)
     else {
@@ -722,7 +745,51 @@ export class RoomAi implements RoomTurns {
     // the question no longer says "answered to … only": the answer is there
     const q = t ? messageRow(db, roomId, t.question_id) : null
     if (q && !q.deleted_at) rooms.messageEvent('room.message.updated', q)
-    return messagesOut(db, [row], memberRow(db, roomId, userId)!)[0]!
+    return { status: 'sent', message: messagesOut(db, [row], memberRow(db, roomId, userId)!)[0]! }
+  }
+
+  /**
+   * The "confirm" before a preview goes to the room, or null when nothing private is at stake: the members (not me) who
+   * cannot see some of what it used (decide()'s `missing`; a preview from before 246 by its stored reasons, everyone
+   * else when they name my own folder) and the source files some of them cannot open (`drop`, which leave the shared
+   * copy's list). Places are named as "대화방에 보내기" names them, only where I may look myself: the folders the reasons
+   * name, my own folder, and this room for messages from before someone joined. The key (confirmMac, the side chat's
+   * keyed hash) binds me, the room, this message, who misses what and the reasons: a key of another message never fits.
+   */
+  private shareConfirm(userId: string, room: RoomRow, m: MessageRow, t: TurnRow | null, d: Decision | null, drop: readonly { path: string }[]): AnswerShareConfirm | null {
+    const db = this.db, rules = this.ctx.files.rules(), fx = this.ctx.files.fx
+    const readers = this.readers(room.id, rootOf(m)).filter((r) => r.member.user_id !== userId)
+    const reasons = d ?? storedDecision(t?.decision ?? null)
+    if (!reasons) return null
+    let missing: string[]
+    if (d) missing = d.missing ?? []
+    else {
+      // a preview from before 246: its stored reasons (counts only); my own folder or a folder no count is kept for
+      // counts everyone else
+      const all = readers.map((r) => r.member.user_id)
+      const most = Math.max(0, ...Object.values(reasons.unable ?? {}))
+      missing = reasons.personal || ((reasons.folders.length > 0 || reasons.otherFolders) && !most) ? all : all.slice(0, Math.max(most, reasons.joinedLater.length))
+    }
+    const me = loadPrincipal(db, userId)
+    const readable = (p: Principal | null, rel: string) => { if (!p) return false; try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
+    const files: AnswerShareFile[] = []
+    const unableFile = new Set<string>()
+    for (const r of drop.slice(0, ANSWER_SHARE_FILES_MAX)) {
+      const ids = readers.filter((x) => !readable(x.who, r.path)).map((x) => x.member.user_id)
+      if (!ids.length) continue
+      for (const id of ids) unableFile.add(id)
+      // a file I cannot open now myself is never named, only counted
+      files.push(readable(me, r.path) ? { name: r.path.split('/').filter(Boolean).at(-1) ?? r.path, path: r.path, missing: false, attach: 'no', unable: ids.length } : { name: '', missing: true, attach: 'hidden', unable: ids.length })
+    }
+    const people = new Set([...missing, ...unableFile])
+    if (!people.size) return null
+    const places: AnswerSharePlace[] = reasons.folders.filter((f) => !isSkillsPath(f)).map((path) => ({ kind: 'folder', path }))
+    if (reasons.personal) places.push({ kind: 'mine' })
+    if (reasons.joinedLater.length) places.push(room.kind === 'dm' || room.kind === 'group' ? { kind: 'conversation' } : { kind: 'room', name: room.kind === 'all' ? '' : groupName(db, room) ?? room.name ?? '' })
+    const otherPlaces = reasons.otherFolders || reasons.folders.some(isSkillsPath)
+    const provenance = missing.length ? { people: missing.length, places, otherPlaces } : null
+    const confirmKey = confirmMac(this.ctx, { kind: 'room.ai_share', v: 1, userId, roomId: room.id, messageId: m.id, missing: [...missing].sort(), files: files.map((f) => [f.path ?? '', f.unable]), unable: [...unableFile].sort(), reasons: decisionJson(reasons) })
+    return { status: 'confirm', people: people.size, places, otherPlaces, files, provenance, confirmKey }
   }
 
   /** Stop the answer to my question (only the person who asked; anyone else: 404). */
@@ -879,6 +946,20 @@ export function storedScope(v: string | null): TurnScope | undefined {
     const o = JSON.parse(v) as Partial<TurnScope>
     return Array.isArray(o.sources) ? { sources: o.sources, outside: !!o.outside } : undefined
   } catch { return undefined }
+}
+
+/** A folder of the skills (the team rules and skills the AI was given): never named in a confirm (as the app's preview). */
+const isSkillsPath = (f: string) => f === 'skills' || f.startsWith('skills/')
+
+/** The reasons of a private preview as stored (decisionJson), read back; null when there are none or they are damaged. */
+function storedDecision(json: string | null): Decision | null {
+  try {
+    const d = JSON.parse(json ?? 'null') as Record<string, unknown> | null
+    if (!d || typeof d !== 'object') return null
+    const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+    const unable = d.unable && typeof d.unable === 'object' ? Object.fromEntries(Object.entries(d.unable as Record<string, unknown>).filter((e): e is [string, number] => Number.isInteger(e[1]) && (e[1] as number) >= 0)) : {}
+    return { post: false, folders: strings(d.folders), otherFolders: !!d.otherFolders, personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), hidden: !!d.hidden, earlier: !!d.earlier, unable }
+  } catch { return null }
 }
 
 /** The reasons of a private preview as stored (and compared when it is posted). */

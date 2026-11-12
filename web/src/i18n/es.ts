@@ -4672,6 +4672,8 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.attach": "Adjuntar",
   "shareRoom.attachWiden": "Al adjuntarlo, {n, plural, one {# persona más podrá verlo} other {# personas más podrán verlo}}",
   "shareRoom.linkOnly": "Solo el enlace",
+  "shareRoom.sourcesHead": "Archivos que usó",
+  "shareRoom.sourceLeftOut": "No aparece en las fuentes de la respuesta publicada",
   "shareRoom.tooBig": "Supera los 50 MB, no se puede adjuntar",
   "shareRoom.hidden": "{n, plural, one {# archivo que no puedo abrir} other {# archivos que no puedo abrir}}",
   "shareRoom.provenance": "Esta respuesta incluye contenido de {places} que {n, plural, one {# persona de aquí no puede ver} other {# personas de aquí no pueden ver}}",

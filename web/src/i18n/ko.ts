@@ -4716,6 +4716,8 @@ export const ko = {
   "shareRoom.attach": "첨부",
   "shareRoom.attachWiden": "첨부하면 {n}명이 더 보게 돼요",
   "shareRoom.linkOnly": "링크만 가요",
+  "shareRoom.sourcesHead": "참고한 파일",
+  "shareRoom.sourceLeftOut": "올리는 답의 출처 목록에서 빠져요",
   "shareRoom.tooBig": "50MB가 넘어 첨부할 수 없어요",
   "shareRoom.hidden": "내가 열 수 없는 파일 {n}개",
   "shareRoom.provenance": "이 답에는 방 사람 {n}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}",

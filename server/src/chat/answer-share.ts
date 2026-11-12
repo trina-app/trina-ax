@@ -52,7 +52,7 @@
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
 import type { Database } from 'bun:sqlite'
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import {
@@ -75,6 +75,7 @@ import { historyKinds, openHistories } from '../rooms/history'
 import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
+import { confirmMac, confirmSecret } from './confirm-key'
 import { tr } from './i18n'
 import type { ChatRow, MessageRow } from './store'
 
@@ -183,14 +184,8 @@ export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean; atta
 /** One file that went with a shared answer as a copy: the room file, its team path when it was copied, the links. */
 export interface AttachedCopy { file: string; path: string; links: string[] }
 
-/** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
-const secrets = new WeakMap<AppContext, Buffer>()
-const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, randomBytes(32)).get(ctx)!
-/** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. The share
- * of a chat (chat/share-chat.ts) puts `kind: 'chat.share'` in its state, Slack's "Post anyway" `kind: 'slack.post'`
- * (integrations/slack/post-check.ts); this file's room confirm (confirmKeyOf) has a `roomId` and no `kind`: a key of
- * one question is never one of another. */
-export const confirmMac = (ctx: AppContext, state: unknown): string => createHmac('sha256', secretOf(ctx)).update(JSON.stringify(state)).digest('base64url')
+/** The confirm keys (chat/confirm-key.ts): this file's room confirm (confirmKeyOf) has a `roomId` and no `kind`. */
+export { confirmMac }
 
 /** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience
  * misses some of what `uses` read, the places as `userId` may be told them, and what a key binds. */
@@ -468,7 +463,7 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
     files: c.rows.map((r) => [r.rel ?? '', r.attach, r.unable]),
     sources: prov.keys,
   })
-  return createHmac('sha256', secretOf(ctx)).update(state).digest('base64url')
+  return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
 
 export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }

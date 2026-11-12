@@ -4716,6 +4716,8 @@ export const en: Record<MessageKey, string> = {
   "shareRoom.attach": "Attach",
   "shareRoom.attachWiden": "Attaching lets {n, plural, one {# more person} other {# more people}} see it",
   "shareRoom.linkOnly": "Link only",
+  "shareRoom.sourcesHead": "Files it used",
+  "shareRoom.sourceLeftOut": "Left out of the posted answer's sources",
   "shareRoom.tooBig": "Over 50 MB, can't attach",
   "shareRoom.hidden": "{n, plural, one {# file} other {# files}} I can't open",
   "shareRoom.provenance": "This answer includes content from {places} that {n, plural, one {# person} other {# people}} here can't see",

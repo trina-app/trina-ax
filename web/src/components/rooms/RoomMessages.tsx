@@ -41,6 +41,8 @@ import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, 
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
+import { RoomOptionLabel } from '../chat/RoomRefMenu'
+import { ShareConfirm, useConfirmStep } from '../chat/ShareToRoom'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -563,7 +565,7 @@ export function previewLine(p: RoomMessage['preview'], t: ReturnType<typeof useT
   if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
   // not postable: the server refuses it too (docs/DECISIONS.md "방에 올리기…")
   if (p.hidden) return t('rooms.aiWhyHidden')
-  const material = p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier
+  const material = previewMaterial(p)
   if (material) return t(dm ? 'rooms.aiPrivateWhyDm' : 'rooms.aiPrivateWhy')
   if (p.outside) return t('rooms.aiPrivateWhyOutside')
   return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
@@ -602,20 +604,45 @@ export function previewConfirm(p: RoomMessage['preview'], t: ReturnType<typeof u
   return { intro: t(o.dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro'), rows, earlier }
 }
 
+/** Does a private preview name material some members cannot see (folders, my own folder, messages from before someone
+ * joined, an earlier hidden answer's sources)? Then posting it goes through the server's confirm (shareRoomMessage). */
+export const previewMaterial = (p: RoomMessage['preview']): boolean =>
+  !!p && (p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier)
+
 /** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
  * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
- * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share) and first asks, in the app's confirm,
- * with what some members cannot see (previewReasons) and whether it went through an earlier answer hidden from someone.
- * Posting leaves out the sources some member cannot read; the server decides that again and, when the reasons changed
- * meanwhile, answers 409 with why (a toast) and sends the preview again (the line and the button follow). Putting it
- * away is in the message's "…" menu. */
+ * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share). A preview that used material some
+ * members cannot see (previewMaterial) asks the server first: its "confirm" opens the card of "대화방에 보내기"
+ * (chat/ShareToRoom.tsx ShareConfirm: the room, the files it used that some cannot open, how many people here cannot see
+ * that content and where it came from, never who), and its yes posts with the key (asked again when something changed).
+ * Anything else (only the web, or an older preview) keeps the app's confirm with its reasons (previewConfirm), then
+ * posts; should the server ask anyway, the card follows. Posting leaves out the sources some member cannot read; when
+ * the reasons changed meanwhile the server answers 409 with why (a toast) and sends the preview again (the line and the
+ * button follow). Putting it away is in the message's "…" menu. */
 function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
   const dm = room?.kind === 'dm'
   const [busy, setBusy] = useState(false)
+  const confirm = useConfirmStep()
+  const button = useRef<HTMLButtonElement>(null)
+  /** the server's answer: posted, or its "confirm" (`yes`: after my yes on one) */
+  const share = async (confirmKey?: string) => {
+    setBusy(true)
+    try {
+      const r = await useRooms.getState().shareAi(roomId, m.id, confirmKey)
+      if (r.status === 'confirm') confirm.asked(r, !!confirmKey, {})
+      else confirm.close()
+    } catch (e) {
+      // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
+      confirm.close()
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+    setBusy(false)
+  }
   const post = async () => {
+    if (previewMaterial(m.preview)) return share()
     const c = previewConfirm(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
     const ok = await confirmDialog({
       title: t('rooms.aiPostTitle'),
@@ -634,16 +661,23 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
       ),
       confirm: t('rooms.aiPostConfirm'),
     })
-    if (!ok) return
-    setBusy(true)
-    try {
-      await useRooms.getState().shareAi(roomId, m.id)
-    } catch (e) {
-      // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(false)
-    }
+    if (ok) await share()
   }
+  const card = confirm.ask && (
+    <ShareConfirm
+      title={t('rooms.aiPostTitle')}
+      target={room ? <div className="flex items-center gap-2.5"><RoomOptionLabel room={room} /></div> : null}
+      ask={confirm.ask}
+      others={room ? Math.max(0, room.memberCount - 1) : 0}
+      attach={NO_FILES}
+      onAttach={() => {}}
+      busy={busy}
+      onSend={(yes) => void share(yes.confirmKey)}
+      onCancel={() => { if (!busy) confirm.close() }}
+      returnTo={button.current}
+      sources
+    />
+  )
   // put away (deleted): only the lock line, nothing to post
   if (m.deletedAt)
     return (
@@ -662,16 +696,19 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
         {!m.preview?.hidden && (
           <>
             <span aria-hidden>·</span>
-            <button type="button" disabled={busy} onClick={() => void post()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+            <button ref={button} type="button" disabled={busy} onClick={() => void post()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
               {t('rooms.aiPost')}
             </button>
           </>
         )}
       </p>
       <p className="mt-0.5 break-keep" data-testid="room-ai-preview">{previewLine(m.preview, t, dm)}</p>
+      {card}
     </div>
   )
 }
+/** a preview's card attaches nothing (its sources are left out, never copied) */
+const NO_FILES: ReadonlySet<string> = new Set()
 
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()

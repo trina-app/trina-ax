@@ -4672,6 +4672,8 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.attach": "添付",
   "shareRoom.attachWiden": "添付すると、さらに{n, plural, one {#人} other {#人}}が見られるようになります",
   "shareRoom.linkOnly": "リンクだけ送ります",
+  "shareRoom.sourcesHead": "参考にしたファイル",
+  "shareRoom.sourceLeftOut": "投稿する回答の出典一覧からは外れます",
   "shareRoom.tooBig": "50MBを超えるため添付できません",
   "shareRoom.hidden": "自分が開けないファイル{n, plural, one {#件} other {#件}}",
   "shareRoom.provenance": "この回答には、ここにいる{n, plural, one {#人} other {#人}}が見られない{places}の内容が含まれています",

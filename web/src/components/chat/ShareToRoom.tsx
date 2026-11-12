@@ -248,10 +248,12 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
  * where it goes (`target`), my note, "asked again" when it is, a row per linked file with its 첨부 switch, the provenance
  * line. The primary button (첨부해서 보내기 when a switch is on, else 보내기) sends with the key and the files on;
  * 취소, ✕ and Esc are `onCancel`. `others`: the people of the room but me (a row's "nobody else can open it"). `returnTo`:
- * where the focus goes when it closes (default: where it was). */
-export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo }: {
+ * where the focus goes when it closes (default: where it was). `sources`: the rows are the files a room AI preview used
+ * (components/rooms/RoomMessages.tsx PreviewLine), which leave the posted copy's list, not links of the answer. */
+export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo, sources = false }: {
   title: string; target: ReactNode; note?: string; ask: ConfirmAsk; others: number; attach: ReadonlySet<string>
   onAttach: (f: (cur: Set<string>) => Set<string>) => void; busy: boolean; onSend: (yes: { confirmKey: string; attach: string[] }) => void; onCancel: () => void; returnTo?: HTMLElement | null
+  sources?: boolean
 }) {
   const t = useT()
   const id = useId()
@@ -295,7 +297,7 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
         )}
         {ask.files.length > 0 && (
           <section aria-labelledby={`${id}-files`}>
-            <h3 id={`${id}-files`} className="mb-1 text-xs font-medium text-muted">{t('shareRoom.filesHead')}</h3>
+            <h3 id={`${id}-files`} className="mb-1 text-xs font-medium text-muted">{t(sources ? 'shareRoom.sourcesHead' : 'shareRoom.filesHead')}</h3>
             <ul className="divide-y divide-line" data-testid="share-room-files">
               {shown.map((f) => (
                 <FileRow
@@ -303,6 +305,7 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
                   file={f}
                   others={others}
                   on={attach.has(f.path!)}
+                  source={sources}
                   full={attach.size >= ROOM_FILES_MAX}
                   onChange={(v) => onAttach((cur) => { const next = new Set(cur); if (v) next.add(f.path!); else next.delete(f.path!); return next })}
                 />
@@ -322,12 +325,13 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
   )
 }
 
-/** One linked file: its name, who can open it, and the 첨부 switch when it may go with the message. */
-function FileRow({ file, others, on, full, onChange }: { file: AnswerShareFile; others: number; on: boolean; full: boolean; onChange: (v: boolean) => void }) {
+/** One linked file: its name, who can open it, and the 첨부 switch when it may go with the message. `source`: a file the
+ * answer used, which leaves the posted copy's list (never attached). */
+function FileRow({ file, others, on, full, onChange, source = false }: { file: AnswerShareFile; others: number; on: boolean; full: boolean; onChange: (v: boolean) => void; source?: boolean }) {
   const t = useT()
   const id = useId()
   const status = file.unable === 0 ? t('shareRoom.fileAll') : file.unable >= others ? t('shareRoom.fileNoOne') : t('shareRoom.fileSome', { n: file.unable })
-  const caption = file.attach === 'yes' ? (on ? t('shareRoom.attachWiden', { n: file.unable }) : t('shareRoom.linkOnly')) : file.attach === 'too_big' ? t('shareRoom.tooBig') : file.unable > 0 ? t('shareRoom.linkOnly') : null
+  const caption = source ? (file.unable > 0 ? t('shareRoom.sourceLeftOut') : null) : file.attach === 'yes' ? (on ? t('shareRoom.attachWiden', { n: file.unable }) : t('shareRoom.linkOnly')) : file.attach === 'too_big' ? t('shareRoom.tooBig') : file.unable > 0 ? t('shareRoom.linkOnly') : null
   return (
     <li className="flex items-center gap-3 py-2.5" data-testid="share-room-file" data-path={file.path}>
       <FileText size={16} className="mt-0.5 shrink-0 self-start text-faint" aria-hidden />

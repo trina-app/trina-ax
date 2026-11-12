@@ -5,14 +5,11 @@ import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from '
 import { endpoint, empty } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType } from './entities'
-import { ANSWER_NOTE_MAX, ROOM_FILES_MAX, RoomMessage } from './rooms'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerShareProvenance, ROOM_FILES_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
 // ---------------- an answer sent to a room ("대화방에 보내기") ----------------
-/** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
- * (everyone else counted) */
-export const ANSWER_SHARE_FILES_MAX = 100
 export const ShareAnswerToRoomBody = z.object({
   roomId: Uuid7,
   /** one line before the answer ("한마디 덧붙이기"); newlines become spaces */
@@ -33,61 +30,9 @@ export const ShareAnswerToRoomBody = z.object({
   /** client-made id: sending the same one again returns the first message */
   clientMessageId: z.string().min(8).max(64),
 }).strict()
-/** Where something the answer used came from that some member cannot open (never who cannot). */
-export const AnswerSharePlace = z.discriminatedUnion('kind', [
-  /** a team folder ('' = the top of the team folder) */
-  z.object({ kind: z.literal('folder'), path: z.string() }),
-  /** my own folder, or what only I saw (the in-app browser, a personal connection) */
-  z.object({ kind: z.literal('mine') }),
-  /** a team connection (a connected service) or a shared Google Drive, by its name */
-  z.object({ kind: z.literal('service'), name: z.string() }),
-  /** a team room by its group's name, or the everyone room (name '') */
-  z.object({ kind: z.literal('room'), name: z.string() }),
-  /** a 1:1 or group conversation (never named: its name is people's names) */
-  z.object({ kind: z.literal('conversation') }),
-])
-export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>
-/** One file the answer links to or shows, as the person sending may be told. */
-export const AnswerShareFile = z.object({
-  /** its name; '' when `missing` (never named: I cannot open it now) */
-  name: z.string(),
-  /** its team path, only when I may open it now */
-  path: RelPath.optional(),
-  /** I cannot open it now: gone or not mine to open read the same, and it is never named */
-  missing: z.boolean(),
-  /** yes: it can go with the message as a copy (the switch, on by default); no: not needed (everyone can open it) or not
-   * a file to copy; too_big: over 50 MB; hidden: I cannot open it (`missing`) */
-  attach: z.enum(['yes', 'no', 'too_big', 'hidden']),
-  /** members of the room (not me) who cannot open it now; for a `missing` file, everyone else (nothing is told) */
-  unable: z.number().int().nonnegative(),
-})
-export type AnswerShareFile = z.infer<typeof AnswerShareFile>
-/** The answer carries content from material some members cannot see. */
-export const AnswerShareProvenance = z.object({
-  /** members (not me) who cannot see some of it */
-  people: z.number().int().positive(),
-  /** where it came from, named only where I may look myself */
-  places: z.array(AnswerSharePlace),
-  /** more such places that are not named */
-  otherPlaces: z.boolean(),
-  /** what this answer used is not all known (it is not on the chat's current branch): `people` is everyone else */
-  unknown: z.literal(true).optional(),
-})
-export type AnswerShareProvenance = z.infer<typeof AnswerShareProvenance>
 export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
   z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean() }),
-  /** nothing sent. `files`: every file the answer links to (a row each); `provenance`: content from material some members
-   * cannot see (null: none); `confirmKey`: send it with the same request to go ahead. Older clients read `people` (the
-   * members, not me, who cannot open a linked file or see some of that material), `places` and `otherPlaces` */
-  z.object({
-    status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean(),
-    files: z.array(AnswerShareFile).max(ANSWER_SHARE_FILES_MAX),
-    provenance: AnswerShareProvenance.nullable(),
-    confirmKey: z.string(),
-    /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
-     * but the files I chose to attach change the provenance line (shown for that choice) */
-    reason: z.enum(['changed', 'choice']).optional(),
-  }),
+  AnswerShareConfirm,
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
