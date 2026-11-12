@@ -108,7 +108,8 @@ function lastChanges(map: ReturnType<typeof buildMap>): (id: string) => string {
 /** The column of a QA header (case and spaces aside), -1 when missing. */
 const headerCol = (values: string[][], name: string) => (values[0] ?? []).findIndex((h) => h.trim().toLowerCase() === name.toLowerCase())
 
-/** A QA date cell as YYYY-MM-DD ("2026-11-10", "2026. 11. 10", "11/10/2026", a date and time), else ''. */
+/** A QA date cell as YYYY-MM-DD ("2026-11-10", "2026. 11. 10", "11/10/2026" read as month/day/year like the sheet's
+ * US locale, a date and time), else ''. */
 export function isoDate(cell: string): string {
   const t = cell.trim()
   let m = t.match(/^(\d{4})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})/)
@@ -119,6 +120,7 @@ export function isoDate(cell: string): string {
 }
 
 function qaRows(values: string[][], featureCol: number): QaRow[] {
+  if (!values.length) return []
   const [idC, resC, dateC] = [headerCol(values, 'TC ID'), headerCol(values, 'Result'), headerCol(values, 'Test date')]
   // a renamed header would make every feature look untested: stop instead of writing that
   if (idC < 0 || resC < 0) throw new Error('the QA tab has no "TC ID" or "Result" header: nothing written')

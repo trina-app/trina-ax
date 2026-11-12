@@ -6,7 +6,7 @@
 # Failing e2e tests do not fail this workflow (the coverage of the run is still written); the job logs show them.
 #
 # One-time setup (docs/FEATURES.md "Sheet sync in CI"): the secret GOOGLE_SHEETS_SA_JSON (a Google service account's key
-# JSON, the sheet shared with its e-mail as an editor) and the variable (or secret) FEATURES_SHEET_ID (the QA sheet's
+# JSON, the sheet shared with its e-mail as an editor) and the secret FEATURES_SHEET_ID (the QA sheet's
 # id). Without them the sheet step is skipped. The script writes only the Features tab, the QA tab's Feature ID header
 # cell and that column's dropdown.
 name: Feature map
@@ -69,7 +69,7 @@ jobs:
   sheet:
     name: Features tab of the QA sheet
     needs: e2e
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -91,7 +91,7 @@ jobs:
       - name: Rewrite the Features tab
         env:
           GOOGLE_SHEETS_SA_JSON: ${{ secrets.GOOGLE_SHEETS_SA_JSON }}
-          FEATURES_SHEET_ID: ${{ vars.FEATURES_SHEET_ID || secrets.FEATURES_SHEET_ID }}
+          FEATURES_SHEET_ID: ${{ secrets.FEATURES_SHEET_ID }}
         run: |
           ls coverage || true
           if [ -z "$GOOGLE_SHEETS_SA_JSON" ] || [ -z "$FEATURES_SHEET_ID" ]; then

@@ -69,7 +69,7 @@ sheet's owner:
 1. Google Cloud console → a project → **IAM & Admin › Service accounts** → create one (no roles needed) → **Keys › Add
    key › JSON**. Enable the **Google Sheets API** for the project.
 2. Share the QA sheet with the service account's e-mail (`…@….iam.gserviceaccount.com`) as **Editor**.
-3. GitHub → the repository's **Settings › Secrets and variables › Actions** → the secret `GOOGLE_SHEETS_SA_JSON` (the
-   whole key file) and the variable `FEATURES_SHEET_ID` (the id in the sheet's address).
+3. GitHub → the repository's **Settings › Secrets and variables › Actions** → the secrets `GOOGLE_SHEETS_SA_JSON` (the
+   whole key file) and `FEATURES_SHEET_ID` (the id in the sheet's address; a secret, so public logs never show it).
 
 Without them the workflow still runs the suite and uploads the coverage; the sheet step says it was skipped.
