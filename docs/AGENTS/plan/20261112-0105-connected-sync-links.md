@@ -51,3 +51,8 @@ Built as planned. A read error during the re-check (macOS privacy, for example) 
 ("permission" / "not_found"), only a failed rule becomes "moved". Unit tests simulate the race by putting the links in
 right after the listing; they fail on the old code (a link-replaced source synced, three files copied through links).
 Linux's `/proc/self/fd` path is exercised by CI on Linux; macOS was run here.
+
+Review follow-up: a folder that may not be read (macOS privacy, mode 000) reports "permission" again, at the source and
+in a subfolder (it was "not found", and a subfolder was skipped and its mirrored files removed). A source that changes
+in the moment between the check and the listing stops the sync with "moved" instead of an empty listing. The copy
+buffer is sized to the file (at most 1 MB). Unit tests also run on Linux (Docker, as a user and as root).

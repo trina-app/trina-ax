@@ -185,4 +185,53 @@ describe('links planted after connecting', () => {
     expect(await cf.sync(c.id)).toMatchObject({ copied: 3 })
     expect(mirrored('share-c').sort()).toEqual(['normal', 'normal', 'normal file', 'normal sub file'])
   })
+
+  // root ignores folder permissions (CI containers run as root): these need an ordinary user
+  const asUser = process.getuid?.() !== 0
+  test.if(asUser)('a source nobody may read says "permission", not "not found"', async () => {
+    const s = path.join(home, 'Share-D')
+    fs.mkdirSync(s, { recursive: true }); fs.writeFileSync(path.join(s, 'ok.txt'), 'normal')
+    const c = cf.add({ name: 'share-d', source: s, actor: 'dion' })
+    await cf.sync(c.id)
+    fs.chmodSync(s, 0o000)
+    try {
+      await expect(cf.sync(c.id)).rejects.toThrow('permission')
+      expect(cf.get(c.id)).toMatchObject({ last_status: 'error', last_error: 'permission' })
+    } finally { fs.chmodSync(s, 0o755) }
+    expect(mirrored('share-d')).toEqual(['normal'])
+  })
+
+  test.if(asUser)('a subfolder nobody may read stops the sync with "permission"; its mirrored files stay', async () => {
+    const s = path.join(home, 'Share-E')
+    fs.mkdirSync(path.join(s, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(s, 'ok.txt'), 'normal'); fs.writeFileSync(path.join(s, 'sub', 'a.txt'), 'normal sub')
+    const c = cf.add({ name: 'share-e', source: s, actor: 'dion' })
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 2 })
+    fs.chmodSync(path.join(s, 'sub'), 0o000)
+    try {
+      await expect(cf.sync(c.id)).rejects.toThrow('permission')
+      expect(cf.get(c.id)!.last_error).toBe('permission')
+    } finally { fs.chmodSync(path.join(s, 'sub'), 0o755) }
+    expect(mirrored('share-e').sort()).toEqual(['normal', 'normal sub'])
+  })
+
+  test('the source swapped for a link right after the check: the sync stops, the mirror is not emptied', async () => {
+    plant()
+    const s = path.join(home, 'Share-F')
+    fs.mkdirSync(s, { recursive: true }); fs.writeFileSync(path.join(s, 'ok.txt'), 'normal')
+    const c = cf.add({ name: 'share-f', source: s, actor: 'dion' })
+    await cf.sync(c.id)
+    const real = (cf as unknown as { listSource: (src: string) => unknown }).listSource.bind(cf)
+    ;(cf as unknown as { listSource: (src: string) => unknown }).listSource = (src: string) => {
+      fs.renameSync(s, s + '-real'); fs.symlinkSync(h.dataDir, s)
+      return real(src)
+    }
+    try { await expect(cf.sync(c.id)).rejects.toThrow('moved') } finally {
+      delete (cf as unknown as { listSource?: unknown }).listSource
+      fs.rmSync(s); fs.renameSync(s + '-real', s)
+    }
+    expect(cf.get(c.id)!.last_error).toBe('moved')
+    expect(mirrored('share-f')).toEqual(['normal'])
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 0, removed: 0, files: 1 })
+  })
 })

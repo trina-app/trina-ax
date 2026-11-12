@@ -163,8 +163,9 @@ export class ConnectedFolders {
     let skipped = 0
     const walk = (rel: string[]) => {
       const dir = path.join(src, ...rel)
-      // a folder that became a link (or now resolves elsewhere) since its parent was read is never entered
-      if (!realFolder(dir)) { skipped++; return }
+      // a folder that became a link (or now resolves elsewhere) since its parent was read is never entered; the source
+      // itself changed after the check: the sync stops (an empty listing would remove the whole mirror)
+      if (!realFolder(dir)) { if (!rel.length) throw new ConnectedError('moved'); skipped++; return }
       const names = fs.readdirSync(dir)
       for (const n of names.sort()) {
         if (files.size >= LIST_MAX) return
@@ -226,6 +227,8 @@ export class ConnectedFolders {
       // the source is checked again at every sync, not only when it was connected: someone who can write to the share
       // may have replaced it with a link (to the server's own data, for example). It must still be the same real folder.
       if (!fs.lstatSync(c.source).isDirectory()) throw new ConnectedError('moved')
+      // a read error here (macOS privacy, a folder nobody may open) reaches the errno mapping below, not "not found"
+      fs.realpathSync(c.source)
       let again: string
       try { again = checkSource(c.source, this.sourceRules()) } catch (e) {
         if (!(e instanceof ConnectedError)) throw e // a read error (macOS privacy, for example): reported as before
@@ -298,9 +301,14 @@ export class ConnectedFolders {
 const nfc = (p: string) => p.normalize('NFC')
 const within = (p: string, root: string) => nfc(p) === nfc(root) || nfc(p).startsWith(nfc(root) + '/')
 
-/** A real folder at exactly this path: not a link, and no link on the way (realpath gives the same path). */
+/** A real folder at exactly this path: not a link, and no link on the way (realpath gives the same path). A folder that
+ * may not be read throws (EPERM / EACCES: reported as "permission", never skipped silently). */
 function realFolder(p: string): boolean {
-  try { return fs.lstatSync(p).isDirectory() && nfc(fs.realpathSync(p)) === nfc(p) } catch { return false }
+  try { return fs.lstatSync(p).isDirectory() && nfc(fs.realpathSync(p)) === nfc(p) } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'EPERM' || code === 'EACCES') throw e
+    return false
+  }
 }
 
 /** Where an open file really is, read from the open file and not from its path: Linux /proc/self/fd; macOS /dev/fd
@@ -325,7 +333,7 @@ async function copyNoFollow(file: string, source: string, dst: string): Promise<
     if (!where || !within(where, source)) throw new Error('outside the source')
     const out = await fs.promises.open(dst, k.O_WRONLY | k.O_CREAT | k.O_EXCL | k.O_NOFOLLOW, 0o644)
     try {
-      const buf = Buffer.allocUnsafe(1 << 20)
+      const buf = Buffer.allocUnsafe(Math.min(st.size + 1, 1 << 20)) // per call: syncs of two folders may run at once
       let total = 0
       for (;;) {
         const { bytesRead } = await inp.read(buf, 0, buf.length, null)
