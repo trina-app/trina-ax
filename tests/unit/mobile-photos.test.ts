@@ -2,7 +2,7 @@
 // (mobile/src/photos.ts: one at a time, chunks in order and exactly as long as the file, limits, cancel, fences, idle
 // expiry, the copies deleted) and the receiver's routing. The page's side is in web/test/unit/mobile.test.ts.
 import { expect, test } from 'bun:test'
-import { FileTransfers, loadStartFences, MobileReceiver, replyScript, type TransferIO } from '../../mobile/src/bridge'
+import { FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, type TransferIO } from '../../mobile/src/bridge'
 import { SHEET_COOLDOWN_MS, SheetGate } from '../../mobile/src/sheet'
 import { assetSize, base64Bytes, PhotoPicks as Picks, PhotoRefused, pickedName, pickedType, type PickedAsset, type PickIO } from '../../mobile/src/photos'
 /** the app's picks without the cooldown between sheets (tested on its own below) */
@@ -383,4 +383,28 @@ test('the receiver says when a pick is on: from the picker opening to done, neve
   expect(r.picking).toBe(false)
   p.pick([{ name: 'IMG_2.jpg', mime: 'image/jpeg', bytes: bytes(3) }])
   expect(await again).toBeNull()
+})
+
+test('QA TC-251 (iOS): a load end while the bridge is on asks the page; the document with the bridge says nothing, a new one asks for it', () => {
+  const nonce = 'a'.repeat(64)
+  const run = (w: Record<string, unknown>) => {
+    const sent: string[] = []
+    const win = { ...w, ReactNativeWebView: { postMessage: (m: string) => sent.push(m) } } as Record<string, unknown>
+    win.top = win; win.self = win
+    new Function('window', sameDocumentScript(nonce))(win)
+    return sent
+  }
+  // the same document (a step of its history: the shim's load end): nothing
+  expect(run({ mycelMobile: { nonce } })).toEqual([])
+  // a new document (no bridge yet), or one with another bridge: it asks
+  const asked = run({})
+  expect(asked).toHaveLength(1)
+  expect(readNewDocument(asked[0]!, nonce)).toBe(true)
+  expect(run({ mycelMobile: { nonce: 'b'.repeat(64) } })).toHaveLength(1)
+  // only the answer for this bridge's nonce counts
+  expect(readNewDocument(JSON.stringify({ mycelNewDocument: 'b'.repeat(64) }), nonce)).toBe(false)
+  expect(readNewDocument('{"v":1,"type":"photo-pick"}', nonce)).toBe(false)
+  expect(readNewDocument('not json mycelNewDocument', nonce)).toBe(false)
+  // the nonce goes in as a string literal, whatever it holds
+  expect(sameDocumentScript('x"};alert(1)//')).toContain(JSON.stringify('x"};alert(1)//'))
 })

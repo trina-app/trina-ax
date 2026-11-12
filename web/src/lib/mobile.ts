@@ -236,8 +236,9 @@ function fromBase64(b64: string): Uint8Array {
  * `limit`, [] when they cancelled; `tooBig`, the names the app left out for their size (50 MiB a file, 200 MiB a pick).
  * Only bytes cross: never a path or a URL, and nothing is fetched. Each chunk is asked for in order and must be exactly
  * as long as the file says. Rejects with photo_denied when the phone refused access, and with an AbortError when the
- * page moved on (a navigation, a team change, a sign-out); the app then drops the pick itself. */
-export async function pickPhotosFromApp(limit: number): Promise<{ files: File[]; tooBig: string[] }> {
+ * page moved on (a navigation, a team change, a sign-out); the app then drops the pick itself. `onAnswer`: the picker
+ * has answered, with this many bytes still to come. */
+export async function pickPhotosFromApp(limit: number, onAnswer?: (bytes: number) => void): Promise<{ files: File[]; tooBig: string[] }> {
   const turn = epoch
   await barrier
   if (turn !== epoch) throw cancelled()
@@ -256,6 +257,7 @@ export async function pickPhotosFromApp(limit: number): Promise<{ files: File[];
     asked = !Array.isArray(reply.files) || reply.files.length > 0
     const tooBig = reply.tooBig ?? []
     if (!validPicks(reply.files, tooBig, want)) throw new Error('mobile_protocol_mismatch')
+    onAnswer?.(reply.files.reduce((n, f) => n + f.size, 0))
     const files: File[] = []
     let seq = 0
     for (const [index, f] of reply.files.entries()) {

@@ -36,8 +36,8 @@ type Win = {
 }
 
 /** The app's bridge as the page sees it. `photos`: it offers photo-pick-v1; the person picks `nextPick` (set per test). */
-async function app(page: Page, photos: boolean) {
-  await page.addInitScript((photos) => {
+async function app(page: Page, photos: boolean, o: { iosShim?: boolean } = {}) {
+  await page.addInitScript(({ photos, iosShim }) => {
     const w = window as unknown as Win
     w.mycelMobile = { protocol: 1, appVersion: '1.0.5', platform: 'ios', generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1', ...(photos ? ['photo-pick-v1'] : [])] }
     w.mobileMessages = []
@@ -45,6 +45,21 @@ async function app(page: Page, photos: boolean) {
     w.pickMs = 150; w.androidPage = false; w.fenced = 0
     let picked: Picked[] = []
     let picking: ReturnType<typeof setTimeout> | null = null
+    // iPhone build 9: react-native-webview's history shim (at document start, under the page's own wrappers) reports
+    // every pushState, replaceState and popstate as a load end, and the app installed its bridge again for it: a new
+    // nonce and mycel:mobile-ready a moment later; an answer to the old nonce is dropped (MobileReceiver)
+    if (iosShim) {
+      w.fenced = 0
+      const loadEnd = () => setTimeout(() => {
+        if (picking) w.fenced++
+        w.mycelMobile = { ...w.mycelMobile, nonce: String(w.fenced % 10).repeat(32) + 'f'.repeat(32), generation: w.mycelMobile.generation + 1 }
+        window.dispatchEvent(new Event('mycel:mobile-ready'))
+      }, 15)
+      const push = history.pushState, replace = history.replaceState
+      history.pushState = function (...a: Parameters<History['pushState']>) { setTimeout(loadEnd, 0); return push.apply(history, a) }
+      history.replaceState = function (...a: Parameters<History['replaceState']>) { setTimeout(loadEnd, 0); return replace.apply(history, a) }
+      window.addEventListener('popstate', () => setTimeout(loadEnd, 0))
+    }
     window.addEventListener('popstate', () => {
       if (!w.androidPage || !picking) return
       clearTimeout(picking); picking = null; w.fenced++
@@ -65,11 +80,14 @@ async function app(page: Page, photos: boolean) {
       }
       if (m.type === 'photo-chunk') reply.b64 = btoa(atob(picked[m.index]!.b64).slice(m.offset, m.offset + 1024 * 1024))
       // the picker takes a moment; the page waits for each answer
-      const send = () => window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply }))
+      const send = () => {
+        if (iosShim && (m.nonce !== w.mycelMobile.nonce || m.generation !== w.mycelMobile.generation)) return
+        window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply }))
+      }
       if (m.type === 'photo-pick') picking = setTimeout(() => { picking = null; send() }, w.pickMs)
       else setTimeout(send, 0)
     } }
-  }, photos)
+  }, { photos, iosShim: !!o.iosShim })
 }
 const pickNext = (page: Page, files: { name: string; mime: string; bytes: Buffer }[], tooBig: string[] = []) =>
   page.evaluate((next) => { (window as unknown as Win).nextPick = next }, { files: files.map((f) => ({ name: f.name, mime: f.mime, b64: f.bytes.toString('base64') })), tooBig })
@@ -245,5 +263,26 @@ test('a pick started in one room does not land in the next room opened before it
   await page.waitForTimeout(2500)
   await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
   expect(uploads).toEqual([])
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+})
+
+test('QA TC-251 on the iPhone (build 9): its history shim turns the sheet\'s step into a new bridge; held, the pick survives and lands', async ({ page }) => {
+  await reset(page)
+  await app(page, true, { iosShim: true })
+  await signIn(page)
+  await routeRoom(page, { members: [BEN] })
+  await page.route(`**/api/rooms/${ROOM_ID}/files`, (r) => r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: '019a5f00-0000-7000-8000-000000000701', name: 'IMG_0001.png', size: PNG.length, mime: 'image/png', kind: 'image', thumb: false }) }))
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await page.evaluate(() => { (window as unknown as Win).pickMs = 2500 })
+  await pickNext(page, [{ name: 'IMG_0001.png', mime: 'image/png', bytes: PNG }])
+  await page.waitForTimeout(500)
+  await page.getByTestId('room-attach').click()
+  // a person's tap comes after the bridge the sheet's opening brought (the shim's step of its entry)
+  await page.waitForTimeout(400)
+  await page.getByTestId('attach-photos').click()
+  const chip = page.getByTestId('room-file-chip')
+  await expect(chip).toHaveCount(1, { timeout: 8000 })
+  await expect(chip).toHaveAttribute('data-status', 'done')
+  expect(await page.evaluate(() => (window as unknown as Win).fenced)).toBe(0)
   await expect(page.getByTestId('toast')).toHaveCount(0)
 })

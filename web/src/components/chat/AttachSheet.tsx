@@ -33,6 +33,10 @@ export const iosWebKit = () =>
 /** What the 파일 row's input takes: on iOS any data file, so the Files browser opens without iOS's menu; elsewhere any. */
 export const filesAccept = () => (iosWebKit() ? 'application/octet-stream' : undefined)
 
+/** How long the history stays held for a pick's bytes once the picker answered (AttachSheet): 15 s, and 1 s more per
+ * MiB (a full 200 MiB pick: the 120 s cap). */
+export const bytesHoldMs = (bytes: number) => Math.min(120_000, 15_000 + Math.ceil(bytes / (1024 * 1024)) * 1000)
+
 export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
   /** files picked from the phone (pictures, a photo just taken, files) */
   onFiles: (files: File[]) => void
@@ -87,10 +91,14 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
     // the sheet closes as the picker opens: its back-off (a step of the history within this page) waits until the bytes
     // are in, so nothing the phone app could take for a new page happens meanwhile (QA TC-251: on Android it dropped
     // the pick)
+    // Held while the picker is up (the page is under it), then for the bytes at most bytesHoldMs, so a stuck transfer
+    // never keeps Back's history waiting for minutes
     letGo.current?.()
-    const release = holdHistory()
+    const hold = holdHistory()
+    let cap: ReturnType<typeof setTimeout> | null = null
+    const release = () => { if (cap) clearTimeout(cap); cap = null; hold() }
     letGo.current = release
-    pickPhotosFromApp(Math.min(Math.max(1, room ?? PHOTO_PICK_LIMITS.files), PHOTO_PICK_LIMITS.files))
+    pickPhotosFromApp(Math.min(Math.max(1, room ?? PHOTO_PICK_LIMITS.files), PHOTO_PICK_LIMITS.files), (bytes) => { cap = setTimeout(release, bytesHoldMs(bytes)) })
       .then(({ files: picked, tooBig }) => {
         if (!alive.current) return
         // one line for all left out: a file over 50 MB, or past 200 MB in one pick. A box that takes bigger files offers
