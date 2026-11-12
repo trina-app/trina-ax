@@ -45,6 +45,8 @@ import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
+import { chatsNeedingMe } from '../chat/badge-chats'
+import { setBadgeChats } from '../notifications/badge'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -172,6 +174,8 @@ export const chatsRoutes: RouteModule = {
   async init(ctx) {
     const rt = installChatRuntime(ctx)
     ctx.services.realtime = rt.hub
+    // the AI chats' part of the phone push's app icon number (notifications/badge.ts)
+    setBadgeChats(ctx.db, (userId) => chatsNeedingMe(rt, userId))
     await rt.recover()
   },
   register(kit, ctx) {

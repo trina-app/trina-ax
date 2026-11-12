@@ -1,14 +1,14 @@
 // Native app push (iOS/Android) through the push gateway (push-gateway/, contract in
 // shared/src/cloud-protocol/push-gateway.ts). The team server never holds Apple or Google keys: it signs a small
-// request with its team key and the gateway talks to APNs/FCM. The request carries ids, an event code and a locale,
-// never text; the gateway picks generic words.
+// request with its team key and the gateway talks to APNs/FCM. The request carries ids, an event code, a locale and the
+// app icon's number (notifications/badge.ts), never text; the gateway picks generic words.
 import crypto, { type KeyObject } from 'node:crypto'
 import dns from 'node:dns/promises'
 import http from 'node:http'
 import https from 'node:https'
 import {
-  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushPath,
-  validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
+  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushBadge,
+  validPushPath, validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
 } from '@mycel/shared/cloud-protocol'
 import type { PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -19,7 +19,8 @@ import { errorCode, postPinned, PushSendError, type PushLookup } from './push-tr
 /** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
-export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string }
+/** badge: the app icon's number, the recipient's one count when the push goes out (notifications/badge.ts) */
+export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string; badge?: number }
 export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number }>
 
@@ -71,6 +72,7 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       notificationId: input.payload.notificationId, code: input.payload.code, locale: input.payload.locale,
       ...(input.payload.path && validPushPath(input.payload.path) ? { path: input.payload.path } : {}),
       ...(input.payload.tag && /^[A-Za-z0-9_-]{1,100}$/.test(input.payload.tag) ? { tag: input.payload.tag } : {}),
+      ...(validPushBadge(input.payload.badge) ? { badge: input.payload.badge } : {}),
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
     if (input.signal.aborted || !input.beforeSend()) throw new PushSendError('push_cancelled')

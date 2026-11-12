@@ -84,6 +84,8 @@ export function setRoomPathCheck(db: Database, check: (userId: string) => (rel: 
  * for the server's database; Room.aiWaits, docs/DECISIONS.md "Session markers"). Without one, never. */
 const aiWaiting = new WeakMap<Database, (roomId: string, userId: string) => boolean>()
 export function setRoomAiWaiting(db: Database, check: (roomId: string, userId: string) => boolean) { aiWaiting.set(db, check) }
+/** The room's AI waits on this person now (Room.aiWaits; false before rooms/ai.ts set the check). */
+export const roomAiWaits = (db: Database, roomId: string, userId: string): boolean => !!aiWaiting.get(db)?.(roomId, userId)
 
 /** The seq that decides who sees a message: its own, or for a thread reply its root's (a thread follows its root). */
 export const seenSeq = (m: Pick<MessageRow, 'seq'> & { thread_root_seq?: number | null }) => m.thread_root_seq ?? m.seq

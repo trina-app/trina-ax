@@ -44,14 +44,15 @@ test('off without a gateway; a device is bound to this session, encrypted, idemp
   for (const bad of [{ ...d, token: d.token.toUpperCase() }, { ...d, token: 'ExponentPushToken[abc]' + 'x'.repeat(40) }, { ...d, platform: 'android' as const, environment: 'sandbox' as const }]) expect(() => p.registerDevice('olga', sid, bad as never)).toThrow()
 })
 
-test('an event reaches the phone through the gateway with ids, code, locale and path only; Web Push is not needed', async () => {
+test('an event reaches the phone through the gateway with ids, code, locale, path and the icon number only; Web Push is not needed', async () => {
   const sent: NativeSend[] = []
   const sid = await setup({ nativeTransport: async i => { sent.push(i); return { statusCode: 200 } } })
   const d = device(); p.registerDevice('olga', sid, d)
   now += 10; event('native-1'); await p.tick(); await p.tick()
   expect(sent).toHaveLength(1)
   expect(sent[0]!.device).toEqual({ platform: 'ios', token: d.token, environment: 'production' })
-  expect(sent[0]!.payload).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: 'ko', path: '/settings/notifications', tag: expect.any(String) })
+  // badge: nothing wants olga (the notice is not a room or a chat), so the icon number is 0
+  expect(sent[0]!.payload).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: 'ko', path: '/settings/notifications', tag: expect.any(String), badge: 0 })
   expect(sent[0]!.payload.tag).toBe(p.settings('olga', sid).native!.deviceId!)
   expect(sent[0]!.config).toEqual(gateway)
   expect(h.ctx.db.query('SELECT state FROM push_deliveries').get()).toEqual({ state: 'sent' })
@@ -207,6 +208,12 @@ test('the gateway request is signed with the team key over the exact body; priva
   // the same team key signs every request (the relay's key file)
   const again = signedGatewayRequest(body, crypto.generateKeyPairSync('ed25519').privateKey, 'AAAA')
   expect(again.body).toBe(sentBody)
+  // the app icon's number goes when it is one (0 too); anything else is left out and the push still goes
+  for (const [badge, sent] of [[4, 4], [0, 0], [-1, undefined], [10_000, undefined], [1.5, undefined]] as const) {
+    expect(await valid({ ...input, payload: { ...input.payload, badge } })).toEqual({ statusCode: 200 })
+    expect(JSON.parse(sentBody).badge).toBe(sent)
+    expect(parsePushGatewaySend(JSON.parse(sentBody))).not.toBeNull()
+  }
 })
 
 test('gateway address setting: https host only; off by default, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
