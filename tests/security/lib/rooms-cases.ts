@@ -1,5 +1,6 @@
 import { CSRF_HEADER } from '@mycel/shared/api'
 import type { Spec } from './cases'
+import { leaks } from './matrix'
 import { C, PNG } from './world'
 
 // Team chat rooms (docs/DECISIONS.md "대화방 v1"). The world has a DM of alice (memberIn) and erin (other) with a
@@ -155,6 +156,27 @@ export const ROOM_SPECS: Record<string, Spec> = {
   },
   unpinRoom: { build: (c, w) => c.del(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm' },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
+  // a team file copied into the DM ("팀 파일", a phone's attach sheet): the DM's two people, and each only with a file
+  // they may read now. shared/readme.md: both, and nobody is told they cannot open it; a file NAME in users/alice/:
+  // alice (erin cannot open it: unable 1), erin gets the plain 404 like a missing file
+  attachRoomTeamFile: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: 'shared/readme.md' }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (who !== 'memberIn' && who !== 'other') return
+      // both files stay put through the matrix, so the DM's two people must get the copy (an allowed write's 404 is let
+      // through by the matrix itself)
+      if (r.status !== 201 || r.json?.unable !== 0) throw new Error(`${who}: shared/readme.md into the DM answered ${r.status} ${r.text.slice(0, 200)}`)
+      const to = (p: string) => w.as[who].post(`/api/rooms/${w.ids.dmRoom}/team-file`, { path: p })
+      const own = await to(`users/alice/${C.aliceFileName}.md`)
+      if (who === 'memberIn') {
+        if (own.status !== 201 || own.json?.unable !== 1) throw new Error(`alice: her file into the DM answered ${own.status} ${own.text.slice(0, 200)}`)
+        return
+      }
+      const none = await to('users/alice/no-such-file.md')
+      const same = own.status === 404 && none.status === 404 && own.json?.error?.code === none.json?.error?.code && own.json?.error?.message === none.json?.error?.message
+      if (!same || leaks(who, own.text).length) throw new Error(`erin: alice's file into the DM answered ${own.status} ${own.text.slice(0, 200)} (a missing one: ${none.status} ${none.text.slice(0, 200)})`)
+    },
+  },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)
   getRoomAi: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai`), scope: 'room-dm' },
