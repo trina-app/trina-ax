@@ -23616,3 +23616,68 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   wins), `web/test/unit/mobile.test.ts` (badge-v1: changes, bridge, foreground, sign-out), `web-badge.test.ts` (the
   phone app gets n).
 - Version impact: **patch**.
+
+## Setup 팀 파일: the AI proposes folders — 시작 설정의 팀 파일, AI가 폴더를 제안한다 (feat/setup-files-organize, 2026-11-12, product owner)
+
+넣을 곳: trina-ax core (`server/src/onboarding/files-organize.ts`, `files-organize-ai.ts`, `file-rank.ts`,
+`shared/src/api/files-organize.ts`, `web/src/components/onboarding/OrganizeFiles.tsx`, `web/src/lib/organize.ts`, the
+member welcome), 이유: onboarding, files and the AI are core. Plan: `docs/AGENTS/plan/20261112-1238-setup-files-organize.md`
+(PR A of the owner's locked "Files onboarding — final plan"; PR B forms → skills and PR C Move picker suggestions follow).
+
+The owner's decisions (2026-11-12, not to be re-opened): "AI judges folders ONLY during setup. At setup there is no
+folder structure, so the AI PROPOSES ONE." The owner "doesn't know whether files go in shared/ ('전사 공유') or
+elsewhere: the step must decide that for him." "Files and projects are SETUP STEPS (leading), not a Home line." After
+setup, folder suggestions come from the Move picker (PR C), never from an AI call per upload.
+
+- **The W6 privacy rule is reversed for this step.** W6 said no file content reaches the 팀 파일 endpoints and the AI
+  sees names and metadata only. That still holds for the pick before the upload. Once the files are up in 전사 공유,
+  the plan reads their text: at most 20 files (`ORGANIZE_LIMITS.read`), 3,000 characters each, the text layer only
+  (`extractText` with `textLayerOnly`, no OCR), within 8 s; only files in `shared/` that the caller can read, and that
+  their own upload run landed. The start of the step says so in one line: "팀 전체가 보는 전사 공유에 정리해 드려요 ·
+  AI가 파일 내용을 읽고 정리해요". The comment of `shared/src/api/onboarding-files.ts` says where the rule ends.
+- **The same path as the picks** (review must-fix): the plan is one ordinary no-tools turn of the caller
+  (`file-rank.ts runFilesTurn`, extracted from `rankTeamFiles`): their AI access and budget, the chat marked in
+  `onboarding_file_ranks` (its material JSON now has `kind: 'organize'`; no migration), never listed, deleted after; its
+  own instructions (`organizeSystemPrompt`) with the files as data inside `<material>` (closing tag broken in names and
+  text). Not the file-list reader (team-wide accounts only). The answer is read defensively (`parseOrganize`: known ids
+  once, folder names cleaned to one level, known reasons, `form` only when true, a project only with a clean name and
+  2+ known files).
+- **The plan** (`organizePlan`, shared, so the server and the mock server propose the same): the AI's folder for a file
+  it read; every other file, and every file when no AI answers, the turn fails or runs 25 s, goes by name rules
+  (`nameReason`: the file-rank reason words in five languages) to the folder the AI used most for that kind, else an
+  existing folder named for that kind in any language, else the kind's folder in the team's language (양식, 회의록 and
+  브랜드 reuse the folders a new team has: "Team folder basics"). One level under `shared/`, at most 8 folders (the 9th
+  goes to its kind's folder when that one is in, else stays), existing folders reused whatever the letter case; the
+  upload's own folder (`shared/<picked folder>/`) is not offered as a target. A file already in its folder stays. Each
+  row carries `form: true|false` for PR B. At most one project group.
+- **A job the page polls**: `POST /api/onboarding/files/organize` answers at once with an id and N; `GET …/organize/:id`
+  gives "읽고 정리하는 중… n/N" and then the plan; only the one who started it reads it (404 otherwise); forgotten after
+  10 minutes. Owners and admins only.
+- **The screens** (after a step run into 전사 공유 that ended without a failure): reading; the proposal, a flat list
+  grouped by folder ("전사 공유 › 양식 (3)", Google Drive's "Organize my files"), each row with a folder picker (the
+  plan's and the existing folders, "새 폴더…") and ✕ (the file stays where it went up; "n개는 올린 자리에 그대로 둬요"), a
+  new folder's name typed in place, [이대로 정리] and "나중에" (on to the next step, the files where they are; F5 shows
+  when coming back). Without AI the list says "AI 없이 파일 이름으로 정리했어요". Nothing to sort: the run's own F5 as
+  before. No undo toast: the proposal is where the owner changes things.
+- **Applying** (`POST …/organize/apply`): each file moves as the caller through the file service's move (rules,
+  versions, events; a taken name gets " (2)"), a missing folder is made first, folders the moves emptied under `shared/`
+  go to the trash (never `shared/` itself or a plan folder), at most 8 folders (400 otherwise), folder names checked as
+  one level. Anything moved records `onboarding.filesOrganized` (settings).
+- **The result**: what went where, the slot for PR B's forms card (`FormsSlot`, given the moved forms' paths; empty
+  now), the project question when the AI saw one group ("이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" [프로젝트로 묶기] /
+  나중에), then the step's next button. [프로젝트로 묶기] makes a team project (`POST /api/projects`, one folder
+  `projects/<slug>`) with the setup's team group as participant (`projectBody`; participants default to [] and a
+  project's contents are its members': without the group, people who join later would not see it) and moves its files
+  into the project's folder.
+- **Admins**: the member welcome card gets `organizeFiles` (optional in the contract; older servers send nothing) for an
+  admin while nobody applied a plan and the team has its steps row; the row "팀 파일 정리하기" (not counted) opens the
+  same 팀 파일 step in a dialog. Hidden once any owner or admin applied a plan (the plan said "the owner": an admin's
+  plan counts too, or every later admin would keep the row).
+- Five languages, English first. Phone: the rows wrap with a full-width picker, 390 px without side scroll.
+- Tests: `tests/unit/b-onboarding-files-organize.test.ts` (name rules, the plan: cap 8, one level, reuse, stays, project;
+  the answer and the fence; on the fake engine: 20-file cap and text in the material, fallback on a failed answer and
+  on a timeout; apply; the routes' roles and the job's owner; the admins' row), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/organize.test.ts`, `web/test/unit/member-welcome.test.tsx`, `web/test/e2e/welcome-organize.spec.ts`
+  (propose → change → remove → rename → apply → project question → 나중에 → next; a project with the team group; no AI;
+  nothing to sort; 390 px light and dark), `web/test/e2e/welcome-team-files.spec.ts` (the plan after the upload).
+- Version impact: **minor** (four API routes, new screens in the setup step; no migration).

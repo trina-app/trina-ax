@@ -67,6 +67,7 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
+import { ORGANIZE_LIMITS, REASON_FOLDER, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -518,6 +519,12 @@ export class MockServer {
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
   fileRankCalls: { entries: unknown[] }[] = []
+  /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
+   * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
+  organize: { ai: 'done' | 'none' | 'failed' | 'timeout'; project: { name: string; match: string } | null } = { ai: 'done', project: null }
+  organizeJobs = new Map<string, { userId: string; paths: string[]; read: number; total: number; plan: OrganizePlan | null }>()
+  organizeCalls: { paths: string[] }[] = []
+  filesOrganized = false
 
   /** Admin › Team settings › File list (server/src/file-list/): POST /__test/file-list {status fields} sets what the
    * status says (a problem, the sign-in, counts); Run now runs at once and is done by the next status read */
@@ -535,6 +542,11 @@ export class MockServer {
     this.fileRankCalls = []
     this.moveRecent = new Map()
     this.moveDismissed = new Set()
+
+    this.organize = { ai: 'done', project: null }
+    this.organizeJobs = new Map()
+    this.organizeCalls = []
+    this.filesOrganized = false
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -3304,7 +3316,8 @@ export class MockServer {
     // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the general pack once
     getWelcome: () => ({ progress: this.welcome }),
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
-    getMemberWelcome: () => ({ welcome: this.memberWelcome }),
+    // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
+    getMemberWelcome: () => ({ welcome: this.memberWelcome && { ...this.memberWelcome, ...(this.memberWelcome.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) } }),
     updateMemberWelcome: (c) => {
       if (c.body.hide) this.memberWelcome = null
       else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
@@ -3402,6 +3415,58 @@ export class MockServer {
       const WORDS: [RegExp, string][] = [[/양식|서식|템플릿|template/i, 'form'], [/소개/, 'intro'], [/회의록/, 'minutes'], [/보고/, 'report'], [/규정|정책/, 'policy'], [/로고|브랜드/, 'brand'], [/매뉴얼|교육|가이드/, 'training'], [/제안/, 'proposal']]
       const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
       return { ai: 'done', picks }
+    },
+    // the setup's folder plan (server/src/onboarding/files-organize.ts, short): owners and admins; the plan is the shared
+    // organizePlan over the name rules (the AI's folders are the kinds' folders here), a project when a test sets one
+    startOrganize: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const paths = (c.body.paths as string[]).filter((p) => p.startsWith('shared/') && this.files.get(p)?.type === 'file')
+      this.organizeCalls.push({ paths })
+      const id = uuidv7()
+      const total = Math.min(paths.length, ORGANIZE_LIMITS.read)
+      this.organizeJobs.set(id, { userId: c.user.id, paths, read: 0, total, plan: null })
+      return { id, total }
+    },
+    organizeStatus: (c) => {
+      const j = this.organizeJobs.get(c.params.id)
+      if (!j || j.userId !== c.user.id) fail('not_found', 404)
+      if (j!.read < j!.total) { j!.read++; return { state: 'reading', read: j!.read, total: j!.total, plan: null } }
+      if (!j!.plan) {
+        const existing = [...this.files.entries()].filter(([p, v]) => v.type === 'folder' && /^shared\/[^/]+$/.test(p)).map(([p]) => p.slice(7))
+          .filter((n) => !j!.paths.some((p) => p.startsWith(`shared/${n}/`)))
+        const locale = (this.settings.defaultLocale as Locale) ?? 'ko'
+        const m = this.organize.project ? new RegExp(this.organize.project.match) : null
+        const ai: AiOrganize | null = this.organize.ai !== 'done' ? null : {
+          files: new Map(j!.paths.slice(0, ORGANIZE_LIMITS.read).map((p) => { const r = nameReason(p.slice(p.lastIndexOf('/') + 1)); return [p, { folder: r ? REASON_FOLDER[r][locale] : null, reason: r, form: r === 'form' }] })),
+          project: m && this.organize.project ? { name: this.organize.project.name, paths: j!.paths.filter((p) => m.test(p)) } : null,
+        }
+        j!.plan = { ai: this.organize.ai, existing, ...organizePlan({ paths: j!.paths, existing, locale, ai }) }
+        return { state: 'thinking', read: j!.read, total: j!.total, plan: null }
+      }
+      return { state: 'done', read: j!.read, total: j!.total, plan: j!.plan }
+    },
+    applyOrganize: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const moved: { from: string; to: string }[] = []
+      const failed: string[] = []
+      for (const m of c.body.moves as { from: string; folder: string }[]) {
+        const n = this.files.get(m.from)
+        if (!n || n.type !== 'file' || !m.from.startsWith('shared/')) { failed.push(m.from); continue }
+        const dir = `shared/${m.folder}`
+        if (!this.files.has(dir)) this.files.set(dir, { type: 'folder', mtime: now() })
+        let to = `${dir}/${m.from.slice(m.from.lastIndexOf('/') + 1)}`
+        if (to === m.from) continue
+        if (this.files.has(to)) to = this.freePath(to)
+        this.files.delete(m.from)
+        this.files.set(to, n)
+        moved.push({ from: m.from, to })
+      }
+      // the folders the moves emptied (not shared/ itself)
+      for (const [p, v] of [...this.files.entries()].sort((a, b) => b[0].length - a[0].length)) {
+        if (v.type === 'folder' && p.startsWith('shared/') && moved.some((x) => x.from.startsWith(p + '/')) && ![...this.files.keys()].some((k) => k.startsWith(p + '/'))) this.files.delete(p)
+      }
+      if (moved.length) this.filesOrganized = true
+      return { moved, failed }
     },
     // the step's upload run landed a file (server/src/onboarding/team-files.ts, short): 팀 파일 done, once, for a file
     // in a group's folder
@@ -4929,6 +4994,8 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
+    else if (p === '/__test/organize' && req.method === 'GET') return Response.json({ calls: this.organizeCalls, organized: this.filesOrganized })
+    else if (p === '/__test/organize') this.organize = { ai: (body.ai as typeof this.organize.ai | undefined) ?? 'done', project: (body.project as typeof this.organize.project | undefined) ?? null }
     else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)

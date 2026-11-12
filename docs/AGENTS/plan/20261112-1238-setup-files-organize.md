@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-12 12:38
 - Branch: `feat/setup-files-organize`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/onboarding/`, `shared/src/api/onboarding-files.ts`, `shared/src/files-organize.ts`,
   `web/src/components/onboarding/`, member welcome). Why: onboarding, files and the AI are core (docs/REPOSITORY-RULES.md).
 - Version impact: minor (new API routes, a new screen in the setup step; no migration)
@@ -56,3 +56,10 @@ Out: PR B (forms → skills), PR C (Move picker suggestions).
   file where it was and is counted.
 - No migration: the plan's applied mark is a settings row; the turn reuses `onboarding_file_ranks` (its material JSON
   gets a `kind`).
+
+## Result
+
+Built as planned (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"). Differences: the plan is a job the page
+polls (start + status) so the progress line is real; the admins' row hides once any owner or admin applied a plan; the
+project is made by the page through the existing projects and move APIs (`projectBody` gives the team group); "나중에"
+on the proposal goes on to the next step (the run's end screen shows when coming back).

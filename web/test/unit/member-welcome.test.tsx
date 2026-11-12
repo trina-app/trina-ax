@@ -126,6 +126,26 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
+  test('an admin\'s "Sort the team\'s files" row (not counted) only while the server says so; it opens the 팀 파일 step', async () => {
+    signIn()
+    welcome = card({ organizeFiles: true })
+    routes['GET /api/onboarding/welcome'] = () => json(200, { progress: null })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-organize'), 'the row')
+      expect(text(m, 'member-welcome-organize')).toContain("Sort the team's files")
+      expect(text(m, 'member-welcome-organize')).toContain('Company-wide')
+      expect(m.get('member-welcome-organize').getAttribute('data-optional')).toBe('true')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount(); delete routes['GET /api/onboarding/welcome'] }
+    welcome = card({ organizeFiles: false })
+    const n = await home()
+    try {
+      await n.until(() => n.find('member-welcome'), 'the card')
+      expect(n.find('member-welcome-organize')).toBeNull()
+    } finally { await n.unmount() }
+  })
+
   test('no inviter ("Add directly"): the line without "invited you"', async () => {
     signIn()
     welcome = card({ inviter: null, people: 1 })

@@ -186,6 +186,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
   'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
   'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
+  'server/src/onboarding/files-organize.ts': { why: 'the setup folder plan\'s chat title and request (ko next to en/id/ja/es)' },
+  'shared/src/api/files-organize.ts': { why: 'the folder plan\'s name rules (Korean words that tell a document\'s kind from its file name, not screen text) and its folder names (ko next to en/id/ja/es)', also: /^\s*\['(form|minutes|proposal|report|intro|policy|training|brand)', \// },
   'server/src/onboarding/file-rank.ts': { why: '팀 파일\'s AI picks: the pick chat\'s title and request (ko next to en/id/ja/es)' },
   'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
