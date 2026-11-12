@@ -343,6 +343,7 @@ export const es: Record<MessageKey, string> = {
   "chat.error.admin.engine_missing": "Trina todavía no está lista. Conecte una IA para que pueda responder.",
   "chat.error.admin.proxy_down": "La IA todavía se está preparando. Reinténtelo en un momento; si persiste, {path} muestra el motivo.",
   "chat.error.admin.storage_full": "El almacenamiento del servidor está lleno, así que la IA no pudo responder. {path} muestra qué ocupa el espacio; libere algo.",
+  "chat.error.admin.network_protection_off": "La protección de red del servidor está desactivada, así que la IA no puede responder ahora. Suele volver en un minuto; si no, {path} muestra el motivo.",
   'chat.untitled': "Sin título",
   'chat.title': "Título",
   'chat.rename': "Cambiar nombre",
@@ -2359,6 +2360,7 @@ export const es: Record<MessageKey, string> = {
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.es,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.es,
+  'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.es,
   'audit.act.ai.hosted_trial_key': "Cambió la clave de IA de prueba alojada",
   'trialCredit.active': "Crédito de prueba: {used} de {cap} usados · hasta el {date} · La IA que conecte se usa primero",
   'trialCredit.used': "Se agotó el crédito de prueba ({used} de {cap}) · Conecte su propia IA para continuar",

@@ -131,7 +131,10 @@ export const LauncherStatus = z.object({
   plan: z.string().optional(),
   turnMemoryMaxMiB: z.number().int().optional(),
   planError: z.string().optional(),
-  firewall: z.object({ loaded: z.boolean(), at: z.string().nullable().optional(), rules: z.number().int().optional(), problem: z.string().optional() }).nullable().optional(),
+  /** run/firewall.json as the launcher reads it; `live`: whether the rules are in effect right now (the launcher's test
+   * as the engine account before each turn, QA TC-310), `liveProblem` why not. Launchers before it leave both out. */
+  firewall: z.object({ loaded: z.boolean(), at: z.string().nullable().optional(), rules: z.number().int().optional(), problem: z.string().optional(),
+    live: z.boolean().optional(), liveProblem: z.string().optional() }).nullable().optional(),
 }).passthrough()
 export type LauncherStatus = z.infer<typeof LauncherStatus>
 /** {"op":"forget","chatId"}: delete <agent root>/<chatId> (the server cannot: the folder is the engine account's).

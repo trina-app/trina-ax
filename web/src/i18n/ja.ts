@@ -343,6 +343,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.error.admin.engine_missing": "トリナはまだ準備ができていません。AIを接続すると回答できるようになります。",
   "chat.error.admin.proxy_down": "AIはまだ準備中です。しばらくしてからもう一度お試しください。続く場合は「{path}」で理由を確認できます。",
   "chat.error.admin.storage_full": "サーバーの保存容量がいっぱいのため、回答できませんでした。「{path}」で容量を使っているものを確認し、空きを確保してください。",
+  "chat.error.admin.network_protection_off": "サーバーのネットワーク保護がオフのため、今はAIが回答できません。通常は1分以内に戻ります。戻らない場合は「{path}」で理由を確認できます。",
   'chat.untitled': "無題",
   'chat.title': "タイトル",
   'chat.rename': "名前を変更",
@@ -2359,6 +2360,7 @@ export const ja: Record<MessageKey, string> = {
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ja,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ja,
+  'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.ja,
   'audit.act.ai.hosted_trial_key': "ホスティングのトライアルAIキーを変更",
   'trialCredit.active': "トライアルクレジット: {cap} 中 {used} 使用 · {date}まで · 自分のAIを接続すると、そちらが先に使われます",
   'trialCredit.used': "トライアルクレジットを使い切りました（{cap} 中 {used}） · 自分のAIを接続すると続けて使えます",

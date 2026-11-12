@@ -22279,3 +22279,30 @@ confidential chat, a room or a shared chat, and only comes with the web-or-phone
 
 Version impact: patch (tests, and the invite page on a full team no longer names the inviter; no API shape or data
 change).
+
+## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
+
+After `nft flush ruleset` as root (a ufw, firewalld or Docker reload can do the same), the engine account reached the
+LAN, the cloud metadata address and the internet until `run/firewall.json` was 10 minutes old: the launcher, `mycel-ctl
+status` and the diagnostics read only that file, which still said "loaded". The person then read "The answer stopped
+partway".
+- **The launcher tests what the rules do, as the engine account** (`native/internal/fwprobe`). It has no capabilities
+  and cannot list nftables, and it must not get any: the root firewall unit takes no input from it. Before every turn,
+  after the status-file check, three TCP connections must be refused at once by the table's `reject with tcp reset`:
+  to a listener of its own on 127.0.0.1 (never the model proxy's port), to 169.254.169.254:80 and to 192.0.2.1:443
+  (TEST-NET-1, never routed). "Network unreachable" also counts for the two remote ones (no route: nothing can leave).
+  A connection that goes through or waits means the table is gone or changed: the turn is refused with
+  `firewall_off: …`. A pass is kept for 3 seconds (a burst of turns probes once), a failure never.
+- **Repair: the timer every 30 seconds** (was 2 minutes; `supervise` too). A root watcher on nftables events would
+  re-apply at once, but it is a new unit that existing installs would not get from `mycel-ctl update`; left for later.
+- **Plain words.** The server maps `firewall_off` and `firewall_not_loaded` to the chat error `network_protection_off`
+  (`engine_unavailable`), never retried as a crash. The owner reads where to look (Admin › System › Health).
+- **`mycel-ctl status`** lists `table inet <id>` and runs `checkTable` (as `firewall apply` does). A missing or changed
+  table makes `firewallOk: false` with `firewallLive: false`, and status writes that failure into `run/firewall.json`,
+  so every reader agrees. A good table writes nothing (status must not hide a stopped timer by refreshing the file).
+- **Diagnostics**: the launcher's status report has `firewall.live` and `firewall.liveProblem`; the firewall line
+  fails with plain words when `live` is false. A launcher from before leaves them out, and the file decides as before.
+- Not done: a turn already running when the table disappears keeps running; the next one is refused.
+
+Version impact: patch (security fix in the Linux launcher, its status and diagnostics; no API shape, data or migration
+change).

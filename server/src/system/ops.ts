@@ -694,22 +694,27 @@ export class OpsService {
   private async linuxChecks(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
     M: typeof MAC_M, hosted: boolean) {
     const L = this.layout
+    // the launcher first: its report says whether the rules are in effect right now (it tests them as the engine
+    // account), which the status file cannot tell after another tool flushed the table (QA TC-310)
+    let st: LauncherStatus | null = null
+    const sock = this.ctx.config.engine.launcherSock
+    const probe = sock ? await probeSocket(sock).catch(() => 'error' as const) : null
+    if (sock && probe === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
+
     const fw = this.firewallStatus()
     if (!fs.existsSync(L.firewallStatusFile)) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
     else if (!fw || this.now().getTime() - Date.parse(fw.at) > 15 * 60_000) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallStale))
     else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded'))))
+    else if (st?.firewall?.live === false) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(ML.firewallNotLive(st.firewall.liveProblem ?? 'not in effect', hosted)))
     else add('pf_anchor', 'pf_anchor', t(M.firewall), 'ok', t(ML.firewallOkLinux(fw.rules, fw.proxyPort)))
 
-    let st: LauncherStatus | null = null
-    const sock = this.ctx.config.engine.launcherSock
     if (sock) {
-      const r = await probeSocket(sock).catch(() => 'error' as const)
+      const r = probe
       if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
       else if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, null, L.unitDir)))
       else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
       else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
       else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown))
-      if (r === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
     }
     const bad: CheckStatus = hosted ? 'fail' : 'warn'
     if (!st) add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(ML.sandboxUnknown))

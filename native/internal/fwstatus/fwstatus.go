@@ -1,7 +1,7 @@
 // Package fwstatus is the engine firewall's status file <base>/run/firewall.json (linux-runtime spec 3.4.2, D8):
 // `mycel-ctl firewall apply|status` (root) writes it after loading and checking the nftables table; the launcher reads
 // it before every turn and refuses the turn when it is missing, stale, not loaded, or for another uid or port (fail
-// closed, spec 3.3.9); the server's diagnostics show it (shared/src/install.ts FirewallStatus).
+// closed, spec 3.3.9), then tests the live rules (fwprobe: the file alone cannot tell a flushed table); the server's diagnostics show it (shared/src/install.ts FirewallStatus).
 package fwstatus
 
 import (
@@ -29,7 +29,7 @@ type Status struct {
 	Error      *string `json:"error"`
 }
 
-// MaxAge: the timer re-applies every 2 minutes; a status older than this means the timer stopped (spec 3.2.1).
+// MaxAge: the timer re-applies every 30 seconds; a status older than this means the timer stopped (spec 3.2.1).
 const MaxAge = 10 * time.Minute
 
 const maxBytes = 64 << 10
