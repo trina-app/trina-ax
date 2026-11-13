@@ -33,6 +33,17 @@ async function pageDensity(list: Locator, width: number) {
   // the hover fill reaches out past the titles (the row's inset as a negative margin), not cut at the heading's edge
   const fill = (await rows.first().boundingBox())!
   expect(fill.x).toBeLessThan(h2.x - 4)
+  // a phone keeps the page's right gutter (QA TC-1040): every row's "···" ends where the list's column ends (the
+  // heading's line, "기존 대화 가져오기"), 16px or more from the screen's edge, never on it
+  if (width < 768) {
+    const column = (await list.boundingBox())!
+    const rights = await list.getByTestId('project-chat-menu').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))
+    expect(rights.length).toBeGreaterThan(0)
+    for (const r of rights) {
+      expect(width - r).toBeGreaterThanOrEqual(16)
+      expect(Math.abs(r - (column.x + column.width))).toBeLessThanOrEqual(1)
+    }
+  }
 }
 
 for (const [width, height] of [[1440, 900], [390, 844]] as const) {

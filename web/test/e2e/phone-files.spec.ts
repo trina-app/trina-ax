@@ -137,7 +137,7 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await expect(page.getByTestId('trash-list')).not.toContainText('groups/')
   // one short note, not the four-line paragraph
   const note = page.getByTestId('trash-note')
-  await expect(note).toHaveText(t['files.trashNoteShort'])
+  await expect(note).toHaveText(translate('ko', 'files.trashNoteDays', { days: 30 }))
   expect((await note.boundingBox())!.height).toBeLessThanOrEqual(40)
   expect((await item.getByTestId('trash-restore').boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await noSideways(page)

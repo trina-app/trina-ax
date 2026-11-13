@@ -60,9 +60,11 @@ export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 ma
 /** A page's main list's row (ListRow `scale="page"`: a project's 트리나 기록, 팀 스킬's skills; docs/DECISIONS.md "Page
  * lists: page density"): 48px on a computer and a phone (index.css --spacing-row-page), not the panels' 30px, and its
  * words flush with the section's heading, the hover fill reaching out past them (`pageBleed`: the row's own 12px
- * inset as a negative margin), so the list sits in the page's column as its heading and text do */
+ * inset as a negative margin), so the list sits in the page's column as its heading and text do. A phone (below
+ * 768px) bleeds on the left only: its right keeps the page's gutter, so a row's "···" and `actions` end where the
+ * content above them ends (a page's switch, a heading's action), 16px from the screen's edge, not on it (QA TC-1040) */
 export const pageRowBox = 'min-h-row-page'
-const pageBleed = '-mx-3 w-[calc(100%+1.5rem)]'
+const pageBleed = '-mx-3 w-[calc(100%+1.5rem)] max-md:mr-0 max-md:w-[calc(100%+0.75rem)]'
 
 export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-normal text-faint tabular-nums'
 
@@ -85,7 +87,7 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -123,6 +125,8 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
   onFocus?: (e: FocusEvent<HTMLElement>) => void
   onBlur?: (e: FocusEvent<HTMLElement>) => void
   onKeyDown?: (e: KeyboardEvent<HTMLElement>) => void
+  /** a button row that opens and closes what follows it (the trash's copies of one file): its aria-expanded */
+  expanded?: boolean
 }) {
   const page = scale === 'page'
   const cls = clsx(
@@ -177,7 +181,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {body}
     </Link>
   ) : onClick || rowMenu ? (
-    <button ref={rowRef as Ref<HTMLButtonElement>} title={rowTitle} type="button" onClick={click} disabled={disabled} className={cls} data-testid={testId} {...events} {...link}>
+    <button ref={rowRef as Ref<HTMLButtonElement>} title={rowTitle} type="button" onClick={click} disabled={disabled} aria-expanded={expanded} className={cls} data-testid={testId} {...events} {...link}>
       {body}
     </button>
   ) : (
@@ -195,7 +199,8 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {...liRest}
     >
       {box}
-      {actions && <span className={clsx('flex shrink-0 items-center gap-1', page && '-mr-3')}>{actions}</span>}
+      {/* a page's list: out to the fill's edge on a computer; a phone keeps the page's gutter (pageBleed) */}
+      {actions && <span className={clsx('flex shrink-0 items-center gap-1', page && '-mr-3 max-md:mr-0')}>{actions}</span>}
       {menu}
       {rowMenu && (
         // 28 px on a computer (WCAG 2.2 target size: it sits on the row), 44 px on a phone
@@ -205,8 +210,9 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
           items={rowMenu.items}
           sheetTitle={rowMenu.sheetTitle}
           buttonRef={rowMenu.buttonRef}
-          // a page's list: as far out as the row's fill reaches (pageBleed), the same 4px in from its edge
-          className={clsx('absolute inset-y-0 flex items-center', page ? '-right-2 max-md:-right-3' : 'right-1 max-md:right-0')}
+          // a page's list: as far out as the row's fill reaches (pageBleed), the same 4px in from its edge; a phone: at
+          // the content's right edge, the page's gutter kept
+          className={clsx('absolute inset-y-0 flex items-center', page ? '-right-2 max-md:right-0' : 'right-1 max-md:right-0')}
           buttonClassName="touch-hit hover:bg-surface max-md:size-11 pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
           openSignal={rm.openSignal}
           openRequest={rm.openRequest}

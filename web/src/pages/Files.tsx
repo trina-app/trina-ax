@@ -26,12 +26,14 @@
 // moved, and a no puts it back.
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
-import { formatDateTime, formatSize } from '../lib/format'
+import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
+import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
+import { ListRow } from '../components/list/List'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
 import { useScreenName } from '../lib/screens'
@@ -69,7 +71,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
@@ -1069,7 +1071,7 @@ function Files() {
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
       <TabPanel base={null} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
-        <TrashView />
+        <TrashView projects={projects} />
       ) : (
         <>
           {/* while rows are dragged the breadcrumbs come back: a drop there moves them up. Phones: the bar above says
@@ -1746,34 +1748,53 @@ function eventText(e: FileHistoryEvent, t: ReturnType<typeof useT>): string {
   }
 }
 
-/** The trash: what was deleted, by whom and when it goes for good, each with Restore. Phones: the name, then the folder
- * it was in, in words (전사 공유 › 양식, never `shared/양식`), then when, under a one-line note; Restore's toast names
- * that folder in words too. */
-function TrashView() {
+/** The trash (docs/AGENTS/plan/20261113-1557-trash-ui-tc1040.md, QA TC-1040): each item by its name and the place it
+ * was in, in the Files sidebar's words (lib/trashList.ts; never a storage path), who deleted it and when it goes for
+ * good ("in 18 days", the date in its tooltip). The same original path deleted more than once is one row with its
+ * copies: the row's Restore brings back the latest, and the row opens to each copy with its own Restore. One line on
+ * top says how long items stay. Someone whose list has other people's deletes can show only their own ("Deleted by
+ * me", GET /api/files/trash?mine=1). What is listed and who may restore it is the server's, unchanged. */
+function TrashView({ projects }: { projects: readonly { name: string; folderPath: string }[] }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
+  const me = useMeStrict().user.id
   const phone = useMediaQuery('(max-width: 767.98px)')
+  const tabs = useId()
+  const [who, setWho] = useState<'all' | 'mine'>('all')
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const load = useCallback(async (more = false) => {
+  // the switch stays once the Everyone list has shown someone else's delete (it is also how one gets back to Everyone)
+  const [others, setOthers] = useState(false)
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  // a page asked for before a switch that is not shown when it comes
+  const asked = useRef(0)
+  const load = useCallback(async (more: boolean, whose: 'all' | 'mine') => {
+    const n = ++asked.current
     try {
-      const r = await api.call(API.trash, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
-      setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
+      const r = await api.call(API.trash, { query: { limit: 100, ...(whose === 'mine' ? { mine: '1' as const } : {}), cursor: more ? cursor ?? undefined : undefined } })
+      if (n !== asked.current) return
+      // a later page: its copies join the rows already there (lib/trashList.ts groupTrash over every loaded page)
+      setItems((cur) => (more && cur ? mergePage(cur, r.items) : r.items))
       setCursor(r.nextCursor)
       setError(null)
+      if (whose === 'all' && showWhoSwitch(r.items, me)) setOthers(true)
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (n === asked.current) setError(errorText(e, locale, t('error.network')))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor])
+  }, [cursor, me])
   useEffect(() => {
-    void load(false)
+    void load(false, who)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  // Restore: the row leaves the trash at once (lib/optimistic.ts); a refusal puts it back in its place with the
-  // server's words; "restored to …" comes with the answer
+  }, [who])
+  const place: PlaceWords = useMemo(
+    () => ({ words, me, projects, root: t('files.root'), myProjects: t('projectsPanel.mine'), personal: words.name('users', 'users') }),
+    [words, me, projects, t],
+  )
+  // Restore: the copy leaves the trash at once (lib/optimistic.ts); a refusal puts it back in its place with the
+  // server's words; "restored to …" (the place in words) comes with the answer
   const restore = async (it: TrashItem) => {
     const at = items?.findIndex((x) => x.id === it.id) ?? -1
     const r = await optimistic({
@@ -1788,49 +1809,117 @@ function TrashView() {
         }),
       send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
     })
-    // phones: the folder it went back to, in words (short, no storage path)
-    if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: phone ? words.path(parentPath(r.reply.entry.path), ' › ') || t('files.root') : r.reply.entry.path }) })
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: placeWords(parentPath(r.reply.entry.path), place) }) })
   }
-  const sorted = useMemo(() => items ?? [], [items])
+  const groups = useMemo(() => groupTrash(items ?? []), [items])
+  const days = useMemo(() => retentionDays(items ?? []), [items])
+  const toggle = (key: string) =>
+    setOpen((cur) => {
+      const next = new Set(cur)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  // phones: the day only, so a copy's line fits beside Restore
+  const deleted = (it: TrashItem) => t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: phone ? new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric' }).format(new Date(it.deletedAt)) : formatShortDateTime(it.deletedAt, locale) })
+  const goes = (it: TrashItem) => (
+    <span title={t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })} data-testid="trash-purge">
+      {t(phone ? 'files.purgeInShort' : 'files.purgeIn', { when: purgeIn(it.purgeAt, locale) })}
+    </span>
+  )
+  const restoreButton = (it: TrashItem, label: string | undefined, testId: string) => (
+    <Button size="sm" onClick={() => void restore(it)} aria-label={label} data-testid={testId}>
+      {!phone && <ArchiveRestore size={14} aria-hidden />} {t('common.restore')}
+    </Button>
+  )
+  const list = (
+    // a page's main list (ListRow scale="page", docs/DECISIONS.md "Page lists: page density"): 48px rows, the icons
+    // flush with the line above, the fill reaching out past them
+    <ul data-testid="trash-list">
+      {groups.map((g) => {
+        const latest = g.items[0]!
+        const p = trashPlace(latest, place)
+        const Icon = p.kind === 'project' ? FolderKanban : ICONS[iconKind(p.name, p.kind === 'folder')]
+        const many = g.items.length > 1
+        const opened = many && open.has(g.key)
+        const meta = (
+          <>
+            <span data-testid="trash-where">{p.where}</span>
+            {/* phones: the place first; who and when are on each copy, the date in the tooltip */}
+            {!phone && <> · {deleted(latest)}</>} · {goes(latest)}
+          </>
+        )
+        return (
+          <Fragment key={g.key}>
+            <ListRow
+              scale="page"
+              icon={<Icon />}
+              name={p.name}
+              nameTitle={p.name}
+              nameTestId="trash-name"
+              meta={meta}
+              tag={many ? t('files.trashCopies', { n: g.items.length }) : undefined}
+              tagTestId="trash-copies"
+              strong
+              onClick={many ? () => toggle(g.key) : undefined}
+              expanded={many ? opened : undefined}
+              testId={many ? 'trash-copies-toggle' : undefined}
+              end={many ? <ChevronRight size={14} className={clsx('shrink-0 self-center text-faint transition-transform motion-reduce:transition-none', opened && 'rotate-90')} aria-hidden /> : undefined}
+              actions={restoreButton(latest, undefined, 'trash-restore')}
+              li={{ 'data-testid': 'trash-item', 'data-path': latest.originalPath }}
+            />
+            {opened &&
+              g.items.map((it) => (
+                <ListRow
+                  key={it.id}
+                  scale="page"
+                  icon={<History />}
+                  name={deleted(it)}
+                  meta={<>{formatSize(it.size, locale)} · {goes(it)}</>}
+                  actions={restoreButton(it, t('files.trashRestoreCopy', { date: formatShortDateTime(it.deletedAt, locale) }), 'trash-copy-restore')}
+                  li={{ className: 'pl-row-indent', 'data-testid': 'trash-copy', 'data-id': it.id }}
+                />
+              ))}
+          </Fragment>
+        )
+      })}
+    </ul>
+  )
   return (
-    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
-      <p className="mb-3 text-xs text-faint" data-testid="trash-note">{t(phone ? 'files.trashNoteShort' : 'files.trashNote')}</p>
-      {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
-      {!items && !error && <Skeleton lines={5} />}
-      {items && !items.length && <EmptyState screen icon={<Trash2 size={28} />} title={t('files.trashEmpty')} />}
-      <ul className="divide-y divide-line" data-testid="trash-list">
-        {sorted.map((it) => (
-          <li key={it.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm max-md:flex-nowrap" data-testid="trash-item">
-            {phone && (() => {
-              const Icon = ICONS[iconKind(baseName(it.originalPath), it.type === 'folder')]
-              return <Icon size={20} className={clsx('shrink-0', it.type === 'folder' ? 'text-accent-text' : 'text-muted')} aria-hidden />
-            })()}
-            <span className="min-w-0 flex-1">
-              {phone ? (
-                <>
-                  <span className="block truncate font-medium" data-testid="trash-name">{baseName(it.originalPath)}</span>
-                  <span className="block truncate text-xs text-muted" data-testid="trash-where">{words.path(parentPath(it.originalPath), ' › ') || t('files.root')}</span>
-                </>
-              ) : (
-                <span className="block truncate font-medium">{it.originalPath}</span>
-              )}
-              <span className="block text-xs text-faint">
-                {t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: formatDateTime(it.deletedAt, locale) })} · {t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })}
-              </span>
-            </span>
-            <Button size="sm" onClick={() => void restore(it)} className="shrink-0" data-testid="trash-restore">
-              <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {cursor && (
-        <div className="py-3 text-center">
-          <Button size="sm" onClick={() => void load(true)}>
-            {t('common.loadMore')}
-          </Button>
+    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6" data-testid="trash-view">
+      {others && (
+        <div className="mb-3 flex">
+          <Tabs
+            segmented
+            label={t('files.trashWho')}
+            panels={tabs}
+            value={who}
+            onChange={(v) => {
+              setItems(null)
+              setCursor(null)
+              setOpen(new Set())
+              setWho(v)
+            }}
+            items={[
+              { id: 'all', label: t('files.trashEveryone') },
+              { id: 'mine', label: t('files.trashMine') },
+            ]}
+          />
         </div>
       )}
+      <TabPanel base={others ? tabs : null} value={who}>
+        {days !== null && <p className="mb-2 text-meta text-faint" data-testid="trash-note">{t('files.trashNoteDays', { days })}</p>}
+        {error && <ErrorNote onRetry={() => void load(false, who)}>{error}</ErrorNote>}
+        {!items && !error && <Skeleton lines={5} />}
+        {items && !items.length && <EmptyState screen icon={<Trash2 size={28} />} title={t(who === 'mine' ? 'files.trashMineEmpty' : 'files.trashEmpty')} />}
+        {list}
+        {cursor && (
+          <div className="py-3 text-center">
+            <Button size="sm" onClick={() => void load(true, who)} data-testid="trash-more">
+              {t('common.loadMore')}
+            </Button>
+          </div>
+        )}
+      </TabPanel>
     </div>
   )
 }
