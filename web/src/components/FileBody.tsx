@@ -26,6 +26,7 @@ import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit
 import type { PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'
+import { aiName } from '../lib/tabs'
 import { CodeBlock, Markdown } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
@@ -175,7 +176,7 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
     return (
       <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
         <p className="text-sm text-muted">{error?.kind === 'unsupported' ? error.text : t('preview.unsupported')}</p>
-        {downloadOnly && file.source === 'team' && <p className="text-sm text-muted" data-testid="preview-download-only-ai">{t('files.askAiDownloadOnly')}</p>}
+        {downloadOnly && file.source === 'team' && <p className="text-sm text-muted" data-testid="preview-download-only-ai">{t('files.askAiDownloadOnly', { name: aiName(t) })}</p>}
         <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
           <Download size={16} aria-hidden /> {t('common.download')}
         </Button>

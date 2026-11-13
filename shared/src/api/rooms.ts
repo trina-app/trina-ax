@@ -473,7 +473,7 @@ export const Room = z.object({
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
-  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
+  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my 대화 list, my counts and badges, and listed under
    * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
   hidden: z.literal(true).optional(),
   /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned

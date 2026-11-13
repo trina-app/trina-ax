@@ -5,7 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
-import { TOP_FOLDER_LABELS } from './folder-labels'
+import { ownFolderLabel, ownFolderWord, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
@@ -352,7 +352,8 @@ export function placeName(path: string, locale: Locale): string | null {
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
     return say('team', 2, { team: a })
   }
-  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
+  // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
+  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
   if (top === 'shared') {
     // the team's start puts the brand and meeting notes folders here since docs/DECISIONS.md "Team folder basics"
     if (a && BRAND_NAMES.has(a)) return b && IMAGES_NAMES.has(b) ? say('brandImages', 3) : say('brand', 2)

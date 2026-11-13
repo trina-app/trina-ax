@@ -61,7 +61,7 @@ type CountedRoom = Parameters<typeof roomWantsMe>[0]
 /** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (roomWantsMe: unread messages for me by my
  * level for the room: by default a DM or group chat message, an @mention, a reply
  * in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once. `ask`: any of
- * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the phone's ☰ dot: the drawer holds only them).
+ * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
  * screen in a visible window; `cards`: the chats with a card open in this window; `threadReplies`: my "replies in

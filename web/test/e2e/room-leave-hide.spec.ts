@@ -10,6 +10,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { navRoomLinks, navRoomRow, navRoomsList, roomRowLink, roomRowMenu, showRooms, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -32,20 +33,21 @@ async function start(page: Page, rooms = ROOMS, locale?: 'en') {
   await reset(page, locale ? { teamLocale: locale, usersFollowTeam: true } : {})
   const state = await routeRooms(page, rooms)
   await signIn(page)
+  // the rooms list: the sidebar's 대화, or the 대화 panel beside the rail
+  await showRooms(page)
   return state
 }
-const sidebarRow = (page: Page, name: string) => page.getByTestId('sidebar-room-row').filter({ hasText: name })
+const sidebarRow = (page: Page, name: string) => navRoomRow(page, name)
 
 test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, focus and right-click; hiding a DM', async ({ page }) => {
   const state = await start(page)
-  await expect(page.getByTestId('sidebar-room')).toHaveCount(4)
-  await expect(page.getByTestId('sidebar-rooms-list')).not.toContainText('박지우')
-  // nothing behind "더 보기": the way to every room, the hidden one too
-  await expect(page.getByTestId('rooms-all')).toBeVisible()
+  await expect(navRoomLinks(page)).toHaveCount(4)
+  await expect(navRoomsList(page)).not.toContainText('박지우')
+  // the 대화 panel has no cap: no "더 보기"; the hidden one is behind its own row
 
   // hover: the "⋯" takes the pill's place, with its tooltip
   const row = sidebarRow(page, '김소라')
-  const menu = row.getByTestId('sidebar-room-menu')
+  const menu = roomRowMenu(row)
   expect(await menu.evaluate((e) => getComputedStyle(e).opacity)).toBe('0')
   await row.hover()
   await expect.poll(() => menu.evaluate((e) => getComputedStyle(e).opacity)).toBe('1')
@@ -56,28 +58,28 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
 
   // right-click anywhere on the row: the same menu, a DM's items
   await page.mouse.move(0, 0)
-  await row.getByTestId('sidebar-room').click({ button: 'right' })
+  await roomRowLink(row).click({ button: 'right' })
   const items = page.getByRole('menu').getByRole('menuitem')
   await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
-  await expect(page.getByTestId('sidebar-room')).toHaveCount(3)
+  await expect(navRoomLinks(page)).toHaveCount(3)
   // where it went and how it comes back, with an undo
   await expect(page.getByText('대화를 숨겼어요. 새 메시지가 오면 다시 보여요.')).toBeVisible()
   await page.getByRole('button', { name: '실행 취소' }).click()
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }, { roomId: DM, hidden: false }])
-  await expect(page.getByTestId('sidebar-room')).toHaveCount(4)
+  await expect(navRoomLinks(page)).toHaveCount(4)
 
   // the keyboard: Tab onto a row shows its "⋯", Enter opens it, Esc gives the focus back
   const team = sidebarRow(page, '개발팀')
-  await team.getByTestId('sidebar-room').focus()
+  await roomRowLink(team).focus()
   await page.keyboard.press('Tab')
-  await expect(team.getByTestId('sidebar-room-menu')).toBeFocused()
-  await expect.poll(() => team.getByTestId('sidebar-room-menu').evaluate((e) => getComputedStyle(e).opacity)).toBe('1')
+  await expect(roomRowMenu(team)).toBeFocused()
+  await expect.poll(() => roomRowMenu(team).evaluate((e) => getComputedStyle(e).opacity)).toBe('1')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('room-menu-hide')).toHaveText('숨기기')
   await page.keyboard.press('Escape')
-  await expect(team.getByTestId('sidebar-room-menu')).toBeFocused()
+  await expect(roomRowMenu(team)).toBeFocused()
 })
 
 test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
@@ -162,7 +164,7 @@ test('the conversations page: "숨긴 대화 N" at the end, 다시 보이기; op
   await expect(page.getByTestId('rooms-row')).toHaveCount(5)
   await expect(page.getByTestId('rooms-hidden')).toHaveCount(0)
   // it is newest: first in the sidebar too
-  await expect(page.getByTestId('sidebar-room').first()).toContainText('박지우')
+  await expect(navRoomLinks(page).first()).toContainText('박지우')
 
   // hide the team room from its row's "⋯", then open it by its address: it is shown again
   await page.getByTestId('rooms-row').filter({ hasText: '개발팀' }).click({ button: 'right' })
@@ -209,8 +211,8 @@ test('a room hidden elsewhere while it is on screen stays hidden when the page r
   await page.waitForTimeout(500)
   expect(state.hidden).toEqual([{ roomId: TEAM, hidden: true }])
   // the room on screen still shows in the sidebar; another room's row leaves it out
-  await page.getByTestId('sidebar-room').filter({ hasText: '김소라' }).click()
-  await expect(page.getByTestId('sidebar-room').filter({ hasText: '개발팀' })).toHaveCount(0)
+  await navRoomLinks(page).filter({ hasText: '김소라' }).click()
+  await expect(navRoomLinks(page).filter({ hasText: '개발팀' })).toHaveCount(0)
 })
 
 test('the conversations page: a row\'s "⋯" over its end, the preview stopping before it', async ({ page }) => {
@@ -247,7 +249,7 @@ for (const [width, reducedMotion] of [[1440, 'no-preference'], [900, 'reduce']] 
     await start(page, ROOMS, 'en')
     const row = sidebarRow(page, '김소라')
     await row.hover()
-    await row.getByTestId('sidebar-room-menu').click()
+    await roomRowMenu(row).click()
     await row.getByTestId('room-menu-notify').click()
     let menu = row.getByRole('menu', { name: 'Notify me about' })
     await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
@@ -258,7 +260,7 @@ for (const [width, reducedMotion] of [[1440, 'no-preference'], [900, 'reduce']] 
     expect(box.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height)
     expect(box.width).toBeGreaterThan(rowBox.x + rowBox.width - 8)
     // drawn past the sidebar, not cut by its scrolling list: its right end, over the main column, is the menu
-    const sidebar = (await page.locator('nav:has([data-testid="sidebar-rooms-list"])').boundingBox())!
+    const sidebar = (await page.locator('nav').filter({ has: navRoomsList(page) }).boundingBox())!
     expect(box.x + box.width).toBeGreaterThan(sidebar.x + sidebar.width)
     expect(await menu.evaluate((m, p) => m.contains(document.elementFromPoint(p.x, p.y)), { x: box.x + box.width - 4, y: box.y + box.height / 2 })).toBe(true)
     // the longest item ("Default (from settings) · All messages") on one line, as tall as "Off"
@@ -267,7 +269,7 @@ for (const [width, reducedMotion] of [[1440, 'no-preference'], [900, 'reduce']] 
     // Esc closes it and gives the keyboard back to the row's "⋯"
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
-    await expect(row.getByTestId('sidebar-room-menu')).toBeFocused()
+    await expect(roomRowMenu(row)).toBeFocused()
 
     // the room header's "⋯" › Notification settings: the bell's menu, at the window's right
     await page.goto(`/rooms/${GROUP}`)
@@ -290,7 +292,7 @@ test('at a short window: a sidebar row\'s menu opens above the row where it woul
   // the window ends a little under the row
   const at = (await row.boundingBox())!
   await page.setViewportSize({ width: 1440, height: Math.round(at.y + at.height + 60) })
-  await row.getByTestId('sidebar-room').click({ button: 'right' })
+  await roomRowLink(row).click({ button: 'right' })
   const rowBox = (await row.boundingBox())!
   const menu = row.getByRole('menu')
   // 상단에 고정, 알림 설정, 링크 복사, 대화 숨기기
@@ -307,7 +309,7 @@ test.describe('phone', () => {
     const state = await start(page)
     await page.goto('/rooms')
     // 2 + 1 unread in the rooms shown; the hidden DM's 2 are not counted
-    await expect(page.getByTestId('tab-chats-unread')).toContainText('3')
+    await expect(tabMark(page, 'chats')).toContainText('3')
     const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
     // no "⋯" on a touch screen: the long press is the way
     await expect(page.getByTestId('rooms-row-menu').first()).toBeHidden()
@@ -363,7 +365,7 @@ test('screenshots at 1440: header menus by kind, a sidebar row and its menu, the
     await page.goto(`/rooms/${TEAM}`)
     await sidebarRow(page, '김소라').hover()
     await shot(`1440-${scheme}-sidebar-hover`)
-    await sidebarRow(page, '김소라').getByTestId('sidebar-room').click({ button: 'right' })
+    await roomRowLink(sidebarRow(page, '김소라')).click({ button: 'right' })
     await expect(page.getByRole('menu')).toBeVisible()
     await shot(`1440-${scheme}-sidebar-menu`)
     await page.keyboard.press('Escape')
@@ -385,7 +387,7 @@ test('screenshots at 1440 in English (light): the notification menu from a sideb
   await expect(page.getByTestId('room-message')).toHaveCount(1)
   const row = sidebarRow(page, '김소라')
   await row.hover()
-  await row.getByTestId('sidebar-room-menu').click()
+  await roomRowMenu(row).click()
   await row.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menu', { name: 'Notify me about' })).toBeVisible()
   await shot('1440-light-en-sidebar-row-notify')

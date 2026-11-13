@@ -47,6 +47,10 @@ export const PHOTO_PICK_CAPABILITY = 'photo-pick-v1'
  * the app icon: when it changes, whenever the app comes to the foreground, and 0 at sign-out. A number only. An app
  * without it: the icon shows what the last push set (an app before 1.0.5 asked for no badge, so iOS shows none). */
 export const BADGE_CAPABILITY = 'badge-v1'
+/** Optional, versioned: `change-team` opens the app's own "다른 팀에 연결" screen over the team (the one the signed-out
+ * page's footer opens): the team stays until another one answered and the person said yes. The 나 tab's "다른 팀으로
+ * 전환…" row. An app without it: the page shows no such row. */
+export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
 /** The largest icon number (shared/src/cloud-protocol/push-gateway.ts PUSH_GATEWAY_MAX_BADGE; a test keeps them equal). */
 export const MAX_BADGE = 9999
 /** The most files one pick returns: a message's attachment limit. The page asks for what its box still takes. */
@@ -101,6 +105,8 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'photo-done' }
   // badge-v1: the app icon's number, 0 clears it
   | { type: 'badge'; count: number }
+  // change-team-v1: the app's "다른 팀에 연결" screen over this team
+  | { type: 'change-team' }
 ))
 /** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
  * `photo-chunk` answer. */
@@ -146,7 +152,7 @@ export function parseMessage(raw: string): MobileMessage | null {
       break
     case 'file-chunk': if (!seq(m.seq) || base64Size(m.b64) === null) return null; break
     case 'file-end': if (!seq(m.seq)) return null; break
-    case 'file-abort': case 'push-token': case 'push-permission': case 'open-settings': break
+    case 'file-abort': case 'push-token': case 'push-permission': case 'open-settings': case 'change-team': break
     case 'session-reset': if (m.signedOut !== undefined && typeof m.signedOut !== 'boolean') return null; break
     case 'appearance': if (typeof m.dark !== 'boolean' || (m.system !== undefined && typeof m.system !== 'boolean')) return null; break
     case 'share-text': if (typeof m.text !== 'string' || !m.text.trim() || m.text.length > MAX_SHARE_TEXT) return null; break

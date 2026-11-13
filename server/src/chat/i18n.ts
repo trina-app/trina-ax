@@ -204,7 +204,7 @@ export const TEXT = {
   roomAiChangeEmpty: t('(빈 내용)', '(empty)', '(kosong)', "（空）", "(vacío)"),
   roomAiChangeCut: t('(모두 {n}자 중 앞부분)', '(the start of {n} characters)', '(awal dari {n} karakter)', "（全{n}文字のうち最初の部分）", "(el inicio de {n} caracteres)"),
   // "대화방에 보내기" (chat/answer-share.ts): an answer of my own AI chat sent to a room as my message
-  /** the end of a shared answer that was too long for one room message; {history}: aiHistory, the sidebar's heading */
+  /** the end of a shared answer that was too long for one room message; {history}: aiHistory, the web app's name for the AI chats */
   answerShareCut: t('…(이하 생략) 전체는 내 {history}에서', '…(cut here) The whole answer is in my {history}.', '…(dipotong di sini) Jawaban lengkapnya ada di {history} saya.', "…（以下省略）全文は私の{history}にあります。", "…(cortado aquí) La respuesta completa está en mi {history}."),
   /** the person's AI chats, as the web app's sidebar names them (sidebar.aiChats); {name}: the AI's name there */
   aiHistory: t('{name} 기록', '{name} history', 'Riwayat {name}', "{name}の履歴", "Historial de {name}"),

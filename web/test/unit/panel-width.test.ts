@@ -19,7 +19,7 @@ describe('panel width limits', () => {
     expect(clampPanel(500.4, 1100, SIDE_PANEL)).toBe(500)
   })
   test('a thread keeps 320 px and the room keeps 420 px', () => {
-    // 1440 px window: the room row is 1440 - 280 (sidebar) = 1160
+    // a wide window: the room row is 1160 px
     expect(panelLimits(1160, THREAD_PANEL)).toEqual({ min: 320, max: 740 })
     expect(clampPanel(200, 1160, THREAD_PANEL)).toBe(320)
     expect(clampPanel(1000, 1160, THREAD_PANEL)).toBe(740)

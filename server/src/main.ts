@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { websocket } from 'hono/bun'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, setOwnFolderWord } from '@mycel/shared'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, OBSOLETE_KEYS, type AppConfig } from './app-config'
 import { buildApp } from './app'
@@ -287,6 +287,8 @@ if (import.meta.main) {
     process.exit(e instanceof ConfigError ? EXIT.config : EXIT.startFailed)
   }
   const log = createLogger({ level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY })
+  // the person's own folder is "내 파일" (파일's name for it; shared/src/folder-labels.ts): the AI says what the screen says
+  setOwnFolderWord('files')
   let started: Started
   try {
     started = await start(cfg, log)

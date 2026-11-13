@@ -2,6 +2,7 @@
 // folder they cannot see, an old settings link, and a chat whose AI waits for an answer while they are elsewhere.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { chatList } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -66,7 +67,7 @@ test('a chat whose AI waits for an answer shows "?" at the end of its row, and a
   await page.getByTestId('send').click()
   await expect(page.getByTestId('ask-card')).toBeVisible()
   // session markers (docs/DECISIONS.md): one marker per row, the reason as its name; the card's "?" stays on screen
-  const row = page.getByRole('navigation').getByRole('listitem').filter({ has: page.getByTestId('marker-ask') })
+  const row = (await chatList(page)).getByRole('listitem').filter({ has: page.getByTestId('marker-ask') })
   await expect(row).toHaveCount(1)
   await expect(row.getByRole('img', { name: '어느 분기를 볼까요?' })).toBeVisible()
   await expect(row.getByTestId('chat-marker')).toHaveCount(1)

@@ -9,7 +9,7 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 - In a chat, type `/` and pick a skill, or write `/skill-name` in your message.
 - The AI can also find and load a skill by itself when it fits the request.
-- **Team skills** in the sidebar lists the skills you can use.
+- **Team skills** (팀 스킬), a row near the end of your Trina list, lists the skills you can use.
 
 ![The Team skills page: tabs for available skills, review, suggestions and recent changes, and a list of six team skills](../images/skills/team-skills.webp "Team skills")
 
@@ -133,7 +133,7 @@ Members use **Bring my skills** under the list on **Available skills** (on a com
 - The server checks every skill again (keys, scripts, size, names, paths on their computer) and keeps it outside the team files. No AI judges it.
 - When they can write the team folder, the sheet also links to it for files. On a phone the line offers only that folder, and nothing when they cannot write one.
 
-The owner and admins get one Inbox line per send ("Mina wants to bring 2 skills to the team"), which opens **Review**, grouped by person. Only the owner and admins see and approve such a skill: it is saved as `skills/<folder name>/` with its files, the member hears it, and the skill shows "Suggested by Mina" in the list. Approving never changes the skill the invite opens or the 7-day goal names. The line can be closed for good with ✕.
+The owner and admins get one notice in **활동** (Activity) per send ("Mina wants to bring 2 skills to the team"), which opens **Review**, grouped by person. Only the owner and admins see and approve such a skill: it is saved as `skills/<folder name>/` with its files, the member hears it, and the skill shows "Suggested by Mina" in the list. Approving never changes the skill the invite opens or the 7-day goal names. The line can be closed for good with ✕.
 
 ## Starter skills
 

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { accountButton, openPlace, openTrinaRow, signOut } from './nav'
 
 const CHIP = '[data-testid="attachment-chip"] [role="status"]'
 const ROW = '[data-testid="upload-list"] li'
@@ -44,14 +45,13 @@ const pdf = (name: string, size: number) => ({ name, mimeType: 'application/pdf'
 const requests = async (page: Page, line: string) => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === line).length
 /** Out and in as another person, in this tab: no page load (signIn makes one, and an empty page proves nothing). */
 async function nextPerson(page: Page) {
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('logout').click()
+  await signOut(page)
   await expect(page.getByTestId('login-username')).toBeVisible()
   await page.getByTestId('login-username').fill(BOB.username)
   await page.getByTestId('login-password').fill(BOB.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('account-menu')).toBeVisible()
-  await page.getByRole('link', { name: '파일', exact: true }).click()
+  await expect(accountButton(page)).toBeVisible()
+  await openPlace(page, 'files')
   await expect(page.getByTestId('files-input')).toBeAttached()
 }
 const folderOf = (dir: string, names: string[], size: number) => {
@@ -290,9 +290,9 @@ test.describe('without the service worker', () => {
     await page.getByTestId('files-input').setInputFiles(pdf('full.pdf', 1000))
     const row = page.locator(ROW)
     await expect(row.getByRole('alert')).toContainText('저장 공간')
-    await page.getByRole('link', { name: '프로젝트', exact: true }).click()
+    await openTrinaRow(page, 'projects')
     await expect(row).toHaveCount(0)
-    await page.getByRole('link', { name: '파일', exact: true }).click()
+    await openPlace(page, 'files')
     await expect(row.getByRole('alert')).toContainText('저장 공간')
   })
 
@@ -387,7 +387,7 @@ test('an upload that ends leaves the folder on screen as it is, when the person 
   await answerAfter(page, 1200)
   await page.getByTestId('files-input').setInputFiles(pdf('elsewhere.pdf', 1000))
   await expect(page.locator(ROW)).toBeVisible()
-  await page.getByRole('link', { name: '파일', exact: true }).click()
+  await openPlace(page, 'files')
   await expect(page.getByText('plan.md', { exact: true })).toHaveCount(0)
   await expect(page.locator(ROW)).toHaveAttribute('data-status', 'done', { timeout: 10_000 })
   await page.waitForTimeout(600)

@@ -27,12 +27,16 @@ export async function signIn(page: Page, who = OWNER) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  // a phone lands on the 대화 list (App.tsx AfterSignIn); the tests start from Home either way
-  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page'))).toBeVisible()
+  // a phone lands on the 대화 list (App.tsx AfterSignIn) or, with the new tabs (navigation phase P5), on the 트리나 list;
+  // the tests start from the new-chat box either way (`/`, or /new on a phone with the new tabs, `/` being the list)
+  const trinaList = page.getByTestId('phone-trina-home')
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page')).or(trinaList).first()).toBeVisible()
   if (await page.getByTestId('rooms-page').isVisible()) {
     await page.goto('/')
-    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(page.getByTestId('composer-input').or(trinaList).first()).toBeVisible()
   }
+  if (await trinaList.isVisible()) await page.goto('/new')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
 /** Errors other than the expected 401 of GET /api/me before signing in. */
@@ -46,17 +50,13 @@ export async function adv(root: Page | Locator, testId: string): Promise<Locator
   return root.getByTestId(testId)
 }
 
-/** The new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1): `POST /__test/nav-rail` turns the server's
- * `navRail` switch on or off in the mock (off after every reset, as on a real server). Sign in, or reload, after it:
- * the app reads it from GET /api/me. */
-export async function navRail(page: Page, on = true) {
-  const r = await page.request.post('/__test/nav-rail', { data: { on } })
-  expect(r.ok()).toBeTruthy()
-}
+/** @deprecated The new navigation's server switch is retired (docs/DECISIONS.md "navRail: retired, the old navigation
+ * removed"): the rail and the phone tabs are always on, so this does nothing. Kept so suites that still call it run
+ * unchanged until they drop the call. */
+export async function navRail(_page: Page, _on = true) {}
 
 /** Press a place on the computer's rail (lib/rail.ts RailItem: 'ai' | 'chats' | 'files' | 'activity'), the way a person
- * does, and wait for it to be the lit one. The rail itself comes with phase P1; suites that use this turn the switch on
- * first (navRail above). */
+ * does, and wait for it to be the lit one. */
 export async function openRail(page: Page, item: 'ai' | 'chats' | 'files' | 'activity') {
   const button = page.getByTestId(`rail-${item}`)
   await button.click()

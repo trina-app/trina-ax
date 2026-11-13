@@ -12,6 +12,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { folderLabel } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab, tabBar, tabButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -25,9 +26,8 @@ const title = (page: Page) => page.getByRole('heading', { level: 1 })
 const back = (page: Page) => page.getByTestId('files-back')
 /** 프로젝트 › 팀 폴더 (QA TC-255) */
 async function teamFolder(page: Page) {
-  await page.getByTestId('tab-projects').last().click()
-  await page.getByTestId('projects-team-folder-row').click()
-  await expect(page).toHaveURL(/\/files$/)
+  await openTab(page, 'files')
+  await expect(page).toHaveURL(/\/files/)
 }
 
 async function file(page: Page, path: string, text = 'x') {
@@ -160,7 +160,7 @@ test('Back from the Trash: Files → the Trash row → Back → the team folder 
     if (how === 'back') await page.goBack()
     else await back(page).click()
     await expect(page).toHaveURL(/\/projects$/)
-    await expect(page.getByTestId('tab-projects').last()).toHaveAttribute('aria-current', 'page')
+    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
   }
 })
 
@@ -206,7 +206,7 @@ test("TC-249: a row's ⋯ at the end of a long list is a sheet over the tab bar;
     expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   }
   await expect(sheet.getByRole('menuitem', { name: t['files.moveToTrash'] })).toBeVisible()
-  const tabs = (await page.getByTestId('bottom-tabs').boundingBox())!
+  const tabs = (await tabBar(page).boundingBox())!
   expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[data-bottom-bar]'), [tabs.x + tabs.width / 2, tabs.y + tabs.height / 2])).toBe(false)
   // a tap outside it closes it
   await page.mouse.click(195, 150)
@@ -218,7 +218,7 @@ test("TC-249: a row's ⋯ at the end of a long list is a sheet over the tab bar;
   const bulk = page.getByTestId('bulk-bar')
   await expect(page.getByTestId('bulk-count')).toHaveText(translate('ko', 'files.bulk.count', { n: 1 }))
   const bulkBox = (await bulk.boundingBox())!
-  const tabsNow = (await page.getByTestId('bottom-tabs').boundingBox())!
+  const tabsNow = (await tabBar(page).boundingBox())!
   expect(bulkBox.y + bulkBox.height).toBeLessThanOrEqual(tabsNow.y + 1)
   expect(bulkBox.y).toBeGreaterThan(844 / 2)
   for (const id of ['bulk-move', 'bulk-share', 'bulk-delete', 'bulk-clear']) {

@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -17,7 +18,7 @@ const backLabel = (page: Page) => page.getByTestId('admin-back-label')
 
 /** Admin's list from the 나 tab, then one of its rows */
 async function openAdminPage(page: Page, id: string, url: RegExp) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId(`admin-row-${id}`).click()

@@ -17,7 +17,7 @@ export type SidePanel =
   | { kind: 'artifact'; chatId: string; artifactKey: string; versionId?: string }
 
 let current: SidePanel | null = null
-/** "크게 보기": the panel fills the area beside the sidebar (components/Layout.tsx). Not remembered: it lasts while the
+/** "크게 보기": the panel fills the area beside the rail and the list (components/Layout.tsx). Not remembered: it lasts while the
  * panel stays open (another file or artifact opened in it keeps it), and closing the panel or the Browser pane ends it. */
 let expanded = false
 const listeners = new Set<() => void>()
@@ -64,11 +64,10 @@ export const panelExpandedNow = () => expanded && wideScreen()
 const wideScreen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 768px)').matches
 
 /** What Esc does in the app frame (components/Layout.tsx), the first that applies: an open dialog keeps its own Esc
- * (nothing here); the phone drawer closes; a big panel goes back side by side; the panel closes. A page's own Esc that
+ * (nothing here); a big panel goes back side by side; the panel closes. A page's own Esc that
  * runs before (the Files page clears its selection) leaves a big panel alone: the page is hidden behind it. */
-export function escapeAction(s: { dialog: boolean; drawer: boolean; expanded: boolean }): 'none' | 'drawer' | 'side-by-side' | 'close' {
+export function escapeAction(s: { dialog: boolean; expanded: boolean }): 'none' | 'side-by-side' | 'close' {
   if (s.dialog) return 'none'
-  if (s.drawer) return 'drawer'
   return s.expanded ? 'side-by-side' : 'close'
 }
 

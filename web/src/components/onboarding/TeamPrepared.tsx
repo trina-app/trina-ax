@@ -27,6 +27,7 @@ import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { teamFolderPath } from '../../lib/newChat'
 import { labeledPath } from '@mycel/shared'
 import { WORK_HUMANIZER_SKILL, type FileChange, type Locale, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -273,13 +274,13 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
         <div className="flex gap-2 text-label text-muted" data-testid="team-prepared-add">
           <Link to={SKILL_CATALOG} className={clsx(chip, 'px-3')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
           <span className="sr-only"> · </span>
-          <Link to="/files" className={clsx(chip, 'px-3')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
+          <Link to={teamFolderPath()} className={clsx(chip, 'px-3')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
         </div>
       ) : (
         <p className="py-1.5 text-label text-muted" data-testid="team-prepared-add">
           <Link to={SKILL_CATALOG} className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
           <span aria-hidden> · </span>
-          <Link to="/files" className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
+          <Link to={teamFolderPath()} className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
         </p>
       ))}
       {running && <SkillFormDialog path={running.path} onClose={() => setRunning(null)} />}

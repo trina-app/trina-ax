@@ -7,6 +7,7 @@
 // out forgets all of it.
 import type { Attachment } from '@mycel/shared/api'
 import { SIGNED_OUT } from './localData'
+import { newChatPath } from './newChat'
 
 /** What a composer reports after attaching handed-over paths. */
 export interface AttachResult { added: number; failed: number; error?: string }
@@ -77,7 +78,7 @@ function lastOpenChat(userId: string): string | null {
 /** "Ask AI about this": a new chat with the files attached. */
 export function askAiAbout(paths: string[], navigate: (to: string) => void): Promise<AttachResult> {
   const r = sendToComposer('new', paths)
-  navigate('/')
+  navigate(newChatPath())
   return r
 }
 

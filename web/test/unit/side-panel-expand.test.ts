@@ -54,10 +54,9 @@ describe('big or side by side', () => {
 })
 
 describe('Esc in the app frame', () => {
-  test('a dialog keeps it; then the drawer; then side by side; then the panel closes', () => {
-    expect(escapeAction({ dialog: true, drawer: true, expanded: true })).toBe('none')
-    expect(escapeAction({ dialog: false, drawer: true, expanded: true })).toBe('drawer')
-    expect(escapeAction({ dialog: false, drawer: false, expanded: true })).toBe('side-by-side')
-    expect(escapeAction({ dialog: false, drawer: false, expanded: false })).toBe('close')
+  test('a dialog keeps it; then side by side; then the panel closes', () => {
+    expect(escapeAction({ dialog: true, expanded: true })).toBe('none')
+    expect(escapeAction({ dialog: false, expanded: true })).toBe('side-by-side')
+    expect(escapeAction({ dialog: false, expanded: false })).toBe('close')
   })
 })

@@ -25,6 +25,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { skillSummary, type SkillInfo } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { answersFileInputs } from '../lib/desktop'
+import { newChatPath } from '../lib/newChat'
 import { canPickHandle, canPickInput } from '../lib/skillScan'
 import { navigateTo } from '../lib/nav'
 import { namedProduct } from '../lib/tabs'
@@ -49,7 +50,7 @@ export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent
 /** The text a skill row puts in the composer: the slash command and a space for the request. */
 export const skillPrompt = (name: string) => '/' + name + ' '
 /** A new chat with "/<name> " in the message box. */
-export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
+export const skillChatLink = (name: string) => newChatPath({ prompt: skillPrompt(name) })
 
 /** The folder of a team or group skill below its skills root, when it sits in a subfolder ("general" for
  * skills/general/intro-deck/SKILL.md; "" for skills/x.md and skills/x/SKILL.md): the one place a path still helps a
@@ -255,7 +256,7 @@ function NoSkills() {
   const admin = isAdmin(useMe())
   return (
     <EmptyState icon={<Sparkles size={22} />} title={t(admin ? 'skills.noSkills' : 'skills.catalog.memberEmpty')}>
-      {!admin && <p data-testid="skill-none-member">{t('skills.noSkillsHint')}</p>}
+      {!admin && <p data-testid="skill-none-member">{t('skills.noSkillsHintFiles')}</p>}
     </EmptyState>
   )
 }

@@ -169,7 +169,7 @@ export const chatsRoutes: RouteModule = {
 - 소유: `web/` 전부, `server/src/routes/web.ts`(빌드된 웹 제공, SPA 대체), `tests/unit/d-*`·`web/` 안의 시험.
 - React + Vite(Saram `web/` d315378에서 복사해 가져오기: 채팅 UI, KaTeX·Mermaid·스트리밍 마크다운 보정, 아티팩트 패널 + 샌드박스 iframe, 파일 미리보기, 답변 복사, 이미지 썸네일), Supabase 제거, 문구는 ko/en/id 번역 파일(기본 한국어), 표시 이름 `PRODUCT.displayName`.
 - `ApiClient`와 `ws.ts` 프로토콜만 쓴다. Vite 개발 서버 19140, `/api`(WebSocket 포함)를 19100으로 프록시. `web/package.json`에 `dev`/`build` 스크립트를 넣으면 `bun run dev`가 함께 띄운다.
-- 화면: 로그인·초대 수락·첫 설정(`/setup?token=`), 사이드바, 채팅, 오른쪽 패널, 프로젝트, 파일, 메모리, 설정, 관리자 화면들(5번 탭). PWA(모바일).
+- 화면: 로그인·초대 수락·첫 설정(`/setup?token=`), 왼쪽 메뉴와 목록, 채팅, 오른쪽 패널, 프로젝트, 파일, 메모리, 설정, 관리자 화면들(5번 탭). PWA(모바일).
 
 ### E — desktop (포트 19150–19159)
 - 소유: `desktop/` 전부, `shared/src/browser-tools.ts`(브라우저 도구 입력 스키마, 새 파일), `tests/unit/e-*`.

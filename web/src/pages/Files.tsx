@@ -43,6 +43,7 @@ import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploa
 import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
+import { aiName } from '../lib/tabs'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
@@ -56,11 +57,15 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
+import { newChatPath } from '../lib/newChat'
+import { PhoneFilesHome, TEAM_ROOT_ON_PHONE } from '../components/panels/FilesPanel'
+import { stackNow } from '../lib/screenHistory'
+import RecentFiles from './RecentFiles'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -98,16 +103,38 @@ function dragBadge(dt: DataTransfer, text: string) {
   setTimeout(() => el.remove(), 0)
 }
 
-export default function Files() {
+/** /files: the team folder explorer; also 파일's "최근 파일" (`?view=recent`, pages/RecentFiles.tsx), a row of the list
+ * beside the rail; on a phone /files itself is the 파일 tab's places (components/panels/FilesPanel.tsx PhoneFilesHome) and a folder is a place's screen. */
+export default function FilesRoute() {
+  const [params] = useSearchParams()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  if (params.get('view') === 'recent') return <RecentFiles />
+  // (the team folder's own top is /files?team=1 there: FilesPanel.tsx TEAM_ROOT_ON_PHONE)
+  if (phone && !params.get('path') && !params.get('view') && !params.get('q') && !params.get('select') && !params.has('team')) return <PhoneFilesHome />
+  return <Files />
+}
+
+function Files() {
   const t = useT()
   const locale = useLocale()
   // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …): what is shown, never the paths used
   const words = useFolderWords()
   /** a folder's own name ("leads", 부서), for the phone's bar and its ‹ */
   const folderName = useFolderName()
-  // the phone's ‹ at the team folder: the 프로젝트 tab's list it is under (lib/screens.ts), or what is under it in its stack
-  const upFromTeamFolder = useGoBack('/projects')
-  const teamFolderBackLabel = useBackLabel('/projects', () => null)
+  // the phone's ‹ at the team folder: 파일's places, the tab's root (lib/screens.ts), which the top folders, a project's
+  // folder and my own folder are under (their ‹ says 파일), or what is under it in its stack
+  const upFromTeamFolder = useGoBack('/files')
+  const teamFolderBackLabel = useBackLabel('/files', () => null)
+  const rootName = t('sidebar.files')
+  /** the folder ‹ goes to: the one above, or 파일's places for a place's own folder (phones) */
+  const upOf = (p: string) => {
+    const up = parentPath(p)
+    return up === 'projects' || up === 'users' ? '' : up
+  }
+  // a top folder opened from the team folder's own top (파일 › 팀 폴더): ‹ goes back there, not to the places
+  const fromTeamTop = stackNow()?.below?.p === TEAM_ROOT_ON_PHONE
+  const upTo = (p: string) => (upOf(p) === '' && fromTeamTop ? navigate(TEAM_ROOT_ON_PHONE) : go(upOf(p)))
+  const upName = (p: string) => (upOf(p) ? folderName(upOf(p)) : fromTeamTop ? t('files.root') : rootName)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -141,7 +168,6 @@ export default function Files() {
     else n.delete('view')
     setParams(n)
   }
-  const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
   const [error, setError] = useState<unknown>(null)
@@ -648,7 +674,7 @@ export default function Files() {
 
   // a file goes into a new chat as an attachment (a team-file reference); a folder is named in the prompt
   const chatAttach = useTeamAttach()
-  const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(`/?prompt=${encodeURIComponent(t('files.chatPrompt', { path: e.path }))}`))
+  const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(newChatPath({ prompt: t('files.chatPrompt', { path: e.path }) })))
   const addToChat = (e: FileEntry) => chatAttach.addToChat([e.path])
 
   // ---------------- drag and drop ----------------
@@ -835,8 +861,8 @@ export default function Files() {
         // Back in its stack, named after where it goes); ⊕ only where the folder takes new files. The team folder is
         // named as its row on the projects list ("팀 폴더")
         <PhonePageBar
-          onBack={view === 'trash' ? () => setView('files') : path ? () => go(parentPath(path)) : upFromTeamFolder}
-          backLabel={view === 'trash' ? (path ? folderName(path) : t('files.root')) : path ? (parentPath(path) ? folderName(parentPath(path)) : t('files.root')) : teamFolderBackLabel}
+          onBack={view === 'trash' ? () => setView('files') : path ? () => upTo(path) : upFromTeamFolder}
+          backLabel={view === 'trash' ? (path ? folderName(path) : rootName) : path ? upName(path) : teamFolderBackLabel}
           title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.root')}
           heading
           action={
@@ -860,8 +886,9 @@ export default function Files() {
         />
       ) : (
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
-        <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
-        <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
+        {/* the trash is a row of 파일's list beside the rail, so no tabs here; the list says 파일 already, the breadcrumbs
+            where this is: the title is for screen readers */}
+        <h1 className={clsx('mr-2 text-lg font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
@@ -926,7 +953,7 @@ export default function Files() {
       )}
 
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
-      <TabPanel base={phone ? null : viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
+      <TabPanel base={null} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
         <TrashView />
       ) : (
@@ -950,20 +977,21 @@ export default function Files() {
             // phones at the top folder: no lone "팀 폴더" under the tab of the same name (only a read-only note, if any)
             <nav aria-label={t('files.breadcrumb')} className={clsx('flex flex-wrap items-center gap-1 px-4 py-2 text-sm max-md:gap-y-2.5 max-md:pt-0 max-md:pb-2.5 sm:px-6', !path && (!tree || tree.access === 'write') && 'max-md:hidden')}>
               <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', !path && 'max-md:hidden', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
-                <Home size={14} aria-hidden /> {t('files.root')}
+                {/* the team folder's top, named as the rail names 파일 (one name per place) */}
+                <Home size={14} aria-hidden /> {t('sidebar.files')}
               </button>
-              {crumbs(path).map((c) => (
+              {words.crumbs(path).map((c) => (
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
                   <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover max-md:min-h-11', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
-                    {words.name(c.path, c.name)}
+                    {c.name}
                   </button>
                 </span>
               ))}
               {folderNotes}
               {/* why New folder and Upload are off here (computers: phones hide them) */}
               {tree && !canWrite && (
-                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? 'files.addInMyFolder' : 'files.addHere')}</span>
+                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? ('files.addInMyFolderFiles') : 'files.addHere')}</span>
               )}
             </nav>
           )}
@@ -1281,7 +1309,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:text-sm'
   const footer = (aiWhy || fixedWhy) && (
     <>
-      {aiWhy && <p id={aiWhy} className={why} data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
+      {aiWhy && <p id={aiWhy} className={why} data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly', { name: aiName(t) })}</p>}
       {fixedWhy && <p id={fixedWhy} className={why} data-testid="file-fixed-reason">{t(e.fixed === 'admin' ? 'files.fixedAdmin' : 'files.fixedAlways')}</p>}
     </>
   )

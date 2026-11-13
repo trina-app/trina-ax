@@ -135,8 +135,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
     : t('notifications.event.schedule.projectGone')
   // a task whose save folder lapsed: check it again on the Scheduled page (its runs save in the own folder meanwhile)
   if (item.code === 'schedule.failure' && item.saveLapsed) return title
-    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamed', { title }, ['title'])
-    : t('notifications.event.schedule.saveLapsed')
+    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamedFiles', { title }, ['title'])
+    : t('notifications.event.schedule.saveLapsedFiles')
   if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
   if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
     const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'
@@ -173,7 +173,7 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
-  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole

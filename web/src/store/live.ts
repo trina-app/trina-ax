@@ -34,7 +34,7 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
-/** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
+/** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
@@ -53,6 +53,8 @@ export const reloadAsked = new Emitter<'reset' | 'resync'>()
 /** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
  * a project's page applies those of its project (pages/Projects.tsx) */
 export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
+/** my list folders changed (navFolders.changed, docs/DECISIONS.md "List folders"): the Trina list reads its groups again */
+export const navFoldersChanged = new Emitter<'chats' | 'rooms'>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
@@ -186,7 +188,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.code === 'team_icon_changed') {
-        // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
+        // an admin set or removed the team logo: the rail's logo follows (GET /api/me carries its version); the tab
         // icon stays the product's
         void useSession.getState().refreshMe()
         return
@@ -252,6 +254,9 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
+      return
+    case 'navFolders.changed':
+      navFoldersChanged.emit(ev.data.kind)
       return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen

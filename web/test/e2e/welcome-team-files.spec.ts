@@ -6,6 +6,7 @@
 // recommendation, no AI. A phone uploads hand-picked files only. The Files screen offers the same steps in a dialog.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openPlace } from './nav'
 
 type Node = { size?: number; at?: string } | { [name: string]: Node }
 /** a company folder: forms, an intro, minutes, a payroll file (personal), a big video folder, things never listed */
@@ -151,7 +152,7 @@ test('leaving during F4 and coming back shows the run, never F1; the same files 
   await expect(page.getByTestId('welcome-team-files-run-title')).toContainText('올리는 중 ·')
   await expect(page.getByTestId('welcome-team-files-stop-upload')).toHaveText('그만 올리기')
   // another page while it runs: the run goes on there
-  await page.getByTestId('nav-files').click()
+  await openPlace(page, 'files')
   await expect(page).toHaveURL(/\/files/)
   await page.getByTestId('setup-row-link').click()
   await expect(page).toHaveURL(/\/welcome$/)

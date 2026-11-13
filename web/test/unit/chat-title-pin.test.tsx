@@ -42,7 +42,7 @@ afterAll(() => removeDom())
 const items = (m: Awaited<ReturnType<typeof mount>>) => (m.container.ownerDocument!.body.querySelectorAll('[role="menuitem"]') as unknown as FakeElement[])
 const iconOf = (e: FakeElement) => (e.querySelector('svg')?.getAttribute('class') ?? '').split(/\s+/).find((c) => c.startsWith('lucide-'))
 
-/** the row menu's first item for this chat, as the sidebar's "···" has it */
+/** the row menu's first item for this chat, as the Trina list's "···" has it */
 function RowFirst({ c, out }: { c: Chat; out: { label?: string; icon?: string } }) {
   const [first] = useChatMenuItems(c, { testId: 'chat-row', more: createRef<HTMLButtonElement>() })
   out.label = first!.label

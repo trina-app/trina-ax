@@ -6,13 +6,13 @@
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
 // admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
-// time"); on a computer the sidebar's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
+// time"); on a computer the list panel's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
 // docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
 // AI answers the person (GET /api/me/ai-access), everyone gets ONE card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like an AI app (QA TC-253, TC-391): the
+// Phones (below 768px): Home is the new-chat page (/new, from the 트리나 tab), laid out like an AI app (QA TC-253, TC-391): the
 // "one thing" (the setup row, the goal, the welcome or lead card, the no-AI card) at the top, without a frame; Trina's
 // mark and the greeting in the middle of the space left; the one row of suggestions (the block under the box on a
 // computer, as chips that scroll sideways) and the box at the bottom, the box docked there so it stays in sight while
@@ -21,17 +21,21 @@
 // with a fine pointer: not on opening, not coming back from another tab or a chat): the keyboard comes up only when
 // the person taps the box, so the tab bar stays until
 // then (the owner, 11-12: "채팅이 보고싶은 걸 수도 있는데"); with the keyboard up the card sits on it. No list of the AI's
-// chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal and no
+// chats here: the 트리나 tab's list holds them. A project's new chat ("/?project=") shows no goal and no
 // setup row: they are about the team.
 // Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
 // it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
 // no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6").
+// On a phone (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") `/` is 트리나's list (components/panels/PhoneTrinaHome.tsx) and this page is `/new`: a `/` that carries a
+// question or a project (a skill's or a file's link, a project's new chat, an old bookmark, a notification) goes there
+// with it, and a computer's `/new` comes back to `/` (lib/newChat.ts homeRoute). An owner landing on the list still
+// goes to the unfinished welcome steps first.
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
-import { Sparkles } from 'lucide-react'
+import { Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
@@ -45,6 +49,8 @@ import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
+import { homeRoute } from '../lib/newChat'
+import { PhoneTrinaHome } from '../components/panels/PhoneTrinaHome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -57,10 +63,17 @@ import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
 import { TrinaStar } from '../components/TrinaStar'
 import { FileDropZone } from '../components/FileDropZone'
+import { useFolders } from '../components/nav/NavFolders'
+import { Tooltip } from '../components/Tooltip'
 
 // Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
 // chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).
 export default function Home() {
+  const location = useLocation()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const route = homeRoute(location.pathname, location.search, phone)
+  if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
+  if (route.list) return <TrinaListHome />
   return (
     <FileDropZone className="h-full" data-testid="home-drop">
       <HomePage />
@@ -68,12 +81,26 @@ export default function Home() {
   )
 }
 
+/** 트리나's list as a phone's `/` (see the top of this file): an owner who left the welcome steps unfinished lands on them
+ * first, as on Home. */
+function TrinaListHome() {
+  const location = useLocation()
+  const resuming = useResumeOnLanding(isLanding(location), true)
+  if (resuming) return <div className="h-full" data-testid="home-resuming" />
+  return <PhoneTrinaHome />
+}
+
 function HomePage() {
   const t = useT()
   const me = useMeStrict()
   const navigationType = useRealNavigationType()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const projectId = params.get('project')
+  // a folder's + ("Ask Trina" in it, `?folder=<id>`) puts the new chat in that folder of mine; an id that is not one of
+  // my chat folders is ignored
+  const folderAsked = !projectId ? params.get('folder') : null
+  const chatFolders = useFolders('chats', !!folderAsked)
+  const folder = folderAsked ? chatFolders.find((f) => f.id === folderAsked) ?? null : null
   const prompt = params.get('prompt') ?? undefined
   const chats = useChats((s) => s.chats)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
@@ -138,6 +165,7 @@ function HomePage() {
       <NewChatComposer
         projectId={projectId}
         project={project}
+        folderId={folder?.id ?? null}
         initialText={preset?.text}
         resetKey={preset?.n ?? 0}
         // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. A
@@ -165,6 +193,17 @@ function HomePage() {
           <div className="max-md:flex max-md:flex-1 max-md:flex-col max-md:items-center max-md:justify-center max-md:py-6 md:contents" data-testid="home-head">
             {/* not under a welcome or lead card: they fill the top, and the mark would sit alone over the box */}
             {!leadCard && !welcomeCard && <HomeMark />}
+            {folder && (
+              <p className="mb-2 flex items-center justify-center gap-1.5 text-sm text-muted" data-testid="home-folder">
+                <Folder size={14} className="shrink-0" aria-hidden />
+                <span className="truncate">{t('navFolders.goesInto', { name: folder.name })}</span>
+                <Tooltip label={t('navFolders.goesIntoClear')}>
+                  <button type="button" aria-label={t('navFolders.goesIntoClear')} onClick={() => setParams((q) => (q.delete('folder'), q), { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
+              </p>
+            )}
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -223,7 +262,7 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 /**
  * The one thing at the top of Home for owners and admins while AI answers them: on a phone the owner's quiet "설정
  * 이어서 하기 · 2/4" while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card;
- * on a computer always the goal card, since the sidebar's setup row stands for the steps there (docs/DECISIONS.md
+ * on a computer always the goal card, since the list panel's setup row stands for the steps there (docs/DECISIONS.md
  * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
  * read counts as "nothing to continue". Exported for its test.
  */

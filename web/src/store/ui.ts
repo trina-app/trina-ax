@@ -1,4 +1,4 @@
-// Small app-wide UI state: toasts / notices, the connection banner, the mobile sidebar drawer, a newer server.
+// Small app-wide UI state: toasts / notices, the connection banner, a newer server.
 import { create } from 'zustand'
 import type { ConnState } from '../lib/realtime'
 
@@ -21,7 +21,6 @@ export interface Toast {
 interface UiState {
   toasts: Toast[]
   conn: ConnState
-  drawerOpen: boolean
   /** the server reported a different version than the one this page was loaded with */
   updateReady: boolean
   searchOpen: boolean
@@ -30,7 +29,6 @@ interface UiState {
   toast: (t: Omit<Toast, 'id'>) => number
   dismiss: (id: number) => void
   setConn: (s: ConnState) => void
-  setDrawer: (open: boolean) => void
   setUpdateReady: (v: boolean) => void
   setSearchOpen: (v: boolean, scope?: 'rooms') => void
 }
@@ -50,7 +48,6 @@ export function holdToasts(match: (t: Omit<Toast, 'id'>) => boolean): () => void
 export const useUi = create<UiState>((set, get) => ({
   toasts: [],
   conn: 'idle',
-  drawerOpen: false,
   updateReady: false,
   searchOpen: false,
   searchScope: null,
@@ -63,7 +60,6 @@ export const useUi = create<UiState>((set, get) => ({
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   setConn: (conn) => set({ conn }),
-  setDrawer: (drawerOpen) => set({ drawerOpen }),
   setUpdateReady: (updateReady) => set({ updateReady }),
   setSearchOpen: (searchOpen, scope) => set({ searchOpen, searchScope: searchOpen ? (scope ?? null) : null }),
 }))

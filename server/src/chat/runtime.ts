@@ -1015,7 +1015,7 @@ export class ChatRuntime {
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
     // an old room AI session (chats.room_id, docs/DECISIONS.md "Room @트리나 code removed") is not one of the person's
-    // chats (no sidebar entry)
+    // chats (not in the Trina list)
     if (r?.room_id) return
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
