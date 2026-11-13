@@ -20,7 +20,6 @@
 // folder itself offers no new folder or upload. A project's folder is its members' (docs/DECISIONS.md "Project contents
 // only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
 // the project's page instead (there they can add themselves), not to "folder not found".
-import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -57,12 +56,11 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
-import { useNavRail } from '../lib/navRail'
 import { newChatPath } from '../lib/newChat'
 import { PhoneFilesHome, TEAM_ROOT_ON_PHONE } from '../components/panels/FilesPanel'
 import { stackNow } from '../lib/screenHistory'
@@ -104,16 +102,14 @@ function dragBadge(dt: DataTransfer, text: string) {
   setTimeout(() => el.remove(), 0)
 }
 
-/** /files: the team folder explorer; with the new navigation (lib/navRail.ts, phase P3) also 파일's "최근 파일"
- * (`?view=recent`, pages/RecentFiles.tsx), a row of the list beside the rail; on a phone (phase P5) /files itself is the
- * 파일 tab's places (components/panels/FilesPanel.tsx PhoneFilesHome) and a folder is a place's screen. */
+/** /files: the team folder explorer; also 파일's "최근 파일" (`?view=recent`, pages/RecentFiles.tsx), a row of the list
+ * beside the rail; on a phone /files itself is the 파일 tab's places (components/panels/FilesPanel.tsx PhoneFilesHome) and a folder is a place's screen. */
 export default function FilesRoute() {
   const [params] = useSearchParams()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const rail = useNavRail()
-  if (rail && params.get('view') === 'recent') return <RecentFiles />
+  if (params.get('view') === 'recent') return <RecentFiles />
   // (the team folder's own top is /files?team=1 there: FilesPanel.tsx TEAM_ROOT_ON_PHONE)
-  if (rail && phone && !params.get('path') && !params.get('view') && !params.get('q') && !params.get('select') && !params.has('team')) return <PhoneFilesHome />
+  if (phone && !params.get('path') && !params.get('view') && !params.get('q') && !params.get('select') && !params.has('team')) return <PhoneFilesHome />
   return <Files />
 }
 
@@ -124,20 +120,18 @@ function Files() {
   const words = useFolderWords()
   /** a folder's own name ("leads", 부서), for the phone's bar and its ‹ */
   const folderName = useFolderName()
-  // the phone's ‹ at the team folder: the 프로젝트 tab's list it is under (lib/screens.ts), or what is under it in its stack;
-  // with the new navigation's tabs 파일's places, the tab's root, which the top folders, a project's folder and my own
-  // folder are under (their ‹ says 파일)
-  const placesTab = useNavRail()
-  const upFromTeamFolder = useGoBack(placesTab ? '/files' : '/projects')
-  const teamFolderBackLabel = useBackLabel(placesTab ? '/files' : '/projects', () => null)
-  const rootName = placesTab ? t('sidebar.files') : t('files.root')
-  /** the folder ‹ goes to: the one above, or 파일's places for a place's own folder (new navigation, phones) */
+  // the phone's ‹ at the team folder: 파일's places, the tab's root (lib/screens.ts), which the top folders, a project's
+  // folder and my own folder are under (their ‹ says 파일), or what is under it in its stack
+  const upFromTeamFolder = useGoBack('/files')
+  const teamFolderBackLabel = useBackLabel('/files', () => null)
+  const rootName = t('sidebar.files')
+  /** the folder ‹ goes to: the one above, or 파일's places for a place's own folder (phones) */
   const upOf = (p: string) => {
     const up = parentPath(p)
-    return placesTab && (up === 'projects' || up === 'users') ? '' : up
+    return up === 'projects' || up === 'users' ? '' : up
   }
   // a top folder opened from the team folder's own top (파일 › 팀 폴더 전체): ‹ goes back there, not to the places
-  const fromTeamTop = placesTab && stackNow()?.below?.p === TEAM_ROOT_ON_PHONE
+  const fromTeamTop = stackNow()?.below?.p === TEAM_ROOT_ON_PHONE
   const upTo = (p: string) => (upOf(p) === '' && fromTeamTop ? navigate(TEAM_ROOT_ON_PHONE) : go(upOf(p)))
   const upName = (p: string) => (upOf(p) ? folderName(upOf(p)) : fromTeamTop ? t('files.root') : rootName)
   const navigate = useNavigate()
@@ -173,7 +167,6 @@ function Files() {
     else n.delete('view')
     setParams(n)
   }
-  const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
   const [error, setError] = useState<unknown>(null)
@@ -182,7 +175,6 @@ function Files() {
   // phones (below 768 px, like the tab bar): rows are selected by a long press, not by a checkbox; a touch phone does
   // not drag rows (a long press there is the selection, and a row cannot be dropped anywhere useful on that screen)
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const rail = useNavRail() && !phone
   const touchPhone = useMediaQuery('(max-width: 767.98px) and (pointer: coarse)')
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
@@ -893,10 +885,9 @@ function Files() {
         />
       ) : (
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
-        {/* the new navigation (lib/navRail.ts): the trash is a row of 파일's list beside the rail, so no tabs here */}
-        {/* the list beside it says 파일 already, the breadcrumbs where this is: the title is for screen readers there */}
-        <h1 className={clsx('mr-2 text-lg font-semibold', rail && view !== 'trash' && 'sr-only')}>{rail && view === 'trash' ? t('files.trash') : t('files.title')}</h1>
-        {!rail && <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />}
+        {/* the trash is a row of 파일's list beside the rail, so no tabs here; the list says 파일 already, the breadcrumbs
+            where this is: the title is for screen readers */}
+        <h1 className={clsx('mr-2 text-lg font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave
@@ -961,7 +952,7 @@ function Files() {
       )}
 
       {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
-      <TabPanel base={phone || rail ? null : viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
+      <TabPanel base={null} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
         <TrashView />
       ) : (
@@ -998,7 +989,7 @@ function Files() {
               {folderNotes}
               {/* why New folder and Upload are off here (computers: phones hide them) */}
               {tree && !canWrite && (
-                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? (ownFolderWord() === 'files' ? 'files.addInMyFolderFiles' : 'files.addInMyFolder') : 'files.addHere')}</span>
+                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? ('files.addInMyFolderFiles') : 'files.addHere')}</span>
               )}
             </nav>
           )}

@@ -1,27 +1,25 @@
-// The phone tab bar (below 768 px; Layout.tsx, and the Settings dialog, which is the 나 tab): 트리나 (the AI: Home with a
-// new chat and the latest chats, its history behind ☰), 대화 (rooms, DMs and group chats), 프로젝트 (the projects list,
-// with the team folder as its last row: QA TC-255), 나 (Settings, opened on its list: the Inbox and, for admins, Admin on
-// top). lib/tabs.ts says which tab an address belongs to and which one the app opens on. A hairline above, no frame; the
-// tab on screen in ink and medium weight. Each label stays on one line, cut with "…" when a language's word does not fit
-// a quarter of a narrow phone at a large text size. Each unread thing counted once
-// (QA TC-256): my unread room messages on 대화 (a mention and a followed thread's replies among them), on 나 the unread
-// Inbox notices that are not about a conversation (store/inbox.ts useNoticeUnread). While @트리나 waits on me in a room
-// (Room.aiWaits), 대화's pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers");
-// the count is the same and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation
-// (a room, an AI chat): their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room
-// header's ✦, the AI's face in rooms and the sidebar's "트리나에게 묻기") where the product is named after its AI, in its
-// own orange (the owner, 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar
-// still marks where you are; the sparkle in the core edition, in the tab's colours (as rooms/AiFace.tsx). The star is thin (it fills
-// about 4/5 of its box), so it is drawn 26 px to read as big as the 22 px icons, overhanging its 22 px slot so the bar
-// keeps its height (the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯").
+// The phone tab bar (below 768 px; Layout.tsx, and the Settings dialog, which is the 나 tab; docs/DECISIONS.md "Phone
+// tabs: 트리나 · 대화 · 파일 · 나"): 트리나 (the AI: its list first, a new chat behind its button), 대화 (rooms, DMs and
+// group chats), 파일 (the team folder's places), 나 (Settings, opened on its list: 활동 and, for admins, Admin on top).
+// lib/tabs.ts says which tab an address belongs to and which one the app opens on. A hairline above, no frame; the tab
+// on screen in ink and medium weight. Each label stays on one line, cut with "…" when a language's word does not fit a
+// quarter of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): my unread room messages on
+// 대화 (a mention and a followed thread's replies among them), on 나 the unread Inbox notices that are not about a
+// conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
+// the accent for a new answer: store/sessionMarkers.ts). While @트리나 waits on me in a room (Room.aiWaits), 대화's pill
+// is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count is the same and
+// comes back when the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
+// their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
+// face in rooms and the rail's 트리나) where the product is named after its AI, in its own orange (the owner,
+// 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar still marks where you
+// are; the sparkle in the core edition, in the tab's colours (as rooms/AiFace.tsx). The star is thin (it fills about 4/5
+// of its box), so it is drawn 26 px to read as big as the 22 px icons, overhanging its 22 px slot so the bar keeps its
+// height (the owner, 2026-11-12: "모바일에서는 트리나 아이콘이 달라서 좀 헷갈리는듯").
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
 // left, the tab on show goes back to its root, so the phone's Back never walks from one tab into another. The tab
 // marked is the stack's: a page opened from 나 (연결한 서비스, a notice's page) keeps 나 marked.
-// With the new navigation (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") the
-// third tab is 파일 (the team folder's places) and 트리나 opens on its list; the AI chats' mark that was on ☰ (a dot,
-// amber while a chat waits on me, else the accent for a new answer: store/sessionMarkers.ts) is on 트리나's tab.
 import clsx from 'clsx'
-import { FolderKanban, FolderOpen, MessageCircle, Sparkles, UserRound } from 'lucide-react'
+import { FolderOpen, MessageCircle, Sparkles, UserRound } from 'lucide-react'
 import { useEffect, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
@@ -30,7 +28,6 @@ import { useRealPath } from '../lib/realPath'
 import { badgeText, totalUnread } from '../lib/rooms'
 import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
-import { useNavRail } from '../lib/navRail'
 import { useChats } from '../store/chats'
 import { useNoticeUnread } from '../store/inbox'
 import { useAttention } from '../store/sessionMarkers'
@@ -54,13 +51,12 @@ export function BottomTabs() {
   const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
-  const v2 = useNavRail()
   const attention = useAttention()
   // 트리나's mark counts the AI chats of the chat list: read it whichever tab opens first, as the rail does
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   useEffect(() => {
-    if (v2 && !chatsLoaded) void useChats.getState().loadChats(true).catch(() => {})
-  }, [v2, chatsLoaded])
+    if (!chatsLoaded) void useChats.getState().loadChats(true).catch(() => {})
+  }, [chatsLoaded])
   // the signed-in app shows its first entry: one opened from outside gets its parents put under it
   useEffect(() => settleOpened(), [])
   if (hidesTabs(path)) return null
@@ -73,7 +69,7 @@ export function BottomTabs() {
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
       <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon active={current === 'ai'} />} label={aiName(t)} testId="tab-ai" onClick={go('ai')}>
-        {v2 && attention.chats > 0 &&
+        {attention.chats > 0 &&
           (attention.chatAsk ? (
             <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-ai-mark" data-ask="">
               <span aria-hidden>?</span>
@@ -95,11 +91,7 @@ export function BottomTabs() {
           unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />
         )}
       </TabLink>
-      {v2 ? (
-        <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />
-      ) : (
-        <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<FolderKanban size={22} aria-hidden />} label={t('tabs.projects')} testId="tab-projects" onClick={go('projects')} />
-      )}
+      <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>
         {inbox > 0 && <Count n={inbox} label={t('notifications.unread', { count: inbox })} testId="tab-me-unread" />}
       </TabLink>

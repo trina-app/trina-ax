@@ -11616,6 +11616,35 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   `web/test/e2e/nav-rail-flag.spec.ts`.
 - Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
 
+## navRail: retired, the old navigation removed (feat/nav-rail-p7, 2026-11-13, navigation redesign P7)
+
+넣을 곳: Team AX core (`web/src/`, `server/src/app-config.ts`), 이유: clean-up of the previous entry's last phase. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §5 (P7; the owner, 2026-11-13: finish the redesign now). The rail on
+computers and the tabs 트리나 · 대화 · 파일 · 나 on phones are the only navigation.
+
+- **Removed from the web:** the 280 px sidebar (`Sidebar.tsx`, its menu rows, `rooms/SidebarRooms.tsx`), the phone's ☰
+  drawer and its state (`store/ui.ts drawerOpen`, Esc's drawer step), the old phone tabs (프로젝트 as the third tab, its
+  팀 폴더 row, the `.v2` stacks), Admin's second sidebar (its 88 px icon rail below 1024 px: the Admin menu is the
+  240 px list at every computer width), the five-latest / "더 보기" / "모두 보기" caps of the rooms and the AI history
+  (`RoomsList`, `HistoryList` caps, `capGroups`), the computer's full-page 대화 list and Files tabs, and every other
+  branch that ran only with the switch off. `web/src/lib/navRail.ts` is gone; nothing reads the switch.
+- **"내 파일" everywhere.** The web and the server both set the own folder's word to `files` at start
+  (`setOwnFolderWord`), so the AI and the screen say "내 파일"; the strings for "내 폴더" that only the old path showed
+  are deleted. `shared/src/folder-labels.ts` keeps "folder" as its default for the tests that read the older name.
+- **The server key stays, ignored.** `"navRail"` in `server.json` (true or false) still loads, so an older file never
+  stops a start; it is listed in `OBSOLETE_KEYS` and the start logs one warning, like `knowledgeGraph`. `Me.server.navRail`
+  is gone (web and server ship together). The mock's `POST /__test/nav-rail` is gone; the e2e helper `navRail(page)`
+  does nothing until the suites drop the call.
+- **Old addresses keep working** (plan §3): `/projects…` opens in 트리나, `/new` on a computer and `/` with `?prompt=`,
+  `?project=` or `?folder=` on a phone go to the composer, `/activity?tab=mentions|threads|dms` goes to 대화's 멘션·스레드,
+  `/files?view=trash` is 파일's trash, `/settings/*` and `/connectors/*` as before. Old `mycel.sidebar.*` keys in
+  browsers are left unread; old `.v2` phone stacks are cleared at sign-out and an old 프로젝트 entry takes its first
+  screen's tab.
+- Tests: the old sidebar's unit suite went; what it covered that stays (the team menu, a chat row's "…", pinning) is
+  `web/test/unit/nav-menus.test.tsx`. `tests/unit/b-nav-rail-flag.test.ts` now checks the key is ignored.
+  `web/test/e2e/nav-rail-flag.spec.ts` went. A few i18n keys still named by old e2e specs (`sidebar.label`,
+  `tabs.projects`, …) stay until those specs move to the new helpers.
+
 ## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
 
 넣을 곳: Team AX core (`web/src/components/rail/`, `web/src/components/panels/`, `Layout.tsx`), 이유: the app's own

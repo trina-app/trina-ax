@@ -1,5 +1,4 @@
-// The new navigation's left rail on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; behind the server's
-// `navRail` switch, lib/navRail.ts). Four places, in the order of the phone's tabs: 트리나 (the AI: Home, its chats,
+// The left rail on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). Four places, in the order of the phone's tabs: 트리나 (the AI: Home, its chats,
 // projects, scheduled tasks, team skills, deleted history), 대화 (rooms, DMs, group chats and their 멘션·스레드), 파일 and
 // 활동. Every address of the app belongs to one place or to none (Admin, the Slack pages, an unknown address): the rail
 // lights that place. Settings is a dialog over a page, so the caller asks with the page under it (App.tsx

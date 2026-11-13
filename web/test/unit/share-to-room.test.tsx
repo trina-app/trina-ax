@@ -252,7 +252,7 @@ test('the provenance line alone: 보내기 is the focused default; places named,
   const places = [{ kind: 'folder', path: 'finance' }, { kind: 'folder', path: '' }, { kind: 'mine' }, { kind: 'service', name: 'Google Drive' }, { kind: 'room', name: 'Sales' }, { kind: 'room', name: '' }, { kind: 'conversation' }]
   expect(await line({ people: 3, places, otherPlaces: true })).toBe(en('shareRoom.provenance', {
     n: 3,
-    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMine'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
+    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMineFiles'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
   }))
   expect(await line({ people: 2, places: [], otherPlaces: true })).toBe(en('shareRoom.provenanceNoPlace', { n: 2 }))
   expect(await line({ people: 5, places: [], otherPlaces: true, unknown: true })).toBe(en('shareRoom.unknown'))

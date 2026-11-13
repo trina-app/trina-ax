@@ -1,7 +1,7 @@
-// App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
-// which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
-// With the server's `navRail` switch on (lib/navRail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md), a computer gets the
-// rail and one list panel (components/rail/RailColumns.tsx) where the sidebar was; phones keep what they have.
+// App frame: on a computer the rail and its one list panel (components/rail/RailColumns.tsx; docs/DECISIONS.md
+// "Computers: an icon rail with labels"), on a phone the tab bar (components/BottomTabs.tsx); the page, and the
+// right-hand panel (artifact / file preview / browser), which is a full-screen sheet below 768 px. Also: connection
+// banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -12,7 +12,6 @@ import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
-import { useNavRail } from '../lib/navRail'
 import { newChatPath } from '../lib/newChat'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -23,7 +22,6 @@ import OfficeUpdateBanner from './OfficeUpdateBanner'
 import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
-import Sidebar from './Sidebar'
 import { TeamInviteDialog } from './TeamMenu'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
@@ -42,18 +40,16 @@ const BrowserPanel = lazy(() => import('./BrowserPanel'))
 
 export default function Layout() {
   const t = useT()
-  const drawer = useUi((s) => s.drawerOpen)
-  const setDrawer = useUi((s) => s.setDrawer)
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const panel = useSidePanel()
-  // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
+  // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the rail; the page stays mounted, hidden
   const big = usePanelExpanded() && expandable(panel)
   // the image and file viewer (components/ImageViewer.tsx, over the whole window): the app under it is out of reach
   const viewerOpen = !!useImageViewer()
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
-  // the team chat rooms: the list (sidebar group, the phone tab's count) stays loaded while the app is open
+  // the team chat rooms: the list (the 대화 panel, the rail's and the phone tab's count) stays loaded while the app is open
   useRoomsSync()
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
@@ -73,15 +69,14 @@ export default function Layout() {
         e.preventDefault()
         navigate(newChatPath())
       } else if (e.key === 'Escape') {
-        const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]:not([data-drawer])'), drawer: useUi.getState().drawerOpen, expanded: panelExpandedNow() })
-        if (step === 'drawer') setDrawer(false)
-        else if (step === 'side-by-side') setPanelExpanded(false)
+        const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]'), expanded: panelExpandedNow() })
+        if (step === 'side-by-side') setPanelExpanded(false)
         else if (step === 'close') closeSidePanel()
       }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [navigate, setSearchOpen, setDrawer])
+  }, [navigate, setSearchOpen])
 
   // the AI started writing an artifact in the chat on screen, or saved an intro deck, a promo video or a card news: open
   // it (Claude parity). A new chat's first answer (the welcome steps' intro deck) can start before its page is on
@@ -117,14 +112,11 @@ export default function Layout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  useEffect(() => setDrawer(false), [location.pathname, setDrawer])
-  // phones: Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only then
-  // leaves the page (QA TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the
-  // new page
+  // phones: Back closes a full-screen side panel (file preview, artifact, browser), and only then leaves the page (QA
+  // TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the new page
   const phone = !useMediaQuery('(min-width: 768px)')
-  // the new navigation (a computer only in this phase: the phone's tabs come later)
-  const navRailOn = useNavRail()
-  const rail = navRailOn && !phone
+  // a computer: the rail and its list panel; a phone: the tab bar
+  const rail = !phone
   // whether the rail's list panel shows (RailColumns sets it while the rail is on): the skip link "목록으로" goes there
   const [listShown, setListShown] = useState(false)
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
@@ -139,9 +131,8 @@ export default function Layout() {
     const back = lastFocus.current
     if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
   }, [covered])
-  useOverlayEntry(drawer, () => setDrawer(false))
   useOverlayEntry(!!panel, closeSidePanel, { at: location.key })
-  // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
+  // any move (the rail's 파일, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])
 
@@ -168,24 +159,8 @@ export default function Layout() {
       <ManagedNoticesBanner />
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
-        {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
-            one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
-        {rail ? (
-          <RailColumns onList={setListShown} />
-        ) : navRailOn && phone ? null : (
-          // (a phone with the new navigation's tabs has no sidebar or drawer: nothing of it is mounted)
-          <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
-            <Sidebar />
-          </div>
-        )}
-        {drawer && (
-          <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
-            <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
-            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs bg-subtle pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl">
-              <Sidebar />
-            </div>
-          </div>
-        )}
+        {/* a computer: the rail and its list panel (a phone has the tab bar at the bottom instead) */}
+        {rail && <RailColumns onList={setListShown} />}
         {/* phones: a side panel (a file's preview, an artifact, the browser) is a full-screen sheet over the page, and the
             page behind it is out of reach (no tap, scroll or focus goes there) until it closes */}
         <main id="main" tabIndex={-1} onFocus={(e) => { if (e.target instanceof HTMLElement) lastFocus.current = e.target }} inert={covered || undefined} aria-hidden={covered || undefined} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
@@ -194,7 +169,7 @@ export default function Layout() {
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
           <PhoneTopBar />
           <div className="min-h-0 flex-1">
-            {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
+            {/* a page that cannot be loaded after a server update: here, with the rail still there (another page resets it) */}
             <ChunkErrorBoundary resetKey={location.pathname}>
               <Outlet />
             </ChunkErrorBoundary>

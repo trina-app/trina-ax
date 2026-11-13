@@ -57,7 +57,6 @@ import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
 import { EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
-import { useNavRail } from '../lib/navRail'
 import { LoadError } from '../components/LoadError'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
@@ -191,13 +190,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const moreRef = useRef<HTMLButtonElement>(null)
   // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
   const wide = useMediaQuery('(min-width: 768px)')
-  // the new navigation on a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px
-  // thread do not fit; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a
-  // sheet over the room, as on a phone, and the room under it waits as it was
-  const navRail = useNavRail()
+  // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
+  // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
+  // room, as on a phone, and the room under it waits as it was
   const roomy = useMediaQuery('(min-width: 812px)')
-  const sheet = navRail && wide && !roomy
-  // the sheet over the room (below 812 px with the new navigation): the keyboard goes into it as it opens and back to
+  const sheet = wide && !roomy
+  // the sheet over the room (below 812 px): the keyboard goes into it as it opens and back to
   // where it was in the room as it closes; Esc closes it (not while a menu or dialog of its own is open)
   const sheetOpen = sheet && !!(threadId || sideOpen)
   useEffect(() => {

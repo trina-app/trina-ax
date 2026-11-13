@@ -46,17 +46,13 @@ export async function adv(root: Page | Locator, testId: string): Promise<Locator
   return root.getByTestId(testId)
 }
 
-/** The new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1): `POST /__test/nav-rail` turns the server's
- * `navRail` switch on or off in the mock (off after every reset, as on a real server). Sign in, or reload, after it:
- * the app reads it from GET /api/me. */
-export async function navRail(page: Page, on = true) {
-  const r = await page.request.post('/__test/nav-rail', { data: { on } })
-  expect(r.ok()).toBeTruthy()
-}
+/** @deprecated The new navigation's server switch is retired (docs/DECISIONS.md "navRail: retired, the old navigation
+ * removed"): the rail and the phone tabs are always on, so this does nothing. Kept so suites that still call it run
+ * unchanged until they drop the call. */
+export async function navRail(_page: Page, _on = true) {}
 
 /** Press a place on the computer's rail (lib/rail.ts RailItem: 'ai' | 'chats' | 'files' | 'activity'), the way a person
- * does, and wait for it to be the lit one. The rail itself comes with phase P1; suites that use this turn the switch on
- * first (navRail above). */
+ * does, and wait for it to be the lit one. */
 export async function openRail(page: Page, item: 'ai' | 'chats' | 'files' | 'activity') {
   const button = page.getByTestId(`rail-${item}`)
   await button.click()

@@ -106,7 +106,7 @@ describe('Available skills', () => {
         const member = render([])
         expect(member).toContain(translate(l, 'skills.catalog.memberEmpty'))
         expect(member).toContain('data-testid="skill-none-member"')
-        expect(member).toContain(translate(l, 'skills.noSkillsHint').replace(/'/g, '&#x27;').replace(/"/g, '&quot;'))
+        expect(member).toContain(translate(l, 'skills.noSkillsHintFiles').replace(/'/g, '&#x27;').replace(/"/g, '&quot;'))
         expect(member).not.toContain('skill-row')
       }
     } finally { as(null) }

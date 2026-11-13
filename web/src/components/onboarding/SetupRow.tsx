@@ -13,7 +13,6 @@ import { Sparkles, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { setupRowState, setupRowWords } from '../../lib/welcome'
-import { useNavRail } from '../../lib/navRail'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
@@ -39,7 +38,6 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   const aiReady = !ai.loaded || ai.usable
   const computer = !useMediaQuery(PHONE)
   const { pathname } = useLocation()
-  const phoneTabs = useNavRail()
   const readAt = useRef(0)
   useEffect(() => { if (owner) void useAiAccess.getState().load() }, [owner])
   // read once, and again on a page change while the row can show: unfinished and not hidden (the steps' own writes, ✕,
@@ -54,8 +52,8 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
     void w.load(w.loaded).catch(() => {})
   }, [owner, pathname, open])
   if (!owner || !loaded) return null
-  // a phone with the new navigation's tabs: the new chat is /new, and / is 트리나's list, where this row is the top row
-  const state = setupRowState(progress, { path: pathname, aiReady, computer, home: !computer && phoneTabs ? pathname === '/new' : pathname === '/' })
+  // a phone: the new chat is /new, and / is 트리나's list, where this row is the top row
+  const state = setupRowState(progress, { path: pathname, aiReady, computer, home: !computer ? pathname === '/new' : pathname === '/' })
   if (state === 'hidden') return null
   const hide = () => {
     void useWelcome.getState().update({ dismissed: true }).then(

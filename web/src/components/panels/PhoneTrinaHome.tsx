@@ -1,5 +1,4 @@
-// 트리나's tab on a phone with the new navigation (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 ·
-// 대화 · 파일 · 나", the plan's option B): the Trina list first, the same list and order as the computer's 트리나 panel
+// 트리나's tab on a phone (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나", the plan's option B): the Trina list first, the same list and order as the computer's 트리나 panel
 // (panels/TrinaList.tsx: 고정 · 폴더 · 프로젝트 · 모든 프로젝트 · 기타 기록, then 예약 작업 · 팀 스킬 · 삭제한 기록 as quiet
 // rows at the end), so going back to yesterday's chat is one tap. On top the owner's setup row while it shows. The bar:
 // "트리나", 🔍 (search: chats, files and the rest, as ⌘K) and the filter (status, last activity, group by, sort: the
@@ -69,7 +68,7 @@ export function PhoneTrinaHome() {
                 <X size={14} aria-hidden />
               </IconButton>
             </div>
-            <HistoryList caps={null} onNavigate={noop} peek={peek} viewState={view} bare />
+            <HistoryList onNavigate={noop} peek={peek} viewState={view} />
           </>
         ) : (
           <TrinaList peek={peek} />

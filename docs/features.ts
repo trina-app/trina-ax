@@ -140,7 +140,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch'] },
 
   // ---------------- Home ----------------
-  { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/'] },
+  { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },
 
   // ---------------- Settings ----------------
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },

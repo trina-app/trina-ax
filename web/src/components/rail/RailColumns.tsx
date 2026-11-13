@@ -1,5 +1,5 @@
-// The left of a computer's window with the new navigation on (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase
-// P1; Layout.tsx puts it where the 280 px sidebar was while the server's `navRail` switch is on): the rail, and beside
+// The left of a computer's window (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1; Layout.tsx): the rail,
+// and beside
 // it the list of the place: 트리나, 대화, and since phase P3 파일 (its places: recent files, team and project folders, 내
 // 파일, the trash) and 활동 (the notices that are not conversations). Admin's own menu is its list
 // (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel

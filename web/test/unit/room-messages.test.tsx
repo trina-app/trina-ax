@@ -207,7 +207,7 @@ test('my stopped question says so under that question, not at the end of the roo
 })
 
 test('a room badge: "@" alone when it mentions me, grey for a muted room; a letter avatar is neutral, not the accent', async () => {
-  const { UnreadBadge } = await import('../../src/components/rooms/SidebarRooms')
+  const { UnreadBadge } = await import('../../src/components/nav/RoomsList')
   const { Avatar } = await import('../../src/components/Avatar')
   const { room } = await import('./rooms-fixtures')
   const loud = renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 2, mentioned: true })} testId="b" />)
@@ -393,7 +393,7 @@ test('reactions: a chip per emoji with its count, mine marked and pressed, who r
 })
 
 test("a room's badge counts the threads I follow with new replies; '@' when one of them mentions me", async () => {
-  const { UnreadBadge } = await import('../../src/components/rooms/SidebarRooms')
+  const { UnreadBadge } = await import('../../src/components/nav/RoomsList')
   const { room } = await import('./rooms-fixtures')
   expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">2</span>')
   expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')

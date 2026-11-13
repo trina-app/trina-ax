@@ -17,7 +17,7 @@ import { useSession } from '../../src/store/session'
 import { currentCount, readToken, sideChatOnScreen, startSessionMarkers, stopSessionMarkers, tellTiming, useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useUi } from '../../src/store/ui'
 import { SessionMarker } from '../../src/components/chat/ChatState'
-import { UnreadBadge } from '../../src/components/rooms/SidebarRooms'
+import { UnreadBadge } from '../../src/components/nav/RoomsList'
 import { installDom, mount, removeDom } from './dom-host'
 import { BEN, ME, message, room } from './rooms-fixtures'
 
@@ -227,7 +227,7 @@ describe('this window: /seen, notifications and toasts', () => {
     useLocaleStore.setState({ locale: 'ko' })
     useChats.setState({ chats: [], requests: {}, chatsLoaded: true })
     useRooms.setState({ rooms: [], openRoomId: null, alerts: null })
-    useUi.setState({ toasts: [], drawerOpen: false })
+    useUi.setState({ toasts: [] })
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as Me } })
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const u = new URL(String(input), 'http://team.localhost')
@@ -264,7 +264,7 @@ describe('this window: /seen, notifications and toasts', () => {
     useSessionMarkers.setState({ visible: false, onScreen: null })
     useChats.getState().reset()
     useRooms.setState({ rooms: [], openRoomId: null, alerts: null })
-    useUi.setState({ toasts: [], drawerOpen: false })
+    useUi.setState({ toasts: [] })
     useLocaleStore.setState({ locale: live })
     useSession.getState().signedOut()
   })
@@ -441,9 +441,8 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(JSON.stringify([notified, useUi.getState().toasts])).not.toContain('인수')
   })
 
-  test('no toast while the drawer is open (the sidebar shows); a failure and a pause say so', async () => {
-    narrow = true
-    useUi.setState({ drawerOpen: true })
+  test('no toast on a computer (the rail shows the marks); a failure and a pause say so', async () => {
+    narrow = false
     const a = chat({ runState: 'running' })
     const b = chat({ runState: 'running' })
     useChats.setState({ chats: [a, b] })

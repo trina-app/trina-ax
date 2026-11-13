@@ -5,7 +5,6 @@
 // one-time task keeps its switch, disabled, with the reason linked to it; a free-text task nobody confirmed has "Check
 // again" instead, which opens its schedule card here; edits go through ScheduleEditDialog. New tasks are made by the AI
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
-import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -387,7 +386,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
           {lapsed && (
             <p className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="schedule-save-lapsed">
               <ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />
-              {t(ownFolderWord() === 'files' ? 'scheduled.saveLapsedHintFiles' : 'scheduled.saveLapsedHint')}
+              {t('scheduled.saveLapsedHintFiles')}
             </p>
           )}
           {s.pendingDueAt && <p className="mt-1 text-xs text-faint" data-testid="schedule-deferred">{t('scheduleTemplates.deferred', { time: when(s.retryAt ?? s.pendingDueAt) })}</p>}

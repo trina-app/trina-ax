@@ -100,7 +100,7 @@ test('cancel on the card posts nothing and leaves the preview private', async ()
   try {
     await m.click('room-ai-share')
     await m.until(() => card(m), 'the confirm card')
-    expect(byTest(m, 'share-room-provenance')!.textContent).toBe(en('shareRoom.provenance', { n: 2, places: en('shareRoom.placeMine') }))
+    expect(byTest(m, 'share-room-provenance')!.textContent).toBe(en('shareRoom.provenance', { n: 2, places: en('shareRoom.placeMineFiles') }))
     await m.click(byTest(m, 'share-room-back') as never)
     expect(card(m)).toBeNull()
     expect(calls).toHaveLength(1)

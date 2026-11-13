@@ -1,5 +1,5 @@
-// 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3; behind the server's
-// `navRail` switch), like Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
+// 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), like
+// Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
 // 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
 // shows them: 전사 공유, 부서, 팀 스킬, then the others), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
 // own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the

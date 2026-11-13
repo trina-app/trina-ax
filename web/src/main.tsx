@@ -1,4 +1,5 @@
 import { StrictMode } from 'react'
+import { setOwnFolderWord } from '@mycel/shared'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { initPwa } from './lib/pwa'
@@ -16,6 +17,8 @@ import { guardFileDrops } from './lib/fileDrop'
 import './index.css'
 import './theme.edition.css'
 
+// the person's own folder is "내 파일" (파일's name for it; shared/src/folder-labels.ts), as the server's AI says too
+setOwnFolderWord('files')
 applyTheme(storedTheme())
 applyTextSize(storedTextSize())
 watchSystemTheme()
