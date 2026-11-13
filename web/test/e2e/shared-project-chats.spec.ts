@@ -295,8 +295,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(faces).toHaveAttribute('aria-hidden', 'true')
       await expect(shared.getByTestId('project-chat-by')).toHaveCount(0)
       await expect(shared.getByTestId('project-chat-more')).toHaveCount(0)
-      // the row reads the names once, the pictures say nothing
-      await expect(shared).toHaveAccessibleName(/^(?!.*Olga.*Olga)(?!.*Bob.*Bob)공유 채팅\s*출시 일정.*Bob, Olga 참여\s*\S/)
+      // the row reads the names once, the pictures say nothing; the title first, its people icon after it (QA TC-990)
+      await expect(shared).toHaveAccessibleName(/^(?!.*Olga.*Olga)(?!.*Bob.*Bob)출시 일정.*공유 채팅\s*Bob, Olga 참여\s*\S/)
       // the title gives way, the faces and the time keep their room; the faces overlap
       const box = (l: ReturnType<Page['getByTestId']>) => l.boundingBox().then((x) => x!)
       const [row, stack] = [await box(shared), await box(faces)]
@@ -356,7 +356,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const one = b.getByTestId('project-chats').locator(`a[href="/c/${solo}"]`)
       await expect(one.getByTestId('project-chat-by')).toHaveText('Bob')
       await expect(one.locator('img')).toHaveCount(1)
-      await expect(one).toHaveAccessibleName(/^(?!.*Bob.*Bob)(?!.*참여)공유 채팅\s*회의록 요약해 줘\s*Bob\s*\S/)
+      await expect(one).toHaveAccessibleName(/^(?!.*Bob.*Bob)(?!.*참여)회의록 요약해 줘\s*공유 채팅\s*Bob\s*\S/)
       await audit(b, 'project page, faces, a member')
       await b.context().close()
     })
