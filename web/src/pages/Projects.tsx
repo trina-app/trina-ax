@@ -54,7 +54,8 @@ import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
 import { accessChanged, chatChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
-import { readManagedList, useProjects } from '../store/projects'
+import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
+import { optimistic, optimisticPending } from '../lib/optimistic'
 import { chatOrder, folderMoved, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
 import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
@@ -95,6 +96,48 @@ const mayManage = (p: Project) => p.canManage ?? p.canEdit
 export type Deleted = 'gone' | Project | null
 
 /**
+ * A team project into the trash, or back out of it, at once (lib/optimistic.ts, key `project:<id>:trash`): the owner
+ * and admins keep its card and its page, saying it is in the trash; anyone else's card goes. `onShown` gets what is on
+ * screen each time it changes ('gone': not on the list any more). A refusal puts it back with the server's words.
+ * The answer: the project as the server has it now (null: not the caller's to see any more).
+ */
+function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void) {
+  let at = -1
+  const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash })
+  return optimistic<boolean, Project | null>({
+    key: `project:${p.id}:trash`,
+    from: !!p.inTrash,
+    to: trashed,
+    show: (inTrash) => {
+      const now = shown(inTrash)
+      if (now === 'gone') at = hideProject(p.id)
+      else if (at >= 0 || !useProjects.getState().managed?.some((x) => x.id === p.id)) unhideProject(now, at)
+      else showProject(now)
+      onShown?.(now)
+    },
+    send: async () => {
+      if (trashed) await api.call(API.deleteProject, { params: { id: p.id } })
+      else return api.call(API.restoreProject, { params: { id: p.id } })
+      // in the trash with its folder: the owner and admins still have it (to restore or delete for good); its private
+      // chats keep it
+      return projectNow(p.id).catch(() => null)
+    },
+    confirmed: (r) => (r ? !!r.inTrash : trashed),
+    settle: (r) => {
+      if (r) {
+        useProjects.getState().put(r)
+        // a card taken off the list for someone the server still shows it to: back in its place
+        if (at >= 0) unhideProject(r, at)
+        onShown?.(r)
+      } else {
+        useProjects.getState().drop(p.id, true)
+        onShown?.('gone')
+      }
+    },
+  })
+}
+
+/**
  * Deleting a project, from its page and from its card on the list: one confirm and one call, by what the project is
  * now on the server (asked again first):
  * - a team project in projects/ whose folder is in place goes to the trash with its folder and its chats (docs/
@@ -108,7 +151,8 @@ export type Deleted = 'gone' | Project | null
 function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
-  const days = chatTrashDays(useMe())
+  const me = useMe()
+  const days = chatTrashDays(me)
   const deleted = (id: string) => {
     useProjects.getState().drop(id, true)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
@@ -120,7 +164,8 @@ function useDeleteProject() {
     useProjects.getState().drop(id, true)
     toast({ level: 'info', text: t('projects.missing') })
   }
-  return async (p: Project): Promise<Deleted> => {
+  /** `onShown`: the trash shows at once (a team project in projects/): what is on screen each time it changes */
+  return async (p: Project, onShown?: (now: Project | 'gone') => void): Promise<Deleted> => {
     // the menu is gone once the count below has arrived: the keyboard goes back to its button
     const opener = menuOpener() ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     let now = p
@@ -143,6 +188,20 @@ function useDeleteProject() {
         ? { title: t('projects.deleteForGoodTitle', { name: now.name }), body: t('projects.deleteForGoodBody'), confirm: t('projects.deleteForGood') }
         : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
     if (!(await confirmDialog({ ...ask, danger: true }))) return null
+    if (toTrash) {
+      // at once (deleting for good and any other delete wait: they cannot be taken back)
+      const r = await trashProject(now, true, isAdmin(me), onShown)
+      if (!r.ok) {
+        // someone else deleted it first
+        if (r.newest && isApiError(r.error, 'not_found')) {
+          missing(p.id)
+          onShown?.('gone')
+          return 'gone'
+        }
+        return null
+      }
+      return r.reply ?? 'gone'
+    }
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
     } catch (e) {
@@ -153,38 +212,36 @@ function useDeleteProject() {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       return null
     }
-    if (toTrash) {
-      // in the trash with its folder: the owner and admins still have it (to restore or delete for good); its private
-      // chats keep it
-      const after = await projectNow(p.id).catch(() => null)
-      if (after) {
-        useProjects.getState().put(after)
-        return after
-      }
-      useProjects.getState().drop(p.id, true)
-      return 'gone'
-    }
     deleted(p.id)
     return 'gone'
   }
 }
 
 /** A new name for a project: the chat rename's small prompt (name only, so also for the owner or an admin who is not a
- * member: never the edit dialog, which sends its instructions). The project as saved, or null. */
+ * member: never the edit dialog, which sends its instructions). On screen at once wherever the project is named
+ * (lib/optimistic.ts, key `project:<id>:name`; `onName`: a page's own copy), back with the server's words when it
+ * refuses. The project as saved (null: cancelled, refused, or renamed again meanwhile). */
 function useRenameProject() {
   const t = useT()
-  const locale = useLocale()
-  return async (p: Project): Promise<Project | null> => {
+  return async (p: Project, onName?: (name: string) => void): Promise<Project | null> => {
     const name = await promptDialog({ title: t('chat.rename'), label: t('projects.name'), initial: p.name, confirm: t('common.save') })
     if (!name || name === p.name) return null
-    try {
-      const r = await api.call(API.updateProject, { params: { id: p.id }, body: { name } })
-      useProjects.getState().put(r)
-      return r
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      return null
-    }
+    const r = await optimistic<string, Project>({
+      key: `project:${p.id}:name`,
+      from: p.name,
+      to: name.trim(),
+      show: (v) => {
+        showProject({ ...(useProjects.getState().byId[p.id] ?? p), name: v })
+        onName?.(v)
+      },
+      send: () => api.call(API.updateProject, { params: { id: p.id }, body: { name } }),
+      confirmed: (r) => r.name,
+      settle: (r) => {
+        useProjects.getState().put(r)
+        onName?.(r.name)
+      },
+    })
+    return r.ok && r.newest ? r.reply : null
   }
 }
 
@@ -213,6 +270,16 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     const r = await renameProject(p)
     if (r) onRenamed(r)
   }
+  const del = async () => {
+    // (gone at once, then again with the answer: the keyboard moves on once)
+    let gone = false
+    const d = await remove(p, (now) => {
+      if (now !== 'gone' || gone) return
+      gone = true
+      onDeleted('gone')
+    })
+    if (d && !(d === 'gone' && gone)) onDeleted(d)
+  }
   const copyLink = async () => {
     await copy(projectLink(p.id))
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
@@ -221,7 +288,8 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     ...(mayManage(p) ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
     ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
-    ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((d) => d && onDeleted(d))), testId: 'project-card-delete' }] : []),
+    // the trash shows at once: the card says so, or (not kept there for me) goes
+    ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
   ]
   if (row)
     return (
@@ -466,6 +534,16 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   )
 }
 
+/** A project page's chats as read, with the rows a move out or a delete still on its way changed on screen (lib/
+ * optimistic.ts keys `chat:<id>:project|trash`): as on screen, there or not. */
+function keepPendingRows(items: Chat[], shown: Chat[] | null): Chat[] {
+  const pending = (id: string) => optimisticPending(`chat:${id}:project`) || optimisticPending(`chat:${id}:trash`)
+  if (!shown) return items
+  const kept = items.flatMap((c) => (!pending(c.id) ? [c] : (shown.find((x) => x.id === c.id) ?? [])))
+  const back = shown.filter((c) => pending(c.id) && !items.some((x) => x.id === c.id))
+  return back.length ? [...kept, ...back].sort(chatOrder) : kept
+}
+
 /** The files line of a project's page: its folder's first page (`failed`: it could not be read, so no count is said). */
 type PageFiles = { entries: FileEntry[]; more: boolean; failed?: boolean }
 const pageFiles = (r: TreeResponse): PageFiles => ({ entries: r.entries, more: !!r.nextCursor })
@@ -577,6 +655,8 @@ function ProjectPage() {
         let items = r.items
         // the changes made while it was read, on top of its answer (an older list never undoes them)
         for (const c of chatEdits.current) if (c.n > chatsFrom) items = c.f(items)
+        // a chat moved out, or into the trash, and not answered yet: as on screen (this answer may be from before it)
+        items = keepPendingRows(items, shownChats.current)
         setChats(items)
       },
       // what was shown stays (nothing shown: no chats)
@@ -587,9 +667,11 @@ function ProjectPage() {
     api.call(API.getProject, { params: { id }, ...(o.manage === false ? {} : { query: { manage: '1' } }) }).then(
       (x) => {
         if (!live()) return
-        // changed here while it was read: what is on screen is newer than this answer
-        const now = projectEdits.current === pFrom ? x : (shownP.current ?? x)
-        if (now === x) setP(x)
+        // changed here while it was read: what is on screen is newer than this answer; a rename or the trash still on
+        // its way stays as on screen
+        const fresh = keepPendingProject(x, shownP.current)
+        const now = projectEdits.current === pFrom ? fresh : (shownP.current ?? fresh)
+        if (now === fresh) setP(fresh)
         keepable.current = true
         useProjectPage.getState().keep(id, { project: now, chats: shownChats.current })
         setMissing(false)
@@ -659,13 +741,12 @@ function ProjectPage() {
   useEffect(() => chatChanged.on((e) => changeChats((cur) => withChatEvent(cur, projectId!, e))), [projectId])
 
   // a row's rename, pin or move, without waiting for its chat event: the row as it is now, in its place (a pin moves it
-  // up); moved to another project, it goes
+  // up); moved to another project, it goes; a move out of it or a delete the server refused brings it back
   const chatHere = (chat: Chat) => changeChats((cur) => {
     const old = cur.find((c) => c.id === chat.id)
     const rest = cur.filter((c) => c.id !== chat.id)
-    if (!old || chat.projectId !== projectId) return rest
-    const next = keepFaces(old, chat)
-    return [next, ...rest].sort(chatOrder)
+    if (chat.projectId !== projectId || chat.deletedAt) return rest
+    return [keepFaces(old, chat), ...rest].sort(chatOrder)
   })
 
   // + in Trina history said "a new chat here": once the box has it (it mounts with the project, its own effect runs
@@ -688,16 +769,27 @@ function ProjectPage() {
   const remove = useDeleteProject()
   const del = async () => {
     if (!p) return
-    const d = await remove(p)
-    if (d === 'gone') {
+    let left = false
+    const leave = () => {
+      if (left) return
+      left = true
       useProjectPage.getState().drop(p.id)
       navigate('/projects')
-    } else if (d) load({ fresh: true })
+    }
+    // the trash at once: its note here (the owner and admins), or back to the list (anyone else)
+    const d = await remove(p, (now) => (now === 'gone' ? leave() : live.current === p.id && changeP(now)))
+    if (d === 'gone') leave()
+    else if (d && live.current === p.id) load({ fresh: true })
   }
+  /** the project on screen now (an answer after the person went to another project's page writes nothing here) */
+  const live = useRef(projectId)
+  live.current = projectId
   const renameProject = useRenameProject()
   const rename = async () => {
-    const r = p && (await renameProject(p))
-    if (r) changeP(r)
+    if (!p) return
+    const id = p.id
+    const r = await renameProject(p, (name) => live.current === id && shownP.current && changeP({ ...shownP.current, name }))
+    if (r && live.current === id) changeP(r)
   }
 
   // 나를 멤버로 추가 (docs/DECISIONS.md "Project contents only for members"): the members as they are now and me, saved
@@ -723,20 +815,14 @@ function ProjectPage() {
 
   // 되돌리기: the project and its folder back from the trash (the owner and admins; its folder purged meanwhile: the
   // server's words, 409 project_folder_purged, and 되돌리기 goes)
+  // At once (the note goes, the page is the project's again), back with the server's words when it refuses
   const restore = async () => {
     if (!p || busy) return
-    setBusy('restore')
-    try {
-      const r = await api.call(API.restoreProject, { params: { id: p.id } })
-      useProjects.getState().put(r)
-      changeP(r)
-      load({ fresh: true })
-    } catch (e) {
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'project_folder_purged') setPurged(true)
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(null)
-    }
+    const id = p.id
+    const r = await trashProject(p, false, true, (now) => live.current === id && now !== 'gone' && changeP(now))
+    if (live.current !== id) return
+    if (r.ok) load({ fresh: true })
+    else if (r.newest && isApiError(r.error, 'conflict') && r.error.body.params?.reason === 'project_folder_purged') setPurged(true)
   }
 
   // the members dialog saved: an owner or admin who added or took out themselves loads the page again (its files,

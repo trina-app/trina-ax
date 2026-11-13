@@ -23,7 +23,7 @@ export interface ChatMenuOptions {
   onMove?: (c: Chat) => void
   /** the chat as it is after a rename or a pin (lists that keep their own copy of it) */
   onChanged?: (c: Chat) => void
-  /** the chat went to the trash */
+  /** the chat went to the trash: told at once after the confirm (refused, it comes back through `onChanged`) */
   onRemoved?: (c: Chat) => void
   /** more items after 이름 바꾸기 (폴더로 옮기기 / 폴더에서 빼기, nav/NavFolders.tsx) */
   extra?: MenuItem[]
@@ -44,6 +44,6 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
-    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat).then((ok) => ok && onRemoved?.(chat))), testId: `${testId}-delete` }] : []),
+    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat, (c, trashed) => (trashed ? onRemoved?.(c) : onChanged?.(c)))), testId: `${testId}-delete` }] : []),
   ]
 }
