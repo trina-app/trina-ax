@@ -6,7 +6,8 @@ import { useCallback } from 'react'
 import { create } from 'zustand'
 import type { MyStatus, StatusMessage } from '@mycel/shared/api'
 import { usePeople } from './people'
-import { useSession } from './session'
+import { optimistic } from '../lib/optimistic'
+import { MY_STATUS_KEY, useSession } from './session'
 
 /** the time the statuses on screen were last looked at (a re-render when one ends) */
 export const useStatusClock = create<{ now: number }>(() => ({ now: Date.now() }))
@@ -81,4 +82,10 @@ export function applyMyStatus(status: MyStatus | null) {
   if (live) next.statusMessage = { emoji: live.emoji, text: live.text, ...(live.until ? { until: live.until } : {}), ...(live.untilDay ? { untilDay: live.untilDay } : {}) }
   else delete next.statusMessage
   usePeople.setState({ byId: { ...p.byId, [user.id]: next }, people: p.people?.map((x) => (x.id === user.id ? next : x)) ?? null })
+}
+
+/** Set or clear my status at once (lib/optimistic.ts): `to` on screen before the server answers (a save's own end time
+ * comes with the answer); a refusal puts back what the server has, with one toast. */
+export function changeMyStatus(from: MyStatus | null, to: MyStatus | null, send: () => Promise<MyStatus | null>) {
+  return optimistic({ key: MY_STATUS_KEY, from, to, show: applyMyStatus, send, confirmed: (r) => r, settle: applyMyStatus })
 }

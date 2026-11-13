@@ -23,6 +23,7 @@ import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/a
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
+import { optimistic, optimisticPending } from '../lib/optimistic'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
 import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
 import { phoneApps, type AppClient } from '../lib/apps'
@@ -532,8 +533,8 @@ function MyEngine() {
   const model = engine ? me.user.prefs.model ?? null : null
   const save = async (e: EngineId | null, m: string | null) => {
     try {
-      await updatePrefs({ engine: e, model: e ? m : null })
-      toast({ level: 'success', text: t('common.saved') })
+      // shown at once (store/session.ts); "saved" with the server's answer
+      if (await updatePrefs({ engine: e, model: e ? m : null })) toast({ level: 'success', text: t('common.saved') })
     } catch (err) {
       toast({ level: 'error', text: errorText(err, locale, t('error.network')) })
     }
@@ -754,13 +755,18 @@ export function MemoriesNotUsed({ use }: { use: { inUse: number; total: number }
   )
 }
 
+/** a memory's correction: its queue (lib/optimistic.ts) */
+const memoryKey = (id: string) => `memory:${id}:text`
+
 /** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. A phone: rows,
  * "+" in the bar, a row opens a sheet to correct it with "Forget" (which asks first), "Forget all" a red row. */
-function Memories() {
+export function Memories() {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const [items, setItems] = useState<Memory[] | null>(null)
+  const shown = useRef(items)
+  shown.current = items
   const [cursor, setCursor] = useState<string | null>(null)
   // how many the AI gets now of how many are kept (the newest that fit; the others are marked "not used", QA TC-213)
   const [use, setUse] = useState<{ inUse: number; total: number } | null>(null)
@@ -774,7 +780,9 @@ function Memories() {
     failedMore.current = more
     try {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
-      setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
+      // a correction still on its way stays as on screen (the read may be from before it)
+      const kept = (list: Memory[]) => list.map((m) => (optimisticPending(memoryKey(m.id)) ? shown.current?.find((x) => x.id === m.id) ?? m : m))
+      setItems((cur) => kept(more && cur ? [...cur, ...r.items] : r.items))
       setCursor(r.nextCursor)
       if (r.inUse !== undefined && r.total !== undefined) setUse({ inUse: r.inUse, total: r.total })
       setError(null)
@@ -818,7 +826,22 @@ function Memories() {
     toast({ level: 'success', text: said })
   }
   const add = (text: string) => saving(() => api.call(API.createMemory, { body: { text } }), (m) => setItems((cur) => [m, ...(cur ?? []).filter((x) => x.id !== m.id)]), t('memory.added'))
-  const update = (id: string, text: string) => saving(() => api.call(API.updateMemory, { params: { id }, body: { text } }), (m) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null), t('memory.updated'))
+  // a correction shows at once and the form closes (lib/optimistic.ts); a refusal puts back what the server has, with
+  // one toast in the server's words. "Updated" comes with the answer.
+  const update = async (id: string, text: string) => {
+    const was = items?.find((x) => x.id === id)
+    if (!was) return
+    const put = (m: Memory) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null)
+    setEditing(null)
+    const r = await optimistic({
+      key: memoryKey(id), from: was, to: { ...was, text },
+      show: put,
+      send: () => api.call(API.updateMemory, { params: { id }, body: { text } }),
+      confirmed: (m) => m,
+      settle: put,
+    })
+    if (r.ok && r.newest) toast({ level: 'success', text: t('memory.updated') })
+  }
   const addButton = (
     <Button size="sm" onClick={() => setEditing('new')} disabled={editing === 'new'} data-testid="memory-add">
       <Plus size={14} aria-hidden /> {t('memory.add')}

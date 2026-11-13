@@ -14,6 +14,7 @@ import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@my
 import type { PluginKind, PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { api, API, errorText, isApiError } from '../../lib/api'
+import { optimistic } from '../../lib/optimistic'
 import { formatSize } from '../../lib/format'
 import { hasMessage, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -214,8 +215,11 @@ function OfficialMark({ size }: { size: number }) {
   return <Tooltip label={t('plugins.trust.official')}><BadgeCheck size={size} className="shrink-0 text-muted" role="img" aria-label={t('plugins.trust.official')} /></Tooltip>
 }
 
+/** a plugin's on / off: its queue (lib/optimistic.ts) */
+const pluginKey = (id: string) => `plugin:${id}:enabled`
+
 /** Turn on / off, roll back and remove for an installed plugin: one at a time, each with its toast. */
-function useInstalledActions(reload: () => void) {
+function useInstalledActions(reload: () => void, put: (p: InstalledPlugin) => void) {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
@@ -223,10 +227,38 @@ function useInstalledActions(reload: () => void) {
     setBusy(true)
     try { await fn(); toast({ level: 'success', text: ok }); reload(); return true } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }); return false } finally { setBusy(false) }
   }
+  // turning off shows at once (lib/optimistic.ts); turning on keeps waiting (it grants the plugin its permissions
+  // again). The other actions are held (`held`, no spinner) until its answer, so they never pass it on the way.
+  const [disabling, setDisabling] = useState(false)
+  const disable = async (p: InstalledPlugin) => {
+    setDisabling(true)
+    const was = { enabled: p.enabled, status: p.status }
+    const r = await optimistic({
+      key: pluginKey(p.id), from: was, to: { enabled: false, status: p.status === 'enabled' ? 'disabled' as const : p.status },
+      show: (v) => put({ ...p, ...v }),
+      send: () => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }),
+      confirmed: (x) => ({ enabled: x.enabled, status: x.status }),
+      settle: put,
+      failText: false,
+    })
+    setDisabling(false)
+    if (!r.newest) return
+    if (r.ok) { toast({ level: 'success', text: t('plugins.done.disabled', { name: p.name }) }); reload() }
+    else toast({ level: 'error', text: refusal(t, r.error, locale) })
+  }
   return {
     busy,
-    enable: (p: InstalledPlugin) => run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name })),
-    disable: (p: InstalledPlugin) => run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name })),
+    held: busy || disabling,
+    // in the same queue as turning off (another card or page may still be sending that), but shown only with the answer
+    enable: (p: InstalledPlugin) => run(async () => {
+      const r = await optimistic({
+        key: pluginKey(p.id), from: { enabled: p.enabled, status: p.status }, to: { enabled: p.enabled, status: p.status }, show: () => {},
+        send: () => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }),
+        confirmed: (x) => ({ enabled: x.enabled, status: x.status }), failText: false,
+      })
+      if (!r.ok) throw r.error
+    }, t('plugins.done.enabled', { name: p.name })),
+    disable,
     rollback: (p: InstalledPlugin) => run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion ?? '' })),
     /** true once it was removed (the admin may also cancel) */
     remove: async (p: InstalledPlugin) => {
@@ -239,8 +271,8 @@ function useInstalledActions(reload: () => void) {
 function Toggle({ p, a }: { p: InstalledPlugin; a: ReturnType<typeof useInstalledActions> }) {
   const t = useT()
   return p.enabled
-    ? <Button size="sm" busy={a.busy} onClick={() => void a.disable(p)} data-testid="plugin-disable">{t('plugins.disable')}</Button>
-    : <Button size="sm" variant="primary" busy={a.busy} disabled={p.status === 'unsupported'} onClick={() => void a.enable(p)} data-testid="plugin-enable">{t('plugins.enable')}</Button>
+    ? <Button size="sm" busy={a.busy} disabled={a.held} onClick={() => void a.disable(p)} data-testid="plugin-disable">{t('plugins.disable')}</Button>
+    : <Button size="sm" variant="primary" busy={a.busy} disabled={a.held || p.status === 'unsupported'} onClick={() => void a.enable(p)} data-testid="plugin-enable">{t('plugins.enable')}</Button>
 }
 
 /** ⋯ of an installed plugin: what an admin rarely does with it. `update`: the official list has a newer version that
@@ -249,10 +281,10 @@ function InstalledMenu({ p, a, update, onRemoved }: { p: InstalledPlugin; a: Ret
   const t = useT()
   return (
     <CardMenu label={t('appConnectors.more', { name: p.name })} testId="plugin-more" items={[
-      ...(update ? [{ label: t('plugins.update', { version: update.version }), onSelect: update.run, disabled: a.busy, testId: 'plugin-update' }] : []),
+      ...(update ? [{ label: t('plugins.update', { version: update.version }), onSelect: update.run, disabled: a.held, testId: 'plugin-update' }] : []),
       // a build this server no longer trusts (or withdrawn) would only be refused: not offered
-      ...(p.previousVersion && p.previousTrusted ? [{ label: t('plugins.rollback', { version: p.previousVersion }), onSelect: () => void a.rollback(p), disabled: a.busy, testId: 'plugin-rollback' }] : []),
-      { label: t('plugins.remove'), onSelect: () => void a.remove(p).then((gone) => { if (gone) onRemoved?.() }), danger: true, disabled: a.busy, testId: 'plugin-remove' },
+      ...(p.previousVersion && p.previousTrusted ? [{ label: t('plugins.rollback', { version: p.previousVersion }), onSelect: () => void a.rollback(p), disabled: a.held, testId: 'plugin-rollback' }] : []),
+      { label: t('plugins.remove'), onSelect: () => void a.remove(p).then((gone) => { if (gone) onRemoved?.() }), danger: true, disabled: a.held, testId: 'plugin-remove' },
     ]} />
   )
 }
@@ -300,9 +332,9 @@ function statusText(t: T, p: InstalledPlugin): string {
 /** The newer version of the official list, when it can be installed on this server from the list. */
 const updateFor = (c: CatalogPlugin | undefined) => (c?.installedVersion && c.updateAvailable && c.availability === 'available' ? c.version : null)
 
-function InstalledCard({ p, c, reload, review, onOpen }: { p: InstalledPlugin; c: CatalogPlugin | undefined; reload: () => void; review: (id: string) => Promise<void>; onOpen: () => void }) {
+function InstalledCard({ p, c, reload, put, review, onOpen }: { p: InstalledPlugin; c: CatalogPlugin | undefined; reload: () => void; put: (p: InstalledPlugin) => void; review: (id: string) => Promise<void>; onOpen: () => void }) {
   const t = useT()
-  const a = useInstalledActions(reload)
+  const a = useInstalledActions(reload, put)
   const newer = updateFor(c)
   return (
     <PluginCard id={p.id} testId="plugin-installed" kinds={p.kinds} name={p.name} official={p.trust === 'official'} onOpen={onOpen}
@@ -360,11 +392,11 @@ function DiscoverCard({ c, review, onOpen }: { c: CatalogPlugin; review: (id: st
 /** A plugin's page in place of the lists, like a connector's page: back, a big tile, the name with its version and
  * publisher, the main action on the right; then what it is, what it will do, and the details. `p`: installed here;
  * `c`: its entry in the official list (a plugin from a file has none). */
-function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: InstalledPlugin | undefined; c: CatalogPlugin | undefined; fileInstall: boolean; reload: () => void; review: (id: string) => Promise<void>; onBack: () => void }) {
+function PluginDetail({ p, c, fileInstall, reload, put, review, onBack }: { p: InstalledPlugin | undefined; c: CatalogPlugin | undefined; fileInstall: boolean; reload: () => void; put: (p: InstalledPlugin) => void; review: (id: string) => Promise<void>; onBack: () => void }) {
   const t = useT()
   const titleId = useId()
   const back = useRef<HTMLButtonElement>(null)
-  const a = useInstalledActions(reload)
+  const a = useInstalledActions(reload, put)
   const of = (p ?? c)!
   const r = useReview(review, of.id)
   // the card that opened this page is gone: the keyboard starts on the way back
@@ -461,6 +493,8 @@ export default function Plugins() {
   const installedId = useId()
   const discoverId = useId()
   const reload = () => void state.reload()
+  /** one installed plugin as it is now (on screen at once, then the server's answer) */
+  const put = (p: InstalledPlugin) => state.setData((d) => (d ? { ...d, installed: d.installed.map((x) => (x.id === p.id ? p : x)) } : d))
   const inspect = async (fn: () => Promise<PluginPlan>) => {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
@@ -519,7 +553,7 @@ export default function Plugins() {
               </p>
             )}
             {shownPage && (shownPage.p || shownPage.c) ? (
-              <PluginDetail key={open} p={shownPage.p} c={shownPage.c} fileInstall={d.fileInstall} reload={reload} review={review} onBack={back} />
+              <PluginDetail key={open} p={shownPage.p} c={shownPage.c} fileInstall={d.fileInstall} reload={reload} put={put} review={review} onBack={back} />
             ) : q && !installed.length && !catalog.length && !imports.length ? (
               <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
             ) : (
@@ -531,7 +565,7 @@ export default function Plugins() {
                   <section aria-labelledby={installedId} data-testid="plugins-installed-section">
                     <h3 id={installedId} className={sectionTitle}>{t('plugins.installed')}</h3>
                     <ul className={pluginListCls} data-testid="plugins-installed">
-                      {installed.map((p) => <InstalledCard key={p.id} p={p} c={d.catalog.find((x) => x.id === p.id)} reload={reload} review={review} onOpen={() => setOpen(p.id)} />)}
+                      {installed.map((p) => <InstalledCard key={p.id} p={p} c={d.catalog.find((x) => x.id === p.id)} reload={reload} put={put} review={review} onOpen={() => setOpen(p.id)} />)}
                     </ul>
                   </section>
                 )}

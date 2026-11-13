@@ -24606,6 +24606,37 @@ Batch C of the audit after "Optimistic changes: the screen first, the server aft
   sharing, the project's edit dialog (a form that already says it is saving), the folder picker's new folder (it opens
   the new folder, which the server must list) and a folder upload's folders.
 
+## Optimistic settings, scheduled tasks and switches (feat/optimistic-settings, 2026-11-13)
+
+Batch D of the audit after "Optimistic changes: the screen first, the server after": the same helper
+(`web/src/lib/optimistic.ts`) for settings that are one value each. A refusal puts back what the server last had, with
+one toast (the server's words); a reply that is no longer the newest writes nothing.
+- **A scheduled task's on / off** (pages/Scheduled.tsx `toggle`, key `schedule:<id>:enabled`): the switch flips at once;
+  the answer (its next run) settles it.
+- **A connection's tool on / off** (components/integrations/IntegrationRow.tsx `setTool`, key `integration:<id>:tool:<name>`):
+  one queue per tool; an answer keeps another tool still on its way as on screen, and a refusal puts back only that
+  tool. The old "a second click is ignored" is gone.
+- **My preferences** (store/session.ts `updatePrefs`, key `me:prefs:<fields>`, e.g. the default engine with its model):
+  shown in my account at once; refused, back and thrown (the caller says it, as before; the theme and text size keep
+  their own device-side handling on top). Saves of the same fields go one at a time; an older pick refused under a newer
+  one now says nothing. A read of my account (`refreshMe`, `signedIn`) from before keeps the pending fields (the theme
+  applied too) and my pending status as on screen.
+- **My status** (store/statusMessages.ts `changeMyStatus`, key `me:status`): save and clear close the dialog at once and
+  show the status (a preview of its end; the end of a day or week comes with the server's answer); no busy buttons.
+- **A memory's correction** (pages/Settings.tsx Memories, key `memory:<id>:text`): the form closes and the row shows the
+  new text at once; "updated" comes with the answer; a list read during it keeps the pending text. Adding a memory
+  still waits (it needs the server's id), and forgetting one or all keeps its confirm.
+- **An engine's on / off (admin)** (pages/admin/Engines.tsx, key `engine:<id>:enabled`): switching an engine off stops no
+  running work (it only leaves new chats, routes/admin.ts updateEngines), so it is optimistic in both directions; an
+  engines notice while a switch is on its way does not read the list (the answer is newer).
+- **Turning a plugin off (admin)** (pages/admin/Plugins.tsx, key `plugin:<id>:enabled`): the card shows it off at once;
+  the card's other actions are held (no spinner) until the answer. Turning a plugin on still waits (it grants its
+  permissions again) but goes in the same queue, so from another card or page it cannot pass the off on its way;
+  removing it keeps its confirm.
+- **Accepted**: a refused status save or memory correction shows a toast; the dialog / form has already closed, so the
+  typed words are not kept (refusals there are rare: the client checks the same rules first).
+- Not here: keys, budgets, billing, access and roles (never optimistic).
+
 ## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
 
 Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`

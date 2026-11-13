@@ -10,6 +10,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
+import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
 import { Badge, Button, confirmDialog } from '../ui'
 
@@ -145,8 +146,6 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const t = useT()
   const locale = useLocale()
   const [checking, setChecking] = useState<string | null>(null)
-  // one tool on or off for the AI (a second click while its request is on its way is ignored)
-  const switching = useRef(new Set<string>())
   /** a connection that is not there any more (404: an admin changed or deleted the template it was made from while
    * this page was open): say so and read the lists again, instead of "not found" on a row that stays */
   const goneNow = () => {
@@ -158,18 +157,33 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     goneNow()
     return true
   }
+  // one tool on or off for the AI, at once (lib/optimistic.ts), one queue per tool: a refusal puts back what the server
+  // last had for that tool; an answer keeps another tool still on its way as on screen
+  const toolKey = (id: string, name: string) => `integration:${id}:tool:${name}`
+  // the connection as setTool last put it on screen while one of its tools is on its way, else as the page gives it
+  const latest = useRef<Integration | null>(null)
   const setTool = async (i: Integration, name: string, enabled: boolean) => {
-    const key = `${i.id}\n${name}`
-    if (switching.current.has(key)) return
-    switching.current.add(key)
-    try {
-      replace(await api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }))
-    } catch (e) {
-      if (gone(e)) return
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      switching.current.delete(key)
+    const busy = optimisticPendingKeys((k) => k.startsWith(`integration:${i.id}:tool:`)).length > 0
+    if (!busy || latest.current?.id !== i.id) latest.current = i
+    const put = (x: Integration, on: (tool: Integration['tools'][number]) => boolean) => {
+      const next = { ...x, tools: x.tools.map((tool) => ({ ...tool, enabled: on(tool) })) }
+      latest.current = next
+      replace(next)
     }
+    const shown = (tool: Integration['tools'][number]) => tool.enabled !== false
+    const r = await optimistic({
+      key: toolKey(i.id, name), from: shown(i.tools.find((x) => x.name === name) ?? { enabled: true } as Integration['tools'][number]), to: enabled,
+      show: (v) => put(latest.current?.id === i.id ? latest.current : i, (tool) => (tool.name === name ? v : shown(tool))),
+      send: () => api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }),
+      confirmed: (x) => x.tools.find((tool) => tool.name === name)?.enabled !== false,
+      settle: (x) => {
+        const cur = latest.current?.id === i.id ? latest.current : i
+        put(x, (tool) => (tool.name !== name && optimisticPending(toolKey(i.id, tool.name)) ? shown(cur.tools.find((y) => y.name === tool.name) ?? tool) : shown(tool)))
+      },
+      failText: false,
+    })
+    if (r.ok || !r.newest || gone(r.error)) return
+    toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
   }
   /** end the person's own Always allow, so the connection's changes ask again: their own connection's write rule back
    * to "ask"; on a team connection only their own choice (never the team's rule) */
