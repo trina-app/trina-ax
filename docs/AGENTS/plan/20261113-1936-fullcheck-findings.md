@@ -16,12 +16,10 @@ one thing and the default list matches its own menu.
 ## Scope
 
 In:
-1. TC-1080 (P1): the Trina panel's default view honours its menu's "Group by: Project": the history grouped by project
-   (docs/DECISIONS.md "Trina history by project", owner 2026-11-12) with the caps of that decision: at most 3 chats
-   per project, then "N more" in place; the chats outside projects as "Other chats"; no headers for a person with no
-   project chats; a folded group keeps its strongest mark; + per project; at most 5 projects, then "Show all".
-   Reuses `lib/historyGroups.ts` and `components/history/HistoryGroups.tsx` (the caps come back from #651).
-   "Group by: None" shows the flat list (the filtered history, as now).
+1. TC-1080 (P1): the Trina panel's filter tells the truth. The owner (2026-11-14) kept the flat 트리나 기록, so Group by
+   defaults to None, and the views kept while Project was the default move to it. "Group by: Project" by hand groups
+   the history with the caps of "Trina history by project" (5 projects, 3 rows, "N more", "Show all", "Other chats"),
+   reusing `lib/historyGroups.ts` and `components/history/HistoryGroups.tsx`.
 2. TC-1081: a phone's project chat row hides the author's name beside the face (kept for screen readers).
 3. TC-1082: a section header with a link (Files' "Team folders") uses the same 24px ▸ slot as the others; the touch
    area comes from `touch-hit`.
@@ -52,9 +50,7 @@ shared column width decision, left for a design pass.
 
 ## Risks
 
-- TC-1080 brings project groups back into the Trina panel, which "Projects: a place of their own" (2026-11-13) had
-  made a flat 최근 기록. The QA row and the menu's own default ask for grouping by project; the owner reviews the
-  screenshots before merging.
+- A kept view must not stay grouped after the default changes: a new storage key with a migration from the old one.
 - Five languages for every changed string; e2e specs that name the old strings.
 
 ## Tests
@@ -65,8 +61,9 @@ touched areas, the e2e specs of the Trina panel, projects, files trash, activity
 ## Result
 
 Built as planned, all eleven items. Differences:
-- TC-1080: the caps (`capGroups`, "N more", and a new "Show all projects (N more)") came back from #651 into the shared
-  `HistoryGroups`; a task's runs count as one row (`newestRunsOnly`). The groups sit under the section's words.
+- TC-1080: the owner kept the flat list (2026-11-14). Group by now defaults to None, and the views kept while Project was
+  the default move to it (a new key). "Group by: Project" by hand gets the caps (`capGroups`, "N more", a new "Show all
+  projects (N more)") back from #651; a task's runs count as one row (`newestRunsOnly`).
 - TC-1086: one new key, `chat.footerPrivate`, for a deleted or read-only chat of mine (Home's footer now says "Only you
   can see new chats."). The "Only me" chip did not change, so the server's refusal that names it still matches.
 - TC-1084: the tags go on the name's line in the member pickers for people (groups keep their second line).

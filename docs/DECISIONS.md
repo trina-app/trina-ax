@@ -11785,24 +11785,26 @@ and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트�
 - Tests: `web/test/unit/{rail,rail-badges,phone-nav,phone-tabs-v2,screens,app-nav,phone-project-files,nav-menus}`,
   `tests/unit/b-chat-groups.test.ts`, e2e `rail`, `trina-panel`, `phone-tabs`, `projects-panel`.
 
-## Trina history: the default view is grouped by project (fix/fullcheck-findings, 2026-11-14, QA TC-1080..1089)
+## Trina history: Group by defaults to None (fix/fullcheck-findings, 2026-11-14, the owner, QA TC-1080..1089)
 
-넣을 곳: Team AX core web (`web/src/components/panels/TrinaList.tsx`, `web/src/components/history/HistoryGroups.tsx`,
-`web/src/lib/historyGroups.ts`), 이유: the full screen check of combined dev found the Trina panel's filter saying
-"Group by: Project" (its default) over a flat "Recent" list; the grouped list showed only once a setting differed from
-the default. Plan: `docs/AGENTS/plan/20261113-1936-fullcheck-findings.md`.
+넣을 곳: Team AX core web (`web/src/components/nav/HistoryList.tsx`, `web/src/components/panels/TrinaPanel.tsx`,
+`web/src/components/history/HistoryGroups.tsx`, `web/src/lib/historyGroups.ts`), 이유: the full screen check of combined
+dev found the Trina panel's filter saying "Group by: Project" (its default) over the flat list; the grouped list showed
+only once a setting differed from the default. Plan: `docs/AGENTS/plan/20261113-1936-fullcheck-findings.md`.
 
-- **The default view is what the menu says.** 트리나 기록 in the Trina panel is grouped by project, as "Trina history by
-  project" (owner, 2026-11-12) built it, with that decision's caps: at most **five projects** (the newest activity
-  first), **three rows** each, "N개 더 보기" opens a group in place, "프로젝트 모두 보기 (N개 더)" the projects past five
-  (for this visit); the chats outside projects last as "기타 기록"; a person with no chat in a project sees no headers,
-  one flat list; a folded group keeps the strongest mark of its chats, and "N more" / "Show all" the mark of the rows
-  they hold back; + per project; the chat on screen and its project stay in sight past the caps. A task's runs are one
-  row (its newest run), so the caps count rows. Any other choice in the filter shows the filtered history as before,
-  **"Group by: None" its flat list** (each project chat with its project's name at the row's end).
-- This **supersedes** the 최근 기록 part of "Projects: a place of their own; the Trina list is pinned and recent"
-  (2026-11-13): the projects keep their own place (rail, phone tab, page); the Trina list groups its own chats by
-  project again because its menu's default says so. The owner reviews the screenshots before this merges.
+- **The owner confirmed the flat list (2026-11-14)**: "Projects: a place of their own; the Trina list is pinned and
+  recent" (2026-11-13) stands. 트리나 기록 is one flat list, newest first, a project's chat with its project's name at the
+  row's end. So the menu tells the truth: **Group by defaults to None** (`DEFAULT_VIEW.group`).
+- **"Group by: Project" chosen by hand** groups the filtered history with the caps of "Trina history by project": at
+  most five projects (newest activity first), three rows each, "N개 더 보기" opens a group in place, "프로젝트 모두 보기
+  (N개 더)" the projects past five (for this visit), the chats outside projects last as "기타 기록"; a folded group keeps
+  the strongest mark of its chats, "N more" / "Show all" the mark of what they hold back; + per project; the chat on
+  screen and its project stay in sight. A task's runs are one row (its newest run), so the caps count rows. The phone's
+  drawer (by date by default, its own key) lists every project and row when grouped.
+- **Kept views move to the new default.** The view is kept as what differs from the default, now under
+  `mycel.sidebar.historyView.v2`. A view kept under `mycel.sidebar.historyView` (11-12 to 11-14, when Project was the
+  default and so never kept) keeps its other choices and takes Group by: None; the older `mycel.sidebar.recentsView`
+  keeps its rule (its "date" was that time's default).
 - **One name for the AI history**: "트리나 기록" / "Trina history" (`sidebar.aiChats`) on every screen; the panel's
   "최근 기록" / "Recent" (`trinaList.recent`) is gone.
 - **One way to say who sees a chat**, the same sentence shape everywhere: "이 채팅은 나만 볼 수 있어요." / "Only you can
@@ -11827,9 +11829,9 @@ the default. Plan: `docs/AGENTS/plan/20261113-1936-fullcheck-findings.md`.
 - Left for a design pass: the Projects list and Team skills use the 1024px page column (title at x=412 at 1440), the
   project page its 1080px one (x=384); one column width for all is a wider change.
 - The test mock's `GET /api/chats/groups` returns `projectActivity` as the server does.
-- Tests: `web/test/unit/history-groups.test.ts`, `who-sees.test.tsx`, `chat-title-pin.test.tsx`, `list-pieces.test.tsx`,
+- Tests: `web/test/unit/history-groups.test.ts`, `history-filter.test.ts`, `who-sees.test.tsx`, `chat-title-pin.test.tsx`, `list-pieces.test.tsx`,
   `project-chat-faces.test.tsx`, `project-form.test.tsx`; e2e `trina-panel`, `activity-panel`, `projects-panel`,
-  `optimistic-chats`, `project-list-menu`.
+  `account-settings`, `project-list-menu`.
 - Version impact: patch (web only).
 
 ## Panels: three levels you can tell apart (feat/nav-projects-tab, 2026-11-13, product owner)

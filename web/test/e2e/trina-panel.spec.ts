@@ -1,9 +1,9 @@
-// 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, recent", "Trina history by project",
-// "Trina history: the default view is grouped by project", "Panels: three levels…"). A fixed top (트리나에게 묻기 · 검색 ·
-// 예약 작업 · 팀 스킬), then 고정 · 트리나 기록, grouped by project as the filter's default says (at most five projects and
-// three rows each, "N more", "Show all", the other chats last; no headers without a project chat); no folders; 삭제한
-// 기록 is in 트리나 기록's "⋯"; a section folded by hand stays folded; the filter in the panel's header shows the
-// filtered history and comes back, "Group by: None" its flat list.
+// 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, recent", "Projects: a place of their
+// own…", "Trina history: Group by defaults to None", "Panels: three levels…"). A fixed top (트리나에게 묻기 · 검색 · 예약
+// 작업 · 팀 스킬), then 고정 · 트리나 기록 (one flat list: a project's chat carries its project's name, small, at the row's
+// end), as the filter's default "Group by: None" says; no folders; 삭제한 기록 is in 트리나 기록's "⋯"; a section folded by
+// hand stays folded; the filter in the panel's header shows the filtered history and comes back; "Group by: Project"
+// chosen by hand groups it (five projects, three rows each, "N more", "Show all", the other chats last).
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, reset, signIn } from './helpers'
@@ -38,7 +38,7 @@ const labels = (page: Page) => panel(page).getByTestId('trina-label')
 // a row's title (not its project's tag, chat-row-project, which is also cut with "…")
 const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate:not([data-testid])')
 
-test('order 고정 · 트리나 기록; by default the history is grouped by project, as the filter\'s "Group by: Project" says (QA TC-1080)', async ({ page }) => {
+test('order 고정 · 트리나 기록, one flat list with each project chat\'s project; the filter says "Group by: None" (QA TC-1080, TC-1085)', async ({ page }) => {
   await start(page)
   const launch = await project(page, 'Acme launch')
   const pinned = await chat(page, 'Pinned plan')
@@ -52,19 +52,16 @@ test('order 고정 · 트리나 기록; by default the history is grouped by pro
   // the fixed top: ask, search, scheduled, team skills
   for (const id of ['new-chat', 'nav-search', 'nav-scheduled', 'nav-skills']) await expect(p.getByTestId(id)).toBeVisible()
   await expect(rowTitles(p.getByTestId('trina-pinned'))).toHaveText(['Pinned plan'])
-  // the project's group first (its newest activity), then the other chats; no project tag on the rows (the header says it)
+  await expect(rowTitles(p.getByTestId('trina-other'))).toHaveText(['Weekly notes', 'Launch plan', 'QA notes'])
+  // the project's chat says which project it is in; the others carry no tag; no project headers
   const other = p.getByTestId('trina-other')
-  await expect(other.getByTestId('history-group-name')).toHaveText(['Acme launch'])
-  const groups = other.getByTestId('history-group')
-  await expect(groups).toHaveCount(2)
-  await expect(rowTitles(groups.nth(0))).toHaveText(['Launch plan'])
-  await expect(groups.nth(1)).toHaveAttribute('data-group', 'other')
-  await expect(rowTitles(groups.nth(1))).toHaveText(['Weekly notes', 'QA notes'])
-  await expect(other.getByTestId('chat-row-project')).toHaveCount(0)
-  // the filter's menu says the same: Group by Project, nothing changed (no dot)
+  await expect(other.getByTestId('chat-row-project')).toHaveText(['Acme launch'])
+  await expect(other.locator('li').filter({ hasText: 'Launch plan' }).getByTestId('chat-row-project')).toHaveText('Acme launch')
+  await expect(p.getByTestId('history-group')).toHaveCount(0)
+  // the filter's menu says the same: Group by None, nothing changed (no dot)
   await expect(p.getByTestId('recents-filter-dot')).toHaveCount(0)
   await p.getByTestId('recents-filter').click()
-  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.project'])
+  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.none'])
   await page.keyboard.press('Escape')
   // no folders, no bottom block
   for (const id of ['trina-all-projects', 'trina-new-project', 'trina-folders', 'trina-panel-more', 'ai-chats-all']) await expect(p.getByTestId(id)).toHaveCount(0)
@@ -91,14 +88,23 @@ test('a section folded by hand stays folded after a reload, its count beside its
   await expect(rowTitles(panel(page).getByTestId('trina-other'))).toHaveText(['Loose one'])
 })
 
-test('at most five projects and three rows each: "N more" opens a group in place, "Show all" the projects past five; "Group by: None" is the flat list', async ({ page }) => {
+async function groupByProject(page: Page) {
+  await panel(page).getByTestId('recents-filter').click()
+  await page.getByTestId('recents-view-group').click()
+  await page.getByTestId('recents-group-project').click()
+  await page.keyboard.press('Escape')
+  await expect(panel(page).getByTestId('recents-filter-label')).toContainText(t['sidebar.group.project'])
+}
+
+test('"Group by: Project" by hand: five projects and three rows each, "N more" in place, "Show all" the projects past five; reset is the flat list', async ({ page }) => {
   await start(page)
   for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `Plan ${n}`, await project(page, `Acme ${n}`))
   const big = await project(page, 'Acme big')
   for (const n of [1, 2, 3, 4, 5]) await chat(page, `Big ${n}`, big)
   await chat(page, 'Loose one')
   await page.reload()
-  const p = panel(page).getByTestId('trina-other')
+  await groupByProject(page)
+  const p = panel(page).getByTestId('recents-list')
   // the five projects with the newest activity: Acme big, then Acme 6 … 3; Acme 2 and 1 behind "Show all"
   await expect(p.getByTestId('history-group-name')).toHaveText(['Acme big', 'Acme 6', 'Acme 5', 'Acme 4', 'Acme 3'])
   const bigGroup = p.getByTestId('history-group').first()
@@ -111,17 +117,36 @@ test('at most five projects and three rows each: "N more" opens a group in place
   await expect(p.getByTestId('history-group-name')).toHaveText(['Acme big', 'Acme 6', 'Acme 5', 'Acme 4', 'Acme 3', 'Acme 2', 'Acme 1'])
   // the other chats stay last
   await expect(p.getByTestId('history-group').last()).toHaveAttribute('data-group', 'other')
-  // Group by: None, the flat list with each project chat's tag
-  await panel(page).getByTestId('recents-filter').click()
-  await page.getByTestId('recents-view-group').click()
-  await page.getByTestId('recents-group-none').click()
-  await page.keyboard.press('Escape')
-  await expect(panel(page).getByTestId('trina-list')).toHaveCount(0)
+  // kept after a reload; reset: the flat list again
+  await page.reload()
+  await expect(panel(page).getByTestId('history-group-name').first()).toHaveText('Acme big')
+  await panel(page).getByTestId('recents-filter-clear').click()
+  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
   await expect(panel(page).getByTestId('history-group')).toHaveCount(0)
-  await expect(panel(page).getByTestId('recents-filter-label')).toContainText(t['sidebar.group.none'])
 })
 
-test('a folded project keeps the "?" of a chat that waits in it', async ({ page }) => {
+test('a view kept while Group by: Project was the default does not stay grouped (QA TC-1080)', async ({ page }) => {
+  await start(page)
+  await chat(page, 'Launch plan', await project(page, 'Acme launch'))
+  // 11-12 to 11-14 the default grouping was never kept (only what differed): a person who changed the sort then
+  await page.evaluate(() => {
+    localStorage.removeItem('mycel.sidebar.historyView.v2')
+    localStorage.setItem('mycel.sidebar.historyView', JSON.stringify({ sort: 'title' }))
+  })
+  await page.reload()
+  await expect(panel(page).getByTestId('recents-filter-label')).toHaveText(t['sidebar.sort.title'])
+  await expect(panel(page).getByTestId('history-group')).toHaveCount(0)
+  // nothing kept but the old default: the plain list
+  await page.evaluate(() => {
+    localStorage.removeItem('mycel.sidebar.historyView.v2')
+    localStorage.setItem('mycel.sidebar.historyView', JSON.stringify({ group: 'project' }))
+  })
+  await page.reload()
+  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
+  await expect(panel(page).getByTestId('recents-filter-dot')).toHaveCount(0)
+})
+
+test('grouped by hand, a folded project keeps the "?" of a chat that waits in it', async ({ page }) => {
   await start(page)
   const acme = await project(page, 'Acme waits')
   await chat(page, 'Which template?', acme)
@@ -133,6 +158,7 @@ test('a folded project keeps the "?" of a chat that waits in it', async ({ page 
     await route.fulfill({ json: body })
   })
   await page.reload()
+  await groupByProject(page)
   const group = panel(page).getByTestId('history-group').first()
   await group.getByTestId('history-group-fold').click()
   await expect(group).toHaveAttribute('data-folded', '')

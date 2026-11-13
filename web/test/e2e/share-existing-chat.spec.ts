@@ -165,8 +165,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'move dialog from the row menu')
       await dialog.getByTestId('chat-project-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
-      // a computer's 트리나 기록 has the row under its project's header (QA TC-1080); it is still private
-      if (!vp.phone) await expect(list.getByTestId('history-group').filter({ has: page.getByTestId('history-group-name').filter({ hasText: 'Launch' }) }).getByRole('listitem').filter({ hasText: '경쟁사 메모' })).toHaveCount(1)
+      // a computer's 트리나 기록 names the row's project; it is still private
+      if (!vp.phone) await expect(list.getByRole('listitem').filter({ hasText: '경쟁사 메모' }).getByTestId('chat-row-project')).toHaveText('Launch')
       // the one place to share chats brought or moved in: the project page's line
       await page.goto(`/projects/${id}`)
       await page.getByTestId('private-chats-choose').click()
