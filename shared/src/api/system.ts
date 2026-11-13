@@ -65,6 +65,9 @@ export const UpdateStatus = z.object({
   /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
    * versions online; a new version comes from re-running the installer. Absent from older servers. */
   feed: z.boolean().optional(),
+  /** the last look at the release feed failed (offline, bad answer): the page says so instead of "latest version".
+   * Absent from older servers and while the last look worked. */
+  checkFailed: z.boolean().optional(),
   /** the available version also changes root-owned parts (Linux: launcher, sandbox helper, units): the server does
    * not apply it; `sudo mycel-ctl update` (or the update timer / the hosted cloud) does. Absent from older servers. */
   needsRoot: z.boolean().optional(),

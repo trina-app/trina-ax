@@ -2615,6 +2615,7 @@ export const ja: Record<MessageKey, string> = {
   'system.available': "新しいバージョン {version}",
   'system.oneWay': "この更新後に以前のバージョンに戻すには、バックアップからの復元が必要です。",
   'system.installUpdate': "更新をインストール",
+  'system.checkFailed': "更新サーバーに接続できませんでした。あとでもう一度確認します。",
   'system.upToDate': "最新バージョンです。",
   'system.noFeed': "このサーバーはオンラインで更新を確認しません。更新するには、サーバーのMacで新しいリリースのインストーラーを再実行してください。新しいバージョンに切り替わり、現在のバージョンは復元用に保持されます。",
   'system.rollback': "以前のバージョン（{version}）に戻す",
