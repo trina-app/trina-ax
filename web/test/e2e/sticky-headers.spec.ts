@@ -109,9 +109,9 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
   await expect(top.getByTestId('project-menu')).toBeVisible()
   await staysPut(top, false)
   await expect(top.getByTestId('project-menu')).toBeInViewport()
-  // a phone: the top bar holds "+" and the project's "···" (QA TC-254); the page scrolls under it
+  // a phone: the top bar (프로젝트's title; a project's "···", QA TC-254) stays while the page scrolls under it
   await page.setViewportSize({ width: 390, height: 480 })
-  for (const [to, action, inPage] of [['/projects', 'project-new', 'project-row'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
+  for (const [to, action, inPage] of [['/projects', 'topbar-title', 'projects-panel-row'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
     await page.goto(to)
     const button = page.getByTestId('phone-page-bar').getByTestId(action)
     await expect(button).toBeVisible()

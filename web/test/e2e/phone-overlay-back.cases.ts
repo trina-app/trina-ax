@@ -158,22 +158,29 @@ export function overlayBackCases() {
   test('the 트리나 tab\'s filter: its row\'s choices (a second sheet) close with one Back, then the filter; a choice leaves no entry', async ({ page }) => {
     await reset(page)
     await signIn(page)
+    // the filter is in the history drawer (☰), itself an overlay with its own entry
     await showChats(page)
     const list = phoneTrinaHome(page)
+    await expect.poll(() => depth(page)).toBe(1)
     const filter = list.getByTestId('recents-filter')
     for (const close of ['back', 'choice'] as const) {
       await filter.click()
-      await expect.poll(() => depth(page)).toBe(1)
+      await expect.poll(() => depth(page)).toBe(2)
       await page.getByRole('menu').getByRole('menuitem').first().click()
       const choices = page.getByRole('menuitemradio')
       await expect(choices.first()).toBeVisible()
-      await expect.poll(() => depth(page)).toBe(1)
+      await expect.poll(() => depth(page)).toBe(2)
       if (close === 'back') await back(page)
       else await choices.first().click()
       await expect(page.getByRole('menu')).toHaveCount(0)
+      // the drawer stays, with its one entry
       await expect(list).toBeVisible()
-      await settled(page)
+      await expect.poll(() => depth(page)).toBe(1)
     }
+    // one more Back closes the drawer: Home, no overlay left
+    await back(page)
+    await expect(list).toHaveCount(0)
+    await settled(page)
     await expect(page).toHaveURL(/\/$/)
     expect(await depth(page)).toBe(0)
   })

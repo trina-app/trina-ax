@@ -136,7 +136,7 @@ test.describe('on a 390px phone', () => {
       expect(await sideways(page), path).toEqual([])
     }
     // the phone's tabs keep their names whole
-    await expect(tabBar(page).getByRole('link')).toHaveCount(4)
+    await expect(tabBar(page).getByRole('link')).toHaveCount(5)
     for (const tab of await tabBar(page).getByRole('link').all()) {
       const fits = await tab.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
       expect(fits, await tab.getAttribute('data-testid') ?? '').toBe(true)
@@ -147,13 +147,13 @@ test.describe('on a 390px phone', () => {
   })
 })
 
-// the tab bar's labels in the languages with the longest words (QA TC-255; the tabs 트리나 · 대화 · 파일 · 나), at the largest
+// the tab bar's labels in the languages with the longest words (QA TC-255; the tabs 트리나 · 대화 · 프로젝트 · 파일 · 나), at the largest
 // step (140 %) on a 360 px phone: each on one line inside its tab (cut with "…" if it must be), the whole word still
 // the tab's name, nothing past the screen's edge
 test.describe('the tab labels on a 360px phone at 140 %', () => {
   test.use({ viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true })
   for (const locale of ['ja', 'es'] as const) {
-    test(`${locale}: four labels, each on one line inside its tab`, async ({ page }) => {
+    test(`${locale}: five labels, each on one line inside its tab`, async ({ page }) => {
       const t = DICTS[locale]
       await reset(page, { teamLocale: locale, usersFollowTeam: true })
       await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
@@ -162,8 +162,8 @@ test.describe('the tab labels on a 360px phone at 140 %', () => {
       await expect(tabBar(page)).toBeVisible()
       expect(await rootSize(page)).toBe('22.4px')
       const tabs = tabBar(page)
-      await expect(tabs.getByRole('link')).toHaveCount(4)
-      for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-files', t['sidebar.files']], ['tab-me', t['tabs.me']]] as const) {
+      await expect(tabs.getByRole('link')).toHaveCount(5)
+      for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-projects', t['projects.title']], ['tab-files', t['sidebar.files']], ['tab-me', t['tabs.me']]] as const) {
         const link = tabs.getByTestId(id)
         // the whole word is the tab's name, however much of it shows
         await expect(link).toHaveAccessibleName(new RegExp(word))
