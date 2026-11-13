@@ -21,6 +21,7 @@ import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../pol
 import { isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
+import { noLongerMember } from './project-joins'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
@@ -275,7 +276,13 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   }
   const project = rt.store.projectRow(r.project_id!)
   const me = loadPrincipal(rt.db, userId)
-  if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) return fail('not_found')
+  if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) {
+    // someone taken out of its project (or who left it) opens a shared chat they saw while in it: one plain reason,
+    // the project's name only (QA TC-1067); everyone else gets the one 404 of a missing chat
+    const gone = project && me && r.shared_at ? noLongerMember(rt.db, project.id, userId) : null
+    if (gone && r.shared_at! <= gone.at) return fail('not_found', tr('projectNoLongerMember', L, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
+    return fail('not_found')
+  }
   const creator = r.user_id === userId
   const editor = mayEditProject(rt.files, me, project)
   if (r.deleted_at && (!o.deleted || mode === 'continue' || !(creator || editor))) return fail('not_found')

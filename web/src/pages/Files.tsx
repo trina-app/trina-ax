@@ -685,7 +685,7 @@ function Files() {
 
   /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
   const confirmSkillsOn = (skills: string[]) =>
-    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('files.moveAnyway') })
+    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('files.moveAnyway') })
 
   /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), or more people would see
    * it (out of a personal folder; QA TC-115), ask first, then confirm.

@@ -5,6 +5,7 @@
 // members, "{who} joined '{name}'" (notifications/service.ts project.joined). So nobody, an admin included, reads a
 // project without its members being told and the activity log saying so (security review M5). The person's scheduled
 // tasks paused for not seeing it start again.
+import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { atLeast, inProjectZone, RuleSet, type Principal } from '../policy/access'
@@ -49,6 +50,13 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
       const was = new Set(before ? before.principals.filter((p) => reads(before, p)).map((p) => p.id) : [])
       const now = after.principals.filter((p) => reads(after, p))
       const gained = now.filter((p) => !was.has(p.id) && (!by.only || by.only.has(p.id)))
+      // who stopped reading it (still an active account): one audit row each, `project.member_lost`, so their old link
+      // to it or to one of its shared chats can say "You're no longer a member" (noLongerMember below; QA TC-1067)
+      const nowIds = new Set(now.map((p) => p.id))
+      for (const id of was) {
+        if (nowIds.has(id) || (by.only && !by.only.has(id)) || !after.principals.some((p) => p.id === id)) continue
+        audit(ctx.db, { actor: by.actor, action: 'project.member_lost', target: pr.id, detail: { projectId: pr.id, userId: id, via: by.via, ...(by.actor === id ? { self: true } : {}) } })
+      }
       if (!gained.length) continue
       for (const g of gained) {
         const id = audit(ctx.db, { actor: by.actor, action: 'project.member_gained', target: pr.id, detail: { projectId: pr.id, userId: g.id, via: by.via, ...(by.actor === g.id ? { self: true } : {}) } })
@@ -68,4 +76,20 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
  * same trail as any other join. Call after the account and its groups are written. */
 export function projectJoinsOfNewAccount(ctx: AppContext, userId: string, actor: string | null, now: JoinState): void {
   projectJoins(ctx, { principals: now.principals.filter((p) => p.id !== userId), rules: now.rules }, now, { actor, via: 'account', only: new Set([userId]) })
+}
+
+/**
+ * A team project `userId` read once and does not read now: its name, for the one sentence their old link to it (or to
+ * one of its shared chats they saw) shows, "You're no longer a member of <project>" (QA TC-1067). Only when the latest
+ * of their `project.member_gained` / `project.member_lost` rows for it is a loss (`at`: when), so it tells them nothing
+ * they did not know: the project's name and that they were in it. Null otherwise (never a member, back in it since, or
+ * the trail is gone): the generic not-found.
+ */
+export function noLongerMember(db: Database, projectId: string, userId: string): { name: string; at: string } | null {
+  try {
+    const row = db.query(`SELECT a.action, a.at, p.name FROM audit_log a JOIN projects p ON p.id = a.target
+      WHERE a.target = ? AND a.action IN ('project.member_gained', 'project.member_lost') AND json_valid(a.detail)
+      AND json_extract(a.detail, '$.userId') = ? ORDER BY a.id DESC LIMIT 1`).get(projectId, userId) as { action: string; at: string; name: string } | null
+    return row && row.action === 'project.member_lost' ? { name: row.name, at: row.at } : null
+  } catch { return null }
 }

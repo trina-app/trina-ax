@@ -232,9 +232,9 @@ const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent [&>secti
  * rows' size, semibold in ink on a computer; small and grey on a phone: index.css --text-list-head), space above it,
  * folds the section with the ▸ on its left (remembered per person in this browser, `foldKey`); `count`, when given,
  * shows beside the label while it is folded. `link`: the label's words open a page (파일's 팀 폴더), so the ▸ is a
- * button of its own.
+ * button of its own. `folded`: how it starts until the person opens or folds it (프로젝트's "다른 팀 프로젝트").
  */
-export function ListSection({ id, label, icon, count, action, link, foldKey, labelTestId, children, className, ...rest }: {
+export function ListSection({ id, label, icon, count, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
   id: string
   label: ReactNode
   icon?: ReactNode
@@ -245,10 +245,11 @@ export function ListSection({ id, label, icon, count, action, link, foldKey, lab
   labelTestId: string
   children: ReactNode
   className?: string
+  folded?: boolean
 } & Omit<HTMLAttributes<HTMLElement>, 'id'> & { [data: `data-${string}`]: string | undefined }) {
   const { folds, set } = useFolds()
   const key = `section:${foldKey}`
-  const folded = folds[key] === 'folded'
+  const folded = folds[key] ? folds[key] === 'folded' : foldedFirst
   const bodyId = useId()
   const toggle = () => set(key, folded ? 'open' : 'folded')
   const words = (

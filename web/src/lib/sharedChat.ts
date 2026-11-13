@@ -72,6 +72,11 @@ const REASONS: Record<string, MessageKey> = {
 export const refusalReason = (e: unknown): string | null =>
   e instanceof ApiError && (e.status === 409 || e.status === 403) && typeof e.body.params?.reason === 'string' ? e.body.params.reason : null
 
+/** A 404 for a project, or one of its shared chats, that the caller was taken out of (or left): the project's name, for
+ * "You're no longer a member of <project>" in place of the generic not-found (QA TC-1067). Null for any other error. */
+export const noLongerMemberOf = (e: unknown): string | null =>
+  e instanceof ApiError && e.status === 404 && e.body.params?.reason === 'no_longer_member' && typeof e.body.params.project === 'string' ? e.body.params.project : null
+
 /** The refusal in the person's words: a reason the screens name, else null (the caller shows the server's own message).
  * `where`: safe operations refuse a chat ("continue in a chat of your own") and the project setting differently. */
 export function refusalKey(e: unknown, where: 'chat' | 'project'): MessageKey | null {

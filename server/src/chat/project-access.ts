@@ -340,9 +340,12 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
     return { people: direct, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], ...(isAdminRole(p) ? { split: { direct, byRole: 0 } } : {}) }
   }
   const plan = planAccess(ctx, p, r, body.participants, locale, body.removeRules ?? [])
+  // who loses it, by name (three; the screen says how many more: QA TC-1067): people the caller reads in the dialog
+  const nameOf = (id: string) => (db.query('SELECT name FROM users WHERE id = ?').get(id) as { name: string } | null)?.name
+  const lostNames = plan.lost.flatMap((id) => nameOf(id) ?? []).sort((a, b) => a.localeCompare(b)).slice(0, 3)
   // what the save writes besides the people chosen (participantRules): the screen asks first, since the person did not
   // choose it (review M4)
-  const extra = { ...(plan.addsFloor ? { addsFloor: true } : {}), ...(plan.restoresCreator ? { restoresCreator: true } : {}) }
+  const extra = { ...(plan.addsFloor ? { addsFloor: true } : {}), ...(plan.restoresCreator ? { restoresCreator: true } : {}), ...(lostNames.length ? { removedNames: lostNames } : {}) }
   const { files, othersFiles, skills, skillNames } = plan.seen
   // the count apart for the owner and admins only (a member who manages the project reads the total, as before)
   return { people: plan.after.length, added: plan.gained.length, removed: plan.lost.length, files, othersFiles, sharedChats: plan.sharedChats, skills, skillNames: skillNames.slice(0, 10), ...extra, ...(isAdminRole(p) ? { split: plan.afterSplit } : {}), ...(plan.contentsHidden ? { contentsHidden: true } : {}) }
