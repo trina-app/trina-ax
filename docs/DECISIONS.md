@@ -17485,13 +17485,19 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
 - **Sharing moves the files** (review M6): the server copies the personal folder into the new `projects/<name>` exactly
   as before (same checks, same limits, same rollback), points the project there, and then puts the personal folder in
   **my own trash** as I would (`TeamFiles.remove` as the caller, on a folder in my own space): one copy left, the old one
-  restorable for the trash's days. If the trash refuses it, the share still stands and the folder stays (logged).
-  Nothing about who may share changed (creator who may edit, `assertMayCreateTeamProject`).
+  restorable for the trash's days. Only when that folder is the project's alone and was copied whole
+  (`mayTrashSharedOriginal`): exactly `users/<me>/projects/<name>` (an older project elsewhere in my folder may sit on a
+  folder that holds more), no other project on or inside it, no `skills` folder in it, no hidden entry or link, and as
+  many files on disk as the copy took (the copy leaves out links, hidden entries and files it cannot read, which the
+  trash would later lose). Otherwise, or when the trash refuses it, the folder stays and the share still stands; the
+  toast says only that the project is shared. Nothing about who may share changed (creator who may edit,
+  `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in the
+  new folder); before, the old copy answered it.
 - Deleting a personal project says "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요."
 - Left for later (the plan's phase 2): renaming the folder with the project; clean folder names for long names; one
   transaction for make-and-move.
 - Tests: `tests/security/project-is-folder.test.ts` (the personal folder is in the trash after a share, kept after a
-  refused share), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
+  refused share, kept with a hidden file or a skills folder), `r1-copy-share` (kept when a link was left out), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
 
 ## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
 

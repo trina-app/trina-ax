@@ -105,7 +105,9 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         </PanelSection>
       )}
 
-      {recent.length > 0 && (
+      {/* always there once read, empty or not: its "⋯" holds 삭제한 기록 and its "더 보기" the next page (the first page may
+          be all pinned chats) */}
+      {loaded && (
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           <ul>
             {recent.map((c) => (

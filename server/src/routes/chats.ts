@@ -922,13 +922,18 @@ export const chatsRoutes: RouteModule = {
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
       // the files moved, not copied (docs/DECISIONS.md "Making a project", review M6): two copies that do not stay in step
-      // confuse. The personal folder goes to my trash as I would put it there myself (my own folder, my own write
-      // right; restorable for the trash's days); a refusal leaves it in place and the share stands
-      try {
-        // (the trash's own file event records it)
-        await componentC(ctx).files.remove(p.id, r!.folder_path)
-      } catch (e) {
-        ctx.log.warn('project share: the personal folder stayed', { projectId: r!.id, err: String((e as Error)?.message ?? e) })
+      // confuse. The personal folder goes to my trash as I would put it there myself (restorable for the trash's days),
+      // but only when it is nothing more than this project's own folder and every file of it was copied: exactly
+      // users/<me>/projects/<name> (an older project elsewhere in my folder may sit on a folder that holds more), no other
+      // project's folder inside it, no skills in it, and as many files copied as it holds. Else, or when the trash
+      // refuses it, the folder stays where it is and the share stands
+      if (mayTrashSharedOriginal(ctx, p.id, r!, out.files)) {
+        try {
+          // (the trash's own file event records it)
+          await componentC(ctx).files.remove(p.id, r!.folder_path)
+        } catch (e) {
+          ctx.log.warn('project share: the personal folder stayed', { projectId: r!.id, err: String((e as Error)?.message ?? e) })
+        }
       }
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
@@ -1005,4 +1010,30 @@ export const chatsRoutes: RouteModule = {
       if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
     })
   },
+}
+
+/** Sharing a personal project may put its old folder in the trash (routes above, shareProject) only when that folder is
+ * the project's alone and was copied whole: exactly users/<me>/projects/<one name>, no other project on it or inside
+ * it, no skills folder anywhere in it, and as many regular files on disk as the copy took (the copy leaves out links,
+ * hidden entries and files it cannot read, which would otherwise be lost with the trash). */
+function mayTrashSharedOriginal(ctx: AppContext, me: string, r: ProjectRowT, copied: number): boolean {
+  const segs = r.folder_path.split('/')
+  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
+  const inside = ctx.db.query("SELECT 1 FROM projects WHERE id != ? AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\') LIMIT 1").get(r.id, r.folder_path, `${r.folder_path.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`)
+  if (inside) return false
+  let files = 0
+  let ok = true
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!ok) return
+      if (e.name.startsWith('.') || e.isSymbolicLink()) { ok = false; return }
+      if (e.isDirectory()) {
+        if (e.name.toLowerCase() === 'skills') { ok = false; return }
+        walk(path.join(dir, e.name))
+      } else if (e.isFile()) files++
+      else ok = false
+    }
+  }
+  try { walk(path.join(ctx.files.fx.root, ...segs)) } catch { return false }
+  return ok && files === copied
 }

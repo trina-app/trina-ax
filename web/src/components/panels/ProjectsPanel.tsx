@@ -78,7 +78,8 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
       {list.map((p) => {
         const a = activity.get(p.id)
         // "나만" for mine; "멤버 N명" (its page's words) for a team one
-        const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
+        // (a team project nobody else sees by its rules says "나만" too, the same word)
+        const who = onlyMine(p) || (p.audience !== undefined && (p.audience <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
         return (

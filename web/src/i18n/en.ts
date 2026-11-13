@@ -5209,7 +5209,7 @@ export const en: Record<MessageKey, string> = {
   "projects.shareAdminsOnly": "In this team only the owner and admins share projects with others.",
   "projects.shareMoveBody": "Its files move into the team's Projects folder, for the people you choose.",
   "projects.deletePersonal": "Only the project goes. Its files stay in My files › Projects.",
-  "projects.sharedNow": "'{name}' is shared now. Its files moved to the team's Projects folder.",
+  "projects.sharedNow": "'{name}' is shared now.",
   "navFolders.new": "New folder",
   "navFolders.nameLabel": "Folder name",
   "navFolders.make": "Make folder",

@@ -5165,7 +5165,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.shareAdminsOnly": "このチームでは、オーナーと管理者だけがプロジェクトを他の人と共有できます。",
   "projects.shareMoveBody": "ファイルはチームのプロジェクトフォルダーに移り、選んだ人と一緒に使います。",
   "projects.deletePersonal": "プロジェクトだけが削除され、ファイルはマイファイル › プロジェクトに残ります。",
-  "projects.sharedNow": "「{name}」を共有しました。ファイルはチームのプロジェクトフォルダーに移りました。",
+  "projects.sharedNow": "「{name}」を共有しました。",
   "navFolders.new": "新しいフォルダ",
   "navFolders.nameLabel": "フォルダ名",
   "navFolders.make": "作成",

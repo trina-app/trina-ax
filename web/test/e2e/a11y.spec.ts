@@ -87,8 +87,8 @@ test.describe('home focus on touch devices', () => {
   test('loading home, choosing a preset and starting a chat do not force input focus', async ({ page }) => {
     await reset(page)
     await signIn(page, { username: 'bob', password: 'bob password 1' })
-    // the phone's new-chat box is its own page (/new; `/` is the 트리나 list)
-    await page.goto('/new')
+    // the phone's new-chat box is Home (`/`, the 트리나 tab's root)
+    await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
     await expect(page.getByTestId('team-prepared')).toBeVisible()

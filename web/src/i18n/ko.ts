@@ -5209,7 +5209,7 @@ export const ko = {
   "projects.shareAdminsOnly": "이 팀에서는 팀장과 관리자만 프로젝트를 다른 사람과 함께 쓸 수 있어요.",
   "projects.shareMoveBody": "파일은 팀의 프로젝트 폴더로 옮겨지고, 고른 사람들과 함께 써요.",
   "projects.deletePersonal": "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요.",
-  "projects.sharedNow": "'{name}' 프로젝트를 함께 써요. 파일은 팀의 프로젝트 폴더로 옮겨졌어요.",
+  "projects.sharedNow": "이제 '{name}' 프로젝트를 함께 써요.",
   "navFolders.new": "새 폴더",
   "navFolders.nameLabel": "폴더 이름",
   "navFolders.make": "만들기",

@@ -831,11 +831,7 @@ function ProjectPage() {
                   </DisclosureRow>
                 )}
               </div>
-              {!outside && (
-                <p className="mt-3 truncate text-xs text-faint max-md:hidden" title={p.folderPath || t('files.root')}>
-                  {p.folderPath || t('files.root')}
-                </p>
-              )}
+              {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
@@ -1098,6 +1094,7 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
   // a project", review M5)
   const confirmFirst = async () => {
     const one = participants.length === 1 && participants[0]!.subjectType === 'user' ? options.find((o) => participantKey(o) === participantKey(participants[0]!))?.name : undefined
+    // the people it adds (a group is its people): the server's count without me; before it arrives, the choices
     const others = count ? Math.max(1, count.n - 1) : participants.length
     const body = one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others })
     if (await confirmDialog({ title: t('projects.shareConfirmTitle'), body, confirm: t('projects.shareConfirm') })) await share()

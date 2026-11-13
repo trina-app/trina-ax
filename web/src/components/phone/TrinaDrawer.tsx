@@ -3,7 +3,7 @@
 // DECISIONS.md "Phones: Home like the AI apps, the history behind ☰"): the AI's name with the product's mark on top, then
 // 검색, 예약 작업 and 팀 스킬, then "트리나 기록" (it folds; the filter and sort menu beside it; the whole history by
 // project or by date, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
-// on Back (lib/backCloses.ts), and with a tap beside it.
+// on Back (lib/backCloses.ts), on Esc, and with a tap beside it.
 import clsx from 'clsx'
 import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -39,6 +39,13 @@ export function TrinaDrawer() {
   // a page opened from it (or anywhere) closes it
   useEffect(() => setOpen(false), [pathname, setOpen])
   useOverlayEntry(open, () => setOpen(false))
+  // Esc closes it (a keyboard on a tablet)
+  useEffect(() => {
+    if (!open) return
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [open, setOpen])
   if (!open) return null
   return (
     <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer data-testid="trina-drawer">

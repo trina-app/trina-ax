@@ -122,6 +122,19 @@ describe('one project per folder', () => {
     expect(countOn('projects/Share me')).toBe(1)
   })
 
+  test('sharing keeps the personal folder when the copy was not whole or it holds more than the project (a hidden file, a skills folder, an older project elsewhere)', async () => {
+    const hidden = await ok(create('alice', { name: 'Keep hidden', scope: 'personal', slug: 'keep-hidden' }))
+    fs.writeFileSync(path.join(A.team, hidden.folderPath, 'a.md'), 'a\n')
+    fs.writeFileSync(path.join(A.team, hidden.folderPath, '.secret'), 's\n')
+    expect((await A.json(`/api/projects/${hidden.id}/share`, { as: 'alice', ...jsonBody({ participants: [] }) })).status).toBe(200)
+    expect(exists(A.team, hidden.folderPath + '/.secret')).toBe(true)
+    const skills = await ok(create('alice', { name: 'Keep skills', scope: 'personal', slug: 'keep-skills' }))
+    fs.mkdirSync(path.join(A.team, skills.folderPath, 'skills'), { recursive: true })
+    fs.writeFileSync(path.join(A.team, skills.folderPath, 'skills', 'x.md'), 'x\n')
+    await A.json(`/api/projects/${skills.id}/share`, { as: 'alice', ...jsonBody({ participants: [], skillsOk: true }) })
+    expect(exists(A.team, skills.folderPath + '/skills/x.md')).toBe(true)
+  })
+
   test('sharing: a project made on the new folder\'s path in the moment since is 409, and the folder goes again', async () => {
     const p = await ok(create('alice', { name: 'Share race', scope: 'personal', slug: 'share-race' }))
     fs.writeFileSync(path.join(A.team, p.folderPath, 'b.md'), 'b\n')

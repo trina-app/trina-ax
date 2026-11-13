@@ -1,8 +1,10 @@
-// A phone's tabs (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나", plan phase P5): 트리나 opens on its list (no ☰) with "트리나에게 묻기" at the bottom, which opens the new chat
-// on its own page (/new, no tab bar, ‹ back to the list); every "new chat with something ready" lands on that box with
-// it (a file asked about, a scheduled task's start sentence, /?prompt= and /?project= links); 파일 is the team folder's
-// places; 나 is headed 나 with the team's row, 활동, the status and away; Back stays in each tab. Screenshots of each tab at 390, light and dark, go to
-// SHOTS when it is set.
+// A phone's tabs (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나", "Projects: a place of their own…", "Phones:
+// the 트리나 tab as before the redesign"): 트리나 · 대화 · 프로젝트 · 파일 · 나. 트리나 opens on Home's message box with ☰,
+// which opens the history drawer (검색, 예약 작업, 팀 스킬, the history, my status, 삭제한 기록); `/new` comes back to `/`;
+// every "new chat with something ready" lands on that box with it (a file asked about, a scheduled task's start
+// sentence, /?prompt= and /?project= links); 프로젝트 is every project and its page; 파일 is the team folder's places; 나
+// is headed 나 with the team's row, 활동, the status and away; Back stays in each tab. Screenshots of each tab at 390,
+// light and dark, go to SHOTS when it is set.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
@@ -19,12 +21,11 @@ async function start(page: Page, who?: typeof MEMBER) {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await navRail(page)
-  // a phone with the new tabs lands on 트리나's list (no box there: helpers.ts signIn waits for the box)
   await page.goto('/login')
   await page.getByTestId('login-username').fill((who ?? OWNER).username)
   await page.getByTestId('login-password').fill((who ?? OWNER).password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('phone-trina-home').or(page.getByTestId('welcome'))).toBeVisible()
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('welcome'))).toBeVisible()
 }
 async function chat(page: Page, title: string, projectId: string | null = null): Promise<string> {
   const r = await page.request.post('/api/chats', { headers: H, data: { title, ...(projectId ? { projectId } : {}) } })
@@ -47,81 +48,82 @@ async function shot(page: Page, name: string) {
   await page.emulateMedia({ colorScheme: 'light' })
 }
 
-test('트리나 · 대화 · 파일 · 나; 트리나 is the list with "트리나에게 묻기", no ☰; at least 6 chats on the first screen', async ({ page }) => {
+test('트리나 · 대화 · 프로젝트 · 파일 · 나; 트리나 is Home\'s box with ☰, the drawer holds the history and its rows', async ({ page }) => {
   await start(page)
   const launch = await project(page, 'Acme launch')
   for (const n of [1, 2]) await chat(page, `Launch plan ${n}`, launch)
-  for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) await chat(page, `Weekly notes ${n}`)
+  for (const n of [1, 2, 3]) await chat(page, `Weekly notes ${n}`)
   await page.goto('/')
-  await expect(tabs(page).getByTestId('bottom-tab-label')).toHaveText([ai, t['tabs.chats'], t['sidebar.files'], t['tabs.me']])
-  await expect(page.getByTestId('tab-projects')).toHaveCount(0)
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
-  await expect(page.getByTestId('menu-open')).toHaveCount(0)
+  await expect(tabs(page).getByTestId('bottom-tab-label')).toHaveText([ai, t['tabs.chats'], t['projects.title'], t['sidebar.files'], t['tabs.me']])
+  await expect(tabs(page).getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('topbar-title')).toHaveText(ai)
-  await expect(page.getByTestId('trina-group-name')).toHaveText(['Acme launch'])
-  await expect(page.getByTestId('trina-all-projects')).toBeVisible()
-  // chat rows in sight above the button and the tab bar
-  const button = (await page.getByTestId('new-chat').boundingBox())!
-  const rows = page.locator('[data-testid="phone-trina-list"] li a[href^="/c/"]')
-  const boxes = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, bottom: r.bottom })))
-  expect(boxes.filter((b) => b.bottom <= button.y + button.height && b.top >= 0).length).toBeGreaterThanOrEqual(6)
-  // the quiet rows at the list's end
-  await expect(page.getByTestId('phone-trina-list').getByTestId('nav-scheduled')).toHaveCount(1)
-  await expect(page.getByTestId('phone-trina-list').getByTestId('nav-trash')).toHaveCount(1)
+  await expect(page.getByTestId('phone-trina-home')).toHaveCount(0)
+  // ☰: the drawer, with the history and its rows
+  await page.getByTestId('menu-open').click()
+  const drawer = page.getByTestId('trina-drawer')
+  await expect(drawer).toBeVisible()
+  for (const id of ['drawer-search', 'nav-scheduled', 'nav-skills', 'recents-toggle', 'my-status-row', 'nav-trash']) await expect(drawer.getByTestId(id)).toBeVisible()
+  await expect(drawer.getByTestId('trina-group')).toHaveCount(0)
+  await expect(drawer.getByTestId('trina-all-projects')).toHaveCount(0)
+  const rows = drawer.locator('li a[href^="/c/"]')
+  await expect(rows.filter({ hasText: 'Weekly notes 3' })).toBeVisible()
   // nothing sideways
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  await shot(page, 'trina-list')
-  // a chat from the list, and ‹ back to it
-  await rows.filter({ hasText: 'Weekly notes 8' }).click()
+  await shot(page, 'trina-drawer')
+  // a chat from the drawer (it closes), and Back to Home
+  await rows.filter({ hasText: 'Weekly notes 3' }).click()
   await expect(page).toHaveURL(/\/c\//)
+  await expect(drawer).toHaveCount(0)
   await page.goBack()
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('menu-open')).toBeVisible()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
 })
 
-test('"트리나에게 묻기" opens /new: the box, no tab bar, ‹ back to the list; the chat\'s ✦ opens it too', async ({ page }) => {
+test('/new comes back to Home\'s box (its question kept), the tab bar shows; the chat\'s ✦ opens Home too', async ({ page }) => {
   await start(page)
-  await page.goto('/')
-  await expect(page.getByTestId('new-chat')).toHaveText(t['sidebar.askAi'].replace('{name}', ai))
-  await page.getByTestId('new-chat').click()
-  await expect(page).toHaveURL(/\/new$/)
-  await expect(page.getByTestId('composer-input')).toBeVisible()
-  await expect(page.getByTestId('bottom-tabs')).toHaveCount(0)
-  await page.getByTestId('topbar-back').click()
+  await page.goto('/new')
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+  await page.goto('/new?prompt=hello%20acme')
+  await expect(page).toHaveURL(/\/\?prompt=hello/)
+  await expect(page.getByTestId('composer-input')).toHaveValue('hello acme')
   // the ✦ of a chat
   const id = await chat(page, 'Plan')
   await page.goto(`/c/${id}`)
   await page.getByTestId('chat-new').click()
-  await expect(page).toHaveURL(/\/new$/)
+  await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('composer-input')).toBeVisible()
 })
 
 test('a new chat with something ready lands on the box with it: a file, a scheduled task\'s start, ?prompt= and ?project=', async ({ page }) => {
   await start(page)
-  // "트리나에게 이 파일 물어보기" on a file: the file attached in /new
+  // "트리나에게 이 파일 물어보기" on a file: the file attached on Home
   await page.goto('/files?path=marketing')
   const row = page.getByTestId('file-row').filter({ hasText: 'notes.txt' })
   await row.getByTestId('file-menu').click()
   await page.getByTestId('chat-with-file').click()
-  await expect(page).toHaveURL(/\/new$/)
+  await expect(page).toHaveURL(/\/$/)
   const chip = page.locator('[data-testid="attachment-chip"][data-source="team"]')
   await expect(chip).toContainText('notes.txt')
   await shot(page, 'new-chat-attachment')
   // a scheduled task's "describe it in a chat"
   await page.goto('/scheduled')
   await page.getByTestId('scheduled-empty-chat').click()
-  await expect(page).toHaveURL(/\/new$/)
+  await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('composer-input')).toHaveValue(/평일 오전 9시마다/)
   // links that carry a question or a project (a skill, a bookmark, a notification)
   await page.goto('/?prompt=hello%20acme')
-  await expect(page).toHaveURL(/\/new\?prompt=hello/)
+  await expect(page).toHaveURL(/\/\?prompt=hello/)
   await expect(page.getByTestId('composer-input')).toHaveValue('hello acme')
   const p = await project(page, 'Acme launch')
   await page.goto(`/?project=${p}`)
-  await expect(page).toHaveURL(new RegExp(`/new\\?project=${p}`))
+  await expect(page).toHaveURL(new RegExp(`/\\?project=${p}`))
   await expect(page.getByText(t['home.inProject'], { exact: false })).toBeVisible()
-  // ‹ goes to the project
+  // ‹ goes to the project (not the history drawer)
+  await expect(page.getByTestId('menu-open')).toHaveCount(0)
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${p}$`))
 })
@@ -159,32 +161,31 @@ test('파일 is the team folder\'s places; a project\'s folder goes back to 파�
   await expect(page.getByTestId('phone-files-home')).toBeVisible()
 })
 
-test('모든 프로젝트 and a project are in 트리나; Back stays in each tab', async ({ page }) => {
+test('프로젝트 is every project and its page; Back stays in each tab', async ({ page }) => {
   await start(page)
   const p = await project(page, 'Acme launch')
   await chat(page, 'Launch plan', p)
   await page.goto('/')
-  await page.getByTestId('trina-group-name').filter({ hasText: 'Acme launch' }).click()
+  await tabs(page).getByTestId('tab-projects').click()
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(tabs(page).getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+  await shot(page, 'projects-tab')
+  await page.getByTestId('projects-panel-row').filter({ hasText: 'Acme launch' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${p}$`))
-  await expect(tabs(page).getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
-  // another tab, then back to 트리나: the project again
+  await expect(tabs(page).getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+  // another tab, then back to 프로젝트: the project again
   await tabs(page).getByTestId('tab-files').click()
   await expect(page.getByTestId('phone-files-home')).toBeVisible()
-  await tabs(page).getByTestId('tab-ai').click()
+  await tabs(page).getByTestId('tab-projects').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${p}$`))
-  // Back: the list (never another tab)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
-  // 모든 프로젝트, ‹ back to the list
-  await page.getByTestId('trina-all-projects').click()
-  await expect(page).toHaveURL(/\/projects$/)
-  await expect(page.getByTestId('projects-team-folder-row')).toHaveCount(0)
+  // ‹: the list (never another tab)
   await page.getByTestId('topbar-back').click()
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
-  // an old 프로젝트 address opened from outside lands on 트리나
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page.getByTestId('projects-panel-row')).toHaveCount(1)
+  await expect(page.getByTestId('projects-team-folder-row')).toHaveCount(0)
+  // a project's address opened from outside lights 프로젝트
   await page.goto(`/projects/${p}`)
-  await expect(tabs(page).getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(tabs(page).getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
 })
 
 test('나: headed 나, the team with 팀원 초대 and 관리자 (owner), 활동, status and away; a member sees no invite or Admin', async ({ page }) => {

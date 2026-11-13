@@ -1,17 +1,14 @@
-// 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, folders, projects, other chats"; the
-// navigation plan §2.3, phase P2; the server's `navRail` switch on). Order 고정 · 프로젝트 · 모든 프로젝트 · 기타 기록,
-// the heads from GET /api/chats/groups (not from the loaded pages): at most 8 project groups, three rows each and "N개 더
-// 보기", a project's own icon, its name opens it, + asks Trina there; no "모두 보기"; with no project group the history
-// is "기록" and "+ 새 프로젝트" is a quiet row; the filter in the panel's header shows the filtered history and comes
-// back; a folded group keeps the "?" of a chat inside; with the switch off the old sidebar is unchanged.
+// 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, recent", "Projects: a place of their
+// own…", "Panels: three levels…"). A fixed top (트리나에게 묻기 · 검색 · 예약 작업 · 팀 스킬), then 고정 · 최근 기록 (one
+// flat list: a project's chat carries its project's name, small, at the row's end); no project groups, no 모든 프로젝트,
+// no folders; 삭제한 기록 is in 최근 기록's "⋯"; a section folded by hand stays folded; the filter in the panel's header
+// shows the filtered history and comes back.
 import { expect, test, type Page } from '@playwright/test'
-import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
-import { PRODUCT } from '@mycel/shared'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, reset, signIn } from './helpers'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
-const ai = PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName
 const MEMBER = { username: 'bob', password: 'bob password 1' }
 const post = (page: Page, url: string, data: unknown = {}) => page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
 
@@ -34,100 +31,62 @@ async function start(page: Page, who?: typeof MEMBER, width = 1440) {
 }
 const panel = (page: Page) => page.getByTestId('trina-panel')
 const labels = (page: Page) => panel(page).getByTestId('trina-label')
-const groupNamed = (page: Page, name: string) => panel(page).getByTestId('trina-group').filter({ has: page.getByTestId('trina-group-name').getByText(name, { exact: true }) })
 const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate')
 
-test('order 고정 · 프로젝트 · 모든 프로젝트 · 기타 기록; three rows and "N개 더 보기"; the name opens the project, + asks Trina there', async ({ page }) => {
+test('order 고정 · 최근 기록; a project\'s chat in 최근 기록 with its project\'s name; no project groups, no 모든 프로젝트', async ({ page }) => {
   await start(page)
   const launch = await project(page, 'Acme launch')
-  const budget = await project(page, 'Acme budget')
   const pinned = await chat(page, 'Pinned plan')
   await post(page, `/api/chats/${pinned}/pin`)
   await chat(page, 'QA notes')
-  for (const n of [1, 2, 3, 4]) await chat(page, `Launch plan ${n}`, launch)
-  await chat(page, 'Budget draft', budget)
+  await chat(page, 'Launch plan', launch)
   await chat(page, 'Weekly notes')
   await page.reload()
-  await expect(labels(page)).toHaveText([t['chat.pinned'], t['sidebar.projects'], t['history.other']])
+  await expect(labels(page)).toHaveText([t['chat.pinned'], t['trinaList.recent']])
   const p = panel(page)
+  // the fixed top: ask, search, scheduled, team skills
+  for (const id of ['new-chat', 'nav-search', 'nav-scheduled', 'nav-skills']) await expect(p.getByTestId(id)).toBeVisible()
   await expect(rowTitles(p.getByTestId('trina-pinned'))).toHaveText(['Pinned plan'])
-  await expect(p.getByTestId('trina-group-name')).toHaveText(['Acme budget', 'Acme launch'])
-  const g = groupNamed(page, 'Acme launch')
-  await expect(rowTitles(g)).toHaveText(['Launch plan 4', 'Launch plan 3', 'Launch plan 2'])
-  await g.getByTestId('trina-group-more').click()
-  await expect(rowTitles(g)).toHaveText(['Launch plan 4', 'Launch plan 3', 'Launch plan 2', 'Launch plan 1'])
-  await expect(g.getByTestId('trina-group-more')).toHaveCount(0)
-  await expect(rowTitles(p.getByTestId('trina-other'))).toHaveText(['Weekly notes', 'QA notes'])
-  // the old list's cap and "모두 보기" are gone; projects have their own icon, not a folder's
-  await expect(p.getByTestId('ai-chats-all')).toHaveCount(0)
-  await expect(g.getByTestId('trina-group-head').locator('svg.lucide-square-kanban')).toHaveCount(1)
-  await expect(p.getByTestId('trina-all-projects')).toContainText(t['trinaList.allProjects'])
-  await expect(p.getByTestId('trina-all-projects')).toContainText('2')
-  // + asks Trina in the project: its page with the box saying so
-  await g.getByTestId('trina-group-head').hover()
-  await expect(g.getByTestId('trina-group-ask')).toHaveAccessibleName(t['history.group.newChat'].replace('{name}', 'Acme launch').replace('{ai}', ai))
-  await g.getByTestId('trina-group-ask').click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${launch}$`))
-  await expect(page.getByTestId('composer-input')).toHaveAttribute('placeholder', t['projects.askHere'].replace('{name}', ai))
-  // the name opens the project, 트리나 stays lit
-  await groupNamed(page, 'Acme budget').getByTestId('trina-group-name').click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${budget}$`))
+  await expect(rowTitles(p.getByTestId('trina-other'))).toHaveText(['Weekly notes', 'Launch plan', 'QA notes'])
+  // the project's chat says which project it is in; the others carry no tag
+  const other = p.getByTestId('trina-other')
+  await expect(other.getByTestId('chat-row-project')).toHaveText(['Acme launch'])
+  await expect(other.locator('li').filter({ hasText: 'Launch plan' }).getByTestId('chat-row-project')).toHaveText('Acme launch')
+  // no project groups, no 모든 프로젝트, no folders, no bottom block
+  for (const id of ['trina-group', 'trina-all-projects', 'trina-new-project', 'trina-folders', 'trina-panel-more', 'ai-chats-all']) await expect(p.getByTestId(id)).toHaveCount(0)
+  // 삭제한 기록 is in 최근 기록's "⋯"
+  await expect(p.getByTestId('nav-trash')).toHaveCount(0)
+  await p.getByTestId('trina-recent-menu').click()
+  await page.getByTestId('nav-trash').click()
+  await expect(page).toHaveURL(/\/trash$/)
   await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
-  // all projects
-  await p.getByTestId('trina-all-projects').click()
-  await expect(page).toHaveURL(/\/projects$/)
 })
 
-test('at most 8 project groups, the rest behind 모든 프로젝트; a group folded by hand stays folded after a reload', async ({ page }) => {
+test('a section folded by hand stays folded after a reload, its count beside its name', async ({ page }) => {
   await start(page)
-  for (let i = 1; i <= 10; i++) await chat(page, `Chat ${i}`, await project(page, `Project ${String(i).padStart(2, '0')}`))
+  for (const n of [1, 2]) await post(page, `/api/chats/${await chat(page, `Pinned ${n}`)}/pin`)
+  await chat(page, 'Loose one')
   await page.reload()
-  await expect(panel(page).getByTestId('trina-group')).toHaveCount(8)
-  await expect(panel(page).getByTestId('trina-group-name').first()).toHaveText('Project 10')
-  await expect(panel(page).getByTestId('trina-all-projects')).toContainText('10')
-  const g = groupNamed(page, 'Project 10')
-  await g.getByTestId('trina-group-fold').click()
-  await expect(g).toHaveAttribute('data-folded', '')
+  const pinned = panel(page).getByTestId('trina-pinned')
+  await pinned.getByTestId('panel-section-fold').click()
+  await expect(pinned).toHaveAttribute('data-folded', '')
+  await expect(pinned.getByTestId('panel-section-count')).toHaveText('2')
   await page.reload()
-  await expect(groupNamed(page, 'Project 10')).toHaveAttribute('data-folded', '')
-  await expect(rowTitles(groupNamed(page, 'Project 10'))).toHaveCount(0)
+  await expect(panel(page).getByTestId('trina-pinned')).toHaveAttribute('data-folded', '')
+  await expect(rowTitles(panel(page).getByTestId('trina-pinned'))).toHaveCount(0)
+  await expect(rowTitles(panel(page).getByTestId('trina-other'))).toHaveText(['Loose one'])
 })
 
-test('a folded group keeps the "?" of a chat that waits inside', async ({ page }) => {
-  await start(page)
-  const p = await project(page, 'Acme waits')
-  await chat(page, 'Waiting one', p)
-  await page.route('**/api/chats/groups', async (route) => {
-    const r = await route.fetch()
-    const body = (await r.json()) as { projects: { top: { id: string; waiting?: true }[]; marked: unknown[] }[] }
-    for (const g of body.projects) { g.top = g.top.map((c) => ({ ...c, waiting: true as const })); g.marked = g.top.map((c) => ({ id: c.id, runState: 'idle', waiting: true })) }
-    await route.fulfill({ json: body })
-  })
-  // the chats store's copy is the live one: it waits too
-  await page.route('**/api/chats?*', async (route) => {
-    const r = await route.fetch()
-    const body = (await r.json()) as { items: { title: string }[] }
-    body.items = body.items.map((c) => (c.title === 'Waiting one' ? { ...c, waiting: true } : c))
-    await route.fulfill({ json: body })
-  })
-  await page.reload()
-  const g = groupNamed(page, 'Acme waits')
-  await g.getByTestId('trina-group-fold').click()
-  await expect(g.getByTestId('trina-group-mark')).toBeVisible()
-})
-
-test('a member with no projects: no 프로젝트 label, the history is "기록", "+ 새 프로젝트" is a quiet row', async ({ page }) => {
+test('a member with no projects: the history is 최근 기록, no project rows in the 트리나 list', async ({ page }) => {
   await start(page, MEMBER)
   await chat(page, 'My first question')
   await page.reload()
-  await expect(labels(page)).toHaveText([t['trinaList.history']])
-  await expect(panel(page).getByTestId('trina-new-project')).toContainText(t['projects.new'])
+  await expect(labels(page)).toHaveText([t['trinaList.recent']])
+  await expect(panel(page).getByTestId('trina-new-project')).toHaveCount(0)
   await expect(panel(page).getByTestId('trina-all-projects')).toHaveCount(0)
-  await panel(page).getByTestId('trina-new-project').click()
-  await expect(page).toHaveURL(/\/projects\?new=1$/)
 })
 
-test('the filter in the header shows the filtered history, and Reset brings the groups back', async ({ page }) => {
+test('the filter in the header shows the filtered history, and Reset brings the list back', async ({ page }) => {
   await start(page)
   const p = await project(page, 'Acme filter')
   await chat(page, 'In project', p)
@@ -166,8 +125,8 @@ test('opened on 대화 or 파일 first, 트리나 already shows its mark for uns
   }
 })
 
-// UX review S2: the waiting chat sat under six project groups, out of sight; 삭제한 기록 needed a scroll
-test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s "?" open it; 삭제한 기록 stays in sight under the list', async ({ page }) => {
+// UX review S2: the waiting chat sat under six project groups, out of sight
+test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s "?" open it; 예약 작업 · 팀 스킬 stay in sight on top', async ({ page }) => {
   await start(page)
   for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `Plan ${n}`, await project(page, `Acme ${n}`))
   const waits = await chat(page, 'Which template?')
@@ -192,8 +151,8 @@ test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s
   await expect(row.getByTestId('trina-waiting-count')).toHaveText('1')
   await row.click()
   await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
-  // 예약 작업 · 팀 스킬 · 삭제한 기록 pinned under the list, without a scroll
-  for (const id of ['nav-scheduled', 'nav-skills', 'nav-trash']) await expect(panel(page).getByTestId(id)).toBeInViewport()
+  // 예약 작업 · 팀 스킬 in the fixed top, without a scroll
+  for (const id of ['nav-scheduled', 'nav-skills']) await expect(panel(page).getByTestId(id)).toBeInViewport()
   // nothing waits: no row
   await page.unroute('**/api/chats?*')
   await page.goto('/')

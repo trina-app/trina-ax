@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openSearch, openTrinaRow, phoneTrinaHome, showChats } from './nav'
+import { openSearch, openTrinaRow, phoneHome, phoneTrinaHome, showChats } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 const SORA = { id: 'sora', name: '김소라' }
@@ -269,7 +269,7 @@ export function overlayBackCases() {
     await back(page)
     await expect(search).toHaveCount(0)
     await expect(page).toHaveURL(/\/$/)
-    await expect(phoneTrinaHome(page)).toBeVisible()
+    await expect(phoneHome(page)).toBeVisible()
     await back(page)
     await expect(page).toHaveURL(/\/rooms$/)
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -285,7 +285,7 @@ export function overlayBackCases() {
     expect(await historyLength(page)).toBeLessThanOrEqual(start + 1)
     await back(page)
     await expect(page).toHaveURL(/\/$/)
-    await expect(phoneTrinaHome(page)).toBeVisible()
+    await expect(phoneHome(page)).toBeVisible()
     expect(await onOverlay(page)).toBe(false)
   })
 

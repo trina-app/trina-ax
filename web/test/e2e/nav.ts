@@ -67,12 +67,15 @@ export const tabMark = (page: Page, tab: PhoneTab) => page.getByTestId(`tab-${ta
 export const phoneAiMark = (page: Page) => page.getByTestId('tab-ai-mark')
 
 /** The 트리나 tab's history drawer (☰ on Home, components/phone/TrinaDrawer.tsx): 검색, 예약 작업, 팀 스킬, the history,
- * my status and 삭제한 기록. `phoneTrinaHome` opens it. */
-export const phoneDrawer = (page: Page) => page.getByTestId('trina-drawer')
+ * my status and 삭제한 기록. `openPhoneDrawer` (or `showChats`) opens it. */
+export const phoneTrinaHome = (page: Page) => page.getByTestId('trina-drawer')
+
+/** The 트리나 tab's root, Home (its ☰; to check a step back lands there). */
+export const phoneHome = (page: Page) => page.getByTestId('menu-open')
 
 /** The 트리나 tab with its drawer open (Home's ☰): returns the drawer. */
-export async function phoneTrinaHome(page: Page): Promise<Locator> {
-  const drawer = phoneDrawer(page)
+export async function openPhoneDrawer(page: Page): Promise<Locator> {
+  const drawer = phoneTrinaHome(page)
   if (await drawer.isVisible()) return drawer
   const menu = page.getByTestId('menu-open')
   if (!(await menu.isVisible())) await openTab(page, 'ai')
@@ -122,7 +125,7 @@ export async function newChatButton(page: Page): Promise<Locator> {
 /** Search (⌘K's palette): the 트리나 panel's 검색, the 트리나 tab's drawer's 검색. */
 export async function openSearch(page: Page) {
   if (isPhone(page)) {
-    await (await phoneTrinaHome(page)).getByTestId('drawer-search').click()
+    await (await openPhoneDrawer(page)).getByTestId('drawer-search').click()
     return
   }
   await (await showPanel(page, 'trina')).getByTestId('nav-search').click()
@@ -137,7 +140,7 @@ export async function openTrinaRow(page: Page, row: 'scheduled' | 'skills' | 'tr
     return
   }
   if (isPhone(page)) {
-    await (await phoneTrinaHome(page)).getByTestId(`nav-${row}`).click()
+    await (await openPhoneDrawer(page)).getByTestId(`nav-${row}`).click()
     return
   }
   const p = await showPanel(page, 'trina')
@@ -149,13 +152,13 @@ export async function openTrinaRow(page: Page, row: 'scheduled' | 'skills' | 'tr
 
 /** 예약 작업's or 팀 스킬's row (to check it is the lit one): the 트리나 panel's, a phone's drawer's. */
 export async function trinaRowLink(page: Page, row: 'scheduled' | 'skills'): Promise<Locator> {
-  if (isPhone(page)) return (await phoneTrinaHome(page)).getByTestId(`nav-${row}`)
+  if (isPhone(page)) return (await openPhoneDrawer(page)).getByTestId(`nav-${row}`)
   return (await showPanel(page, 'trina')).getByTestId(`nav-${row}`)
 }
 
 /** Show the AI's history (the 트리나 panel; the 트리나 tab's drawer). Then `navChatList`, `navChatRow`. */
 export async function showChats(page: Page) {
-  if (isPhone(page)) await phoneTrinaHome(page)
+  if (isPhone(page)) await openPhoneDrawer(page)
   else await showPanel(page, 'trina')
 }
 
@@ -187,7 +190,7 @@ export const pinnedChats = (page: Page) => navChatList(page).locator('li[data-pi
  * Opens its menu; its items are `recents-view-*` and `recents-<view>-<choice>`. */
 export async function openChatFilter(page: Page) {
   await showChats(page)
-  await (isPhone(page) ? phoneDrawer(page) : panel(page, 'trina')).getByTestId('recents-filter').first().click()
+  await (isPhone(page) ? phoneTrinaHome(page) : panel(page, 'trina')).getByTestId('recents-filter').first().click()
 }
 
 /** The filter's "reset" (shown while a filter is on). */

@@ -5209,7 +5209,7 @@ export const id: Record<MessageKey, string> = {
   "projects.shareAdminsOnly": "Di tim ini hanya pemilik dan admin yang dapat berbagi proyek dengan orang lain.",
   "projects.shareMoveBody": "File-nya dipindahkan ke folder Proyek tim, untuk orang yang Anda pilih.",
   "projects.deletePersonal": "Hanya proyeknya yang dihapus. File-nya tetap di File saya › Proyek.",
-  "projects.sharedNow": "'{name}' kini dibagikan. File-nya dipindahkan ke folder Proyek tim.",
+  "projects.sharedNow": "'{name}' kini dibagikan.",
   "navFolders.new": "Folder baru",
   "navFolders.nameLabel": "Nama folder",
   "navFolders.make": "Buat folder",

@@ -5165,7 +5165,7 @@ export const es: Record<MessageKey, string> = {
   "projects.shareAdminsOnly": "En este equipo solo el propietario y los administradores comparten proyectos con otras personas.",
   "projects.shareMoveBody": "Sus archivos se mueven a la carpeta Proyectos del equipo, para las personas que elijas.",
   "projects.deletePersonal": "Solo se elimina el proyecto. Sus archivos se quedan en Mis archivos › Proyectos.",
-  "projects.sharedNow": "'{name}' ya está compartido. Sus archivos se movieron a la carpeta Proyectos del equipo.",
+  "projects.sharedNow": "'{name}' ya está compartido.",
   "navFolders.new": "Nueva carpeta",
   "navFolders.nameLabel": "Nombre de la carpeta",
   "navFolders.make": "Crear carpeta",
