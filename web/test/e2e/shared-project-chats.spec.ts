@@ -310,7 +310,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(mine.locator('img, [data-testid="project-chat-people"], [data-testid="project-chat-by"]')).toHaveCount(0)
       if (vp.phone) {
         // the title truncates rather than squeezing the faces
-        const title = shared.locator('span.truncate').first()
+        const title = shared.getByTestId('project-row-title')
         expect(await title.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
         expect((await box(faces)).width).toBeGreaterThan(30)
       } else {
@@ -346,7 +346,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(shared.getByTestId(vp.phone ? 'project-chat-more' : 'project-chat-more-phone')).toBeHidden()
       await expect(shared.getByTestId('project-chat-people-label')).toHaveText('Eve, Dev, Cho 외 2명 참여')
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-      if (vp.phone) expect(await shared.locator('span.truncate').first().evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+      if (vp.phone) expect(await shared.getByTestId('project-row-title').evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
       await page.unroute(projectList)
 
       // Bob's page: the same faces; one person's chat: that face and the name
