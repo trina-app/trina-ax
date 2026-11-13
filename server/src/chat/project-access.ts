@@ -4,7 +4,9 @@
 // "everyone: read" cannot open it). The project's edit screen and Admin › Folder permissions both write those rules,
 // through the same path (replaceRules with the rules hash check, captureState / afterAccessChange, the audit).
 // Rules the project screen does not change (read-only people or groups, roles, an everyone rule other than the floor,
-// rules on folders inside it) stay as they are and are shown read-only.
+// rules on folders inside it) stay as they are and are shown read-only. A person's own "no access" rule is an exception
+// (docs/DECISIONS.md "Leaving a project"): someone who left while a group still holds them. It belongs to the project:
+// shown on the group's row ("Marketing · except Kim"), replaced when they are added by name, dropped with the group.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -66,6 +68,9 @@ export function checkParticipants(db: Database, p: Principal, list: readonly Pro
 /** A participant rule: write for a group or a person. Everything else on the folder is an "other" rule. */
 const isParticipantRule = (r: FolderRuleInput) => (r.subjectType === 'group' || r.subjectType === 'user') && r.access === 'write'
 const isFloor = (r: FolderRuleInput) => r.subjectType === 'everyone' && r.access === 'none'
+/** A person's own "no access" on the project folder: an exception to a group that holds them (they left; a person's
+ * rule decides before a group's, policy/access.ts). Part of the project's members, not an "other" rule. */
+export const isException = (r: Pick<FolderRuleInput, 'subjectType' | 'access'>) => r.subjectType === 'user' && r.access === 'none'
 
 /** The creator, while their account is there (a deleted one's rule went with it: the project fails closed to admins). */
 function creatorOf(db: Database, r: Pick<ProjectRow, 'created_by'>): string | null {
@@ -75,10 +80,13 @@ function creatorOf(db: Database, r: Pick<ProjectRow, 'created_by'>): string | nu
 
 /**
  * The folder's rules after a change of participants: the participants and the creator write, the rules the project
- * screen does not change as they are, and the floor when the folder has no everyone rule of its own.
+ * screen does not change as they are, the exceptions (isException) of people not named here, and the floor when the
+ * folder has no everyone rule of its own. A person named here loses their exception: added back by name, they write.
+ * The creator's rule is not put back over an exception of theirs.
  */
 export function participantRules(current: readonly FolderRuleInput[], participants: readonly ProjectParticipant[], creator: string | null): FolderRuleInput[] {
-  const other = current.filter((r) => !isParticipantRule(r) && !isFloor(r))
+  const other = current.filter((r) => !isParticipantRule(r) && !isFloor(r) && !isException(r))
+  const exceptions = current.filter(isException)
   const taken = new Set(other.map(key))
   const out: FolderRuleInput[] = []
   const seen = new Set<string>()
@@ -88,8 +96,9 @@ export function participantRules(current: readonly FolderRuleInput[], participan
     seen.add(k)
     out.push({ subjectType: x.subjectType, subjectId: x.subjectId, access: 'write' } as FolderRuleInput)
   }
-  if (creator) add({ subjectType: 'user', subjectId: creator })
+  if (creator && !exceptions.some((r) => r.subjectId === creator)) add({ subjectType: 'user', subjectId: creator })
   for (const x of participants) add(x)
+  out.push(...exceptions.filter((r) => !seen.has(key(r))))
   out.push(...other)
   if (!other.some((r) => r.subjectType === 'everyone')) out.push(FLOOR)
   return out
@@ -189,13 +198,26 @@ export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): Pro
   const rules = row ? rulesOf(db, row.id) : []
   // (no rules hash either: it would let a member confirm a guessed set of an admin's rules)
   if (!editable && !isAdminRole(p)) return { editable, participants: [], otherRules: [], rulesHash: '', people }
-  const participants = rules.filter(isParticipantRule).map((x) => ({
-    subjectType: x.subjectType as 'group' | 'user', subjectId: x.subjectId!, name: subjectName(db, x.subjectType, x.subjectId) ?? '',
-    ...(x.subjectType === 'user' && x.subjectId === r.created_by ? { creator: true } : {}),
-  }))
+  // the exceptions each group holds ("Marketing · except Kim"); one no group of the project holds stays an other rule
+  const exceptions = rules.filter(isException).map((x) => x.subjectId!)
+  const covered = new Set<string>()
+  const exceptOf = (groupId: string) => {
+    if (!exceptions.length) return []
+    const inGroup = new Set((db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(groupId) as { user_id: string }[]).map((x) => x.user_id))
+    const out = exceptions.filter((id) => inGroup.has(id)).map((id) => { covered.add(id); return { id, name: subjectName(db, 'user', id) ?? '' } })
+    return out.sort((a, b) => a.name.localeCompare(b.name))
+  }
+  const participants = rules.filter(isParticipantRule).map((x) => {
+    const except = x.subjectType === 'group' ? exceptOf(x.subjectId!) : []
+    return {
+      subjectType: x.subjectType as 'group' | 'user', subjectId: x.subjectId!, name: subjectName(db, x.subjectType, x.subjectId) ?? '',
+      ...(x.subjectType === 'user' && x.subjectId === r.created_by ? { creator: true } : {}),
+      ...(except.length ? { except } : {}),
+    }
+  })
   // the creator first, then groups, then people, each by name
   participants.sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || (a.subjectType === b.subjectType ? a.name.localeCompare(b.name) : a.subjectType === 'group' ? -1 : 1))
-  const otherRules: ProjectOtherRule[] = rules.filter((x) => !isParticipantRule(x) && !isFloor(x)).map((x) => ({ path: r.folder_path, subjectType: x.subjectType, subjectId: x.subjectId, name: subjectName(db, x.subjectType, x.subjectId), access: x.access }))
+  const otherRules: ProjectOtherRule[] = rules.filter((x) => !isParticipantRule(x) && !isFloor(x) && !(isException(x) && covered.has(x.subjectId!))).map((x) => ({ path: r.folder_path, subjectType: x.subjectType, subjectId: x.subjectId, name: subjectName(db, x.subjectType, x.subjectId), access: x.access }))
   // rules on folders inside it (an admin's sub-rules): shown, never changed here
   const hidden = new Set<string>()
   if (r.folder_path !== '') {
@@ -387,14 +409,32 @@ function proposed(ctx: AppContext, r: ProjectRow, p: Principal, participants: re
   const list = checkParticipants(ctx.db, p, participants, locale, keep)
   // a group or person with a rule this screen does not change (read only, no access) stays as Admin › Folder
   // permissions set it: naming them here would silently do nothing
-  const fixed = new Set(kept.filter((r) => !isParticipantRule(r) && !isFloor(r)).map(key))
+  const fixed = new Set(kept.filter((r) => !isParticipantRule(r) && !isFloor(r) && !isException(r)).map(key))
   for (const [i, x] of list.entries()) if (fixed.has(key(x)) && !(x.subjectType === 'user' && x.subjectId === r.created_by))
     fail('validation', tr('projectParticipantFixed', locale), { fields: { [`body.participants.${i}.subjectId`]: 'set in folder permissions' }, params: { reason: 'participant_fixed' } })
-  const next = participantRules(kept, list, creatorOf(ctx.db, r))
-  validateRules(ctx.db, next, locale, 'body.participants')
   const rules = RuleSet.load(ctx.db)
+  const next = dropSpareExceptions(ctx.db, rules, r.folder_path, participantRules(kept, list, creatorOf(ctx.db, r)))
+  validateRules(ctx.db, next, locale, 'body.participants')
   if (drop.size) assertRemovalNarrows(ctx.db, rules, r.folder_path, now, drop, list, next, creatorOf(ctx.db, r), locale)
   return { current, next, rules }
+}
+
+/**
+ * The exceptions nothing needs any more (the group that held the person was taken out, or they are in none of its
+ * groups now): dropped, so no "no access" is left behind for nobody. Only when the person would not read the folder
+ * without it (another rule there, a role or "everyone: read", keeps it). A person who cannot be loaded (switched off)
+ * keeps theirs.
+ */
+export function dropSpareExceptions(db: Database, rules: RuleSet, folder: string, next: readonly FolderRuleInput[]): FolderRuleInput[] {
+  const segs = segsOf(folder)
+  return next.filter((x) => {
+    if (!isException(x)) return true
+    const who = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(x.subjectId) as Pick<Principal, 'id' | 'name' | 'role'> | null
+    if (!who) return true
+    const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(who.id) as { group_id: string }[]).map((g) => g.group_id)
+    const without = withRules(rules, folder, next.filter((y) => y !== x))
+    return atLeast(without.access({ ...who, groups }, segs), 'read')
+  })
 }
 
 const RANK = { none: 0, read: 1, write: 2 } as const

@@ -361,13 +361,18 @@ export type ProjectsUpdateNotice = z.infer<typeof ProjectsUpdateNotice>
 export const ProjectsUpdateJoined = z.object({ joined: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() })
 export type ProjectsUpdateJoined = z.infer<typeof ProjectsUpdateJoined>
 
-/** A participant as the project's edit screen shows it. `creator`: the project's creator, always kept. */
-export const ProjectMember = ProjectParticipant.extend({ name: z.string(), creator: z.boolean().optional() })
+/** A participant as the project's edit screen shows it. `creator`: the project's creator, always kept. `except` (a
+ * group): the people in it who left the project (a "no access" rule of their own; docs/DECISIONS.md "Leaving a
+ * project"), shown as "Marketing · except Kim". Absent: nobody. */
+export const ProjectMember = ProjectParticipant.extend({ name: z.string(), creator: z.boolean().optional(), except: z.array(z.object({ id: z.string(), name: z.string() })).optional() })
 export type ProjectMember = z.infer<typeof ProjectMember>
 /** A rule of the project folder (or a folder inside it) that the project screen shows but does not change: read-only
  * people or groups, roles, an everyone rule other than "nobody else", rules inside it. Admin › Folder permissions does. */
 export const ProjectOtherRule = z.object({ path: RelPath, subjectType: SubjectType, subjectId: z.string().nullable(), name: z.string().nullable(), access: Access })
 export type ProjectOtherRule = z.infer<typeof ProjectOtherRule>
+/** POST /api/projects/:id/leave: how many of the caller's private chats in it moved to their own chats. */
+export const LeaveProjectResult = z.object({ movedChats: z.number().int().nonnegative() })
+export type LeaveProjectResult = z.infer<typeof LeaveProjectResult>
 /** Who sees a team project (GET /api/projects/:id/access; its creator and admins). */
 export const ProjectAccess = z.object({
   /** participants can be changed here: a team project in projects/<name> whose folder is in place */
@@ -484,5 +489,6 @@ export const CHATS = {
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). shareChats: false is 409 share_chats_always (a team project always shares its new chats). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
   shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it; then the personal folder goes to the caller\'s trash (the files moved; a refusal leaves it).' }),
+  leaveProject: endpoint({ method: 'POST', path: '/api/projects/:id/leave', auth: 'user', owner: 'B', response: LeaveProjectResult, summary: 'Leave a team project in projects/<name> (a member who reads it): their own rule goes, or a "no access" rule of their own keeps a group that holds them from letting them in (the group keeps it for the others). Their private chats in it move to their own chats; audited. 409 project_last_member (nobody else reads it), project_personal, project_not_leavable (not in place or in the trash). Anyone else 404.' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const

@@ -194,6 +194,10 @@ export const Project = z.object({
    * a folder an admin made stays with that folder, so only an admin deletes it (409 project_folder_stays; QA TC-1016).
    * Absent from older servers: use canManage. */
   canDelete: z.boolean().optional(),
+  /** a team project in projects/<name> the caller is a member of (docs/DECISIONS.md "Leaving a project"): 'yes' they may
+   * leave it; 'last' nobody else is in it (the owner and admins who manage it without being members do not count), so
+   * they delete it or add someone first. Absent: a personal project, not a member, in the trash, an older server. */
+  leave: z.enum(['yes', 'last']).optional(),
 })
 export type Project = z.infer<typeof Project>
 

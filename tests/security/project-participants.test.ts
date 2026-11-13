@@ -505,3 +505,28 @@ describe('share and delete', () => {
     expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(legacy)).toBeNull()
   })
 })
+
+describe('leaving (docs/DECISIONS.md "Leaving a project"; QA TC-1020)', () => {
+  test('after leaving, its files, chats and project answer 404 to them; the others in the group keep them', async () => {
+    const p = await create('dana', { name: 'Left', participants: [group('marketing')] })
+    expect((await A.json('/api/files/content', { as: 'alice', ...jsonBody({ path: `${p.folderPath}/plan.md`, content: 'SEC-LEFT-FILE', baseSha256: null }, 'PUT') })).status).toBe(200)
+    const chat = sharedChat(p.id, 'alice')
+    expect((await A.json(`/api/chats/${chat}`, { as: 'erin' })).status).toBe(200)
+    // a member who is not in it, and the owner who manages it without being a member, cannot leave it
+    for (const who of ['bob', 'carol'] as const) expect((await A.json(`/api/projects/${p.id}/leave`, { as: who, method: 'POST' })).status).toBe(404)
+    expect((await A.json(`/api/projects/${p.id}/leave`, { as: 'erin', method: 'POST' })).status).toBe(200)
+    expect((await A.json(`/api/projects/${p.id}`, { as: 'erin' })).status).toBe(404)
+    expect((await A.json(`/api/projects/${p.id}/people`, { as: 'erin' })).status).toBe(404)
+    expect((await A.json(`/api/chats/${chat}`, { as: 'erin' })).status).toBe(404)
+    expect((await A.json(`/api/chats?projectId=${p.id}`, { as: 'erin' })).body.items ?? []).toEqual([])
+    const file = await A.json(`/api/files/content?path=${encodeURIComponent(`${p.folderPath}/plan.md`)}`, { as: 'erin' })
+    expect(file.status).toBe(404)
+    expect(JSON.stringify(file.body)).not.toContain('SEC-LEFT-FILE')
+    expect((await A.json(`/api/files/tree?path=${encodeURIComponent(p.folderPath)}`, { as: 'erin' })).status).toBe(404)
+    // a second leave: not hers any more (404, as for no project)
+    expect((await A.json(`/api/projects/${p.id}/leave`, { as: 'erin', method: 'POST' })).status).toBe(404)
+    // alice, in the same group, keeps all of it
+    expect((await A.json(`/api/chats/${chat}`, { as: 'alice' })).status).toBe(200)
+    expect((await A.json(`/api/files/content?path=${encodeURIComponent(`${p.folderPath}/plan.md`)}`, { as: 'alice' })).status).toBe(200)
+  })
+})
