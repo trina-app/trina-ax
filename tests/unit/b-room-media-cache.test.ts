@@ -68,7 +68,7 @@ test('a room picture is kept by this browser only with the session\'s own key; a
   }
   // the full picture (the viewer, "open original": an address a link opens) and a download are never kept, with the
   // key too
-  for (const q of [{ k: nk }, { download: '1', k: nk }, { download: '1', thumb: '1', k: nk }]) {
+  for (const q of [{ k: nk }, { download: '1', k: nk }, { download: '1', thumb: '1', k: nk }] as Record<string, string>[]) {
     const r = await get(nora.client, pic.id, q)
     expect(r.status).toBe(200)
     expect(r.headers.get('cache-control')).toBe('private, no-cache')
