@@ -939,13 +939,27 @@ export const chatsRoutes: RouteModule = {
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 
-    kit.handle(API.deleteProject, async ({ c, params, auth }) => {
+    kit.handle(API.deleteProject, async ({ c, params, query, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       const r = projectFor(p, params.id, true)
       // other people's chats lose the project context: whoever manages it (the creator while they may edit it, the owner
       // and admins also without reading it: docs/DECISIONS.md "Project contents only for members")
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      // 되돌리기 after "move to a new project" (docs/DECISIONS.md "Making a project"): only my own personal project that
+      // is still as it was made, and its empty folder goes with it; anything else stays as it is (409 project_not_empty)
+      if (query.ifEmpty) {
+        if (!stillEmpty(ctx, p.id, r)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+        ctx.db.transaction(() => {
+          // checked again in the transaction that deletes it: a chat moved in since keeps the project
+          if (!stillEmpty(ctx, p.id, rt.store.projectRow(r.id) ?? r, { folder: false })) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+          ctx.db.query('DELETE FROM projects WHERE id = ?').run(r.id)
+          audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r.id, detail: null })
+        })()
+        // the folder last, and only while empty (rmdir: a file saved in the moment since keeps it, nothing is lost)
+        componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)
+        return
+      }
       // a team project in projects/<name> whose folder is in place goes to the trash with its folder first (default,
       // the owner may change it): it stays, In trash, for the owner and admins to restore or delete for good, and no
       // folder of a deleted project is left for anyone to open (security review M3). `trashFolder` is not read any more.
@@ -1010,6 +1024,19 @@ export const chatsRoutes: RouteModule = {
       if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
     })
   },
+}
+
+/** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
+ * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
+ * scheduled task on it, and nothing in its folder (`folder`: also looked at on disk). */
+function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT, o: { folder?: boolean } = {}): boolean {
+  const segs = r.folder_path.split('/')
+  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
+  if (r.created_by !== me || r.instructions !== '' || r.trashed_with !== null) return false
+  if (ctx.db.query('SELECT 1 FROM chats WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  if (ctx.db.query('SELECT 1 FROM schedules WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  if (o.folder === false) return true
+  try { return fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).length === 0 } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' }
 }
 
 /** Sharing a personal project may put its old folder in the trash (routes above, shareProject) only when that folder is

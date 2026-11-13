@@ -138,6 +138,20 @@ export function moveChat(chat: Chat, projectId: string | null, onMoved?: (c: Cha
   })
 }
 
+/** 되돌리기 after "+ 새 프로젝트": the chat goes back, then the project made in that step goes too while it is still as
+ * it was made (the server checks: no chats, files, instructions or other members; DELETE ifEmpty). Anything else, or
+ * a failure, leaves the project as it is: it is just there in 프로젝트. */
+export async function undoMadeAndMove(chat: Chat, before: string | null, madeId: string, onMoved?: (c: Chat) => void) {
+  const back = await moveChat(chat, before, onMoved)
+  if (!back.ok) return
+  try {
+    await api.call(API.deleteProject, { params: { id: madeId }, query: { ifEmpty: '1' } })
+    useProjects.getState().drop(madeId, true)
+  } catch {
+    // kept (409 project_not_empty) or not reached: the project stays
+  }
+}
+
 export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; onClose: () => void; onMoved: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -161,7 +175,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     toast({
       level: 'success',
       text: t('chat.project.moved', { name: p.name }),
-      action: { label: t('chat.project.undo'), run: () => void moveChat(r.reply, before, onMoved) },
+      action: { label: t('chat.project.undo'), run: () => void undoMadeAndMove(r.reply, before, p.id, onMoved) },
     })
   }
   const movedText = useRef('')

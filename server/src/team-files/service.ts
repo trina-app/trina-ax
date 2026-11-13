@@ -1195,6 +1195,23 @@ export class TeamFiles {
     this.publish([{ path: rel, action: 'delete', by: this.by(userId), turnId: null }])
   }
 
+  /**
+   * Remove the caller's folder `rel` only while it is empty (the folder of a project that 되돌리기 took back right after
+   * making it: routes/chats.ts deleteProject ifEmpty). rmdir, never recursive: a file saved there in the moment since
+   * keeps the folder, and nothing is lost. false when it stayed.
+   */
+  removeEmptyFolder(userId: string, rel: string): boolean {
+    let r: Authorized
+    try { r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'write', { mustExist: true }) } catch { return false }
+    // only inside my own personal folder, never the folder itself
+    if (r.segs[0] !== 'users' || r.segs[1] !== userId || r.segs.length < 3) return false
+    if (!r.st!.isDirectory() || r.st!.isSymbolicLink()) return false
+    try { fs.rmdirSync(r.abs) } catch { return false }
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'delete', detail: { folder: true, empty: true, tool: 'file-screen' } })
+    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId: null }])
+    return true
+  }
+
   private moveTextCache(from: string, to: string, isDir: boolean) {
     const office = this.ctx.files.office
     try {
