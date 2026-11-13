@@ -47,7 +47,9 @@ export function findTailscaleBin(o: { configured?: string | null; exists?: (f: s
 
 export function runner(bin: string, timeoutMs = 60_000): Run {
   return (args) => {
-    const p = Bun.spawnSync([bin, ...args], { stdout: 'pipe', stderr: 'pipe', timeout: timeoutMs, env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '' } })
+    // TAILSCALE_BE_CLI: the Mac app's binary is the CLI only when started from a login shell, else it tries to open
+    // the app ("The Tailscale GUI failed to start"); the LaunchAgent and an SSH command have no such shell
+    const p = Bun.spawnSync([bin, ...args], { stdout: 'pipe', stderr: 'pipe', timeout: timeoutMs, env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '', TAILSCALE_BE_CLI: '1' } })
     return { code: p.exitCode ?? 1, out: p.stdout.toString(), err: p.stderr.toString() }
   }
 }
