@@ -542,11 +542,13 @@ function Files() {
         select,
       )
     } catch (err) {
+      // rows back, and why
       each.fail(err)
-      throw err
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -573,7 +575,7 @@ function Files() {
       })
     } finally {
       setRunning(null)
-      void load()
+      void onScreen.current?.load()
     }
   }
 
@@ -593,11 +595,13 @@ function Files() {
       const undo = () => untrash(r.done.map((entry, i) => ({ entry, trashId: r.trashIds[i]! })))
       reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
     } catch (err) {
+      // rows back, and why
       each.fail(err)
-      throw err
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -766,7 +770,7 @@ function Files() {
   const untrash = (items: readonly { entry: FileEntry; trashId: string }[]) =>
     Promise.all(
       items.map(({ entry, trashId }) =>
-        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: entry, send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
+        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
       ),
     ).then(() => void onScreen.current?.load())
 

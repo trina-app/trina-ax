@@ -136,7 +136,7 @@ async function prompt(m: Mounted, text: string) {
 }
 async function confirm(m: Mounted, yes = true) {
   const ok = await m.until(() => inBody(m, 'dialog-confirm'), 'the confirm')
-  await m.click(yes ? ok : ok.parentNode!.querySelectorAll('button').find((b) => b.textContent?.trim() === 'Cancel')!)
+  await m.click(yes ? ok : (ok.parentNode as FakeElement).querySelectorAll('button').find((b) => b.textContent?.trim() === 'Cancel')!)
 }
 
 describe('the Files page', () => {
@@ -311,6 +311,47 @@ describe('the Files page', () => {
     }
   })
 
+  test("the selection's Undo brings each row back at once with its own trash id; a read from before is not kept for the folder", async () => {
+    const m = await filesPage()
+    try {
+      await m.until(() => names(m).length === 3, 'the rows')
+      for (const name of ['notes.txt', 'plan.md']) {
+        const box = row(m, name).querySelector('input[type="checkbox"]')!
+        Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!.set!.call(box, true)
+        await m.click(box)
+      }
+      await m.until(() => m.find('bulk-bar'), 'the selection bar')
+      holdRe = /^(DELETE \/api\/files|POST \/api\/files\/trash|GET \/api\/files\/tree)/
+      // a read of the folder on its way when the rows go (from before the change)
+      filesChanged.emit([{ path: `${DIR}/x.md`, action: 'create', by: null, turnId: null }])
+      const before = await take(/^GET \/api\/files\/tree/)
+      await m.click('bulk-delete')
+      await confirm(m)
+      expect(names(m)).toEqual(['archive'])
+      before.answer(json(200, { path: DIR, access: 'write', entries: folders[DIR], nextCursor: null }))
+      await m.settle(20)
+      expect(keptFolder(DIR)?.entries.map((e) => e.name) ?? ['archive']).toEqual(['archive'])
+      expect(names(m)).toEqual(['archive'])
+      folders[DIR] = [entry(`${DIR}/archive`, 'folder')]
+      ;(await take(/notes/)).answer(json(200, { trashId: TRASH1, purgeAt: '2026-12-12T00:00:00.000Z' }))
+      ;(await take(/plan/)).answer(json(200, { trashId: '01900000-0000-7000-8000-0000000000a2', purgeAt: '2026-12-12T00:00:00.000Z' }))
+      holdRe = /^POST \/api\/files\/trash/
+      const told = await m.until(() => (toasts() as unknown as { action?: { run: () => void } }[]).find((x) => x.action), 'the toast with Undo')
+      told.action!.run()
+      await m.until(() => names(m).length === 3, 'both back at once')
+      const a = await take(new RegExp(`/api/files/trash/${TRASH1}/restore`))
+      const b = await take(/\/api\/files\/trash\/01900000-0000-7000-8000-0000000000a2\/restore/)
+      folders[DIR] = [entry(`${DIR}/archive`, 'folder'), entry(`${DIR}/notes.txt`), entry(`${DIR}/plan.md`)]
+      a.answer(json(200, { entry: entry(`${DIR}/notes.txt`) }))
+      b.answer(json(200, { entry: entry(`${DIR}/plan.md`) }))
+      await m.settle(50)
+      expect(names(m)).toEqual(['archive', 'notes.txt', 'plan.md'])
+      expect(errors()).toEqual([])
+    } finally {
+      await m.unmount()
+    }
+  })
+
   test('new folder: in its place among the folders at once; refused, it goes with one toast', async () => {
     const m = await filesPage()
     try {
@@ -412,6 +453,24 @@ describe('projects', () => {
       ;(await take(/^DELETE \/api\/projects\//)).answer(json(403, { error: { code: 'forbidden', message: 'Only an admin can delete it.' } }))
       await m.until(() => cards(m).length === 1, 'the card back')
       expect(errors().map((x) => x.text)).toEqual(['Only an admin can delete it.'])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('to the trash when someone deleted it first: the card stays gone, one note and no error', async () => {
+    const m = await listPage()
+    try {
+      await m.until(() => cards(m).length === 1, 'the card')
+      holdRe = /^DELETE \/api\/projects\//
+      await cardAction(m, 'project-card-delete')
+      await confirm(m)
+      await m.until(() => cards(m).length === 0, 'the card gone')
+      ;(await take(/^DELETE \/api\/projects\//)).answer(json(404, { error: { code: 'not_found', message: 'not found' } }))
+      await m.settle(50)
+      expect(cards(m)).toHaveLength(0)
+      expect(errors()).toEqual([])
+      expect(toasts()).toHaveLength(1)
     } finally {
       await m.unmount()
     }

@@ -10,7 +10,7 @@ import { errorText } from '../lib/api'
 import { currentLocale, t } from '../i18n'
 import { optimistic, optimisticEdits, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { parentPath } from '../lib/paths'
-import { folderKey, useTeamFiles } from './teamFiles'
+import { folderKey, outdateReads, useTeamFiles } from './teamFiles'
 import { toast } from './ui'
 
 export const fileChangeKey = (path: string) => `file:${folderKey(path)}:place`
@@ -62,6 +62,8 @@ export function onListingEdit(fn: (folder: string, f: Edit) => void): () => void
 }
 function editListing(folder: string, f: Edit) {
   const k = folderKey(folder)
+  // a read of it on its way is from before this change: its answer is not kept over it
+  outdateReads([k])
   useTeamFiles.setState((s) => {
     const kept = s.folders[k]
     const next = kept && f(kept)

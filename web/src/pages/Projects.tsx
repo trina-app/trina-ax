@@ -101,7 +101,7 @@ export type Deleted = 'gone' | Project | null
  * screen each time it changes ('gone': not on the list any more). A refusal puts it back with the server's words.
  * The answer: the project as the server has it now (null: not the caller's to see any more).
  */
-function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void) {
+function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void, failText?: false) {
   let at = -1
   const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash })
   return optimistic<boolean, Project | null>({
@@ -134,6 +134,7 @@ function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (n
         onShown?.('gone')
       }
     },
+    failText,
   })
 }
 
@@ -190,14 +191,16 @@ function useDeleteProject() {
     if (!(await confirmDialog({ ...ask, danger: true }))) return null
     if (toTrash) {
       // at once (deleting for good and any other delete wait: they cannot be taken back)
-      const r = await trashProject(now, true, isAdmin(me), onShown)
+      const r = await trashProject(now, true, isAdmin(me), onShown, false)
       if (!r.ok) {
+        if (!r.newest) return null
         // someone else deleted it first
-        if (r.newest && isApiError(r.error, 'not_found')) {
+        if (isApiError(r.error, 'not_found')) {
           missing(p.id)
           onShown?.('gone')
           return 'gone'
         }
+        toast({ level: 'error', text: errorText(r.error, locale, t('error.network')) })
         return null
       }
       return r.reply ?? 'gone'
@@ -746,6 +749,9 @@ function ProjectPage() {
     const old = cur.find((c) => c.id === chat.id)
     const rest = cur.filter((c) => c.id !== chat.id)
     if (chat.projectId !== projectId || chat.deletedAt) return rest
+    // gone from here while its move out or its trash is on its way: a late answer of a rename or a pin does not bring it
+    // back (a refusal of those comes after they are answered)
+    if (!old && (optimisticPending(`chat:${chat.id}:trash`) || optimisticPending(`chat:${chat.id}:project`))) return cur
     return [keepFaces(old, chat), ...rest].sort(chatOrder)
   })
 
@@ -782,8 +788,9 @@ function ProjectPage() {
     else if (d && live.current === p.id) load({ fresh: true })
   }
   /** the project on screen now (an answer after the person went to another project's page writes nothing here) */
-  const live = useRef(projectId)
+  const live = useRef<string | undefined>(projectId)
   live.current = projectId
+  useEffect(() => () => void (live.current = undefined), [])
   const renameProject = useRenameProject()
   const rename = async () => {
     if (!p) return
