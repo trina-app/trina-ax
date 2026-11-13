@@ -386,7 +386,7 @@ Server-rendered pages without React (for example the hosting operators' console,
 
 ```html
 <div class="shell">
-  <nav class="side" aria-label="Sidebar">
+  <nav class="side" aria-label="Main">
     <a class="brand" href="/"><img src="/favicon.svg" alt="" width="24" height="24"> Trina AX</a>
     <a class="nav active" href="/customers" aria-current="page">Customers</a>
     <a class="nav" href="/servers">Servers</a>
