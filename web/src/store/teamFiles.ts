@@ -36,8 +36,13 @@ interface TeamFilesState {
 
 /** a read started before a reset (another person signed in since) never lands */
 let generation = 0
-/** the newest read of each folder started: only its answer is kept */
+/** the newest read of each folder started, while it is on its way: only its answer is kept */
 const started = new Map<string, number>()
+/** the reads of a folder's count or a file's bytes on their way, by key; those a file event or a drop came for since
+ * they started (their answer is not kept) */
+const waiting = new Map<string, Set<number>>()
+const dropped = new Set<number>()
+let keeps = 0
 let reads = 0
 /** the read on its way for a folder, which a screen just shown joins */
 const running = new Map<string, Promise<TreeResponse>>()
@@ -71,6 +76,8 @@ export const useTeamFiles = create<TeamFilesState>((set) => ({
     generation++
     started.clear()
     running.clear()
+    waiting.clear()
+    dropped.clear()
     files.clear()
     set({ folders: {}, audiences: {} })
   },
@@ -81,6 +88,8 @@ function forgetAll() {
   generation++
   started.clear()
   running.clear()
+  waiting.clear()
+  dropped.clear()
   files.clear()
   useTeamFiles.setState({ folders: {}, audiences: {} })
 }
@@ -115,6 +124,7 @@ export function readFolder(path: string, o: { fresh?: boolean } = {}): Promise<T
   running.set(key, p)
   const off = () => {
     if (running.get(key) === p) running.delete(key)
+    if (started.get(key) === mine) started.delete(key)
   }
   p.then(off, off)
   return p
@@ -124,8 +134,9 @@ export function readFolder(path: string, o: { fresh?: boolean } = {}): Promise<T
 export function dropFolders(keys: readonly string[]) {
   for (const k of keys) {
     // an answer on its way may be from before the change: it is not kept either
-    started.set(k, ++reads)
+    if (started.has(k)) started.set(k, ++reads)
     running.delete(k)
+    markDropped(k)
   }
   useTeamFiles.setState((s) => ({ folders: without(s.folders, keys), audiences: without(s.audiences, keys) }))
 }
@@ -133,14 +144,33 @@ export function dropFolders(keys: readonly string[]) {
 /** Who can open the folder, as last answered (null: never, or dropped since). */
 export const keptAudience = (path: string): FolderAudience | null => useTeamFiles.getState().audiences[folderKey(path)] ?? null
 
-/** The answer of a read of who can open the folder, started in `gen` (a read before an access change does not land). */
-export function keepAudience(path: string, a: FolderAudience, gen: number) {
-  if (gen !== generation) return
-  useTeamFiles.setState((s) => ({ audiences: withLast(s.audiences, folderKey(path), a, KEPT_FOLDERS) }))
+/** a drop of this key now: the reads of it on their way do not keep their answer */
+function markDropped(key: string) {
+  for (const id of waiting.get(key) ?? []) dropped.add(id)
+}
+/** Start a read whose answer is kept for `key` (a folder's count, a file's bytes): it is kept only when no reset, access
+ * change, file event or drop of that key came meanwhile. Call the result with the answer, or with nothing when it failed. */
+function startKeep(key: string): (keep?: () => void) => void {
+  const gen = generation
+  const mine = ++keeps
+  const set = waiting.get(key) ?? new Set<number>()
+  set.add(mine)
+  waiting.set(key, set)
+  return (keep) => {
+    const ok = gen === generation && !dropped.has(mine)
+    dropped.delete(mine)
+    set.delete(mine)
+    if (!set.size && waiting.get(key) === set) waiting.delete(key)
+    if (ok && keep) keep()
+  }
 }
 
-/** Now's generation, for a read whose answer is kept by keepAudience/keepFile. */
-export const teamFilesGeneration = () => generation
+/** A read of who can open the folder starts: the result keeps its answer (null: it failed, nothing is kept). */
+export function audienceRead(path: string): (a: FolderAudience | null) => void {
+  const key = folderKey(path)
+  const done = startKeep(key)
+  return (a) => done(a ? () => useTeamFiles.setState((s) => ({ audiences: withLast(s.audiences, key, a, KEPT_FOLDERS) })) : undefined)
+}
 
 /** The variant of a file's bytes: the same file read with other limits (a text preview's start) is another copy. */
 const fileKey = (path: string, variant: string) => `${folderKey(path)}|${variant}`
@@ -150,10 +180,22 @@ export function keptFile(path: string, variant: string): Blob | null {
   return files.get(fileKey(path, variant)) ?? null
 }
 
-/** Keep a file's bytes the preview read (a small one only), started in `gen`. */
-export function keepFile(path: string, variant: string, blob: Blob, gen: number) {
-  if (gen !== generation) return
+/** A preview's read of a file's bytes starts: the result keeps what it read (a small file only; null: it failed, and
+ * what was kept of it goes; nothing: it was stopped, nothing changes). Not kept when the file changed meanwhile (a
+ * file event) or after a reset. */
+export function fileRead(path: string, variant: string): (blob?: Blob | null) => void {
   const key = fileKey(path, variant)
+  const done = startKeep(key)
+  return (blob) => {
+    if (!blob) {
+      done()
+      if (blob === null) forgetFile(path)
+      return
+    }
+    done(() => keepBytes(key, blob))
+  }
+}
+function keepBytes(key: string, blob: Blob) {
   files.delete(key)
   if (blob.size > KEPT_FILE_BYTES) return
   files.set(key, blob)
@@ -196,9 +238,11 @@ function onFilesChanged(changes: readonly { path: string; from?: string }[]) {
   const kept = Object.keys(useTeamFiles.getState().folders)
   const inside = (k: string) => under.some((u) => k === u || k.startsWith(`${u}/`))
   dropFolders([...new Set([...folders, ...kept.filter(inside)])])
-  for (const key of [...files.keys()]) {
-    const p = key.slice(0, key.lastIndexOf('|'))
-    if (inside(p)) files.delete(key)
+  for (const key of [...files.keys(), ...waiting.keys()]) {
+    const bar = key.lastIndexOf('|')
+    if (bar < 0 || !inside(key.slice(0, bar))) continue
+    files.delete(key)
+    markDropped(key)
   }
 }
 

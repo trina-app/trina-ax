@@ -16,7 +16,7 @@ import { hasPanel, inProjects } from '../lib/folder-sharing'
 import { useFolderName, useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
-import { keepAudience, keptAudience, teamFilesGeneration } from '../store/teamFiles'
+import { audienceRead, keptAudience } from '../store/teamFiles'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Button, ErrorNote, Modal, Skeleton } from './ui'
 
@@ -53,15 +53,15 @@ export function useFolderAccess(path: string | null, place: ChipPlace | null, ad
     setDone({ audience: !askAudience || !!kept, self: !askSelf })
     if (path === null) return
     let live = true
-    const gen = teamFilesGeneration()
+    const keep = askAudience ? audienceRead(path) : null
     if (askAudience)
       api.call(API.folderAudience, { query: { path } }).then(
         (r) => {
-          keepAudience(path, r, gen)
+          keep?.(r)
           if (live) (setAudience(r), setDone((d) => ({ ...d, audience: true })))
         },
         // (a count shown from a moment ago stays: the next visit asks again)
-        (e) => live && !kept && (setError(errorText(e, locale, t('error.network'))), setDone((d) => ({ ...d, audience: true }))),
+        (e) => (keep?.(null), live && !kept && (setError(errorText(e, locale, t('error.network'))), setDone((d) => ({ ...d, audience: true })))),
       )
     if (askSelf)
       api.call(API.explainAccessTree, { query: { path, limit: 1 } }).then(

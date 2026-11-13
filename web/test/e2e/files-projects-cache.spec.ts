@@ -67,7 +67,7 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
     expect(await skeletons(page), 'project page: no loading placeholder on return').toBe(0)
     expect(n(log, from, new RegExp(`^/api/projects/${id}\\?manage=1$`)), 'the project read once').toBe(1)
     expect(n(log, from, /^\/api\/chats\?projectId=/), 'its chats read once').toBe(1)
-    expect(n(log, from, /^\/api\/files\/tree\?path=marketing&/), 'its folder read once').toBeLessThanOrEqual(1)
+    expect(n(log, from, /^\/api\/files\/tree\?path=marketing&/), 'its folder read once').toBe(1)
 
     // a phone: the project's files screen; a computer: the same address goes to the folder on the Files page, without
     // asking for the project again

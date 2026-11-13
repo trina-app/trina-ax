@@ -24344,7 +24344,8 @@ the same visits showed no skeleton: the phone's 프로젝트 list reads the proj
   reads the tree and the recent list once each. At 390 the same requests as before; 파일's places show the team folders
   from the first frame too, and an admin's phone list now also reads again on an access change.
 - **Not changed**: a folder's own listing on the Files page (`/files?path=…`) still reads when opened, with its
-  skeleton; it pages, climbs on not_found and has many paths, which is a larger change than this one.
+  skeleton; it pages, climbs on not_found and has many paths, which is a larger change than this one. (Since "Folders,
+  project pages and file previews open at once" it shows at once too.)
 
 ## Folders, project pages and file previews open at once (perf/files-projects-cache, 2026-11-13)
 
@@ -24359,25 +24360,31 @@ and "Projects and Files lists open at once".
 - **What is kept** (in memory only): a folder's first page as every screen asks for it (`limit=200`, now also the
   project's page and a phone's project files, so they share one copy), the folder's count (`/api/files/audience`), the
   bytes of the last 8 files the preview read when 1 MB or smaller (`store/teamFiles.ts`), and a project's page (the
-  project and its chats, the last 12: `store/projectPage.ts`). The Files page reads the projects store's list
+  project and its chats, the last 12: `store/projectPage.ts`). The project page's files line now counts up to 200
+  ("200+ items" for a bigger folder; it said 100+). The Files page reads the projects store's list
   (`readProjectList`, at most every 15 s) instead of its own copy.
 - **A visit after the first** shows what was kept from the first frame and reads it again behind it: a screen just shown
   joins a read of the same folder on its way; a read after a change made here or an event always reads again, and only
   the newest read started keeps its answer (an older answer that comes last never replaces it). The preview keeps its
-  viewer when the bytes read again are the same, and swaps them when they changed. The pencil takes the file's access
+  viewer when the bytes read again are the same, and swaps them when they changed; 더 보기 pressed while the folder is
+  read again waits for that read, so its first page never comes after (and over) the next one. The pencil takes the file's access
   from its folder as last listed (the same `rules.access` the content read gives; the edit asks again before it opens).
 - **A project's page asks at once** for the project, its chats and its folder (its id is in the address, its folder is
   known from the kept page or the projects store; read again after the project when it was not, or was another). A
   rename, an edit, a share or a members save made on the page is not undone by the answer to a read started before it,
   and the chat changes made while its chats were read (a row's rename, a move, a chat event) are made again on top of
-  that answer. On a computer, `/projects/:id/files` goes on to the folder at once when the project is known.
+  that answer. On a computer, `/projects/:id/files` goes on to the folder at once when the project is known, unless its
+  folder was moved or renamed since (a file event with `from`): then the project is asked for first.
 - **Kept current**: a file event drops the kept listing of each folder it touched (the folder of each path and of a
   move's old path, and everything under a moved or deleted folder) and the bytes of the files under them; those show
-  their skeleton again on the next visit. Chat events keep the kept project pages' chats current. There are no project
+  their skeleton again on the next visit; a count or bytes read while such an event came are not kept. Chat events keep
+  the kept project pages' chats current. There are no project
   events: the next visit reads the project again.
 - **Access**: an access change (`access_changed`) or a live connection that could not resume (`reloadAsked`) drops
-  everything kept in both stores, and a read started before it never lands; a folder answered not_found or forbidden is
-  dropped. Sign-out and another person signing in empty both (`dropPersonStores`). A failed read behind a page shown
+  everything kept in both stores, and a read started before it never lands; a project's page open then reads itself
+  again and keeps nothing of what it shows until the project has answered; a folder answered not_found or forbidden is
+  dropped. The Files page reads the projects list once more after a read on its way at an access change or a moved
+  folder (the store joins a read on its way). Sign-out and another person signing in empty both (`dropPersonStores`). A failed read behind a page shown
   from memory leaves it as it was (the next visit reads again); a folder's own error note shows as before.
 - After, same copy and network, a return (before → after; "ms" is until the read behind it has ended, the content shows
   from the first frame): project page 1233 → 677 ms at 1440 and 1268 → 680 ms at 390, skeleton gone, its three reads

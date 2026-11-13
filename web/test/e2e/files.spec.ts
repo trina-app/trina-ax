@@ -559,10 +559,12 @@ test('no pencil on a file in a read-only folder; a writable one keeps it (QA TC-
   const panel = page.getByTestId('file-panel')
   await expect(panel.locator('table')).toContainText('q3')
   await expect(panel.getByTestId('file-edit')).toHaveCount(0)
-  // still none once the panel knows the person's access
-  await expect.poll(() => access).toContain('read')
+  // still none once the panel knows the person's access: from the folder as listed (its row's access), so the panel
+  // asks nothing more for it (docs/DECISIONS.md "Folders, project pages and file previews open at once")
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await page.waitForTimeout(300)
   await expect(panel.getByTestId('file-edit')).toHaveCount(0)
+  expect(access).toEqual([])
   await expect(page.getByText('읽기 전용 폴더')).toBeVisible()
   // the same kind of file where the person can write: the pencil is there
   await page.goto('/files?path=marketing')

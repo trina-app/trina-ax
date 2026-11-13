@@ -6,7 +6,7 @@
 // another person signing in empty it (App.tsx dropPersonStores).
 import { create } from 'zustand'
 import type { Chat, Project } from '@mycel/shared/api'
-import { accessChanged, chatChanged, reloadAsked } from './live'
+import { accessChanged, chatChanged, filesChanged, reloadAsked } from './live'
 
 /** how many project pages stay (the one seen longest ago goes first) */
 const KEPT_PAGES = 12
@@ -63,8 +63,27 @@ export const useProjectPage = create<ProjectPageState>((set) => ({
     delete next[id]
     return { pages: next }
   }),
-  reset: () => set({ pages: {} }),
+  reset: () => {
+    moved.clear()
+    set({ pages: {} })
+  },
 }))
+
+/** folders moved or renamed while this window was open (a file event with `from`): a project known by one of them is
+ * asked for again before its folder is opened (the server moved its folder with it) */
+const moved = new Set<string>()
+const key = (p: string) => p.normalize('NFC')
+/** Whether this folder, or one it is in, was moved or renamed since the project was read. */
+export const folderMoved = (folder: string) => [...moved].some((m) => key(folder) === m || key(folder).startsWith(`${m}/`))
+
+filesChanged.on((changes) => {
+  const from = changes.flatMap((c) => (c.from ? [key(c.from)] : []))
+  if (!from.length) return
+  for (const f of from) moved.add(f)
+  while (moved.size > 200) moved.delete(moved.values().next().value!)
+  const { pages } = useProjectPage.getState()
+  for (const [id, page] of Object.entries(pages)) if (folderMoved(page.project.folderPath)) useProjectPage.getState().drop(id)
+})
 
 chatChanged.on((e) => {
   const { pages } = useProjectPage.getState()

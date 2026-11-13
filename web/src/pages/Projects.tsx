@@ -55,7 +55,7 @@ import { isUnused } from '../components/chat/ChatState'
 import { accessChanged, chatChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { readManagedList, useProjects } from '../store/projects'
-import { chatOrder, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
+import { chatOrder, folderMoved, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
 import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
@@ -499,6 +499,8 @@ function ProjectPage() {
   const [missing, setMissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [chats, setChats] = useState<Chat[] | null>(() => keptPage(projectId).chats)
+  const shownChats = useRef(chats)
+  shownChats.current = chats
   // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
   const [files, setFiles] = useState<PageFiles | null>(() => keptPage(projectId).files)
   const [editing, setEditing] = useState(false)
@@ -588,6 +590,8 @@ function ProjectPage() {
         // changed here while it was read: what is on screen is newer than this answer
         const now = projectEdits.current === pFrom ? x : (shownP.current ?? x)
         if (now === x) setP(x)
+        keepable.current = true
+        useProjectPage.getState().keep(id, { project: now, chats: shownChats.current })
         setMissing(false)
         setError(null)
         useProjects.getState().put(now)
@@ -611,10 +615,25 @@ function ProjectPage() {
     )
   }
 
-  // the page as it is on screen is what a return to it shows first
+  // the page as it is on screen is what a return to it shows first; not while an access change (or a connection that
+  // could not resume) is unanswered: what is on screen may not be mine to see any more until the project is read again
+  const keepable = useRef(true)
   useEffect(() => {
-    if (p && p.id === projectId && !missing) useProjectPage.getState().keep(p.id, { project: p, chats })
+    if (keepable.current && p && p.id === projectId && !missing) useProjectPage.getState().keep(p.id, { project: p, chats })
   }, [p, chats, projectId, missing])
+  useEffect(() => {
+    const again = () => {
+      keepable.current = false
+      load({ fresh: true })
+    }
+    const offA = accessChanged.on(again)
+    const offB = reloadAsked.on(again)
+    return () => {
+      offA()
+      offB()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   useEffect(() => {
     const kept = keptPage(projectId)
@@ -1008,7 +1027,11 @@ function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; on
 }
 
 /** The project of a page, as this window knows it without asking: its page seen a moment ago, or the projects store. */
-const knownProject = (id: string | undefined): Project | null => (id ? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null : null)
+const knownProject = (id: string | undefined): Project | null => {
+  const p = id ? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null : null
+  // its folder moved since it was read (renamed in another window): the project is asked for again
+  return p && !folderMoved(p.folderPath) ? p : null
+}
 /** A folder's first page as last listed, for a phone's project files. */
 const keptList = (path: string | null) => {
   const r = path === null ? null : keptFolder(path)

@@ -32,7 +32,7 @@ import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { useMe } from '../store/session'
-import { forgetFile, keepFile, keptFile, sameBytes, teamFilesGeneration } from '../store/teamFiles'
+import { fileRead, keptFile, sameBytes } from '../store/teamFiles'
 import { Button, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
@@ -104,21 +104,23 @@ export function useFileBlob(file: PreviewFile, rev = 0, limits: FileLimit = prev
     if (!kind || kind === 'hwp') return
     const limit = limits(kind)
     const variant = blobVariant(limit, viaServer)
-    const gen = teamFilesGeneration()
+    // a team file's bytes are kept for a return (store/teamFiles.ts: not when the file changed while they were read)
+    const keep = file.source === 'team' ? fileRead(file.path, variant) : null
     const load = file.source === 'room'
       ? fetchRoomFileBlob(file.roomId, file.fileId, limit.max, ctrl.signal, { truncate: limit.truncate })
       : viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
     load.then(
       (b) => {
-        if (file.source === 'team') keepFile(file.path, variant, b, gen)
+        keep?.(b)
         if (!live) return
         // the same bytes as shown: the viewer stays as it is (no second drawing of a PDF)
         if (shown) void sameBytes(shown, b).then((same) => live && !same && setBlob(b))
         else setBlob(b)
       },
       (e: unknown) => {
-        if (file.source === 'team') forgetFile(file.path)
-        if (!live) return
+        // (a read stopped because the preview moved on is no reason to forget what was kept)
+        if (!live) return keep?.()
+        keep?.(null)
         if (shown) setBlob(null)
         // too many conversions now, or a wait over the server's limit: "busy, try again", not "cannot preview"
         if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') {

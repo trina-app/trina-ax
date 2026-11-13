@@ -10,13 +10,13 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Chat, FileEntry, Me, Project, TreeResponse } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import Files from '../../src/pages/Files'
-import { ProjectHome } from '../../src/pages/Projects'
+import { ProjectFiles, ProjectHome } from '../../src/pages/Projects'
 import { useFileBlob } from '../../src/components/FileBody'
 import { useWritable } from '../../src/components/FilePanel'
 import { DialogHost } from '../../src/components/ui'
 import { useProjects } from '../../src/store/projects'
 import { useProjectPage } from '../../src/store/projectPage'
-import { dropFolders, keepFile, keptFile, keptFolder, readFolder, teamFilesGeneration, useTeamFiles, forgetFile } from '../../src/store/teamFiles'
+import { audienceRead, dropFolders, fileRead, folderKey, keptFile, keptFolder, readFolder, useTeamFiles } from '../../src/store/teamFiles'
 import { accessChanged, chatChanged, filesChanged } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
@@ -54,15 +54,22 @@ beforeAll(() => {
     const url = new URL(String(input), 'http://x')
     const key = `${init?.method ?? 'GET'} ${url.pathname}${url.search}`
     reads.push(key)
+    // the answer is the folder as it was when it was asked (a read on its way answers from before a change)
+    const asked = folders[url.searchParams.get('path') ?? '']
+    const project = theProject
     if (hold && (!holdOnly || holdOnly.test(key))) await hold
     if (url.pathname === '/api/files/tree') {
       const path = url.searchParams.get('path') ?? ''
-      const items = folders[path]
+      const items = asked
       if (!items) return json(404, { error: { code: 'not_found', message: 'not found' } })
       return json(200, { path, access: 'write', entries: items, nextCursor: null } satisfies TreeResponse)
     }
     if (url.pathname === '/api/projects') return json(200, { items: [theProject] })
-    if (url.pathname === `/api/projects/${P1}`) return json(200, theProject)
+    if (url.pathname === `/api/projects/${P1}` && init?.method === 'PATCH') {
+      theProject = { ...theProject, ...(JSON.parse(String(init.body)) as Partial<Project>) }
+      return json(200, theProject)
+    }
+    if (url.pathname === `/api/projects/${P1}`) return json(200, project)
     if (url.pathname === '/api/chats') return json(200, { items: chats, nextCursor: null })
     if (url.pathname === '/api/files/audience') return json(200, { path: url.searchParams.get('path'), access: 'write', people: 3, everyone: false })
     if (url.pathname === '/api/files/download') return new Response(bytes, { status: 200, headers: { 'content-type': 'text/plain', 'content-length': String(bytes.length) } })
@@ -120,7 +127,8 @@ describe('team folders in memory (store/teamFiles.ts)', () => {
     const c = readFolder(DIR, { fresh: true })
     expect(count(TREE(DIR))).toBe(2)
     release()
-    await Promise.all([a, c])
+    const [ra] = await Promise.all([a, c])
+    expect(ra.entries).toHaveLength(2)
     expect(keptFolder(DIR)!.entries.map((e) => e.name)).toEqual(['plan.md'])
   })
 
@@ -128,6 +136,7 @@ describe('team folders in memory (store/teamFiles.ts)', () => {
     let releaseOld!: () => void
     hold = new Promise((r) => (releaseOld = r))
     const old = readFolder(DIR)
+    await until(() => count(TREE(DIR)) === 1, 'the first read asked')
     hold = null
     folders[DIR] = [entry(`${DIR}/new.md`)]
     await readFolder(DIR, { fresh: true })
@@ -142,7 +151,7 @@ describe('team folders in memory (store/teamFiles.ts)', () => {
     folders['shared/acme/sub'] = [entry('shared/acme/sub/a.md')]
     folders.shared = [entry(DIR, 'folder')]
     await Promise.all([readFolder(DIR), readFolder('shared/acme/sub'), readFolder('shared')])
-    keepFile('shared/acme/sub/a.md', 'v', new Blob(['a']), teamFilesGeneration())
+    fileRead('shared/acme/sub/a.md', 'v')(new Blob(['a']))
     // a file saved in another folder: these stay
     filesChanged.emit([{ path: 'groups/x/y.md', action: 'update', by: null, turnId: null }])
     expect([!!keptFolder(DIR), !!keptFolder('shared/acme/sub'), !!keptFolder('shared')]).toEqual([true, true, true])
@@ -171,20 +180,33 @@ describe('team folders in memory (store/teamFiles.ts)', () => {
     }
   })
 
-  test("a preview's bytes: small files only, the last 8, not after a reset; a failed read forgets them", () => {
-    const gen = teamFilesGeneration()
-    keepFile('shared/big.pdf', 'v', new Blob([new Uint8Array(2 * 1024 * 1024)]), gen)
+  test("a preview's bytes: small files only, the last 8; not when the file changed or a reset came while they were read", () => {
+    fileRead('shared/big.pdf', 'v')(new Blob([new Uint8Array(2 * 1024 * 1024)]))
     expect(keptFile('shared/big.pdf', 'v')).toBeNull()
-    for (let i = 0; i < 10; i++) keepFile(`shared/f${i}.md`, 'v', new Blob([`f${i}`]), gen)
+    for (let i = 0; i < 10; i++) fileRead(`shared/f${i}.md`, 'v')(new Blob([`f${i}`]))
     expect(keptFile('shared/f0.md', 'v')).toBeNull()
     expect(keptFile('shared/f1.md', 'v')).toBeNull()
     expect(keptFile('shared/f9.md', 'v')).not.toBeNull()
     expect(keptFile('shared/f9.md', 'other')).toBeNull()
-    forgetFile('shared/f9.md')
+    // a failed read forgets them; one stopped (the preview moved on) does not
+    fileRead('shared/f8.md', 'v')()
+    expect(keptFile('shared/f8.md', 'v')).not.toBeNull()
+    fileRead('shared/f9.md', 'v')(null)
     expect(keptFile('shared/f9.md', 'v')).toBeNull()
+    // saved by someone while it was read: that answer is from before
+    const late = fileRead('shared/f7.md', 'v')
+    filesChanged.emit([{ path: 'shared/f7.md', action: 'update', by: null, turnId: null }])
+    late(new Blob(['old']))
+    expect(keptFile('shared/f7.md', 'v')).toBeNull()
+    const lateCount = audienceRead(DIR)
+    filesChanged.emit([{ path: `${DIR}/x.md`, action: 'create', by: null, turnId: null }])
+    dropFolders([folderKey(DIR)])
+    lateCount({ path: DIR, access: 'write', people: 9 })
+    expect(useTeamFiles.getState().audiences[DIR]).toBeUndefined()
+    const beforeReset = fileRead('shared/f6.md', 'v')
     useTeamFiles.getState().reset()
-    keepFile('shared/f8.md', 'v', new Blob(['x']), gen)
-    expect(keptFile('shared/f8.md', 'v')).toBeNull()
+    beforeReset(new Blob(['x']))
+    expect(keptFile('shared/f6.md', 'v')).toBeNull()
   })
 })
 
@@ -293,6 +315,91 @@ describe("a project's page", () => {
     } finally {
       await m.unmount()
     }
+  })
+
+  test('renamed here while the project was read: that older answer does not put the old name back', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: { ...me, user: { ...me.user, role: 'admin' } } } } as never)
+    // a project an admin manages without being in it: its name menu has Rename (the name prompt)
+    theProject = project({ member: false, canManage: true })
+    const m = await projectPage()
+    try {
+      await m.until(() => m.find('project-members-only'), 'the page')
+      holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+      const release = held()
+      // a read on its way (an access change reads the page again), then a new name saved here
+      accessChanged.emit()
+      await until(() => count(new RegExp(`^GET /api/projects/${P1}`)) === 2, 'the read again')
+      await m.click('project-menu')
+      await m.click('project-rename')
+      const field = await m.until(() => m.container.ownerDocument!.body.querySelector('[data-testid="dialog-input"]'), 'the prompt')
+      await m.type(field as never, 'Acme launch 2')
+      await m.click('dialog-confirm')
+      await m.until(() => count(new RegExp(`^PATCH /api/projects/${P1}`)), 'the rename')
+      await m.until(() => m.html().includes('Acme launch 2'), 'the new name')
+      release()
+      await m.settle(50)
+      expect(m.html()).toContain('Acme launch 2')
+      expect(useProjectPage.getState().pages[P1]?.project.name).toBe('Acme launch 2')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('on a computer, /projects/:id/files goes on to its folder without asking for a project it knows', async () => {
+    const m = await mount(
+      <MemoryRouter initialEntries={[`/projects/${P1}/files`]}>
+        <Routes><Route path="/projects/:projectId/files" element={<ProjectFiles />} /><Route path="/files" element={<p data-testid="files-screen" />} /></Routes>
+      </MemoryRouter>,
+    )
+    try {
+      await m.until(() => m.find('files-screen'), 'the Files screen')
+      expect(count(/^GET \/api\/projects\//)).toBe(1)
+      expect(count(/^GET \/api\/files\/tree/)).toBe(0)
+    } finally {
+      await m.unmount()
+    }
+    useProjects.getState().put(theProject)
+    reads.length = 0
+    const again = await mount(
+      <MemoryRouter initialEntries={[`/projects/${P1}/files`]}>
+        <Routes><Route path="/projects/:projectId/files" element={<ProjectFiles />} /><Route path="/files" element={<p data-testid="files-screen" />} /></Routes>
+      </MemoryRouter>,
+    )
+    try {
+      await again.until(() => again.find('files-screen'), 'the Files screen')
+      expect(reads).toEqual([])
+    } finally {
+      await again.unmount()
+    }
+    // its folder renamed in another window: the project is asked for again
+    filesChanged.emit([{ path: 'projects/acme-2', from: 'projects/acme-launch', action: 'move', by: null, turnId: null }])
+    const moved = await mount(
+      <MemoryRouter initialEntries={[`/projects/${P1}/files`]}>
+        <Routes><Route path="/projects/:projectId/files" element={<ProjectFiles />} /><Route path="/files" element={<p data-testid="files-screen" />} /></Routes>
+      </MemoryRouter>,
+    )
+    try {
+      await moved.until(() => moved.find('files-screen'), 'the Files screen')
+      expect(count(/^GET \/api\/projects\//)).toBe(1)
+    } finally {
+      await moved.unmount()
+    }
+  })
+
+  test('an access change while the page is open: nothing of it is kept until the project is read again', async () => {
+    const m = await projectPage()
+    await m.until(() => chatTitles(m).length === 2, 'the page')
+    holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+    const release = held()
+    accessChanged.emit()
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
+    // a chat event meanwhile changes what is on screen: still not kept
+    chatChanged.emit({ chatId: C1, change: 'updated', chat: chat(C1, 'Kickoff notes', { updatedAt: '2026-11-08T01:00:00.000Z' }) })
+    await m.settle(30)
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
+    release()
+    await m.until(() => useProjectPage.getState().pages[P1], 'kept again once read')
+    await m.unmount()
   })
 
   test('a sign-out or an access change: the next visit starts from nothing', async () => {

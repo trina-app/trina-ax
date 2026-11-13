@@ -205,7 +205,8 @@ function Files() {
   const listed = useProjects((s) => s.listed)
   const projectsById = useProjects((s) => s.byId)
   const projects = useMemo(() => (listed ? [...listed].flatMap((id) => projectsById[id] ?? []) : []), [listed, projectsById])
-  const loadProjects = useCallback((fresh = true) => readProjectList(fresh ? {} : { minAgeMs: PROJECTS_AGE_MS }), [])
+  // after an event a read on its way may be from before it (the store joins it): once more after it
+  const loadProjects = useCallback((fresh = true) => (fresh ? readProjectList().finally(() => readProjectList()) : readProjectList({ minAgeMs: PROJECTS_AGE_MS })), [])
   useEffect(() => {
     void loadProjects(false)
     return accessChanged.on(() => void loadProjects())
@@ -266,11 +267,26 @@ function Files() {
   const loads = useRef(0)
   /** `shown`: the folder just opened, which joins a read of it on its way (a project's page may have started one); any
    * other load follows a change or an event, so it reads again */
-  const load = useCallback(async (o?: { shown?: boolean }) => {
+  /** the listing on its way, and the last one set: 더 보기 pressed while a folder shown from a moment ago is read again
+   * waits for it, so its first page never comes after (and over) the next one */
+  const pendingLoad = useRef<Promise<void> | null>(null)
+  const lastListed = useRef<TreeResponse | null>(null)
+  const load = useCallback((o?: { shown?: boolean }) => {
+    const p = listFolder(o)
+    pendingLoad.current = p
+    const off = () => {
+      if (pendingLoad.current === p) pendingLoad.current = null
+    }
+    p.then(off, off)
+    return p
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
+  const listFolder = async (o?: { shown?: boolean }) => {
     const mine = ++loads.current
     try {
       const r = await readFolder(path, { fresh: o?.shown !== true })
       if (mine !== loads.current) return
+      lastListed.current = r
       setTree(r)
       setError(null)
       shown.current = path
@@ -299,13 +315,12 @@ function Files() {
       }
       setError(e ?? new Error('failed'))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path])
+  }
 
   useEffect(() => {
     const kept = keptFolder(path)
     setTree(kept)
-    // shown before: a not_found now means access changed while away, as while it is open
+    // shown before: a not_found now says "access changed", as for a folder that goes while it is open
     if (kept) shown.current = path
     setError(null)
     void load({ shown: true })
@@ -344,12 +359,22 @@ function Files() {
   const more = async () => {
     if (!tree?.nextCursor) return
     const ask = ++mores.current
-    const listing = loads.current
     const from = tree.path
-    const current = () => listing === loads.current
+    let cursor: string | null = tree.nextCursor
     setLoadingMore(true)
+    const waiting = pendingLoad.current
+    if (waiting) {
+      await waiting
+      // (another folder or a reload meanwhile: this press is not theirs)
+      if (ask !== mores.current) return
+      const now = lastListed.current
+      cursor = now && now.path === from ? now.nextCursor : null
+      if (!cursor) return setLoadingMore(false)
+    }
+    const listing = loads.current
+    const current = () => listing === loads.current
     try {
-      const r = await api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor: tree.nextCursor } })
+      const r = await api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor } })
       if (!current()) return
       setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
