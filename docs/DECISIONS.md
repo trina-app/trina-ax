@@ -24387,10 +24387,10 @@ visit; 팀 스킬 asked five things one after another; ⌘K read six lists on ev
   (`peekCached`) and write back what the server said (`rememberCached`); they still read again when they mount.
 - **팀 스킬**: two rounds side by side (overview, my suggestions, the changes and the skill list together; then what the
   overview says there is to review) instead of five in a row; all kept.
-- **Search** shows its lists at once and reads one again only after 30 s (`SEARCH_LIST_AGE_MS`) or a change that marks
-  it stale (skills, tasks, connections, chats, projects here, access, a reconnect that could not resume); the unread count
-  is the window's own (`store/inbox.ts`), not a read of its own. A task or a connection made on another device can take
-  up to 30 s to show there.
+- **Search** shows its lists at once. Chats, projects and skills are read again only after 30 s (`SEARCH_LIST_AGE_MS`)
+  or a change that marks them stale (skills, chats, projects here, access, a reconnect that could not resume); tasks and
+  connections are read again on every open (a task the AI made, a connection added on another device: no event says
+  so); the unread count is the window's own (`store/inbox.ts`), not a read of its own.
 - **Scheduled tasks**, its banner and Search share one list; the banner mounting again reads it only after 5 min or an
   event. A change made on the page reaches the kept list also when its answer comes after the page went.
 - **Settings**: the "own AI connections" flag is kept for a minute (the team's AI choices changing marks it stale);
@@ -24403,7 +24403,7 @@ visit; 팀 스킬 asked five things one after another; ⌘K read six lists on ev
 - **Access**: everything kept is emptied at sign-out and when another person signs in (`dropPersonStores`); a read
   started before that never lands.
 - After, same copy: no skeleton on those revisits (Settings › AI providers still shows one: that page is Admin's);
-  팀 스킬's first visit 1.88 s → 1.37 s (1440), 1.80 s → 1.24 s (390); ⌘K's second and third opens 6 requests → 1 and 0;
+  팀 스킬's first visit 1.88 s → 1.37 s (1440), 1.80 s → 1.24 s (390); ⌘K opened again 6 requests → 2 (tasks and connections; before the change measured 1 and 0 with them kept too);
   `/api/chats/groups` and `/api/me/credentials` no longer read on those revisits.
 - **Not changed**: a notice opened on its own (`/activity?n=`), the skill form's own read of the list and the review
   dialog read as before; Admin's pages are another change.

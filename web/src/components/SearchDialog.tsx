@@ -234,9 +234,11 @@ export function roomsAndPeople(rooms: readonly Room[], people: readonly Person[]
 export const SEARCH_LIST_AGE_MS = 30_000
 
 /** A list Search shows (store/listCache.ts): what this window last read at once, read again when it opens unless that
- * read is recent; null while nothing was read yet, 'error' when it could not be read and nothing was kept. */
-function useList<T>(key: string, load: () => Promise<T>): T | null | 'error' {
-  const { data, failed } = useCachedRead<T>(key, load, { minAgeMs: SEARCH_LIST_AGE_MS })
+ * read is recent (`always`: read again on every open, for lists no realtime change marks stale: a task the AI made, a
+ * connection added on another device); null while nothing was read yet, 'error' when it could not be read and nothing
+ * was kept. */
+function useList<T>(key: string, load: () => Promise<T>, o: { always?: boolean } = {}): T | null | 'error' {
+  const { data, failed } = useCachedRead<T>(key, load, { minAgeMs: o.always ? undefined : SEARCH_LIST_AGE_MS })
   return data !== undefined ? data : failed ? 'error' : null
 }
 const readRecent = () => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items)
@@ -316,9 +318,9 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const projectsById = useProjects((s) => s.byId)
   const projects = useMemo(() => (Array.isArray(projectsRead) ? projectsRead.map((p) => projectsById[p.id] ?? p) : projectsRead), [projectsRead, projectsById])
   const skills = useList<Skill[]>(SHARED.skills, readSkillList)
-  const scheduleList = useList(SHARED.schedules, readSchedules)
+  const scheduleList = useList(SHARED.schedules, readSchedules, { always: true })
   const schedules = useMemo(() => (scheduleList && scheduleList !== 'error' ? scheduleList.items : scheduleList), [scheduleList])
-  const mcp = useList(SHARED.integrations, readIntegrations)
+  const mcp = useList(SHARED.integrations, readIntegrations, { always: true })
   // the window's own unread count (the rail's), not a read of its own
   const unread = useInboxUnread()
   const admin = isAdmin(useMe())

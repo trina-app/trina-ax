@@ -91,13 +91,14 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
   })
 }
 
-test('Search opened again soon after reads none of its lists again (1440)', async ({ page }) => {
+test('Search opened again soon after reads its chats, projects, skills and count none again (1440)', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await reset(page)
   const log = track(page)
   await signIn(page)
   await settled(page)
-  const LISTS = [/^\/api\/chats\?limit=30$/, /^\/api\/projects$/, /^\/api\/skills$/, /^\/api\/schedules$/, /^\/api\/integrations$/, /^\/api\/notifications\?limit=1$/]
+  // (its tasks and connections are read again on every open, shown from what was read meanwhile: nothing marks them stale)
+  const LISTS = [/^\/api\/chats\?limit=30$/, /^\/api\/projects$/, /^\/api\/skills$/, /^\/api\/notifications\?limit=1$/]
   const open = async () => {
     await page.keyboard.press('ControlOrMeta+k')
     await expect(page.getByTestId('search-palette')).toBeVisible()
