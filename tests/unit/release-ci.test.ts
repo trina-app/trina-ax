@@ -131,6 +131,36 @@ describe('the staged roll-out (tag message "Rollout: all", the manual run\'s inp
   })
 })
 
+describe('desktop downloads only (office_only) and the Mac runner', () => {
+  const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
+  const yaml = Bun.YAML.parse(wf) as { on: { workflow_dispatch: { inputs: Record<string, { type: string; default: unknown }> } }; jobs: Record<string, { if?: string; 'runs-on'?: string; steps?: { name?: string; if?: string; run?: string }[] }> }
+  const step = (job: string, name: string) => yaml.jobs[job]!.steps!.find((s) => s.name === name)!
+
+  test('a manual run can ask for the desktop downloads only; a tag push never does', () => {
+    expect(yaml.on.workflow_dispatch.inputs.office_only).toMatchObject({ type: 'boolean', default: false })
+    expect(yaml.jobs.test!.if).toBe('${{ !inputs.office_only }}')
+    expect(yaml.jobs['build-linux']!.if).toBe('${{ !inputs.office_only }}')
+    expect(yaml.jobs.publish!.if).toContain("(inputs.office_only || (needs.test.result == 'success' && needs.build-linux.result == 'success'))")
+  })
+  test('office_only never signs, publishes or rebuilds the Linux server release', () => {
+    for (const n of ['Unpack the Linux builds', 'Sign the Linux builds (manifest.sig; update archive and install kit)']) expect(step('publish', n).if, n).toBe('${{ !inputs.office_only }}')
+    expect(step('publish', 'Server feed (Linux)').if).toBe("needs.prepare.outputs.feed == 'true' && !inputs.office_only")
+    // the Linux files come from the published GitHub Release, for SHA256SUMS only
+    const dl = step('publish', 'The published Linux files (office_only)')
+    expect(dl.if).toBe('${{ inputs.office_only }}')
+    expect(dl.run).toContain("gh release download \"$TAG\"")
+    expect(dl.run).not.toMatch(/publish-server|release-ci\.ts sign-linux/)
+    // checked against the release's own signed SHA256SUMS, both kits there, and all before anything is published
+    expect(dl.run).toContain('bun scripts/release/release-ci.ts verify-sums published/SHA256SUMS')
+    expect(dl.run).toContain('for a in amd64 arm64')
+    const names = yaml.jobs.publish!.steps!.map((s) => s.name)
+    expect(names.indexOf('The published Linux files (office_only)')).toBeLessThan(names.indexOf('Office feed (zip + Windows installer)'))
+  })
+  test('the office zip runner: the input, else the repository variable, else macos-15', () => {
+    expect(yaml.jobs['build-office']!['runs-on']).toBe("${{ inputs.mac_runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}")
+  })
+})
+
 describe('release key', () => {
   const pem = newPem()
   const pub = publicKeyOfPem(pem)
