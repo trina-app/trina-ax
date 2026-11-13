@@ -5181,7 +5181,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.members.onlyMe": "自分だけ",
   "projects.members.add": "メンバーを追加",
   "projects.shareConfirmOne": "{name}さんがこのプロジェクトのファイルと指示を見て編集できます。これまでの会話は自分だけのままです。自分だけのプロジェクトには戻せません。",
-  "projects.shareConfirmMany": "{n}人がこのプロジェクトのファイルと指示を見て編集できます。これまでの会話は自分だけのままです。自分だけのプロジェクトには戻せません。",
+  "projects.shareConfirmMany": "{n, plural, one {#人} other {#人}}がこのプロジェクトのファイルと指示を見て編集できます。これまでの会話は自分だけのままです。自分だけのプロジェクトには戻せません。",
   "projects.shareConfirmTitle": "このプロジェクトを共有しますか?",
   "projects.shareAdminsOnly": "このチームでは、オーナーと管理者だけがプロジェクトを他の人と共有できます。",
   "projects.shareMoveBody": "ファイルはチームのプロジェクトフォルダーに移り、選んだ人と一緒に使います。",

@@ -342,11 +342,6 @@ export function ProjectList() {
     if (!phone) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
-  // "+ 새 프로젝트" in 프로젝트's list while this page is open already: the form opens
-  const askedNew = params.get('new') === '1'
-  useEffect(() => {
-    if (askedNew) setCreatingState(true)
-  }, [askedNew])
   const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -850,7 +845,7 @@ function ProjectPage() {
             {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
             {/* a new or nearly empty project: my chats outside projects come in from here (docs/DECISIONS.md "Making a project") */}
             {chats && chats.length < 3 && !outside && !p.inTrash && (
-              <button type="button" onClick={() => setImporting(true)} className="mt-1 text-sm text-accent-text hover:underline" data-testid="project-import">{t('projects.page.import')}</button>
+              <button type="button" onClick={() => setImporting(true)} className="mt-1 inline-flex min-h-6 items-center text-sm text-accent-text hover:underline pointer-coarse:min-h-11" data-testid="project-import">{t('projects.page.import')}</button>
             )}
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
