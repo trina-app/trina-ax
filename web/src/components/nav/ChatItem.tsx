@@ -12,13 +12,13 @@ import { api, API } from '../../lib/api'
 import { formatRelative } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { needsMe } from '../../lib/sessionMarkers'
-import { sharedRights } from '../../lib/sharedChat'
+import { privateInTeamProject, sharedRights } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { useProjects } from '../../store/projects'
 import { useRooms } from '../../store/rooms'
 import { useChatMenuItems } from '../chat/chatMenuItems'
-import { SharedIcon } from '../chat/SharedChat'
+import { PrivateIcon, SharedIcon } from '../chat/SharedChat'
 import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
@@ -49,6 +49,8 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
   // no "폴더로 옮기기": the owner dropped the Trina list's folders (2026-11-13); "프로젝트로 옮기기" is the way to keep
   // chats together (a personal project for one's own)
   const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
+  // my chat in a team project that only I see: a lock (only its creator ever has it in a list)
+  const onlyMine = useProjects((s) => privateInTeamProject(chat, chat.projectId ? s.byId[chat.projectId] : null))
   // the chat on screen (as a NavLink's active: its own page and below)
   const selected = !!useMatch({ path: `/c/${chat.id}`, end: false })
 
@@ -69,10 +71,11 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
       rowClass={clsx('pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17')}
       lead={
-        (chat.pinnedAt || rights.shared) && (
+        (chat.pinnedAt || rights.shared || onlyMine) && (
           <>
             {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
             {rights.shared && <SharedIcon className="text-faint" />}
+            {onlyMine && <PrivateIcon />}
           </>
         )
       }

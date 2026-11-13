@@ -2,7 +2,7 @@
 // Trina list's row, the project page's row and the chat header (there with how many see it as its tooltip). The project
 // page's row also has the faces of the people who wrote in it (ChatFaces, their stack: FaceStack.tsx).
 import clsx from 'clsx'
-import { ShieldAlert, Users } from 'lucide-react'
+import { Lock, ShieldAlert, Users } from 'lucide-react'
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -14,6 +14,13 @@ import { FaceStack } from '../FaceStack'
 import { Tooltip } from '../Tooltip'
 
 /** The icon in a list row: named "공유 채팅" for a screen reader, so the row's link says it. */
+/** A chat in a team project that only its creator sees ("Only me", or one from before or brought in): a quiet lock in
+ * its rows (docs/DECISIONS.md "Team project chats shared by default"). */
+export function PrivateIcon({ className }: { className?: string }) {
+  const t = useT()
+  return <Lock size={12} role="img" aria-label={t('chat.privateLabel')} className={clsx('shrink-0 text-faint', className)} data-testid="private-icon" />
+}
+
 export function SharedIcon({ className }: { className?: string }) {
   const t = useT()
   return <Users size={14} role="img" aria-label={t('chat.sharedLabel')} className={clsx('shrink-0', className)} data-testid="shared-icon" />

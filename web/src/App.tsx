@@ -1,5 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
+import { ShareChatHost } from './components/chat/ShareChat'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -359,6 +360,7 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <ShareChatHost />
         <StatusDialogHost />
         <ImageViewerHost />
         <Toaster />

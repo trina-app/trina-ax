@@ -8,8 +8,10 @@
 // has been made, so the title is a menu even when the person may change nothing.
 // A shared project chat (docs/DECISIONS.md "Shared project chats") offers only what the person may do: rename for its
 // creator, delete for its creator or a project editor, never a move (it stays in its project) and never a share (it is
-// shared). With nothing to offer the title is a plain heading.
-import { FolderInput, Link2, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
+// shared). With nothing to offer the title is a plain heading. A shared chat also offers "Continue in a chat only you
+// see" (docs/DECISIONS.md "Team project chats shared by default"): a new "Only me" chat in the same project with my
+// last question in its box, where my memories and apps work (the AI points here when asked for one in a shared chat).
+import { FolderInput, Link2, Lock, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -21,7 +23,7 @@ import { useCopyChatLink } from './copyChatLink'
 
 type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt'>>
 
-export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete }: { chat: MenuChat; title: string; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void }) {
+export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, onPrivately }: { chat: MenuChat; title: string; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void }) {
   const t = useT()
   const safeOps = !!useMe()?.server.allChatsConfidential
   // the project as this window knows it (store/projects.ts; the header's project name keeps it fresh)
@@ -35,10 +37,11 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete }
         ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: onPin, testId: 'chat-unpin' }
         : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
       : []),
-    ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared }), testId: 'chat-copy-link' }] : []),
+    ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt }), testId: 'chat-copy-link' }] : []),
     ...(onRename ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: onRename, testId: 'chat-rename' }] : []),
     ...(onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
     ...(share ? [{ label: t('chat.shareChat.menu'), icon: <Users size={14} aria-hidden />, onSelect: () => setSharing(true), testId: 'chat-share' }] : []),
+    ...(chat.id && chat.shared && chat.projectId && !safeOps && onPrivately ? [{ label: t('chat.continuePrivately'), icon: <Lock size={14} aria-hidden />, onSelect: onPrivately, testId: 'chat-continue-privately' }] : []),
     ...(onDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: onDelete, danger: true, testId: 'chat-delete' }] : []),
   ]
   if (!items.length)
