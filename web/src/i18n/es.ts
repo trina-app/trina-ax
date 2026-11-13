@@ -1263,6 +1263,7 @@ export const es: Record<MessageKey, string> = {
   'connectors.noneMember': "Su administrador aún no ha configurado conectores para el equipo. Pídale que añada las apps que usa.",
   'connectors.results': "Resultados",
   'connectors.showLess': "Ver menos",
+  'connectors.addressLine': "Dirección: {address}",
   'connectors.toolsAfter': "Sus herramientas aparecen aquí al conectarlo.",
   'connectors.byLine': "De {name} · {line}",
   'connectors.page.help': "Ayuda",

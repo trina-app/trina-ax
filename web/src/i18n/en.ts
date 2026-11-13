@@ -1291,6 +1291,7 @@ export const en: Record<MessageKey, string> = {
   'connectors.noneMember': "Your admin hasn't set up any connectors for the team yet. Ask them to add the apps you use.",
   'connectors.results': "Results",
   'connectors.showLess': "Show less",
+  'connectors.addressLine': "Address: {address}",
   'connectors.toolsAfter': "Its tools show here once you connect it.",
   'connectors.byLine': "By {name} · {line}",
   'connectors.page.help': "Help",

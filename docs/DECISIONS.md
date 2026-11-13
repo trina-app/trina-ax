@@ -25388,8 +25388,8 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Removed:** the boxed header card, the nested row card and its chips ("Always allow", "Run without asking", the
   audience chip), the second copy of the error, "Key saved · Last tried" as one line, the raw address on a listed
   service's page, the "Official" mark (the line says "By <service>"), and the About texts' "asks first" sentence (the
-  line under them says it, as #567 did for Google's). i18n keys gone in five languages: `connectors.addressLine`,
-  `official`, `officialTip`, `linkPrivacy`, `linkTerms`, `linkPrivacyName`, `linkTermsName`, `linkDocs`, `tools`;
+  line under them says it, as #567 did for Google's). i18n keys gone in five languages: `connectors.official`,
+  `officialTip`, `linkPrivacy`, `linkTerms`, `linkPrivacyName`, `linkTermsName`, `linkDocs`, `tools`;
   `integrations.edit`, `delete`, `alwaysAllow.badge`, `alwaysAllow.line`, `lastTried`, `lastUsed`, `tools`, `toolsOf`,
   `toolsOfMore`.
 - **Tests:** `web/test/unit/connector-detail-tools.test.tsx`, `integration-always-allow.test.tsx`; the e2e specs that

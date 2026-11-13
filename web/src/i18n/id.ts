@@ -1291,6 +1291,7 @@ export const id: Record<MessageKey, string> = {
   'connectors.noneMember': "Admin Anda belum menyiapkan konektor untuk tim. Minta admin menambahkan aplikasi yang Anda pakai.",
   'connectors.results': "Hasil",
   'connectors.showLess': "Tampilkan lebih sedikit",
+  'connectors.addressLine': "Alamat: {address}",
   'connectors.toolsAfter': "Alatnya tampil di sini setelah terhubung.",
   'connectors.byLine': "Oleh {name} · {line}",
   'connectors.page.help': "Bantuan",

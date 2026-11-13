@@ -1290,6 +1290,7 @@ export const ko = {
   'connectors.noneMember': "관리자가 아직 팀 커넥터를 설정하지 않았어요. 쓰는 앱을 추가해 달라고 관리자에게 요청해 주세요.",
   'connectors.results': "검색 결과",
   'connectors.showLess': "접기",
+  'connectors.addressLine': "주소: {address}",
   'connectors.toolsAfter': "연결하면 도구가 여기에 보여요.",
   'connectors.byLine': "제공: {name} · {line}",
   'connectors.page.help': "도움말",

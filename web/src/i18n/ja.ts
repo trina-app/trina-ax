@@ -1263,6 +1263,7 @@ export const ja: Record<MessageKey, string> = {
   'connectors.noneMember': "管理者がまだチームのコネクターを設定していません。使っているアプリの追加を管理者に依頼してください。",
   'connectors.results': "検索結果",
   'connectors.showLess': "折りたたむ",
+  'connectors.addressLine': "アドレス: {address}",
   'connectors.toolsAfter': "接続するとツールがここに表示されます。",
   'connectors.byLine': "提供元: {name} · {line}",
   'connectors.page.help': "ヘルプ",
