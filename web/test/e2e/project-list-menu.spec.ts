@@ -1,6 +1,7 @@
 // The "…" on each card of the Projects list (이름 바꾸기, 링크 복사, 삭제 with the project page's own confirm), and
 // "프로젝트로 옮기기…" in a chat row's "…" in the sidebar (the phone's drawer), which a shared project chat never offers.
-// At 1440 and 390 px wide (a touch phone: the card's "…" always shows and opens a bottom sheet), with axe on each screen.
+// The cards' "…" at 1440 px (a phone's 프로젝트 tab has plain rows without one); the chat row's move at 1440 and 390
+// px (a touch phone: a bottom sheet), with axe on each screen.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -56,7 +57,10 @@ async function openCard(page: Page, name: string, phone: boolean) {
 }
 
 for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', phone: true, use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
-  test.describe(`the Projects list menu at ${vp.name}`, () => {
+  // a phone's 프로젝트 tab is the plain list of rows (panels/ProjectsPanel.tsx ProjectsList; docs/DECISIONS.md "Projects:
+  // a place of their own"): no card and no "…" there (rename, members and delete are on the project's page), so the
+  // cards' menu is a computer's only
+  if (!vp.phone) test.describe(`the Projects list menu at ${vp.name}`, () => {
     test.use(vp.use)
 
     test('rename from the list: the small prompt with the name in it, and the card shows the new name', async ({ page }) => {
@@ -284,7 +288,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 // Members and Delete; deleting moves it to the trash (the card stays and says so), deleting again is for good; a team
 // project nobody active is in says "남은 멤버 없음"; its instructions do not come, so the card says "멤버만 내용을 볼 수
 // 있어요." with a lock, never "지침이 없어요.". SHOTS_DIR set: the list as an admin who is not in it, as a picture.
-for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', phone: true, use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
+// (a computer's cards only: a phone's 프로젝트 tab lists plain rows without a "…", see above)
+for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }]) {
   test.describe(`a project the owner is not in, on the list at ${vp.name}`, () => {
     test.use(vp.use)
 

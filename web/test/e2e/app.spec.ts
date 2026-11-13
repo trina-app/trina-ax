@@ -29,19 +29,17 @@ test('a new server version offers a reload', async ({ page }) => {
   await expect(page.getByRole('button', { name: '새로 고침' })).toBeVisible()
 })
 
-test('projects: create a team project, open a chat in it', async ({ page }) => {
+test('projects: make a project by its name, open a chat in it', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await openTrinaRow(page, 'projects')
   await page.getByTestId('project-new').click()
-  await page.getByTestId('project-name').fill('Launch')
-  // no folder to choose: a team project is a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/")
-  await expect(page.getByTestId('project-kind-team')).toBeChecked()
+  // the name only (docs/DECISIONS.md "Making a project"): no kind, no folder, no instructions to fill first
+  await expect(page.getByTestId('project-kind-team')).toHaveCount(0)
   await expect(page.getByTestId('project-folder')).toHaveCount(0)
-  await page.getByRole('dialog').getByLabel('지침').fill('Answer in short bullet points.')
-  await page.getByTestId('project-save').click()
+  await page.getByTestId('project-name').fill('Launch')
+  await page.getByTestId('project-create').click()
   await expect(page.getByRole('heading', { name: 'Launch' })).toBeVisible()
-  await expect(page.getByText('Answer in short bullet points.')).toBeVisible()
   // the project's page has the box that starts a chat in it
   await page.getByTestId('composer-input').fill('project question')
   await page.getByTestId('send').click()

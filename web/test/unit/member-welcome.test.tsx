@@ -234,14 +234,14 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone: the same card at the top of 트리나\'s list, without a frame, 44 px targets', async () => {
+  test('a phone: the same card at the top of Home (the 트리나 tab), without a frame, 44 px targets', async () => {
     signIn()
     phoneWidth()
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
-      // on a phone / is 트리나's list (panels/PhoneTrinaHome.tsx): the card is on top there
-      expect(m.get('phone-trina-home').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
+      // on a phone / is Home, the 트리나 tab: the card is the one thing on its top
+      expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
       expect(m.get('member-welcome').getAttribute('class')).toContain('md:border')
       expect(m.get('member-welcome').getAttribute('class')).not.toMatch(/(^| )border( |$)/)
       for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])

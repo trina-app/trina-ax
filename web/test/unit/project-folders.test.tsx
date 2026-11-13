@@ -65,13 +65,15 @@ describe('the project dialog', () => {
 
 describe('the chat and its project', () => {
   test('the move dialog lists no project and every project the person sees, with the current one chosen', () => {
-    const list = [project('p1', 'Acme launch', 'shared/acme-launch'), project('p2', 'Acme notes', '')]
+    const list = [project('p1', 'Acme launch', 'shared/acme-launch'), project('p2', 'Acme notes', 'users/u1/acme-notes')]
     const radios = (html: string) => [...html.matchAll(/<input type="radio"[^>]*>/g)].map((m) => m[0])
     const inP1 = inRouter(<ProjectChoices projects={list} selected="p1" onSelect={() => {}} />)
     expect(radios(inP1).map((r) => r.includes('checked=""'))).toEqual([false, true, false])
     expect(inP1).toContain(translate('en', 'chat.project.none'))
-    expect(inP1).toContain('shared/acme-launch')
-    expect(inP1).toContain(translate('en', 'files.root'))
+    // who sees it, not its folder (docs/DECISIONS.md "Making a project")
+    expect(inP1).not.toContain('shared/acme-launch')
+    expect(inP1).not.toContain('users/u1')
+    expect(inP1).toContain(`>${translate('en', 'projects.meta.me')}<`)
     const none = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} />)
     expect(radios(none).map((r) => r.includes('checked=""'))).toEqual([true, false, false])
   })
@@ -85,7 +87,7 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })

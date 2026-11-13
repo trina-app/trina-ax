@@ -112,9 +112,7 @@ export function welcomeFlowCases() {
     await expect(page.getByTestId('welcome')).toHaveCount(0)
   })
 
-  // a phone's `/` is the 트리나 tab's list (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나"): its setup row on top is
-  // the way back to the steps there (components/onboarding/SetupRow.tsx), as Home's row was
-  test('나중에 leaves the steps for the 트리나 list; its setup row resumes with the steps before under the one it opens (n/4 there too)', async ({ page }) => {
+  test('나중에 leaves the steps for Home; Home\'s row resumes with the steps before under the one it opens (n/4 there too)', async ({ page }) => {
     await newOwner(page)
     await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
     await page.getByTestId('skills-later').click()
@@ -122,8 +120,8 @@ export function welcomeFlowCases() {
     await page.getByTestId('welcome-bar-later').click()
     await expect(page).toHaveURL(/\/$/)
     await expect(tabBar(page)).toBeVisible()
-    // nothing was recorded by 나중에: 팀 파일 is still open, and the list's setup row counts the phone's four
-    const row = page.getByTestId('setup-row-link')
+    // nothing was recorded by 나중에: 팀 파일 is still open, and Home's row counts the phone's four
+    const row = page.getByTestId('welcome-resume-link')
     await expect(row).toContainText('/4')
     await row.click()
     await stepIs(page, 'files')

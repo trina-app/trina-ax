@@ -18,8 +18,10 @@ describe('where Back goes', () => {
     // 파일: its places are a root like the others; Android's Back goes to 트리나 from there
     expect(appNavOf(entry('files', 2, 2, '/files'), '/files', true)).toEqual({ canGoBack: false, home: false })
     expect(appNavOf(entry('me', 1, 1, '/settings'), '/settings', true)).toEqual({ canGoBack: false, home: false })
-    // an entry kept from the old 프로젝트 tab takes its first screen's tab: 모든 프로젝트 is 트리나's
-    expect(appNavOf(entry('projects', 2, 2, '/projects'), '/projects', true)).toEqual({ canGoBack: false, home: true })
+    // 프로젝트's list is a root like the others; Android's Back goes to 트리나 from there
+    expect(appNavOf(entry('projects', 2, 2, '/projects'), '/projects', true)).toEqual({ canGoBack: false, home: false })
+    // an entry kept from the old 프로젝트 tab (its first screen the team folder) takes that screen's tab
+    expect(appNavOf(entry('projects', 2, 2, '/files'), '/files', true)).toEqual({ canGoBack: false, home: false })
   })
 
   test('a folder under 파일\'s places goes back to them, then nowhere', () => {

@@ -442,7 +442,7 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
 })
 
 describe('share and delete', () => {
-  test('sharing a personal project makes projects/<name> with participants and copies the files; nowhere else', async () => {
+  test('sharing a personal project makes projects/<name> with participants and moves the files (the personal folder to the trash); nowhere else', async () => {
     const own = await create('alice', { name: '보고서', scope: 'personal' })
     write(`${own.folderPath}/draft.md`, '# draft')
     write(`${own.folderPath}/img/a.txt`, 'a')
@@ -459,7 +459,8 @@ describe('share and delete', () => {
     expect(r.body.folderPath).toBe('projects/보고서')
     expect(fs.readFileSync(path.join(A.team, 'projects/보고서/draft.md'), 'utf8')).toBe('# draft')
     expect(fs.readFileSync(path.join(A.team, 'projects/보고서/img/a.txt'), 'utf8')).toBe('a')
-    expect(fs.existsSync(path.join(A.team, own.folderPath, 'draft.md'))).toBe(true)
+    // the files moved: the personal folder went to alice's trash (docs/DECISIONS.md "Making a project")
+    expect(fs.existsSync(path.join(A.team, own.folderPath, 'draft.md'))).toBe(false)
     expect(rulesAt('projects/보고서')).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'alice', a: 'write' }, { t: 'user', s: 'erin', a: 'write' }])
     expect(await listed('erin', own.id)).toBe(true)
     expect(await listed('bob', own.id)).toBe(false)

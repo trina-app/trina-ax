@@ -172,8 +172,8 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
     expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
     expect(c.width).toBeLessThan(main.width - 200)
     await page.setViewportSize({ width: 390, height: 760 })
-    // a phone's Projects is rows from edge to edge under the phone's bar, without the page header (TC-380)
-    const phoneColumn = path === '/skills' ? column : page.getByTestId('project-rows')
+    // a phone's Projects is the 프로젝트 tab's list from edge to edge under the phone's bar, without the page header
+    const phoneColumn = path === '/skills' ? column : page.getByTestId('phone-projects-list')
     expect(Math.round((await phoneColumn.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
 })
@@ -303,8 +303,9 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   // the ⋯ menu has the chat's actions (a pin first, then its link; a chat of my own outside a project: the move too)
   await row.hover()
   await more.click()
-  // the new navigation's lists have folders: "Move to folder" before the project's move
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['navFolders.moveTo'], t['chat.project.add'], t['common.delete']])
+  // the Trina list has no folders any more: no "Move to folder", the project's move instead
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
+  await expect(page.getByTestId('row-folder-move')).toHaveCount(0)
 })
 
 test('no quick view on a touch screen; the filter is on the 트리나 tab', async ({ browser }) => {

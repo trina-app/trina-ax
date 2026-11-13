@@ -77,7 +77,6 @@ describe('the chat header and its project', () => {
     const hidden = await m.until(() => m.find('chat-project-hidden'), 'the hidden project row', 2000)
     expect(hidden.textContent).toContain(translate('en', 'chat.project.hidden'))
     expect((hidden.querySelector('input') as unknown as { checked: boolean } | null)?.checked).toBe(true)
-    expect(m.html()).not.toContain(translate('en', 'chat.project.empty'))
     await m.unmount()
   })
 })

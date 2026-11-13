@@ -26,7 +26,7 @@ import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
 import { Tooltip } from '../Tooltip'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelLabel, panelRow } from './PanelFrame'
+import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 
 /** while the unread ones are not all loaded, this many older pages are read by themselves */
 const AUTO_PAGES = 9
@@ -204,10 +204,9 @@ export function ActivityPanel() {
       {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
       {old.length > 0 && (
-        <section aria-labelledby="activity-panel-read" data-testid="activity-panel-read">
-          <PanelLabel id="activity-panel-read" testId="activity-panel-label">{t('activity.read')}</PanelLabel>
+        <PanelSection id="activity-panel-read" foldKey="activity:read" label={t('activity.read')} count={old.length} labelTestId="activity-panel-label" data-testid="activity-panel-read">
           <ul>{old.map(row)}</ul>
-        </section>
+        </PanelSection>
       )}
       {cursor && items && (
         <button type="button" onClick={() => void load(cursor)} disabled={paging} className={clsx(panelRow, 'text-xs text-muted')} data-testid="activity-panel-more">

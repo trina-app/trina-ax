@@ -1,5 +1,6 @@
 // One row of the AI's history and its hover quick view: every list of AI chats draws the same row (the Trina list,
-// panels/TrinaList.tsx, and the filtered history, nav/HistoryList.tsx).
+// panels/TrinaList.tsx, and the filtered history, nav/HistoryList.tsx). In 최근 기록 a project's chat names its project
+// at the row's end (`projectTag`).
 import clsx from 'clsx'
 import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -13,20 +14,20 @@ import { needsMe } from '../../lib/sessionMarkers'
 import { sharedRights } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
+import { useProjects } from '../../store/projects'
 import { useRooms } from '../../store/rooms'
 import { useChatMenuItems } from '../chat/chatMenuItems'
 import { SharedIcon } from '../chat/SharedChat'
 import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
-import { dragRow, useFolderRowItems } from './NavFolders'
 import { useRoomTitle } from '../rooms/RoomIcon'
 
 /** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
  * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
  * a phone, the chat's title on top; the finger lifting opens no chat, and starts no text selection). Every row has it:
  * "상단에 고정" / "고정 해제" is anyone's who sees the chat. A pinned row has a pin before its title. */
-export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
+export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
   // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx)
@@ -40,10 +41,12 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
-  // 폴더로 옮기기 / 폴더에서 빼기 among its items, and a mouse may drag it onto a folder (a project's chat stays in its
-  // project: the item is off and says why; a room's side chat is in no list folder)
-  const folder = useFolderRowItems({ on: !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId || !!chat.shared, more })
-  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: folder.items })
+  // `projectTag` (트리나's 최근 기록, a flat list): the project the chat is in, small and grey at the row's end, only a
+  // project I see now (one I no longer see is never named)
+  const project = useProjects((s) => (projectTag && chat.projectId && (!s.listed || s.listed.has(chat.projectId)) ? s.byId[chat.projectId] ?? null : null))
+  // no "폴더로 옮기기": the owner dropped the Trina list's folders (2026-11-13); "프로젝트로 옮기기" is the way to keep
+  // chats together (a personal project for one's own)
+  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
 
   return (
     <li
@@ -55,7 +58,6 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       data-marker={marker?.kind}
       data-chat-id={chat.id}
       data-pinned={chat.pinnedAt ? '' : undefined}
-      {...dragRow('chats', chat.id, !chat.projectId && !chat.shared && !chat.sideRoomId)}
     >
       <NavLink
         to={`/c/${chat.id}`}
@@ -74,7 +76,9 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       >
         {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {rights.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{title}</span>
+        {/* the title wins: it keeps at least 60% of the row and the project tag (at most 40%) is cut first */}
+        <span className={clsx('truncate', project && 'min-w-[60%]')}>{title}</span>
+        {project && <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs font-normal text-faint" title={project.name} data-testid="chat-row-project">{project.name}</span>}
         {sideRoom && <span className="shrink-0 truncate text-xs font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
@@ -95,10 +99,8 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
         openRequest={menu.openRequest}
         sheetTitle={title}
         buttonRef={more}
-        footer={folder.footer}
         testId="chat-row-menu"
       />
-      {folder.picker}
     </li>
   )
 }

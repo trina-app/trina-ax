@@ -140,9 +140,12 @@ test('sharing a personal project whose skills/ holds a skill: asked first by nam
   const mine = (await pr.json()) as { id: string; folderPath: string }
   expect((await page.request.post('/__test/file', { data: { path: `${mine.folderPath}/skills/jot/SKILL.md`, text: md('jot', '메모를 정리해요') } })).ok()).toBeTruthy()
   await page.goto(`/projects/${mine.id}`)
-  await page.getByTestId('project-menu').click()
+  // 멤버 추가 (the 멤버 row of a personal project): someone to share it with, then its plain confirm
   await page.getByTestId('project-share').click()
+  await page.getByTestId('project-participants-search').fill('Bob')
+  await page.getByTestId('participant-add-user-bob').click()
   await page.getByTestId('project-share-confirm').click()
+  await page.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' }).getByTestId('dialog-confirm').click()
   // the skills that would switch on, by name, before anything is made
   const ask = page.getByRole('dialog').filter({ hasText: '프로젝트 스킬이 켜져요' })
   await expect(ask).toContainText('이 폴더의 스킬 1개가 이 프로젝트 채팅에서 AI가 따르는 스킬이 돼요: jot')

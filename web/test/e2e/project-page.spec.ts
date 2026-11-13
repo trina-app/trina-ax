@@ -33,7 +33,9 @@ test('the box on a project page starts a chat in the project, which is then list
   await expect(page.getByRole('heading', { level: 1, name: 'Launch' })).toBeVisible()
   // the instructions as one quiet line under the name, without their markdown
   await expect(page.getByTestId('project-summary')).toHaveText('Answer in short bullet points.')
-  await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트의 기록이 없어요.')
+  await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.')
+  // a new project: my chats outside projects can come in from here
+  await expect(page.getByTestId('project-import')).toBeVisible()
   // the draft is the project's: the same one as "/?project=<id>"
   await page.getByTestId('composer-input').fill('half a question')
   await page.goto(`/?project=${id}`)
@@ -161,12 +163,13 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     // Bob's project, with a file and a chat of the owner from before (her own chats stay hers)
     const made = await page.request.post('/__test/project', { data: { name: 'Falcon', by: 'bob', instructions: '# Falcon\n\nContracts only.', files: { 'plan.md': 'plan' }, chats: [['olga', 'My old notes']] } })
     const { id } = (await made.json()) as { id: string }
-    // the list: her card (a phone's row, QA TC-380), no "not a member" tag
+    // the list: her card (a phone: the 프로젝트 tab's row, itself the link), no "not a member" tag
     await page.goto('/projects')
-    const item = page.getByTestId(/^project-(card|row)$/).filter({ hasText: 'Falcon' })
+    const phone = vp.size.width < 768
+    const item = page.getByTestId(phone ? 'projects-panel-row' : 'project-card').filter({ hasText: 'Falcon' })
     await expect(item).toBeVisible()
     await expect(item).not.toContainText('멤버가 아니')
-    await item.getByRole('link').click()
+    await (phone ? item : item.getByRole('link')).click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
     const block = page.getByTestId('project-members-only')
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')

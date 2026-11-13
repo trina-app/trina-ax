@@ -14,7 +14,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatList } from './nav'
+import { chatList, showPanel } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const FOOTER_START = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.'
@@ -133,7 +133,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // safe operations (1A): the switch is off-limits and says why; a new chat in the project is a chat of one person
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
@@ -197,9 +197,13 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // his own answer is his to answer again; Olga's still is not
       await expect(b.getByTestId('assistant-message').last().getByTestId('regenerate')).toHaveCount(1)
       await expect(b.getByTestId('assistant-message').first().getByTestId('regenerate')).toHaveCount(0)
-      // now it is in his list, with the icon (computers: the sidebar)
+      // now it is in his list, with the icon (computers: 트리나's 최근 기록; opened from the project's page, 프로젝트 is the
+      // lit place, so he goes to 트리나 to see it)
       expect(((await (await b.request.get('/api/chats')).json()) as { items: { id: string }[] }).items.map((c) => c.id)).toContain(chatId)
-      if (!vp.phone) await expect(b.getByRole('link', { name: /공유 채팅.*출시 일정/ })).toBeVisible()
+      if (!vp.phone) {
+        await showPanel(b, 'trina')
+        await expect(b.getByTestId('trina-panel').getByRole('link', { name: /공유 채팅.*출시 일정/ })).toBeVisible()
+      }
 
       // Olga's screen reads the messages again when Bob's turn ends: his question with his name
       await expect(page.getByTestId('user-message')).toHaveCount(2)
@@ -429,7 +433,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page)
       await page.goto(`/projects/${id}`)
-      await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트의 기록이 없어요.')
+      await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.')
       // Bob's window, with every frame it receives kept (from its first socket on)
       const frames: string[] = []
       const b = await (await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', ...vp.use })).newPage()
@@ -676,7 +680,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const id = ((await (await post(page, '/api/projects', { name: 'Solo', scope: 'team', instructions: '' })).json()) as { id: string }).id
       expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       // the 멤버 line says the same words
       await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
       // one quiet line, on a phone too: the button is no taller than the text (its 44 px tap box is drawn outside it)
@@ -685,7 +689,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'project box, only me')
       await shots(page, 'project-only-me')
       // Olga may change the members: the line opens the dialog; Bob added (the confirm first)
-      await seenLine(page).getByRole('button', { name: '나만 봐요' }).click()
+      await seenLine(page).getByRole('button', { name: '새 채팅은 나만 볼 수 있어요.' }).click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
       await page.getByTestId('project-participants-search').fill('Bob')
       await page.getByTestId('participant-add-user-bob').click()
@@ -726,7 +730,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const own = ((await (await b.request.post('/api/projects', { headers: H, data: { name: 'Solo Bob', scope: 'team', instructions: '' } })).json()) as { id: string }).id
       expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
       await b.goto(`/projects/${own}`)
-      await expect(seenLine(b)).toHaveText('나만 봐요')
+      await expect(seenLine(b)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       await expect(b.getByTestId('project-members')).toContainText('나만 봐요')
       await expect(seenLine(b).getByRole('button')).toHaveCount(1)
       await shots(b, 'project-member-alone')

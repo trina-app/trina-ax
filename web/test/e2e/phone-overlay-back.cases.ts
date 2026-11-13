@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openSearch, openTrinaRow, phoneTrinaHome, showChats } from './nav'
+import { openSearch, openTrinaRow, phoneHome, phoneTrinaHome, showChats } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 const SORA = { id: 'sora', name: '김소라' }
@@ -159,22 +159,29 @@ export function overlayBackCases() {
   test('the 트리나 tab\'s filter: its row\'s choices (a second sheet) close with one Back, then the filter; a choice leaves no entry', async ({ page }) => {
     await reset(page)
     await signIn(page)
+    // the filter is in the history drawer (☰), itself an overlay with its own entry
     await showChats(page)
     const list = phoneTrinaHome(page)
+    await expect.poll(() => depth(page)).toBe(1)
     const filter = list.getByTestId('recents-filter')
     for (const close of ['back', 'choice'] as const) {
       await filter.click()
-      await expect.poll(() => depth(page)).toBe(1)
+      await expect.poll(() => depth(page)).toBe(2)
       await page.getByRole('menu').getByRole('menuitem').first().click()
       const choices = page.getByRole('menuitemradio')
       await expect(choices.first()).toBeVisible()
-      await expect.poll(() => depth(page)).toBe(1)
+      await expect.poll(() => depth(page)).toBe(2)
       if (close === 'back') await back(page)
       else await choices.first().click()
       await expect(page.getByRole('menu')).toHaveCount(0)
+      // the drawer stays, with its one entry
       await expect(list).toBeVisible()
-      await settled(page)
+      await expect.poll(() => depth(page)).toBe(1)
     }
+    // one more Back closes the drawer: Home, no overlay left
+    await back(page)
+    await expect(list).toHaveCount(0)
+    await settled(page)
     await expect(page).toHaveURL(/\/$/)
     expect(await depth(page)).toBe(0)
   })
@@ -228,12 +235,12 @@ export function overlayBackCases() {
     await expect(page).toHaveURL(/\/scheduled$/)
     await page.getByTestId('new-task-phone').click()
     await page.getByTestId('new-task-chat').click()
-    // the new-chat box: a phone's is /new (lib/newChat.ts newChatPath)
-    await expect(page).toHaveURL(/\/new$/)
+    // the new-chat box: Home (`/`, lib/newChat.ts newChatPath)
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('composer-input')).toBeVisible()
     // nothing goes one entry too far a moment later (two backs at once)
     await page.waitForTimeout(1200)
-    await expect(page).toHaveURL(/\/new$/)
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('composer-input')).toBeVisible()
     expect(await onOverlay(page)).toBe(false)
   })
@@ -270,7 +277,7 @@ export function overlayBackCases() {
     await back(page)
     await expect(search).toHaveCount(0)
     await expect(page).toHaveURL(/\/$/)
-    await expect(phoneTrinaHome(page)).toBeVisible()
+    await expect(phoneHome(page)).toBeVisible()
     await back(page)
     await expect(page).toHaveURL(/\/rooms$/)
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -286,7 +293,7 @@ export function overlayBackCases() {
     expect(await historyLength(page)).toBeLessThanOrEqual(start + 1)
     await back(page)
     await expect(page).toHaveURL(/\/$/)
-    await expect(phoneTrinaHome(page)).toBeVisible()
+    await expect(phoneHome(page)).toBeVisible()
     expect(await onOverlay(page)).toBe(false)
   })
 

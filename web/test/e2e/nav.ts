@@ -1,15 +1,16 @@
-// How a test moves around the app (docs/AGENTS/plan/20261112-1839-nav-rail.md, phases P6–P7): the rail with one list
-// panel at a time on computers (트리나 · 대화 · 파일 · 활동; the team's logo on top, my photo at the bottom) and the phone's
-// tabs 트리나 · 대화 · 파일 · 나 (the 트리나 tab is the list, its floating "트리나에게 묻기" opens /new).
+// How a test moves around the app (docs/AGENTS/plan/20261112-1839-nav-rail.md, phases P6–P7; docs/DECISIONS.md "Projects:
+// a place of their own", "Phones: the 트리나 tab as before the redesign"): the rail with one list panel at a time on
+// computers (트리나 · 대화 · 프로젝트 · 파일 · 활동; the team's logo on top, my photo at the bottom) and the phone's tabs
+// 트리나 · 대화 · 프로젝트 · 파일 · 나 (the 트리나 tab is Home's message box, its ☰ opens the history drawer).
 //
 // A spec never uses a navigation selector itself (no `rail-*`, panel, `sidebar-*`, `recents-*`, `trina-*` or `tab-*`
 // ids): it asks here, and this file is the one place that knows where each thing is. When an id changes, adapt it here.
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export type Place = 'trina' | 'chats' | 'files' | 'activity'
+export type Place = 'trina' | 'chats' | 'projects' | 'files' | 'activity'
 
 /** the rail's ids (lib/rail.ts RailItem) */
-const RAIL: Record<Place, 'ai' | 'chats' | 'files' | 'activity'> = { trina: 'ai', chats: 'chats', files: 'files', activity: 'activity' }
+const RAIL: Record<Place, 'ai' | 'chats' | 'projects' | 'files' | 'activity'> = { trina: 'ai', chats: 'chats', projects: 'projects', files: 'files', activity: 'activity' }
 
 /** below 768 px the app is the phone's layout (components/Layout.tsx) */
 export const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1360) < 768
@@ -21,7 +22,7 @@ export const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1360) < 76
 export const railButton = (page: Page, place: Place) => page.getByTestId(`rail-${RAIL[place]}`)
 
 /** The list panel of a place beside the rail (components/panels/*). */
-export const panel = (page: Page, place: Place) => page.getByTestId(place === 'trina' ? 'trina-panel' : place === 'chats' ? 'chats-panel' : place === 'files' ? 'files-panel' : 'activity-panel')
+export const panel = (page: Page, place: Place) => page.getByTestId(place === 'trina' ? 'trina-panel' : `${place}-panel`)
 
 /** Make a place the lit one so its list shows (a press on the rail only when another place is lit: pressing the lit
  * one would go to its start); a list hidden by its own button (below 1052 px) comes back. Returns its panel. */
@@ -40,15 +41,15 @@ export async function showPanel(page: Page, place: Place): Promise<Locator> {
 // ---------------------------------------------------------------------------------------------------------------------
 // phones: the tabs
 
-/** A phone's tab: 트리나 · 대화 · 파일 · 나. */
-export type PhoneTab = 'ai' | 'chats' | 'files' | 'me'
+/** A phone's tab: 트리나 · 대화 · 프로젝트 · 파일 · 나. */
+export type PhoneTab = 'ai' | 'chats' | 'projects' | 'files' | 'me'
 
-/** The tab that holds a place (to check it is the lit one): projects are in the 트리나 tab. The 나 list draws its own
- * bar over the page's: the last one is the one on show. */
-export const tabButton = (page: Page, which: PhoneTab | 'projects') => page.getByTestId(`tab-${which === 'projects' ? 'ai' : which}`).last()
+/** A phone tab's button (to check it is the lit one). The 나 list draws its own bar over the page's: the last one is
+ * the one on show. */
+export const tabButton = (page: Page, which: PhoneTab) => page.getByTestId(`tab-${which}`).last()
 
-/** Press a phone tab. The bar shows on a tab's root and its pages, not on /new, inside a room or a chat: from there the
- * page's ‹ first, as a person does. */
+/** Press a phone tab. The bar shows on a tab's root and its pages, not inside a room or a chat: from there the page's ‹
+ * first, as a person does. */
 export async function openTab(page: Page, tab: PhoneTab) {
   const button = tabButton(page, tab)
   const back = page.getByTestId('topbar-back').or(page.getByTestId('chat-back')).or(page.getByTestId('room-back')).first()
@@ -65,23 +66,28 @@ export const tabMark = (page: Page, tab: PhoneTab) => page.getByTestId(`tab-${ta
 /** The mark for the AI chats on a phone: on the 트리나 tab. */
 export const phoneAiMark = (page: Page) => page.getByTestId('tab-ai-mark')
 
-/** The 트리나 tab's root: its list and the floating "트리나에게 묻기". */
-export const phoneTrinaHome = (page: Page) => page.getByTestId('phone-trina-home')
+/** The 트리나 tab's history drawer (☰ on Home, components/phone/TrinaDrawer.tsx): 검색, 예약 작업, 팀 스킬, the history,
+ * my status and 삭제한 기록. `openPhoneDrawer` (or `showChats`) opens it. */
+export const phoneTrinaHome = (page: Page) => page.getByTestId('trina-drawer')
 
-/** The projects list on a phone: the 트리나 tab's "모든 프로젝트". */
-export async function openProjectsTab(page: Page) {
-  await openTab(page, 'ai')
-  await allProjects(page, phoneTrinaHome(page))
-  await expect(page).toHaveURL(/\/projects$/)
+/** The 트리나 tab's root, Home (its ☰; to check a step back lands there). */
+export const phoneHome = (page: Page) => page.getByTestId('menu-open')
+
+/** The 트리나 tab with its drawer open (Home's ☰): returns the drawer. */
+export async function openPhoneDrawer(page: Page): Promise<Locator> {
+  const drawer = phoneTrinaHome(page)
+  if (await drawer.isVisible()) return drawer
+  const menu = page.getByTestId('menu-open')
+  if (!(await menu.isVisible())) await openTab(page, 'ai')
+  await menu.click()
+  await expect(drawer).toBeVisible()
+  return drawer
 }
 
-/** The 트리나 list's way to every project: "모든 프로젝트 (N)"; with no project yet the list draws no such row, and the
- * projects page is where "+ 새 프로젝트" leads. */
-async function allProjects(page: Page, scope: Locator) {
-  const all = scope.getByTestId('trina-all-projects')
-  await expect(all.or(scope.getByTestId('trina-new-project')).first()).toBeVisible()
-  if (await all.isVisible()) await all.click()
-  else await page.goto('/projects')
+/** The projects list on a phone: the 프로젝트 tab. */
+export async function openProjectsTab(page: Page) {
+  await openTab(page, 'projects')
+  await expect(page).toHaveURL(/\/projects$/)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -103,60 +109,61 @@ export async function openPlace(page: Page, place: Place) {
   await expect(button).toHaveAttribute('aria-current', 'page')
 }
 
-/** "트리나에게 묻기": a new AI chat, waiting for its message box. */
+/** "트리나에게 묻기": a new AI chat, waiting for its message box (a phone: the 트리나 tab, Home's box itself). */
 export async function openNewChat(page: Page) {
-  await (await newChatButton(page)).click()
+  if (isPhone(page)) await openTab(page, 'ai')
+  else await (await newChatButton(page)).click()
   await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
-/** The "트리나에게 묻기" button, its list shown first (the 트리나 panel's top row; the 트리나 tab's floating button). */
+/** The "트리나에게 묻기" button, its list shown first (the 트리나 panel's top row). Computers only: a phone's 트리나 tab is
+ * the new chat's box itself. */
 export async function newChatButton(page: Page): Promise<Locator> {
-  if (isPhone(page)) {
-    await openTab(page, 'ai')
-    return phoneTrinaHome(page).getByTestId('new-chat')
-  }
   return (await showPanel(page, 'trina')).getByTestId('new-chat')
 }
 
-/** Search (⌘K's palette): the 트리나 panel's 검색, the 트리나 tab's 🔍. */
+/** Search (⌘K's palette): the 트리나 panel's 검색, the 트리나 tab's drawer's 검색. */
 export async function openSearch(page: Page) {
   if (isPhone(page)) {
-    await openTab(page, 'ai')
-    await phoneTrinaHome(page).getByTestId('topbar-search').click()
+    await (await openPhoneDrawer(page)).getByTestId('drawer-search').click()
     return
   }
   await (await showPanel(page, 'trina')).getByTestId('nav-search').click()
 }
 
-/** The 트리나 list's own rows: 예약 작업, 팀 스킬, 삭제한 기록 at its end, and 모든 프로젝트. */
+/** The AI's own pages: 예약 작업 and 팀 스킬 (the 트리나 panel's top; the drawer's), 삭제한 기록 (최근 기록's "⋯" on a
+ * computer; the drawer's last row on a phone), and every project ('projects': 프로젝트's own place, the rail or the tab). */
 export async function openTrinaRow(page: Page, row: 'scheduled' | 'skills' | 'trash' | 'projects') {
+  if (row === 'projects') {
+    if (isPhone(page)) await openProjectsTab(page)
+    else await showPanel(page, 'projects')
+    return
+  }
   if (isPhone(page)) {
-    if (row === 'projects') return openProjectsTab(page)
-    await openTab(page, 'ai')
-    await phoneTrinaHome(page).getByTestId(`nav-${row}`).click()
+    await (await openPhoneDrawer(page)).getByTestId(`nav-${row}`).click()
     return
   }
   const p = await showPanel(page, 'trina')
-  if (row === 'projects') await allProjects(page, p)
-  else await p.getByTestId(`nav-${row}`).click()
+  if (row === 'trash') {
+    await p.getByTestId('trina-recent-menu').click()
+    await page.getByTestId('nav-trash').click()
+  } else await p.getByTestId(`nav-${row}`).click()
 }
 
-/** One of those rows (to check it is the lit one). */
-export async function trinaRowLink(page: Page, row: 'scheduled' | 'skills' | 'trash'): Promise<Locator> {
-  if (isPhone(page)) {
-    await openTab(page, 'ai')
-    return phoneTrinaHome(page).getByTestId(`nav-${row}`)
-  }
+/** 예약 작업's or 팀 스킬's row (to check it is the lit one): the 트리나 panel's, a phone's drawer's. */
+export async function trinaRowLink(page: Page, row: 'scheduled' | 'skills'): Promise<Locator> {
+  if (isPhone(page)) return (await openPhoneDrawer(page)).getByTestId(`nav-${row}`)
   return (await showPanel(page, 'trina')).getByTestId(`nav-${row}`)
 }
 
-/** Show the AI's history (the 트리나 panel; the 트리나 tab's list). Then `navChatList`, `navChatRow`. */
+/** Show the AI's history (the 트리나 panel; the 트리나 tab's drawer). Then `navChatList`, `navChatRow`. */
 export async function showChats(page: Page) {
-  if (isPhone(page)) await openTab(page, 'ai')
+  if (isPhone(page)) await openPhoneDrawer(page)
   else await showPanel(page, 'trina')
 }
 
-/** The AI's history list (`showChats` first): the Trina list, or its filtered view while a filter is on. Chat rows
+/** The AI's history list (`showChats` first): the Trina list, its filtered view while a filter is on, or a phone
+ * drawer's history. Chat rows
  * inside are `li` with a link to `/c/<id>`. */
 export const navChatList = (page: Page) => page.getByTestId('trina-list').or(page.getByTestId('recents-list'))
 
@@ -179,7 +186,7 @@ export async function chatRow(page: Page, chat: { id: string } | { title: string
 /** The pinned chats' rows in the AI's history (the 트리나 list's 고정 section; most recently pinned first). */
 export const pinnedChats = (page: Page) => navChatList(page).locator('li[data-pinned]')
 
-/** The history's filter (status, last activity, group by, sort): the 트리나 panel's header button, the 트리나 tab's.
+/** The history's filter (status, last activity, group by, sort): the 트리나 panel's header button, the drawer's.
  * Opens its menu; its items are `recents-view-*` and `recents-<view>-<choice>`. */
 export async function openChatFilter(page: Page) {
   await showChats(page)

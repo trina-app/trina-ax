@@ -1,15 +1,15 @@
-// The phone's four tabs (below 768 px; components/BottomTabs.tsx) and where each address belongs (docs/DECISIONS.md
-// "Phone tabs: 트리나 · 대화 · 파일 · 나"): 트리나 (the Trina list first: pinned, folders, projects, other chats, and every
-// project behind 모든 프로젝트; a new chat is /new), 대화 (rooms, DMs and group chats), 파일 (the team folder's places:
+// The phone's five tabs (below 768 px; components/BottomTabs.tsx) and where each address belongs (docs/DECISIONS.md
+// "Phone tabs: 트리나 · 대화 · 파일 · 나", "Projects: a place of their own"): 트리나 (the Trina list first: pinned, folders,
+// recent chats; a new chat is /new), 대화 (rooms, DMs and group chats), 프로젝트 (every project and its page), 파일 (the team folder's places:
 // recent files, team and project folders, 내 파일, the trash) and 나 (Settings, with 활동 and the team's row). The app
 // opens on START_TAB: one line to change. A saved entry with a tab that is gone takes its first screen's tab
-// (screenHistory.ts knownTab): a project → 트리나, the team folder → 파일.
+// (screenHistory.ts knownTab): the team folder → 파일.
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /** The bar's tabs, in its order. */
-export const PHONE_TABS = ['ai', 'chats', 'files', 'me'] as const
+export const PHONE_TABS = ['ai', 'chats', 'projects', 'files', 'me'] as const
 export type Tab = (typeof PHONE_TABS)[number]
 /** Is this one of the bar's tabs (an entry saved under a tab that is gone is not). */
 export const isTabNow = (tab: string): tab is Tab => (PHONE_TABS as readonly string[]).includes(tab)
@@ -18,7 +18,7 @@ export const isTabNow = (tab: string): tab is Tab => (PHONE_TABS as readonly str
 export const START_TAB: Tab = 'ai'
 
 /** each tab's own list, where its ‹ falls back to and where the tab bar's button goes */
-export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', files: '/files', me: '/settings' }
+export const TAB_ROOT: Record<Tab, string> = { ai: '/', chats: '/rooms', projects: '/projects', files: '/files', me: '/settings' }
 
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`)
 
@@ -29,8 +29,9 @@ const AI_PAGES = ['/scheduled', '/skills', '/trash', '/connectors/authorize']
 export function tabOf(path: string): Tab | null {
   if (path === '/' || path.startsWith('/c/') || AI_PAGES.some((p) => under(path, p))) return 'ai'
   if (under(path, '/rooms')) return 'chats'
-  // the new chat's own page (/new), and the projects: 트리나's list has them
-  if (path === '/new' || under(path, '/projects')) return 'ai'
+  // the new chat's own page (/new)
+  if (path === '/new') return 'ai'
+  if (under(path, '/projects')) return 'projects'
   if (under(path, '/files')) return 'files'
   // Connectors' old addresses open Settings › Connectors (App.tsx)
   if (under(path, '/settings') || under(path, '/admin') || under(path, '/activity') || under(path, '/connectors')) return 'me'

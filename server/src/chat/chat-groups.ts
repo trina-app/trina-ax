@@ -105,12 +105,23 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     .slice(0, CHAT_GROUPS_PROJECTS_MAX)
   const shown = recent.map((g) => ({ projectId: g.id, name: projects.get(g.id)!.name, lastActivityAt: view(g.rows[0]!).updatedAt, folded: g.at < foldBefore, ...head(g.rows) }))
 
+  // every project I can see with chats of my list, pinned ones too (the 프로젝트 panel's meta line)
+  const activity = new Map<string, { count: number; at: ChatRow }>()
+  for (const r of chats) {
+    if (!r.project_id || !projects.has(r.project_id)) continue
+    const a = activity.get(r.project_id)
+    if (a) a.count++
+    else activity.set(r.project_id, { count: 1, at: r })
+  }
+  const projectActivity = [...activity.entries()].map(([projectId, a]) => ({ projectId, count: a.count, lastActivityAt: view(a.at).updatedAt }))
+
   return {
     pinned: pinned.map(view),
     folders,
     projects: shown,
     projectsMore: Math.max(0, projects.size - shown.length),
     other: otherPage(rt, me, other, undefined, OTHER_PAGE, view),
+    projectActivity,
   }
 }
 

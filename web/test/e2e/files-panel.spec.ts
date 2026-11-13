@@ -18,8 +18,10 @@ const panel = (page: Page) => page.getByTestId('files-panel')
 
 test('the places: 최근 파일, the team\'s top folders, project folders, 내 파일, 휴지통; the one on screen is marked', async ({ page }) => {
   await start(page)
-  await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: '출시 준비' } })
+  await page.request.post('/api/projects', { headers: { [CSRF_HEADER]: '1' }, data: { name: '출시 준비', scope: 'team' } })
   await page.request.post('/__test/file', { data: { path: 'marketing/캠페인 시안.md', text: '# 시안' } })
+  // made over the API after the 트리나 list read the projects (its rows' project tags): read again
+  await page.reload()
   await page.getByTestId('rail-files').click()
   await expect(panel(page)).toBeVisible()
   await expect(page.getByTestId('rail-files')).toHaveAttribute('aria-current', 'page')

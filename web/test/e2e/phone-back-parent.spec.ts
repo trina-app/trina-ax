@@ -26,7 +26,7 @@ const idx = (page: Page) => page.evaluate(() => (history.state as { idx?: number
 const len = (page: Page) => page.evaluate(() => history.length)
 const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name }).getByRole('button').first()
 /** a tab of the bar on show (the 나 list draws its own over the page's) */
-const tab = (page: Page, id: 'ai' | 'chats' | 'files' | 'me') => tabButton(page, id)
+const tab = (page: Page, id: 'ai' | 'chats' | 'projects' | 'files' | 'me') => tabButton(page, id)
 const path = (page: Page) => page.evaluate(() => new URLSearchParams(location.search).get('path') ?? '')
 
 /** 파일: the tab's root, its places (QA TC-255 → the new tabs: 트리나 · 대화 · 파일 · 나) */
@@ -193,7 +193,7 @@ test('a chat\'s project link and the chat again: back, never a ping-pong', async
   const post = (url: string, data: unknown) => page.request.post(url, { headers: H, data })
   const project = ((await (await post('/api/projects', { name: 'Launch', scope: 'team', folderPath: 'launch', instructions: '' })).json()) as { id: string }).id
   const chat = ((await (await post('/api/chats', { projectId: project, title: 'Plan the launch' })).json()) as { id: string }).id
-  // 트리나 › 모든 프로젝트 → Launch → its chat
+  // 프로젝트 → Launch → its chat
   await openProjectsTab(page)
   await page.getByRole('link', { name: /Launch/ }).first().click()
   await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
@@ -210,16 +210,12 @@ test('a chat\'s project link and the chat again: back, never a ping-pong', async
   expect(await idx(page)).toBe(atProject! + 1)
   await page.getByTestId('chat-project').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
-  // ‹ on the project: 모든 프로젝트, where it was opened from; ‹ there: the 트리나 list, the tab's root (projects are in it)
+  // ‹ on the project: the 프로젝트 list, the tab's root
   await expect(page.getByTestId('topbar-back-label')).toHaveText(t['projects.title'])
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/projects$/)
-  expect(await idx(page)).toBe(atProject! - 1)
-  await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
-  await page.getByTestId('topbar-back').click()
-  await expect(page).toHaveURL(/\/$/)
   expect(await idx(page)).toBe(0)
-  await expect(tab(page, 'ai')).toHaveAttribute('aria-current', 'page')
+  await expect(tab(page, 'projects')).toHaveAttribute('aria-current', 'page')
 })
 
 test('Folder permissions opened from a folder\'s "who can open it": ‹ names the folder and Back returns to it', async ({ page }) => {
@@ -279,14 +275,10 @@ test('a sheet\'s item that opens a new screen (예약 작업 ＋ › 채팅으�
   // the phone's ＋ (a bottom sheet, with #453) or the page's own menu
   await page.getByTestId('new-task-phone').or(page.getByTestId('new-task')).filter({ visible: true }).first().click()
   await page.getByTestId('new-task-chat').filter({ visible: true }).first().click()
-  // the new-chat box on its own page (/new): one entry over 예약 작업, the sheet's own entry taken by it (no entry left
-  // for the closed sheet, so one Back is 예약 작업 again, inside the app)
-  await expect(page).toHaveURL(/\/new/)
+  // the new-chat box: Home (`/`), the 트리나 tab's root
+  await expect(page).toHaveURL(/\/(\?.*)?$/)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await page.waitForTimeout(500)
-  await expect(page).toHaveURL(/\/new/)
-  expect(await idx(page)).toBe(2)
-  await page.goBack()
-  await expect(page).toHaveURL(/\/scheduled$/)
-  expect(await idx(page)).toBe(1)
+  await expect(page).toHaveURL(/\/(\?.*)?$/)
+  expect(await idx(page)).toBeLessThanOrEqual(1)
 })

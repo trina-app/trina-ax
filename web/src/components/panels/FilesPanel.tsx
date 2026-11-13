@@ -1,7 +1,7 @@
 // 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
 // Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
 // 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
-// shows them: 전사 공유, 부서, 팀 스킬, then the others), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
+// shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
 // own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
 // place on screen is marked: the deepest place the open folder is in.
 // The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { SKILLS_DIR } from '@mycel/shared/skill-roots'
 import type { FileEntry } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API } from '../../lib/api'
@@ -23,13 +24,15 @@ import { TEAM_TOP_ON_PHONE } from '../../lib/newChat'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelLabel, panelRow } from './PanelFrame'
+import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 
 /** the team folder's top on a phone with the new tabs, where /files is these places (pages/Files.tsx, lib/screens.ts) */
 export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
 
-/** the top folders shown in their own sections instead (프로젝트 폴더, 내 파일) */
-const APART = new Set(['projects', 'users'])
+/** the top folders not among 팀 폴더: shown in their own sections instead (프로젝트 폴더, 내 파일), or a place of their
+ * own elsewhere (팀 스킬: 트리나's 팀 스킬 page, so the skills are in one place; the folder still opens from the team
+ * folder's top, the 팀 폴더 label, for whoever may read it) */
+const APART = new Set(['projects', 'users', SKILLS_DIR])
 
 type Place = { key: string; to: string; label: string; icon: typeof Folder; path?: string; testId: string }
 
@@ -125,27 +128,30 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   )
   return (
     <>
-      <ul>{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
+      <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
       {top !== null && (
-        <section aria-labelledby="files-panel-team">
-          {/* the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to
-              show it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row */}
-          <PanelLabel id="files-panel-team" testId="files-panel-label">
+        // the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to show
+        // it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row
+        <PanelSection
+          id="files-panel-team"
+          foldKey="files:team"
+          label={t('filesPanel.team')}
+          count={team.length}
+          labelTestId="files-panel-label"
+          link={
             <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className={clsx('rounded hover:text-ink', phone ? 'flex min-h-11 w-full items-center gap-0.5' : 'hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center')} data-testid="files-panel-root">
               {t('filesPanel.team')}
               {phone && <ChevronRight size={14} aria-hidden />}
             </Link>
-          </PanelLabel>
+          }
+        >
           <ul>{team.map(row)}</ul>
-        </section>
+        </PanelSection>
       )}
       {projectRows.length > 0 && (
-        <section aria-labelledby="files-panel-projects">
-          <PanelLabel id="files-panel-projects" testId="files-panel-label">
-            {t('filesPanel.projects')}
-          </PanelLabel>
+        <PanelSection id="files-panel-projects" foldKey="files:projects" label={t('filesPanel.projects')} count={projectRows.length} labelTestId="files-panel-label">
           <ul>{projectRows.map(row)}</ul>
-        </section>
+        </PanelSection>
       )}
       <ul className="mt-3 border-t border-line pt-2">
         {mine && row(mine)}

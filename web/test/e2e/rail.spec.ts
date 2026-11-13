@@ -40,21 +40,22 @@ const routeNotices = (page: Page, unread: number, rooms: number) =>
 
 const width = async (page: Page, testId: string) => Math.round((await page.getByTestId(testId).boundingBox())!.width)
 
-test('the rail replaces the sidebar; four places in order; each has its list panel', async ({ page }) => {
+test('the rail replaces the sidebar; five places in order; each has its list panel', async ({ page }) => {
   await start(page, 1440)
   const rail = page.getByRole('navigation', { name: t['rail.label'] })
-  expect(await rail.getByRole('link').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['rail-ai', 'rail-chats', 'rail-files', 'rail-activity'])
+  expect(await rail.getByRole('link').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['rail-ai', 'rail-chats', 'rail-projects', 'rail-files', 'rail-activity'])
   await expect(page.getByTestId('rail-chats')).toContainText(t['tabs.chats'])
+  await expect(page.getByTestId('rail-projects')).toContainText(t['projects.title'])
   await expect(page.getByTestId('rail-files')).toContainText(t['sidebar.files'])
   await expect(page.getByTestId('rail-activity')).toContainText(t['inbox.title'])
   await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('trina-panel')).toBeVisible()
-  // the old sidebar's seven rows: ask and search on top of 트리나's list, the rest at its end; Files and Activity are places
+  // the old sidebar's rows: ask, search, scheduled and team skills on top of 트리나's list (삭제한 기록 in 최근 기록's "⋯");
+  // Projects, Files and Activity are places
   await expect(page.getByTestId('trina-panel').getByTestId('new-chat')).toContainText('트리나에게 묻기')
   await expect(page.getByTestId('trina-panel').getByTestId('nav-search')).toBeVisible()
-  for (const row of ['nav-scheduled', 'nav-skills', 'nav-trash']) await expect(page.getByTestId('trina-panel').getByTestId(row)).toBeVisible()
-  // projects are in the list (phase P2, trina-panel.spec.ts): "모든 프로젝트" or, with none, "+ 새 프로젝트"
-  await expect(page.getByTestId('trina-panel').getByTestId('trina-all-projects').or(page.getByTestId('trina-panel').getByTestId('trina-new-project')).first()).toBeVisible()
+  for (const row of ['nav-scheduled', 'nav-skills']) await expect(page.getByTestId('trina-panel').getByTestId(row)).toBeVisible()
+  await expect(page.getByTestId('trina-panel').getByTestId('trina-all-projects')).toHaveCount(0)
   await expect(page.getByTestId('nav-files')).toHaveCount(0)
   await expect(page.getByTestId('nav-inbox')).toHaveCount(0)
   expect(await width(page, 'rail')).toBe(72)
@@ -68,6 +69,13 @@ test('the rail replaces the sidebar; four places in order; each has its list pan
   // the panel is the list: the page beside it does not repeat it (no rooms, no AI row, no second 새 대화)
   await expect(page.getByTestId('rooms-pick')).toHaveText(t['rail.pickConversation'])
   for (const x of ['rooms-ai', 'rooms-page-new-dm', 'rooms-row']) await expect(page.getByTestId('rooms-page').getByTestId(x)).toHaveCount(0)
+
+  // 프로젝트: its list beside the rail (projects-panel.spec.ts)
+  await openRail(page, 'projects')
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page.getByTestId('projects-panel')).toBeVisible()
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+  expect(await width(page, 'projects-panel')).toBe(268)
 
   // since phase P3, 파일 and 활동 have their lists too (files-panel.spec.ts, activity-panel.spec.ts)
   await openRail(page, 'files')
@@ -203,7 +211,7 @@ test('member: the logo and team name are not a button; no Admin anywhere on the 
   await page.getByTestId('account-menu').click()
   await expect(page.getByTestId('account-role')).toHaveText(t['role.member'])
   await page.keyboard.press('Escape')
-  for (const item of ['chats', 'files', 'activity', 'ai'] as const) await openRail(page, item)
+  for (const item of ['chats', 'projects', 'files', 'activity', 'ai'] as const) await openRail(page, item)
 })
 
 test('Admin: no place lit, one 240 px menu beside the rail at every computer width (its icon rail gone)', async ({ page }) => {
@@ -239,7 +247,8 @@ test('keyboard: skip links to the page and to the list; Tab goes logo → places
   // after the rail, the list, then the page
   await page.keyboard.press('Tab')
   await expect(page.locator('#rail-panel :focus')).toHaveCount(1)
-  await page.getByTestId('nav-trash').focus()
+  // the list's last control (삭제한 기록 is in a menu now)
+  await page.locator('#rail-panel').locator('a:visible, button:visible').last().focus()
   await page.keyboard.press('Tab')
   await expect(page.locator('#main :focus')).toHaveCount(1)
   // ⇧⌘O: a new AI chat, 트리나 lit
@@ -259,7 +268,7 @@ test('widths: nothing cut or sideways at 1024–1920, at 150 % browser zoom and 
       await page.reload()
     }
     await page.setViewportSize({ width: Math.round(w / zoom), height: Math.round(860 / zoom) })
-    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+    for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
       await openRail(page, item)
       const m = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: innerWidth, rail: document.querySelector('[data-testid="rail"]')!.getBoundingClientRect().width, panel: document.getElementById('rail-panel')!.getBoundingClientRect().width }))
       const at = `${w} px × ${zoom}, ${text} text, ${item}`
@@ -278,7 +287,7 @@ test.describe('a touch screen at 1024 px (a tablet across, a touch laptop)', () 
     await start(page, 1024)
     for (const title of ['주간 보고 초안', '회의록 정리']) await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })
     await page.reload()
-    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+    for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
       await page.getByTestId(`rail-${item}`).click()
       await expect(page.getByTestId(`rail-${item}`)).toHaveAttribute('aria-current', 'page')
       // a control drawn smaller takes taps from a 44 px box around it (its ::after); a chat row's "···" is 28 px on
@@ -328,7 +337,7 @@ test('Screenshots of the rail: each place at 1440 light and dark, 1280 light, 10
       for (const title of ['주간 보고 초안', '회의록 정리', '고객 문의 답장']) await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })
       await page.reload()
       await expect(page.getByTestId('rail')).toBeVisible()
-      for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
         if (name === '1280-light' && item !== 'ai') continue
         await openRail(page, item)
         await page.waitForTimeout(400)
@@ -366,7 +375,7 @@ test('a phone gets no rail with the switch on: its own tabs instead (phone-tabs-
   await page.getByTestId('login-username').fill(OWNER.username)
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('bottom-tabs')).toBeVisible()
   await expect(page.getByTestId('rail')).toHaveCount(0)
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)

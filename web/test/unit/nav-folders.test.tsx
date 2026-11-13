@@ -44,11 +44,12 @@ describe('my folders', () => {
   })
 })
 
-describe("a folder's + opens the new-chat box with the folder", () => {
-  test('on a phone with the new tabs at /new, else at /; a / with a folder goes to /new on such a phone', async () => {
+describe('an old folder link (the Trina list\'s folders are gone) keeps its address', () => {
+  test('the box is / on every screen with the folder; /new comes back to / with it', async () => {
     const { newChatPath, homeRoute } = await import('../../src/lib/newChat')
     expect(newChatPath({ folder: 'f1' }, false)).toBe('/?folder=f1')
-    expect(homeRoute('/', '?folder=f1', true)).toEqual({ to: '/new?folder=f1' })
+    expect(newChatPath({ folder: 'f1' }, true)).toBe('/?folder=f1')
+    expect(homeRoute('/', '?folder=f1', true)).toEqual({ list: false })
     expect(homeRoute('/new', '?folder=f1', false)).toEqual({ to: '/?folder=f1' })
   })
 })

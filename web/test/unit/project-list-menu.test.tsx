@@ -424,7 +424,8 @@ describe('a new project asked for in the address', () => {
       await m.until(() => m.find('project-name'), 'the form', 2000)
       await m.until(() => at === '/projects', 'the address without ?new=1', 2000)
       await m.type('project-name', 'Acme beta')
-      await m.click('project-save')
+      // the name-only dialog (components/NewProjectDialog.tsx)
+      await m.click('project-create')
       await m.until(() => m.find('project-page-stub'), 'the new project page', 2000)
       expect(at).toBe(`/projects/${NEW}`)
     } finally {

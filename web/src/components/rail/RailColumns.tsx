@@ -1,5 +1,5 @@
 // The left of a computer's window (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; Layout.tsx): the rail,
-// and beside it the list of the place: 트리나, 대화, 파일 (its places: recent files, team and project folders, 내
+// and beside it the list of the place: 트리나, 대화, 프로젝트 (every project I see, panels/ProjectsPanel.tsx), 파일 (its places: recent files, team and project folders, 내
 // 파일, the trash) and 활동 (the notices that are not conversations). Admin's own menu is its list
 // (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel
 // folds away by itself below 1052 px while a thread, the room's ✦ side chat or a side panel is open (railPanel.ts), and
@@ -12,6 +12,7 @@ import { useRooms } from '../../store/rooms'
 import { ActivityPanel } from '../panels/ActivityPanel'
 import { ChatsPanel } from '../panels/ChatsPanel'
 import { FilesPanel } from '../panels/FilesPanel'
+import { ProjectsPanel } from '../panels/ProjectsPanel'
 import { TrinaPanel } from '../panels/TrinaPanel'
 import { useMediaQuery } from '../ui'
 import { Rail } from './Rail'
@@ -44,7 +45,7 @@ export function RailColumns({ onList }: { onList: (shown: boolean) => void }) {
   return (
     <>
       <Rail showList={has && state === 'hidden'} />
-      {shown && (item === 'ai' ? <TrinaPanel /> : item === 'chats' ? <ChatsPanel /> : item === 'files' ? <FilesPanel /> : <ActivityPanel />)}
+      {shown && (item === 'ai' ? <TrinaPanel /> : item === 'chats' ? <ChatsPanel /> : item === 'projects' ? <ProjectsPanel /> : item === 'files' ? <FilesPanel /> : <ActivityPanel />)}
     </>
   )
 }

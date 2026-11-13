@@ -1,12 +1,13 @@
-// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). On
-// top "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0) and 검색 (⌘K),
-// then the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them
-// the Trina list in its own order with the server's heads (panels/TrinaList.tsx: 고정 · 폴더 · 프로젝트 · 모든
-// 프로젝트 · 기타 기록), and at its end the quiet rows 예약 작업,
-// 팀 스킬 and 삭제한 기록, pinned under the list so they never sink under the projects. The header's filter button (status, last activity, group by, sort)
-// shows the whole history filtered instead (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"), with
-// one line that says what is filtered and a way back.
-import { BookMarked, CalendarClock, Search, Trash2, X } from 'lucide-react'
+// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; docs/DECISIONS.md "The Trina
+// list: pinned, recent"). A fixed block on top that never scrolls away, as ChatGPT's and Claude's sidebars have it:
+// "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0), 검색 (⌘K), 예약 작업 and 팀 스킬
+// (as the phone's drawer has them: phone/TrinaDrawer.tsx), then
+// the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them, in
+// its own scroll, the Trina list (panels/TrinaList.tsx: 답을 기다려요 · 고정 · 최근 기록; 삭제한 기록 is in 최근 기록's
+// "⋯", rarely needed). The header's filter button (status, last activity, group by, sort) shows the whole history
+// filtered instead (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"), with one line that says what
+// is filtered and a way back.
+import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { platform } from '../../lib/pwa'
@@ -36,20 +37,6 @@ export function TrinaPanel() {
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
-      // pinned under the list: 삭제한 기록 never waits at the end of a long list (UX review S2)
-      bottom={
-        <div className="space-y-0.5" data-testid="trina-panel-more">
-          <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
-            <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
-          </NavLink>
-          <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
-            <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
-          </NavLink>
-          <NavLink to="/trash" className={panelRowActive} data-testid="nav-trash">
-            <Trash2 size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.trash')}</span>
-          </NavLink>
-        </div>
-      }
       actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />}
       top={
         <>
@@ -61,6 +48,12 @@ export function TrinaPanel() {
             <Search size={16} aria-hidden /> {t('sidebar.search')}
             <kbd className={kbd}>{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
           </button>
+          <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
+            <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
+          </NavLink>
+          <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
+            <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
+          </NavLink>
           <SetupRow />
         </>
       }

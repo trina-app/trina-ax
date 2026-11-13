@@ -35,7 +35,7 @@ const VIEW = {
   sort: { label: 'sidebar.view.sort', options: { updated: 'sidebar.sort.updated', created: 'sidebar.sort.created', title: 'sidebar.sort.title' } },
 } as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
 type ViewKey = keyof typeof VIEW
-type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
+export type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
 const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'project', sort: 'updated' }
 /** what differs from the default only, so a later default reaches everyone who did not choose otherwise */
 const VIEW_KEY = 'mycel.sidebar.historyView'
@@ -52,16 +52,16 @@ const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number, inProjec
   const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
   return ok && fresh
 }
-const rememberedView = (): RecentsView => {
+const rememberedView = (key = VIEW_KEY, base: RecentsView = DEFAULT_VIEW): RecentsView => {
   try {
-    const kept = localStorage.getItem(VIEW_KEY)
-    const v = JSON.parse(kept ?? localStorage.getItem(OLD_VIEW_KEY) ?? '{}') as Partial<RecentsView>
-    if (kept === null && v.group === 'date') delete v.group
-    const out = { ...DEFAULT_VIEW }
+    const kept = localStorage.getItem(key)
+    const v = JSON.parse(kept ?? (key === VIEW_KEY ? localStorage.getItem(OLD_VIEW_KEY) : null) ?? '{}') as Partial<RecentsView>
+    if (kept === null && key === VIEW_KEY && v.group === 'date') delete v.group
+    const out = { ...base }
     for (const k of Object.keys(VIEW) as ViewKey[]) if (v[k] && v[k] in VIEW[k].options) (out as Record<string, string>)[k] = v[k] as string
     return out
   } catch {
-    return DEFAULT_VIEW
+    return base
   }
 }
 
@@ -75,15 +75,18 @@ const remember = (key: string, v: string) => {
 /** my pinned chats, the most recently pinned first (docs/DECISIONS.md "Pinned chats") */
 const pinnedFirst = (list: Chat[]) => list.filter((c) => c.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
 
-/** The history's filter and sort (four menus), remembered in this browser as what differs from the default. */
-export function useRecentsView() {
-  const [view, setViewState] = useState<RecentsView>(rememberedView)
+/** The history's filter and sort (four menus), remembered in this browser as what differs from the default. `o`: a list
+ * with a default of its own (the phone's ☰ drawer: by date, as before the navigation redesign) and its own key. */
+export function useRecentsView(o: { key?: string; base?: Partial<RecentsView> } = {}) {
+  const key = o.key ?? VIEW_KEY
+  const base = useMemo(() => ({ ...DEFAULT_VIEW, ...o.base }), [o.base?.group, o.base?.sort, o.base?.status, o.base?.activity]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [view, setViewState] = useState<RecentsView>(() => rememberedView(key, base))
   const setView = useCallback((v: RecentsView) => {
     setViewState(v)
-    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
-  }, [])
-  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
-  return { view, setView, changed }
+    remember(key, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== base[k]).map((k) => [k, v[k]]))))
+  }, [key, base])
+  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== base[k])
+  return { view, setView, changed, base }
 }
 export type RecentsViewState = ReturnType<typeof useRecentsView>
 /** the choices that differ from the default, in words ("Waiting, Title") */

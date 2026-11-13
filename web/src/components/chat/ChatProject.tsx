@@ -1,23 +1,28 @@
 // A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
 // Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project…" opens:
 // it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
-// can see the project). When the chosen project shares its new chats, one switch, off by default, "프로젝트 멤버와
+// can see the project). Its first row "+ 새 프로젝트" makes a project named after the chat (NewProjectDialog.tsx: the name
+// only, mine alone) and moves the chat in, with 되돌리기 in the toast (docs/DECISIONS.md "Making a project"). Each
+// project says who sees it ("나만", "멤버 4명"), not its folder. When the chosen project shares its new chats, one switch, off by default, "프로젝트 멤버와
 // 공유": with it on, the chat is shared right after the move (components/chat/ShareChat.tsx: the server's check, and a
 // confirm when one comes back; cancelling it leaves the chat moved and private). The name comes from
 // store/projects.ts, so a rename saved anywhere in this window shows at once;
 // it is asked again when the window comes back to the front (a rename on another device). A project the person cannot
 // see (404: no read access any more, or its folder in the trash) shows nothing.
-import { FolderKanban } from 'lucide-react'
+import { FolderKanban, Plus } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { aiName } from '../../lib/tabs'
 import { useProjects } from '../../store/projects'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, Modal, Skeleton, Switch } from '../ui'
 import { mayShareChat, ShareChatFlow } from './ShareChat'
+import { NewProjectDialog } from '../NewProjectDialog'
+import { whoSeesProject } from '../projectWho'
 
 /** The chat's project as this window knows it (store/projects.ts), asked from the server for this chat and again when
  * the window gets the focus back; undefined while unknown or not to be seen. Only the latest answer counts: a slow 200
@@ -103,7 +108,8 @@ export function ProjectChoices({ projects, selected, current, onSelect }: { proj
           <FolderKanban size={14} className={p.inTrash ? 'shrink-0 text-faint' : 'shrink-0 text-accent-text'} aria-hidden />
           <span className="min-w-0 flex-1">
             <span className="block truncate">{p.name}</span>
-            <span className="block truncate text-xs text-faint">{p.inTrash ? t('chat.project.inTrash') : p.folderPath || t('files.root')}</span>
+            {/* who sees it, in 프로젝트's words ("나만", "멤버 4명"), never a folder path */}
+            <span className="block truncate text-xs text-faint" data-testid="chat-project-choice-who">{p.inTrash ? t('chat.project.inTrash') : p.folderPath.startsWith('users/') || (p.audience !== undefined && (p.audience <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers') ?? ''}</span>
           </span>
         </label>
       ))}
@@ -123,6 +129,28 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
   const [error, setError] = useState<string | null>(null)
   // moved, and to be shared now: the share's own steps take the dialog's place
   const [sharing, setSharing] = useState<string | null>(null)
+  // "+ 새 프로젝트": the name-only dialog (its name the chat's title), then the chat moves in
+  const [making, setMaking] = useState(false)
+  const madeAndMove = async (p: Project) => {
+    setMaking(false)
+    try {
+      const c = await api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: p.id } })
+      onMoved(c)
+      const before = chat.projectId
+      toast({
+        level: 'success',
+        text: t('chat.project.moved', { name: p.name }),
+        action: {
+          label: t('chat.project.undo'),
+          run: () => void api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: before } }).then(onMoved, () => toast({ level: 'error', text: t('error.network') })),
+        },
+      })
+      onClose()
+    } catch {
+      toast({ level: 'error', text: t('chat.project.moveFailed') })
+      onClose()
+    }
+  }
   const movedText = useRef('')
   const shared = useRef(false)
   useEffect(() => {
@@ -155,6 +183,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
       setBusy(false)
     }
   }
+  if (making) return <NewProjectDialog initialName={chat.title ?? ''} onClose={() => setMaking(false)} onMade={(p) => void madeAndMove(p)} />
   if (sharing)
     return (
       <ShareChatFlow
@@ -182,10 +211,13 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
         </>
       }
     >
-      <p className="mb-3 text-sm text-muted">{t('chat.project.hint')}</p>
+      <p className="mb-3 text-sm text-muted">{t('chat.project.hint', { ai: aiName(t) })}</p>
+      {/* a new project for this chat, made and filled in one go */}
+      <button type="button" onClick={() => setMaking(true)} className="mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-hover max-md:min-h-11" data-testid="chat-project-new">
+        <Plus size={16} className="shrink-0 text-muted" aria-hidden /> {t('projects.new')}
+      </button>
       {!projects && <Skeleton lines={3} />}
       {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} />}
-      {projects && !projects.length && !chat.projectId && !error && <p className="mt-2 text-sm text-faint">{t('chat.project.empty')}</p>}
       {canShare && (
         <div className="mt-4 border-t border-line pt-4" data-testid="chat-project-share">
           <Switch checked={share} onChange={setShare} label={t('chat.shareChat.switch')} testId="chat-project-share-toggle" describedBy={hintId} />

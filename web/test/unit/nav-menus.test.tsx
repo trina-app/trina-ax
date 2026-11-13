@@ -343,14 +343,13 @@ describe('a chat row\'s "…"', () => {
     const pin = ['chat-row-pin', ko('chat.pin')]
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
-      // 폴더로 옮기기 on every row (a project's chat has it off, with why: test/unit/nav-folders.test.tsx)
-      const folder = ['row-folder-move', ko('navFolders.moveTo')]
-      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], folder, ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], folder, ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      // no 폴더로 옮기기: the Trina list has no folders (the owner, 2026-11-13); a project keeps chats together
+      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
-      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], folder, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([pin, link, folder, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link, folder])
+      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, link, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link])
     } finally {
       await m.unmount()
     }
@@ -420,7 +419,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 6, 'the menu')
+      await m.until(() => shown() === 5, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -428,7 +427,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 6, 'the sheet')
+      await m.until(() => shown() === 5, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -445,9 +444,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 6, 'the sheet again')
+      await m.until(() => shown() === 5, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(6)
+      expect(shown()).toBe(5)
     } finally {
       await m.unmount()
     }
@@ -527,3 +526,23 @@ describe('pinned chats', () => {
   })
 })
 
+
+describe("the phone's ☰ drawer", () => {
+  test('its history is by date by default (오늘, …), as before the redesign; the computer panel keeps its own default', async () => {
+    const now = new Date().toISOString()
+    useChats.setState({ chats: [chat(1, { projectId: '01900000-0000-7000-8000-0000000000aa', updatedAt: now, title: '오늘 채팅' })], chatsLoaded: true, chatsCursor: null })
+    const { TrinaDrawer, useTrinaDrawer } = await import('../../src/components/phone/TrinaDrawer')
+    const m = await mount(<MemoryRouter initialEntries={['/']}><TrinaDrawer /></MemoryRouter>)
+    try {
+      await act(async () => useTrinaDrawer.getState().setOpen(true))
+      await m.until(() => m.find('trina-drawer'), 'the drawer', 2000)
+      expect(m.html()).toContain(translate('ko', 'sidebar.today'))
+      // nothing is filtered: no chip, the default is the drawer's own
+      expect(m.find('recents-filter-label')).toBeNull()
+      expect(m.html()).toContain('오늘 채팅')
+    } finally {
+      await act(async () => useTrinaDrawer.getState().setOpen(false))
+      await m.unmount()
+    }
+  })
+})

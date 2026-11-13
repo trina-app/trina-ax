@@ -100,9 +100,9 @@ afterAll(() => {
 })
 
 const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status: { kind: 'signed-in', me: meOf(role) } } as never)
-/** on a phone the new-chat box is /new (`/` is 트리나's list there: docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") */
-const onPhone = () => !!(g.matchMedia as ((q: string) => { matches: boolean }) | undefined)?.('(max-width: 767.98px)').matches
-const boxAt = (e: InitialEntry): InitialEntry => (e === '/' && onPhone() ? '/new' : e)
+/** the new-chat box is `/` on every screen (a phone's 트리나 tab is Home: docs/DECISIONS.md "Phones: the 트리나 tab as
+ * before the redesign"); kept as one place should that change again */
+const boxAt = (e: InitialEntry): InitialEntry => e
 const home = () => mount(<MemoryRouter initialEntries={[boxAt('/')]}><Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
