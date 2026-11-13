@@ -11839,7 +11839,27 @@ own rows (17 px names, 40 px round faces, 64 px rows), while 프로젝트 and �
 - **One place to change**: the difference is only in the tokens (`--text-row`, `--spacing-row-min`,
   `--spacing-list-icon`, `--color-row-read`, `--font-weight-row-read`, `--text-list-head`, `--color-list-head-ink`, …),
   a computer's values in `@theme` and a phone's in their own `@media (max-width: 767.98px)` block, apart from the global
-  type scale. The 트리나 drawer's rows use the same size (17 px words, 20 px icons).
+  type scale. The 트리나 drawer's rows use the same size (17 px words, 20 px icons). (Phone values since changed: see
+  "Phone lists: 16 px rows, 32 px tiles".)
+
+## Phone lists: 16 px rows, 32 px tiles (fix/phone-row-scale, 2026-11-13, product owner)
+
+넣을 곳: the phone block of the list tokens in `web/src/index.css` (`@media (max-width: 767.98px)`), and the checks
+(`web/test/unit/type-scale-source.test.ts`, `web/test/e2e/type-scale.spec.ts`, `web/scripts/type-audit.ts`). 이유: the
+owner, 2026-11-13, on a real iPhone's 나 tab: "the font on mobile is too big now". Since "Lists: one set of rows and
+headers" every phone list (대화, 프로젝트, 파일, 나, Settings, the drawer, Admin) took the 대화 tab's 17 px names at weight
+500 next to 40 px grey tiles in 56 px rows: heavy and oversized. iOS Settings uses 17 pt regular with 29 pt icons and
+44 pt rows, Slack's phone app about 16 px; Korean reads larger at the same size.
+
+- **Phone tokens only**: `--text-row` 16 px / 22 px, `--font-weight-row-read` 400 (unread and the open row stay 600),
+  `--spacing-list-icon` 32 px tiles with an 18 px glyph (`--spacing-list-glyph`), `--spacing-list-face` 32 px with a
+  14 px initial, `--spacing-row-min` 48 px. Meta stays 13 px; the computer's values do not change. Every list follows
+  from the one block; no screen sets its own size.
+- **Taps**: a 48 px row is still above the 44 px floor, and `ListRow` keeps `max(44px, row-min)` on touch screens.
+- **The 대화 tab's own rows** (`pages/Rooms.tsx`, kept for menus and drag) follow: faces and tiles 32 px with an 18 px
+  icon (`RoomIcon glyph`), rows at least `min-h-row-min` with 8 px above and below.
+- **Left as they are**: a setting's name keeps `font-medium` (500) at the new 16 px (`SettingRow`), the drawer's fixed
+  rows keep their 44 px height, the 36 px faces of a room notice and the people picker; headings, body and the message boxes are not list tokens.
 
 ## Settings rows: one component, the lists' sizes (fix/type-consistency, 2026-11-13, product owner)
 

@@ -1,6 +1,6 @@
 // One setting as one row, for every settings screen (docs/DESIGN-SYSTEM.md "Typography", docs/DECISIONS.md "Settings
 // rows: one component, the lists' sizes"): Settings (나: profile, about, apps; notifications), Admin (team settings, AI,
-// connectors) and the connector pages. Its name is a list row's (`text-row`: 15px on a computer, 17px on a phone) and its
+// connectors) and the connector pages. Its name is a list row's (`text-row`: 15px on a computer, 16px on a phone) and its
 // line under the name is meta (`text-meta`, 13px), so a settings row reads like the rows of the other lists on the same
 // screen size. A screen never sets its own sizes for a setting's name or line.
 import clsx from 'clsx'

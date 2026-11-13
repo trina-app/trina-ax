@@ -74,13 +74,22 @@ describe('settings rows: one component, the lists’ sizes', () => {
     expect(out).toEqual([])
   })
 
-  test('the list tokens: rows 15px on a computer and 17px on a phone, meta 13px', () => {
+  test('the list tokens: rows 15px on a computer and 16px / 22px at 400 on a phone, 32px tiles and faces, 48px rows, meta 13px', () => {
     const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
     const [computer, phone] = [css.slice(0, css.indexOf('@media (max-width: 767.98px)')), css.slice(css.indexOf('/* The shared lists on phones'))]
     expect(computer).toMatch(/--text-row: 0\.9375rem;/)
     expect(computer).toMatch(/--text-meta: 0\.8125rem;/)
     expect(computer).toMatch(/--text-xs: 0\.8125rem;/)
     expect(computer).toMatch(/--text-sm: 0\.9375rem;/)
-    expect(phone).toMatch(/--text-row: 1\.0625rem;/)
+    expect(phone).toMatch(/--text-row: 1rem;/)
+    expect(phone).toMatch(/--text-row--line-height: 1\.375rem;/)
+    expect(phone).toMatch(/--font-weight-row-read: 400;/)
+    expect(phone).toMatch(/--spacing-row-min: 3rem;/)
+    expect(phone).toMatch(/--spacing-list-icon: 2rem;/)
+    expect(phone).toMatch(/--spacing-list-glyph: 1\.125rem;/)
+    expect(phone).toMatch(/--spacing-list-face: 2rem;/)
+    expect(phone).not.toMatch(/--text-meta:/)
+    // a ListRow's tap target stays 44px or more on a phone (48px rows)
+    expect(Number(/--spacing-row-min: ([\d.]+)rem;/.exec(phone)![1]) * 16).toBeGreaterThanOrEqual(44)
   })
 })

@@ -1,6 +1,6 @@
 // The type scale on every main screen (docs/DESIGN-SYSTEM.md "Typography"; docs/DECISIONS.md "Settings rows: one
 // component, the lists' sizes"), at a phone's 390px and a computer's 1440px: a list row's name is 15px on a computer and
-// 17px on a phone (text-row) in every list, Settings and Admin included (a setting's name too); a row's second line, a
+// 16px on a phone (text-row) in every list, Settings and Admin included (a setting's name too); a row's second line, a
 // setting's line, hints and times are 13px (text-meta, text-xs); body text is 15px (text-sm); nothing reads under 12px
 // but a badge. A screen whose rows or body leave the scale fails here, so the next one-off size is caught in CI.
 // (The full sweep of every view is web/scripts/type-audit.ts against a test server.)
@@ -36,7 +36,7 @@ function offScale(phone: boolean): Omit<Off, 'screen'>[] {
     }
     return true
   }
-  const row = phone ? 17 : 15
+  const row = phone ? 16 : 15
   const out: Omit<Off, 'screen'>[] = []
   const add = (rule: string, el: Element, px: number) => out.push({ rule, px, text: (el.textContent ?? '').trim().slice(0, 40), cls: cls(el).slice(0, 120), testid: el.closest('[data-testid]')?.getAttribute('data-testid') ?? '' })
   const px = (el: Element) => Number.parseFloat(getComputedStyle(el).fontSize)
