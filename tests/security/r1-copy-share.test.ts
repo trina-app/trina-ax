@@ -75,7 +75,7 @@ describe('POST /api/files/copy', () => {
 
 describe('POST /api/projects/:id/share', () => {
   let pid = ''
-  test('a personal project becomes a team project: a new projects/<name> with its participants, the files copied in', async () => {
+  test('a personal project becomes a team project: a new projects/<name> with its participants, the files moved in (the personal folder to the trash)', async () => {
     const c = await A.json('/api/projects', { as: 'alice', ...jsonBody({ name: 'launch-notes', scope: 'personal', instructions: 'Use notes.md' }) })
     expect(c.status).toBe(201)
     pid = c.body.id
@@ -97,7 +97,7 @@ describe('POST /api/projects/:id/share', () => {
     expect((await read('erin', 'projects/launch-notes/notes.md')).status).toBe(200)
     expect((await read('erin', 'projects/launch-notes/sub/a.md')).status).toBe(200)
     expect(fs.existsSync(path.join(A.team, 'projects/launch-notes/bob-link.md'))).toBe(false) // links are not copied
-    expect(fs.existsSync(path.join(dir, 'notes.md'))).toBe(true) // the personal folder stays
+    expect(fs.existsSync(path.join(dir, 'notes.md'))).toBe(false) // the personal folder went to bob's trash (moved, not copied)
     expect((await A.json(`/api/projects/${pid}`, { as: 'bob' })).status).toBe(404)
     // nor the owner or an admin, who are not its members
     for (const who of ['carol', 'dana'] as const) {

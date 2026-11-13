@@ -27,15 +27,10 @@ export async function signIn(page: Page, who = OWNER) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  // a phone lands on the 대화 list (App.tsx AfterSignIn) or, with the new tabs (navigation phase P5), on the 트리나 list;
-  // the tests start from the new-chat box either way (`/`, or /new on a phone with the new tabs, `/` being the list)
-  const trinaList = page.getByTestId('phone-trina-home')
-  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page')).or(trinaList).first()).toBeVisible()
-  if (await page.getByTestId('rooms-page').isVisible()) {
-    await page.goto('/')
-    await expect(page.getByTestId('composer-input').or(trinaList).first()).toBeVisible()
-  }
-  if (await trinaList.isVisible()) await page.goto('/new')
+  // a phone lands on the 트리나 tab's Home (App.tsx AfterSignIn; START_TAB) or, if START_TAB is 대화, on its list; the
+  // tests start from the new-chat box either way
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page')).first()).toBeVisible()
+  if (await page.getByTestId('rooms-page').isVisible()) await page.goto('/')
   await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
@@ -56,9 +51,9 @@ export async function adv(root: Page | Locator, testId: string): Promise<Locator
  * unchanged until they drop the call. */
 export async function navRail(_page: Page, _on = true) {}
 
-/** Press a place on the computer's rail (lib/rail.ts RailItem: 'ai' | 'chats' | 'files' | 'activity'), the way a person
- * does, and wait for it to be the lit one. */
-export async function openRail(page: Page, item: 'ai' | 'chats' | 'files' | 'activity') {
+/** Press a place on the computer's rail (lib/rail.ts RailItem: 'ai' | 'chats' | 'projects' | 'files' | 'activity'), the
+ * way a person does, and wait for it to be the lit one. */
+export async function openRail(page: Page, item: 'ai' | 'chats' | 'projects' | 'files' | 'activity') {
   const button = page.getByTestId(`rail-${item}`)
   await button.click()
   await expect(button).toHaveAttribute('aria-current', 'page')
