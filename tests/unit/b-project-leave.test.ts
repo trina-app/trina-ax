@@ -1,7 +1,8 @@
 // Leaving a team project (docs/DECISIONS.md "Leaving a project"; QA TC-1020; chat/project-leave.ts).
-// - By name: their rule goes. Through a group: a "no access" rule of their own (an exception), the group stays and the
-//   others in it keep the project; the members screen shows it on the group ("except"), not as another rule.
-// - Added back by name: the exception becomes write. The group taken out: its exceptions go with it.
+// - Their rule becomes a "no access" of their own that a project_leavers row backs (an exception): a group stays and the
+//   others in it keep the project; the members screen shows it on the group ("except") or as "Left", not as another rule.
+// - Added back by name: the exception becomes write and the row goes. Anything else (the group taken out, another
+//   group of theirs added): they stay out.
 // - The creator may leave: the project forgets its creator, no save puts their rule back.
 // - The last person who reads it may not (the owner and admins who manage it without being members do not count).
 // - Their private chats move to their own chats; shared chats stay; scheduled tasks pause at their next run.
@@ -45,7 +46,12 @@ describe('leaving a team project', () => {
     const p = await make('dana', 'By name', [user('bob'), user('alice')])
     expect(await leaveOf('bob', p.id)).toBe('yes')
     expect(await leave('bob', p.id)).toEqual({ movedChats: 0 })
-    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'alice', a: 'write' }, { t: 'user', s: 'dana', a: 'write' }])
+    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'alice', a: 'write' }, { t: 'user', s: 'bob', a: 'none' }, { t: 'user', s: 'dana', a: 'write' }])
+    expect(db().query('SELECT 1 AS x FROM project_leavers WHERE project_id = ? AND user_id = ?').get(p.id, 'bob')).toEqual({ x: 1 })
+    // on the members screen: "Left: Bob", not another rule
+    const a = await access('dana', p.id)
+    expect(a.left).toEqual([{ id: 'bob', name: 'Bob Lee' }])
+    expect(a.otherRules).toEqual([])
     expect(await sees('bob', p.id)).toBe(false)
     expect(await sees('alice', p.id)).toBe(true)
     const rules = db().query("SELECT actor_id AS actor, detail FROM audit_log WHERE action = 'folder.rules' AND target = ? ORDER BY rowid DESC LIMIT 1").get(p.folderPath) as { actor: string; detail: string }
@@ -82,25 +88,38 @@ describe('leaving a team project', () => {
     expect(await sees('erin', p.id)).toBe(true)
     expect((await access('dana', p.id)).participants.find((x) => x.subjectId === 'marketing')?.except).toBeUndefined()
 
-    // she leaves again (by name now, and the group still holds her): the exception again
+    expect(db().query('SELECT 1 FROM project_leavers WHERE project_id = ? AND user_id = ?').get(p.id, 'erin')).toBeNull()
+
+    // she leaves again: the exception again
     await leave('erin', p.id)
     expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'erin', a: 'none' })
-    // the group taken out: its exceptions go with it (no rule left for nobody), nobody gains it
+    // the group taken out: she stays out, now said as "Left: Erin"
     await put('dana', p.id, [user('bob')])
-    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'bob', a: 'write' }, { t: 'user', s: 'dana', a: 'write' }])
+    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'bob', a: 'write' }, { t: 'user', s: 'dana', a: 'write' }, { t: 'user', s: 'erin', a: 'none' }])
+    expect((await access('dana', p.id)).left).toEqual([{ id: 'erin', name: 'Erin Yoo' }])
     expect(await sees('erin', p.id)).toBe(false)
   })
 
-  test('an exception another rule still needs stays when its group goes', async () => {
+  test('a leaver stays out when another group of theirs is on the project, or is added to one', async () => {
     const p = await make('dana', 'Two groups', [group('marketing'), group('finance')])
-    db().query("INSERT INTO group_members VALUES ('finance','erin')").run()
     try {
       await leave('erin', p.id)
-      // marketing goes, finance still holds her: the exception stays, and shows on finance's row
       await put('dana', p.id, [group('finance')])
-      expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'erin', a: 'none' })
+      // she joins finance, which is on the project: still out, shown on finance's row
+      db().query("INSERT INTO group_members VALUES ('finance','erin')").run()
       expect(await sees('erin', p.id)).toBe(false)
-      expect((await access('dana', p.id)).participants.find((x) => x.subjectId === 'finance')?.except).toEqual([{ id: 'erin', name: 'Erin Yoo' }])
+      expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'erin', a: 'none' })
+      const a = await access('dana', p.id)
+      expect(a.participants.find((x) => x.subjectId === 'finance')?.except).toEqual([{ id: 'erin', name: 'Erin Yoo' }])
+      expect(a.left).toBeUndefined()
+      // marketing added back: still out
+      await put('dana', p.id, [group('finance'), group('marketing')])
+      expect(await sees('erin', p.id)).toBe(false)
+      // the exception cannot be taken out as an "other rule"; only adding her by name brings her back
+      const r = await code(h.api('dana').call(API.putProjectParticipants, { params: { id: p.id }, body: { participants: [group('finance'), group('marketing')], expectedHash: (await access('dana', p.id)).rulesHash, removeRules: [{ subjectType: 'user', subjectId: 'erin' }] } }))
+      expect(r).toBe('400 validation')
+      await put('dana', p.id, [group('finance'), group('marketing'), user('erin')])
+      expect(await sees('erin', p.id)).toBe(true)
     } finally { db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run() }
   })
 
@@ -108,7 +127,7 @@ describe('leaving a team project', () => {
     const p = await make('alice', 'Creator leaves', [user('bob')])
     await leave('alice', p.id)
     expect((db().query('SELECT created_by FROM projects WHERE id = ?').get(p.id) as { created_by: string | null }).created_by).toBeNull()
-    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'bob', a: 'write' }])
+    expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'alice', a: 'none' }, { t: 'user', s: 'bob', a: 'write' }])
     expect(await sees('alice', p.id)).toBe(false)
     // no creator's powers left: its members, its delete are the admins'
     expect(await code(access('alice', p.id))).toBe('404 not_found')
@@ -118,7 +137,8 @@ describe('leaving a team project', () => {
     expect(bob.creatorChangesMembers).toBe(false)
     // an admin's save does not put her back
     await put('carol', p.id, [user('bob'), user('erin')])
-    expect(rulesAt(p.folderPath).some((x) => x.s === 'alice')).toBe(false)
+    expect(rulesAt(p.folderPath).filter((x) => x.s === 'alice')).toEqual([{ t: 'user', s: 'alice', a: 'none' }])
+    expect(await sees('alice', p.id)).toBe(false)
   })
 
   test('the last person may not leave; the owner and admins who manage it do not count', async () => {

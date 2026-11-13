@@ -2640,7 +2640,7 @@ export class MockServer {
       if (!this.sharedAudience(p).some((u) => u.id !== c.user.id)) fail('conflict', 409, CHAT_TEXT.projectLeaveLast[loc] ?? CHAT_TEXT.projectLeaveLast.ko, undefined, { reason: 'project_last_member' })
       pm!.participants = pm!.participants.filter((x) => !(x.subjectType === 'user' && x.subjectId === c.user.id))
       if (pm!.creator === c.user.id) { pm!.creator = ''; p.createdBy = null }
-      if (this.access(p.folderPath, c.user) !== 'none') pm!.left = [...(pm!.left ?? []), c.user.id]
+      pm!.left = [...(pm!.left ?? []).filter((id) => id !== c.user.id), c.user.id]
       pm!.version++
       const mine = this.chats.filter((x) => x.projectId === p.id && !this.sharedChats.has(x.id) && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
       for (const x of mine) x.projectId = null
@@ -2700,8 +2700,8 @@ export class MockServer {
       const removing = this.removedRules(pm, p, c.body.removeRules)
       const before = new Set(this.sharedAudience(p).map((u) => u.id))
       pm.participants = (c.body.participants as { subjectType: 'group' | 'user'; subjectId: string }[]).filter((x) => !(x.subjectType === 'user' && x.subjectId === pm.creator))
-      // a leaver named again comes back; one no group of it holds any more is no exception (dropSpareExceptions)
-      if (pm.left) pm.left = pm.left.filter((id) => !pm.participants.some((x) => x.subjectType === 'user' && x.subjectId === id) && pm.participants.some((x) => x.subjectType === 'group' && this.users.find((u) => u.id === id)?.groupIds.includes(x.subjectId)))
+      // a leaver named again comes back; nothing else brings them back (server/src/chat/project-access.ts)
+      if (pm.left) pm.left = pm.left.filter((id) => !pm.participants.some((x) => x.subjectType === 'user' && x.subjectId === id))
       if (removing.length) pm.others = (pm.others ?? []).filter((r) => !removing.includes(r))
       pm.version++
       // an owner or admin who starts to see it: its members are told (a stored notice; chat/project-joins.ts)
@@ -5709,7 +5709,9 @@ export class MockServer {
     const userName = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
     const subjectName = (r: { subjectType: string; subjectId: string | null }) => r.subjectType === 'user' ? userName(r.subjectId ?? '') : r.subjectType === 'group' ? this.groups.find((g) => g.id === r.subjectId)?.name ?? null : null
     // a group's people who left it: on the group's row (server/src/chat/project-access.ts projectAccess `except`)
+    const groupOn = (id: string) => (pm?.participants ?? []).some((x) => x.subjectType === 'group' && this.users.find((u) => u.id === id)?.groupIds.includes(x.subjectId))
     const except = (groupId: string) => (pm?.left ?? []).filter((id) => this.users.find((u) => u.id === id)?.groupIds.includes(groupId)).map((id) => ({ id, name: userName(id) }))
+    const left = (pm?.left ?? []).filter((id) => !groupOn(id)).map((id) => ({ id, name: userName(id) }))
     const participants = pm ? [
       ...(pm.creator ? [{ subjectType: 'user' as const, subjectId: pm.creator, name: userName(pm.creator), creator: true }] : []),
       ...pm.participants.map((x) => {
@@ -5721,7 +5723,7 @@ export class MockServer {
     const others = pm?.others ?? []
     const otherRules = others.filter((r) => r.path === p.folderPath || reads).map((r) => ({ ...r, name: subjectName(r) }))
     const hidden = (reads ? 0 : others.filter((r) => r.path !== p.folderPath).length) + (pm?.hidden ?? 0)
-    return { editable: !!pm && !p.inTrash, participants, otherRules, rulesHash: pm ? `v${pm.version}` : 'v0', people: this.sharedAudience(p).length, ...(hidden ? { otherRulesHidden: hidden } : {}) }
+    return { editable: !!pm && !p.inTrash, participants, otherRules, rulesHash: pm ? `v${pm.version}` : 'v0', people: this.sharedAudience(p).length, ...(hidden ? { otherRulesHidden: hidden } : {}), ...(left.length ? { left } : {}) }
   }
 
   sharedAudience(p: Project): User[] {

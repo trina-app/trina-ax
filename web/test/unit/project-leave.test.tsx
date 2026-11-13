@@ -4,7 +4,8 @@
 //   do instead beside it; a personal project, or one I am not in, has none;
 // - one confirm in plain words, then POST …/leave: the card goes, my private chats there become my own chats, a toast;
 //   cancelling sends nothing;
-// - the members dialog shows a group's people who left on the group's row: "Marketing · except Kim".
+// - the members dialog shows a group's people who left on the group's row: "Marketing · except Kim"; the others who left
+//   on one line, "Left: Bob", with Add back (they are named again, and the save sends them).
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project, ProjectAccess } from '@mycel/shared/api'
@@ -104,7 +105,7 @@ describe('Leave project on a card', () => {
       await m.click(within(card(m, 'Acme team'), 'project-card-leave')!)
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
       expect(dialog.textContent).toContain(en('projects.leaveTitle', { name: 'Acme team' }))
-      expect(dialog.textContent).toContain("You won't see its files and shared chats anymore. Your private chats in it move to your own chats.")
+      expect(dialog.textContent).toContain("You won't see this project or its shared chats anymore. Your private chats in it move to your own chats.")
       // cancelled: nothing sent
       await m.click(([...dialog.querySelectorAll('button')] as unknown as FakeElement[]).find((b) => b.textContent === en('common.cancel'))!)
       await m.settle(50)
@@ -132,9 +133,10 @@ describe('the members dialog', () => {
     const access: ProjectAccess = {
       editable: true, rulesHash: 'h1', people: 3, otherRules: [],
       participants: [{ subjectType: 'group', subjectId: 'marketing', name: 'Marketing', except: [{ id: 'kim', name: 'Kim' }, { id: 'lee', name: 'Lee' }] }, { subjectType: 'user', subjectId: 'sora', name: 'Sora' }],
+      left: [{ id: 'bob', name: 'Bob' }],
     }
     routes = {
-      'GET /api/people': () => json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }, { id: 'kim', name: 'Kim' }] }),
+      'GET /api/people': () => json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }, { id: 'kim', name: 'Kim' }, { id: 'bob', name: 'Bob' }] }),
       [`GET /api/projects/${TEAM}/access`]: () => json(200, access),
       [`GET /api/projects/${TEAM}/people`]: () => json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] }),
     }
@@ -146,6 +148,14 @@ describe('the members dialog', () => {
       // not a separate rule
       expect(m.find('project-other-rules')).toBeNull()
       expect(m.get('participant-user-sora').textContent).not.toContain('except')
+      // the others who left: one line, Add back names them again
+      expect(m.get('project-left').textContent).toContain(`${en('projects.leftLabel')}Bob`)
+      expect(en('projects.leftLabel')).toBe('Left:')
+      expect(m.get('project-add-back-bob').getAttribute('aria-label')).toBe(en('projects.addBackLabel', { name: 'Bob' }))
+      await m.click('project-add-back-bob')
+      await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
+      expect(m.get('participant-user-bob').getAttribute('data-state')).toBe('new')
+      expect(m.find('project-left')).toBeNull()
     } finally {
       await m.unmount()
     }

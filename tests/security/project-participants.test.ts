@@ -529,4 +529,48 @@ describe('leaving (docs/DECISIONS.md "Leaving a project"; QA TC-1020)', () => {
     expect((await A.json(`/api/chats/${chat}`, { as: 'alice' })).status).toBe(200)
     expect((await A.json(`/api/files/content?path=${encodeURIComponent(`${p.folderPath}/plan.md`)}`, { as: 'alice' })).status).toBe(200)
   })
+
+  // review of #759: only a "no access" that a leaver row backs is a leaver's exception; an admin's stays fixed
+  const setRules = (folder: string, rules: unknown[]) => { const row = ensureFolderRow(A.ctx.db, folder); A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, rules as never, 'carol'))() }
+  const reads = async (who: Who, p: string) => (await A.json(`/api/files/content?path=${encodeURIComponent(p)}`, { as: who })).status
+
+  test('an admin\'s "no access" for a person: a member creator naming them is refused, it stays', async () => {
+    const p = await create('alice', { name: 'Blocked by name', participants: [] })
+    setRules(p.folderPath, [{ ...user('alice'), access: 'write' }, { ...user('bob'), access: 'none' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    write(`${p.folderPath}/x.md`, 'blocked')
+    const a = (await access('alice', p.id)).body
+    expect(a.otherRules).toEqual([{ path: p.folderPath, subjectType: 'user', subjectId: 'bob', name: 'Bob Lee', access: 'none' }])
+    expect(a.left).toBeUndefined()
+    const r = await put('alice', p.id, [user('bob')], a.rulesHash)
+    expect([r.status, r.body.error.params.reason]).toEqual([400, 'participant_fixed'])
+    expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'bob', a: 'none' })
+    expect(await reads('bob', `${p.folderPath}/x.md`)).toBe(404)
+  })
+
+  test('an admin\'s "no access" for a person survives an unrelated save, so their group cannot let them in', async () => {
+    const p = await create('alice', { name: 'Blocked in group', participants: [] })
+    setRules(p.folderPath, [{ ...user('alice'), access: 'write' }, { ...user('erin'), access: 'none' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    write(`${p.folderPath}/x.md`, 'blocked')
+    expect((await put('alice', p.id, [], (await access('alice', p.id)).body.rulesHash)).status).toBe(200)
+    expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'erin', a: 'none' })
+    expect((await put('alice', p.id, [group('marketing')], (await access('alice', p.id)).body.rulesHash)).status).toBe(200)
+    expect(rulesAt(p.folderPath)).toContainEqual({ t: 'user', s: 'erin', a: 'none' })
+    expect(await reads('erin', `${p.folderPath}/x.md`)).toBe(404)
+    // not shown as a leaver
+    expect((await access('alice', p.id)).body.participants.find((x: { subjectId: string }) => x.subjectId === 'marketing').except).toBeUndefined()
+  })
+
+  test('a leaver stays out when their group is taken out and put back; only adding them by name brings them back', async () => {
+    const p = await create('dana', { name: 'Re-add', participants: [group('marketing')] })
+    write(`${p.folderPath}/x.md`, 'readd')
+    expect((await A.json(`/api/projects/${p.id}/leave`, { as: 'erin', method: 'POST' })).status).toBe(200)
+    expect((await put('dana', p.id, [user('bob')], (await access('dana', p.id)).body.rulesHash)).status).toBe(200)
+    expect((await access('dana', p.id)).body.left).toEqual([{ id: 'erin', name: 'Erin Yoo' }])
+    expect((await put('dana', p.id, [group('marketing')], (await access('dana', p.id)).body.rulesHash)).status).toBe(200)
+    expect(await reads('erin', `${p.folderPath}/x.md`)).toBe(404)
+    expect(await reads('alice', `${p.folderPath}/x.md`)).toBe(200)
+    expect((await put('dana', p.id, [group('marketing'), user('erin')], (await access('dana', p.id)).body.rulesHash)).status).toBe(200)
+    expect(await reads('erin', `${p.folderPath}/x.md`)).toBe(200)
+    expect(A.ctx.db.query('SELECT 1 FROM project_leavers WHERE project_id = ?').get(p.id)).toBeNull()
+  })
 })

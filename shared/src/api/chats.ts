@@ -388,6 +388,9 @@ export const ProjectAccess = z.object({
   /** folders inside the project with rules of their own that the caller cannot read (their rules are not listed in
    * otherRules; only the folders are counted). Absent: 0 */
   otherRulesHidden: z.number().int().positive().optional(),
+  /** people who left the project (docs/DECISIONS.md "Leaving a project") whom no group row shows as `except`: "Left:
+   * Bob", with Add back (naming them as a participant) for whoever changes the members. Absent: nobody. */
+  left: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 })
 export type ProjectAccess = z.infer<typeof ProjectAccess>
 /** A person in a team project, for its page's faces and its members dialog. `avatarVersion`: their photo (absent without

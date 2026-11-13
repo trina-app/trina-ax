@@ -26342,21 +26342,27 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   in the project's name menu and its card's "…" (`Project.leave`, `POST /api/projects/:id/leave`). Not a personal
   project (it is yours). Not the last person who reads it (`leave: 'last'`: the item is off and says "Add someone or
   delete it first"; 409 `project_last_member`); the owner and admins who manage it without being members do not count.
-- **Kept simple when people came in through a group.** Leaving takes out my own rule on the project folder. When a group
-  (or a role or everyone rule) would still let me in, a "no access" rule of my own is added: a person's rule decides
-  before a group's (`policy/access.ts` TIER), so the group stays and everyone else in it keeps the project. That rule is
-  an **exception**, part of the project's members, never another rule: GET …/access puts it on the group's row
-  (`ProjectMember.except`, shown "Marketing · except Kim"). Adding the person back by name turns it into write. Taking
-  the group out drops the exceptions nothing needs any more (only when the person would not read it without the rule:
-  `dropSpareExceptions`), so no rule is left for nobody. An exception no group of the project holds stays in "Others
-  who can see it", as before.
+- **Kept simple when people came in through a group.** Leaving turns my own rule on the project folder into a "no
+  access" rule of my own, and a `project_leavers` row (migration 294) records that I left. A person's rule decides
+  before a group's (`policy/access.ts` TIER), so the group stays and everyone else in it keeps the project. That rule
+  is a leaver's **exception**, part of the project's members, never another rule: GET …/access puts it on the group's
+  row (`ProjectMember.except`, "Marketing · except Kim"), or, when no group row holds them, on one line
+  (`ProjectAccess.left`, "Left: Kim") with **Add back**.
+- **A leaver stays out until someone adds them back by name** (the members dialog, Add back, the AI's members card,
+  Add me): that turns the rule into write and deletes the row. Taking the group out, adding another group of theirs,
+  or them joining one does not bring them back; the exception cannot be taken out as an "other rule" either.
+- **Only a "no access" a leaver row backs is an exception** (review of #759). Any other "no access" for a person is an
+  admin's setting: it stays read-only under "Others who can see it", naming that person is refused
+  (`participant_fixed`), and no save drops it. Otherwise a member creator could let in someone an admin had blocked.
 - **The creator may leave** when someone else is in it. The project forgets its creator (`created_by` NULL, as for a
   deleted account): no save puts their rule back, and they have no creator's powers there any more; admins manage it.
 - **What happens** is what an admin's removal does: the rules saved with `replaceRules`, the `folder.rules` audit
   (`via: 'leave'`, `self`), `afterAccessChange` (sessions, notices, its shared chats out of their lists), their
   scheduled tasks there pause at their next run (`schedule.project_gone`). Their **private chats** in it move out to
   their own chats (no project), so they keep them, an answer running in one stopped first; their shared chats stay for
-  the others. One more audit row, `project.leave` (`exception`, `creator`, `movedChats`). The confirm says it in plain
-  words: "Leave '<project>'? You won't see its files and shared chats anymore. Your private chats in it move to your own
-  chats."
+  the others. One more audit row, `project.leave` (`exception`: a group or other rule would still have let them in,
+  `creator`, `movedChats`). The "Add me to these" card does not offer a project its admin left (`old-projects.ts`
+  leftSince). The confirm says it in plain words: "Leave '<project>'? You won't see this project or its shared chats
+  anymore. Your private chats in it move to your own chats." It does not promise "files": a folder inside with rules of
+  its own can still be open to them.
 - **Not changed:** rules an admin set on folders inside the project. Leaving is about the project folder.
