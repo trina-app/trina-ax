@@ -109,7 +109,7 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
 function Section({ title, children, desc, page }: { title: string; children: React.ReactNode; desc?: string; page?: boolean }) {
   return (
     <section className="mb-8">
-      <h2 className={clsx('mb-1 font-semibold', page ? 'text-title max-md:sr-only' : 'text-title-sm')}>{title}</h2>
+      <h2 className={clsx('mb-1 text-title-sm font-semibold', page && 'max-md:sr-only')}>{title}</h2>
       {desc && <p className="mb-3 text-sm text-muted">{desc}</p>}
       <div className={clsx(!desc && 'mt-3', !desc && page && 'max-md:mt-0')}>{children}</div>
     </section>
