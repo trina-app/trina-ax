@@ -114,8 +114,10 @@ export const SetGoogleAppClientBody = z.union([
  *   their own, "not_service" this server does not sign in through the hosting service (set up each card instead),
  *   "public_host" no public https address for Google to send people back to;
  * - `active`: set now; `setBy` / `setAt`: who set it and when (null when not set; setBy null too when that person is gone);
- * - `canGoBack`: removing it goes back to the hosting service's Google sign-in. false: removing it turns Google off
- *   until it is set again (the page says so before it asks);
+ * - `canGoBack`: removing it goes back to the hosting service's Google sign-in: there is one AND it answered that it
+ *   serves this team. false: removing it turns Google off until it is set again (the page says so before it asks);
+ * - `stale`: set, but the team's address changed since: Google still sends people back to the old address until the
+ *   admin adds the new return addresses in Google Cloud and replaces the app here;
  * - `people`: active people with a Google connection here (Drive or any of the four apps) who connect again after a
  *   change; `shared`: Drives shared with the team plus the team's shared Google accounts, which an admin reconnects;
  * - `returnAddresses`: the two addresses to add in Google Cloud (both must be in the uploaded file), null without a
@@ -125,6 +127,9 @@ export const GoogleOwnAppStatus = z.object({
   available: z.boolean(),
   blocked: z.enum(['server', 'not_service', 'public_host']).nullable(),
   active: z.boolean(),
+  /** set, but the team's address changed since: add the new return addresses in Google Cloud, then Replace (an older
+   * server leaves it out) */
+  stale: z.boolean().optional(),
   canGoBack: z.boolean(),
   setBy: z.object({ id: z.string(), name: z.string() }).nullable(),
   setAt: z.string().nullable(),

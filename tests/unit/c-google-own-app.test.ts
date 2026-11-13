@@ -5,7 +5,11 @@
 // sign-in, without a public address, and for a file missing a return address; members get 403; no client ID or secret
 // in answers, the audit log or the log; old sign-ins and the team's shared account ask to reconnect; a non-Google
 // connection is unchanged; the team's public host (system/deployment.ts publicHostOf) leaves the hosting service's
-// sign-in on hosted and on served self-installed servers as it was. Fake Google, broker and library only.
+// sign-in on hosted and on served self-installed servers as it was. Removal: an app's earlier setting comes back, a card
+// changed since is left alone, a client someone wrote over it is left alone with the cards on it; restore from a backup
+// (row without file); nothing is revoked at Google or the hosting service either way; canGoBack false turns Google off.
+// A team address change marks it stale; while set, no card has a setup of its own (also served self-installed); the
+// operator's file on disk counts even before a reload. Fake Google, broker and library only.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
@@ -15,6 +19,7 @@ import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
 import { loadOrCreateKey } from '../../server/src/relay-client/registration'
 import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { clientSettingKey, setupOf } from '../../server/src/integrations/google-apps/config'
+import { setSetting } from '../../server/src/admin/settings'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { OWN_APP_SETTING } from '../../server/src/integrations/google-drive/config'
 import { ownAppStatus } from '../../server/src/integrations/google-drive/own-app'
@@ -104,7 +109,7 @@ test('hosted: set once → Drive and the four apps sign in directly with it and 
   for (const m of ['GET', 'PUT', 'DELETE']) expect((await call('alice', m, m === 'PUT' ? { clientId: 'x', clientSecret: 'y' } : undefined)).status).toBe(403)
   // available on a hosted server before the hosting service answered (the way around one that does not serve it yet)
   const before = await call('carol', 'GET')
-  expect(before.body).toEqual({ available: true, blocked: null, active: false, canGoBack: true, setBy: null, setAt: null, people: 0, shared: 0, returnAddresses: { drive: DRIVE_BACK, apps: APPS_BACK } })
+  expect(before.body).toEqual({ available: true, blocked: null, active: false, stale: false, canGoBack: true, setBy: null, setAt: null, people: 0, shared: 0, returnAddresses: { drive: DRIVE_BACK, apps: APPS_BACK } })
   // the downloaded file must list both return addresses
   expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK]) })).body.error.params.reason).toBe('client_redirect_apps')
   expect((await call('carol', 'PUT', { file: webFile([APPS_BACK]) })).body.error.params.reason).toBe('client_redirect_drive')
@@ -163,7 +168,7 @@ test('removed → all five back to the hosting service at once, also after a res
   expect(removed.body).toMatchObject({ available: true, active: false, setBy: null, setAt: null })
   expect(fs.existsSync(drive.clientFile)).toBe(false)
   expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeUndefined()
-  for (const app of APPS) expect(getSetting(A.ctx.db, clientSettingKey(app))).toBeUndefined()
+  for (const app of APPS) expect(getSetting<unknown>(A.ctx.db, clientSettingKey(app))).toBeUndefined()
   // the hosting service was asked right away: no restart, no wait for the next check
   expect(drive.mode).toBe('broker')
   for (const app of APPS) expect(setupOf(A.ctx, app)).toMatchObject({ source: 'service', mode: 'broker' })
@@ -237,13 +242,130 @@ test('old sign-ins and the shared team account ask to reconnect; a non-Google co
   const snapshot = other()
 
   expect((await call('carol', 'GET')).body).toMatchObject({ people: 2, shared: 1 })
+  const revokes = () => ({ google: google.revoked.length, service: broker.revoked.length, revokeCalls: broker.requests.filter((r) => r.path === DRIVE_BROKER_PATHS.revoke).length })
+  expect(revokes()).toEqual({ google: 0, service: 0, revokeCalls: 0 })
   expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  expect(revokes()).toEqual({ google: 0, service: 0, revokeCalls: 0 })
   expect(drive.status('alice').status).toBe('needs_reconnect')
   expect(apps.view('bob', 'gmail').status).toBe('needs_reconnect')
   expect(apps.teamView('gmail')!.status).toBe('needs_reconnect')
   expect(other()).toBe(snapshot)
-  // and back to the hosting service: the other connection is still untouched
+  // and back to the hosting service: the other connection is still untouched, and still nothing revoked anywhere
   await call('carol', 'DELETE')
   expect(other()).toBe(snapshot)
+  expect(revokes()).toEqual({ google: 0, service: 0, revokeCalls: 0 })
+  noClient()
+})
+
+test('removal: an app\'s earlier setting comes back; a card changed since is left alone', async () => {
+  // Gmail had a setting before (a page's own client whose file is gone: the hosting service signs it in)
+  setSetting(A.ctx.db, clientSettingKey('gmail'), { by: 'app', key: 'earlier' })
+  expect((await call('carol', 'GET')).body).toMatchObject({ available: true })
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  for (const app of APPS) expect(getSetting<unknown>(A.ctx.db, clientSettingKey(app))).toEqual({ by: 'drive' })
+  // an admin changes Calendar's card after the set
+  setSetting(A.ctx.db, clientSettingKey('calendar'), { by: 'app', key: 'changed-since' })
+  expect((await call('carol', 'DELETE')).status).toBe(200)
+  expect(getSetting<unknown>(A.ctx.db, clientSettingKey('gmail'))).toEqual({ by: 'app', key: 'earlier' })
+  expect(getSetting<unknown>(A.ctx.db, clientSettingKey('calendar'))).toEqual({ by: 'app', key: 'changed-since' })
+  for (const app of ['docs', 'sheets'] as const) expect(getSetting<unknown>(A.ctx.db, clientSettingKey(app))).toBeUndefined()
+  noClient()
+})
+
+test('restore from a backup: the settings row without its file shows as not set; set again; remove puts the cards back', async () => {
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  // a restore brings back the database (the row, the cards on "same as Drive") but not the private client file
+  fs.rmSync(drive.clientFile)
+  start()
+  expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeDefined()
+  expect((await call('carol', 'GET')).body).toMatchObject({ available: true, blocked: null, active: false, stale: false, setBy: null, setAt: null })
+  // the cards still work: Drive has no client, so they sign in through the hosting service
+  expect(drive.mode).toBe('broker')
+  for (const app of APPS) expect(setupOf(A.ctx, app)).toMatchObject({ source: 'service', mode: 'broker' })
+  // set again
+  expect((await call('dana', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).body).toMatchObject({ active: true, setBy: { id: 'dana' } })
+  for (const app of APPS) expect(setupOf(A.ctx, app)).toMatchObject({ source: 'drive', mode: 'direct' })
+  // remove: the cards go back to how they were before the first set (no setting), all five back to the hosting service
+  expect((await call('carol', 'DELETE')).body).toMatchObject({ active: false })
+  expect(fs.existsSync(drive.clientFile)).toBe(false)
+  expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeUndefined()
+  for (const app of APPS) expect(getSetting<unknown>(A.ctx.db, clientSettingKey(app))).toBeUndefined()
+  expect(drive.mode).toBe('broker')
+  noClient()
+})
+
+test('a client someone wrote over it: shown as the server\'s (on disk, before any reload); removal leaves that client and the cards on it working', async () => {
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(200)
+  // the operator writes their own client.json; the server has not read it yet (memory still has the company's app)
+  fs.writeFileSync(drive.clientFile + '.op', JSON.stringify({ clientId: 'operator-client', clientSecret: 'operator-secret', redirectUri: DRIVE_BACK }), { mode: 0o600 })
+  fs.renameSync(drive.clientFile + '.op', drive.clientFile)
+  expect(drive.config!.clientId).toBe(APP_CLIENT.clientId)
+  // decided from the file on disk: not active, the operator's client blocks setting it again
+  expect((await call('carol', 'GET')).body).toMatchObject({ active: false, available: false, blocked: 'server' })
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).status).toBe(409)
+  expect(JSON.parse(fs.readFileSync(drive.clientFile, 'utf8')).clientId).toBe('operator-client')
+  // removal: only this setting goes; the operator's file stays and the cards keep following it
+  expect((await call('carol', 'DELETE')).status).toBe(200)
+  expect(getSetting(A.ctx.db, OWN_APP_SETTING)).toBeUndefined()
+  expect(JSON.parse(fs.readFileSync(drive.clientFile, 'utf8')).clientId).toBe('operator-client')
+  for (const app of APPS) {
+    expect(getSetting<unknown>(A.ctx.db, clientSettingKey(app))).toEqual({ by: 'drive' })
+    expect(setupOf(A.ctx, app)).toMatchObject({ source: 'drive', mode: 'direct', client: { clientId: 'operator-client' } })
+  }
+  expect(new URL((await apps.authorize('bob', 'bob-session', 'gmail')).authorizationUrl).searchParams.get('client_id')).toBe('operator-client')
+  noClient()
+})
+
+test('hosted, the hosting service not serving this team: canGoBack false, and removal turns Google off', async () => {
+  broker.trusted = 'not-registered'
+  expect(await drive.checkBroker()).toBe(false)
+  expect((await call('carol', 'GET')).body).toMatchObject({ available: true, canGoBack: false }) // the way around it
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).body).toMatchObject({ active: true, canGoBack: false })
+  expect(drive.mode).toBe('direct')
+  expect((await call('carol', 'DELETE')).body).toMatchObject({ active: false, canGoBack: false })
+  expect(drive.mode).toBe('off')
+  expect(drive.enabled).toBe(false)
+  for (const app of APPS) expect(setupOf(A.ctx, app)).toMatchObject({ mode: 'off' })
+  noClient()
+})
+
+test('the team\'s address changes after it was set: stale, never rewritten; Replace with the new addresses clears it', async () => {
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).body).toMatchObject({ active: true, stale: false })
+  const NEW = 'acme-co.trina.test'
+  ;(A.ctx.config as any).publicOrigins = [`https://${NEW}`]
+  const st = (await call('carol', 'GET')).body
+  expect(st).toMatchObject({ active: true, stale: true, available: true, returnAddresses: { drive: `https://${NEW}/api/integrations/google-drive/callback`, apps: `https://${NEW}/api/integrations/google-apps/callback` } })
+  // the client still sends people to the old address (Google accepts only what is listed in Google Cloud)
+  expect(new URL((await drive.begin('alice', 'alice-session')).authorizationUrl).searchParams.get('redirect_uri')).toBe(DRIVE_BACK)
+  expect(new URL((await apps.authorize('bob', 'bob-session', 'gmail')).authorizationUrl).searchParams.get('redirect_uri')).toBe(APPS_BACK)
+  // the old file is refused now; one listing the new addresses is taken
+  expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).body.error.params.reason).toBe('client_redirect_drive')
+  const NEW_BACK = [st.returnAddresses.drive, st.returnAddresses.apps]
+  expect((await call('carol', 'PUT', { file: webFile(NEW_BACK) })).body).toMatchObject({ active: true, stale: false })
+  expect(new URL((await apps.authorize('bob', 'bob-session', 'gmail')).authorizationUrl).searchParams.get('redirect_uri')).toBe(NEW_BACK[1])
+  noClient()
+})
+
+test('while it is set, no card has a setup of its own: hosted, and a self-installed server the hosting service serves', async () => {
+  for (const kind of ['hosted', 'self'] as const) {
+    if (kind === 'self') {
+      await call('carol', 'DELETE')
+      const cfg = A.ctx.config as any; cfg.deployment = 'self'; cfg.publicOrigins = []; cfg.tunnel = { host: HOST, allowFrom: [], countries: [] }
+      start()
+    }
+    expect(await drive.checkBroker()).toBe(true)
+    expect((await call('carol', 'PUT', { file: webFile([DRIVE_BACK, APPS_BACK]) })).body).toMatchObject({ active: true })
+    expect(drive.mode).toBe('direct')
+    expect((await A.json('/api/admin/google-drive', { as: 'carol' })).body).toMatchObject({ canSetUp: false, blocked: 'hosted', redirectUri: null })
+    for (const card of (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps) expect(card).toMatchObject({ source: 'drive', canSetUp: false, blocked: 'hosted', redirectUri: null })
+    const r = await A.json('/api/admin/google-apps/gmail/client', { method: 'PUT', as: 'carol', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file: JSON.stringify({ web: { client_id: 'other.apps.googleusercontent.com', client_secret: 'other', redirect_uris: [APPS_BACK] } }) }) })
+    expect(r.status).toBe(409)
+    const d = await A.json('/api/admin/google-drive/client', { method: 'PUT', as: 'carol', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: 'other.apps.googleusercontent.com', clientSecret: 'other' }) })
+    expect(d.status).toBe(409)
+    expect(JSON.parse(fs.readFileSync(drive.clientFile, 'utf8')).clientId).toBe(APP_CLIENT.clientId)
+  }
+  // removed on the served self-installed server: the cards are the hosting service's again, as before
+  await call('carol', 'DELETE')
+  for (const card of (await A.json('/api/admin/google-apps', { as: 'carol' })).body.apps) expect(card).toMatchObject({ source: 'service', blocked: 'hosted' })
   noClient()
 })

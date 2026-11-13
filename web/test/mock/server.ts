@@ -33,7 +33,7 @@
 // mine?: Partial<MySlack>} (Admin › Connected apps › Slack and the person's Slack line in Connectors show that, over a
 // connected own app with nobody linked, until the next reset), POST /__test/google-own-app {hosted?: boolean (the
 // hosting service is the Google sign-in: every Google card set up by it, the company's own app can be set), active?,
-// canGoBack?, by?: {id, name}, at?, people?, shared?} (the company's own Google app, shared/src/api/google-apps.ts
+// canGoBack?, stale? (the team's address changed since it was set), by?: {id, name}, at?, people?, shared?} (the company's own Google app, shared/src/api/google-apps.ts
 // GoogleOwnAppStatus; people and shared are counted from the connections unless given; until the next reset),
 // POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
@@ -465,7 +465,7 @@ export class MockServer {
   /** the company's own Google app (server/src/integrations/google-drive/own-app.ts): POST /__test/google-own-app */
   googleOwn = MockServer.freshGoogleOwn()
   static freshGoogleOwn() {
-    return { hosted: false, active: false, canGoBack: true, by: null as { id: string; name: string } | null, at: null as string | null, people: null as number | null, shared: null as number | null }
+    return { hosted: false, active: false, canGoBack: true, stale: false, by: null as { id: string; name: string } | null, at: null as string | null, people: null as number | null, shared: null as number | null }
   }
   /** a share sign-in under way: its flow id, and which share it signs in again for */
   driveShareFlow: { id: string; shareId: string | null; polls: number } | null = null
@@ -4201,14 +4201,14 @@ export class MockServer {
         if (!uris.includes(st.returnAddresses!.drive)) own('client_redirect_drive')
         if (!uris.includes(st.returnAddresses!.apps)) own('client_redirect_apps')
       } else if (!/\.apps\.googleusercontent\.com$/.test(c.body.clientId ?? '')) own('client_invalid')
-      this.googleOwn = { ...this.googleOwn, active: true, by: { id: c.user.id, name: c.user.name }, at: now() }
+      this.googleOwn = { ...this.googleOwn, active: true, stale: false, by: { id: c.user.id, name: c.user.name }, at: now() }
       this.googleApps.ownApp = true
       this.googleSignInsEnded()
       return this.googleOwnStatus()
     },
     removeGoogleOwnApp: () => {
       if (this.googleOwn.active) {
-        this.googleOwn = { ...this.googleOwn, active: false, by: null, at: null }
+        this.googleOwn = { ...this.googleOwn, active: false, stale: false, by: null, at: null }
         this.googleApps.ownApp = false
         this.googleSignInsEnded()
       }
@@ -4967,7 +4967,7 @@ export class MockServer {
     const blocked = o.hosted ? null : 'not_service' as const
     const address = 'https://acme.example.com'
     return {
-      available: blocked === null, blocked, active: o.active, canGoBack: o.canGoBack, setBy: o.active ? o.by : null, setAt: o.active ? o.at : null,
+      available: blocked === null, blocked, active: o.active, stale: o.active && o.stale, canGoBack: o.canGoBack, setBy: o.active ? o.by : null, setAt: o.active ? o.at : null,
       people: o.people ?? counts.people.size, shared: o.shared ?? this.driveShares.length + counts.teams,
       returnAddresses: o.hosted ? { drive: `${address}/api/integrations/google-drive/callback`, apps: `${address}/api/integrations/google-apps/callback` } : null,
     }

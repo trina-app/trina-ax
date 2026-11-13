@@ -120,18 +120,22 @@ Team settings › Google sign-in on any Google page (`GET`/`PUT`/`DELETE /api/ad
   `.../google-apps/callback` (refused with `client_redirect_drive` / `client_redirect_apps`); the client ID and secret
   are accepted too. The team host is `tunnel.host`, or on a hosted server the host of its first https `publicOrigins`
   entry (the hosting service writes the team address there, never `tunnel`: `system/deployment.ts publicHostOf`). A
-  team rename changes it: add the new addresses at Google;
+  team rename changes it: the answer then says `stale: true` (the stored client's return address is not the team's
+  current one; it is never rewritten), and the page asks the admin to add the new addresses at Google and Replace;
 - the change ends every Google sign-in here (a new client is a new key), and nothing is revoked at Google by it. The
   answer counts them first: `people` (active people with a Drive or app connection) and `shared` (Drive shares and the
   team's shared Google accounts, which an admin reconnects);
 - removing it deletes only a `client.json` it wrote and puts the four apps back. The hosting service's sign-in stays
   ready behind the company's client (the broker is kept even after a restart while it is set), and the server asks the
-  hosting service right away, so all five go back to it at once. `canGoBack: false` (no broker URL): Google turns off
-  until a client is set again;
+  hosting service right away, so all five go back to it at once. `canGoBack` is true only when there is a broker and
+  its answer said it serves this team (`GET` asks it again when the answer is older than a minute, waiting at most
+  2.5 s); false: Google turns off until a client is set again. Someone wrote another `client.json` since: only the
+  settings row goes, the file and the four apps' settings stay (they follow that client and keep working);
 - the client ID and secret are in no answer, log line or audit entry (`google.own_app_set` with `{ replaced }`,
   `google.own_app_removed` with `{}`); owners and admins only. Like every server-held client, the file is not in
   `admin.js archive`: after a restore, add the app again;
-- the card-level setup is unchanged: on a hosted server `blocked: "hosted"`, no redirect address shown.
+- the card-level setup: on a hosted server `blocked: "hosted"`, no redirect address shown, as before; while the
+  company's app is set, also on a self-installed server the hosting service serves (it sets all five at once).
 
 **Flow.** `POST /api/integrations/google-drive/authorize` (and the share authorize) asks the control plane to start
 (`begin()`): the same flow row, state and PKCE verifier as the direct flow, but the control plane makes the Google

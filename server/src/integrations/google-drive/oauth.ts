@@ -82,6 +82,23 @@ export class GoogleDrive {
     const timer = setInterval(sweep, 60_000); timer.unref?.()
     ctx.onClose(() => { clearInterval(timer); for (const set of this.operations.values()) for (const c of set) c.abort() })
   }
+  /** the hosting service's sign-in is there and its last answer said it serves this team */
+  get brokerServes() { return !!this.broker && this.brokerOk }
+  /** The company's own Google app (own-app.ts) is the client in use: its settings row names this client. The cards then
+   * keep no setup of their own (driveAdminStatus, google-apps adminStatus: blocked 'hosted'). */
+  get ownAppActive() {
+    return !!this.cfg && !this.clientFromEnv && getSetting<{ key?: unknown }>(this.ctx.db, OWN_APP_SETTING)?.key === this.cfgKey
+  }
+  /** For the admin page: the hosting service's answer, asked again when the last one is older than `maxAge`, waiting at
+   * most `wait` ms (a slow hosting service keeps the earlier answer; the page stays fast). */
+  async brokerFresh(maxAge = 60_000, wait = 2_500): Promise<boolean> {
+    if (!this.broker) return false
+    if (this.brokerCheckedAt && this.now() - this.brokerCheckedAt < maxAge) return this.brokerOk
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([this.checkBroker().catch(() => false), new Promise((r) => { timer = setTimeout(r, wait) })])
+    clearTimeout(timer)
+    return this.brokerOk
+  }
   /** Read the client file again (after an admin's in-app setup). Connections and flows made with another client then
    * fail their config_key checks and ask the person to reconnect, as after an operator's change and restart. */
   reload() {

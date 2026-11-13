@@ -4,7 +4,8 @@
 //  - Trina's app: one line and Use your company's app.
 //  - The company's app: one line with who set it and when, and ⋯ with Replace and Use Trina's Google sign-in again (or,
 //    without a Trina sign-in to go back to, a Remove that says it turns Google off for everyone). Both ask first with
-//    the numbers of the dialog's last step.
+//    the numbers of the dialog's last step. When the team's address changed since (`stale`), a second line says to add
+//    the new return addresses in Google Cloud and then Replace, and Replace opens at In Google Cloud to show them.
 // The dialog, "Use your company's Google app" (also Replace), in four steps: Before you start (who it is for, the guide),
 // In Google Cloud (DriveConnector.tsx DriveCloudSteps with the five APIs, both return addresses with Copy), Add it here
 // (the downloaded file, dropped or chosen, or the ID and secret behind a disclosure; a file without both return
@@ -50,6 +51,7 @@ export const googleSignInShown = (admin: boolean, s: GoogleOwnAppStatus | null |
 export function ownAppErrorText(t: T, reason: string | undefined, addresses: GoogleOwnAppStatus['returnAddresses']): string {
   switch (reason) {
     case 'client_invalid': return t('gsign.error.invalid')
+    case 'client_not_google': return t('gsign.error.notGoogleFile')
     case 'client_redirect_drive': return t('gsign.error.redirectDrive', { address: addresses?.drive ?? '' })
     case 'client_redirect_apps': return t('gsign.error.redirectApps', { address: addresses?.apps ?? '' })
     case 'server': return t('gsign.error.server')
@@ -62,12 +64,15 @@ export function ownAppErrorText(t: T, reason: string | undefined, addresses: Goo
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.body.params?.reason as string | undefined) : undefined)
 
 /** The downloaded file, checked here before the last step as the server checks it: a Google "Web application" that lists
- * both return addresses. The ID and secret are only checked for being there. null: fine. */
+ * both return addresses. The ID and secret are only checked for being there. null: fine. Trina's own file format
+ * ({clientId, clientSecret, redirectUri}, Drive's client.json) is not offered here: it holds one return address and both
+ * are needed, so the dialog asks for Google's file or the ID and secret ('client_not_google'). */
 export function checkClient(c: ClientInput, addresses: GoogleOwnAppStatus['returnAddresses']): string | null {
   if (!c.file) return null
   let j: unknown
   try { j = JSON.parse(c.file.text) } catch { return 'client_invalid' }
   const web = j && typeof j === 'object' ? (j as { web?: unknown }).web : null
+  if ((!web || typeof web !== 'object') && j && typeof j === 'object' && 'clientId' in j) return 'client_not_google'
   if (!web || typeof web !== 'object') return 'client_invalid'
   const uris = (web as { redirect_uris?: unknown }).redirect_uris
   const list = Array.isArray(uris) ? uris : []
@@ -94,6 +99,8 @@ export function GoogleSignInRow({ status, onChange }: { status: GoogleOwnAppStat
   const locale = useLocale()
   const [dialog, setDialog] = useState<'new' | 'replace' | null>(null)
   const active = status.active
+  // the team's address changed since: Google still sends people back to the old one until the new ones are added
+  const stale = active && !!status.stale
   const date = formatDate(status.setAt, locale)
   const setLine = !active || !date ? '' : status.setBy ? t('gsign.setBy', { name: status.setBy.name, date }) : t('gsign.setOn', { date })
   const remove = async () => {
@@ -115,7 +122,12 @@ export function GoogleSignInRow({ status, onChange }: { status: GoogleOwnAppStat
       {/* the company's app: ⋯ stays beside the title on a phone too (inline, as a phone's settings row), and the line
           stays narrower than the open menu leaves free (the page column caps the row), so the menu never covers it */}
       <SettingRow heading inline={active} title={t('gsign.title')} testId="gsign-row" attrs={{ 'data-state': active ? 'company' : 'trina' }}
-        desc={active ? <span className="block max-w-md">{[t('gsign.company'), setLine].filter(Boolean).join(' ')}</span> : t('gsign.trina')}
+        desc={active
+          ? <>
+              <span className="block max-w-md">{[t('gsign.company'), setLine].filter(Boolean).join(' ')}</span>
+              {stale && <span className="mt-1 block max-w-md text-ink" data-testid="gsign-stale">{t('gsign.stale')}</span>}
+            </>
+          : t('gsign.trina')}
         more={active ? t('gsign.addressMore') : undefined}
         control={active
           ? <CardMenu label={t('gsign.more')} testId="gsign-menu" items={[
@@ -124,7 +136,7 @@ export function GoogleSignInRow({ status, onChange }: { status: GoogleOwnAppStat
             ]} />
           : <Button onClick={() => setDialog('new')} data-testid="gsign-use">{t('gsign.use')}</Button>} />
       {dialog && (
-        <OwnAppDialog status={status} replace={dialog === 'replace'} onClose={() => setDialog(null)}
+        <OwnAppDialog status={status} replace={dialog === 'replace'} readdress={dialog === 'replace' && stale} onClose={() => setDialog(null)}
           onSaved={(st) => { setDialog(null); onChange(st); toast({ level: 'success', text: t('gsign.saved') }) }} />
       )}
     </>
@@ -136,10 +148,11 @@ type Step = typeof STEPS[number]
 const STEP_TITLE = { start: 'gsign.step.start', cloud: 'gsign.step.cloud', add: 'gsign.step.add', confirm: 'gsign.step.confirm' } as const
 
 /** Use your company's Google app (or Replace it): four steps, Save on the last; nothing is sent before Save. */
-function OwnAppDialog({ status, replace, onClose, onSaved }: { status: GoogleOwnAppStatus; replace: boolean; onClose: () => void; onSaved: (s: GoogleOwnAppStatus) => void }) {
+function OwnAppDialog({ status, replace, readdress, onClose, onSaved }: { status: GoogleOwnAppStatus; replace: boolean; readdress: boolean; onClose: () => void; onSaved: (s: GoogleOwnAppStatus) => void }) {
   const t = useT()
-  // Replace: the admin has been through it once; the new file is what is asked for (Back still shows the rest)
-  const [step, setStep] = useState<Step>(replace ? 'add' : 'start')
+  // Replace: the admin has been through it once; the new file is what is asked for (Back still shows the rest). After
+  // the team's address changed (readdress): In Google Cloud first, where the new return addresses are
+  const [step, setStep] = useState<Step>(readdress ? 'cloud' : replace ? 'add' : 'start')
   const [client, setClient] = useState<ClientInput>(emptyClient)
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)

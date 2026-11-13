@@ -191,8 +191,9 @@ first shows the same numbers as **Before you save**. After you confirm, all five
 app again, people connect Google again once, and the company app's file is removed from the server. You can then
 delete the client in Google Cloud.
 
-If your team's address changes, add the two new return addresses to the client in Google Cloud, or sign-in stops
-working.
+If your team's address changes, the Google sign-in row says so. Add the two new return addresses to the client in
+Google Cloud, download its file again, then open ⋯ › **Replace** in Trina AX: the dialog opens at **In Google Cloud**
+with the new addresses to copy. Until then, nobody can connect Google.
 
 ## Problems
 

@@ -11,7 +11,7 @@ import type { AppContextC } from '../http/env'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
-import { GoogleOwnAppError, ownAppStatus, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
+import { GoogleOwnAppError, ownAppStatusFresh, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
 import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
 
 /** the app in the path, or not found */
@@ -49,7 +49,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
     return st
   }))
   // the company's own Google app for all five Google apps (integrations/google-drive/own-app.ts); owners and admins
-  kit.handle(API.googleOwnApp, () => safe(() => ownAppStatus(ctx)))
+  kit.handle(API.googleOwnApp, () => safe(() => ownAppStatusFresh(ctx)))
   kit.handle(API.setGoogleOwnApp, ({ auth, body }) => safe(() => {
     const st = setOwnApp(ctx, auth.user.id, body)
     for (const s of ['google-drive', 'gmail', 'calendar', 'docs', 'sheets'] as const) afterServiceSetup(ctx, s)

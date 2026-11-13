@@ -50,7 +50,8 @@ export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
   const redirectUri = driveRedirectUri(ctx)
   // the hosting service's setup: always on a hosted server; on a self-installed one only while the broker serves it
   // (status said yes). Not registered or removed: the page lets the admin set a client of its own, which then wins.
-  const blocked = isHosted(ctx.config) || svc.mode === 'broker' ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
+  // and while the company's own Google app is set (own-app.ts): it sets all five at once, as on a hosted server
+  const blocked = isHosted(ctx.config) || svc.mode === 'broker' || svc.ownAppActive ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
   const connectedMembers = configured
     ? (ctx.db.query(`SELECT count(*) n FROM drive_connections d JOIN users u ON u.id=d.user_id
         WHERE d.config_key=? AND d.status='connected' AND u.status='active' AND u.deleted_at IS NULL`).get(svc.key) as { n: number }).n

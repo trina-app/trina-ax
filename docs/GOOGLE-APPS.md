@@ -170,7 +170,8 @@ address is `https://<team host>/api/integrations/google-apps/callback`, which th
 Drive's. A card that has a client of its own or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE` blocks it
 (`blocked: "server"`). Removing it puts each card back as it was (only a card still on "same as Drive"), so they go back
 to the hosting service at once. Connections made with the hosting service's app, and the team's shared account, ask to
-connect again after either change. The card's own `canSetUp` and `blocked: "hosted"` do not change.
+connect again after either change. While it is set, no card has a setup of its own (`canSetUp: false`,
+`blocked: "hosted"`, no redirect address), on a hosted server as before and on a served self-installed one too.
 
 ## Disconnecting
 
