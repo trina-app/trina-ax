@@ -26572,21 +26572,25 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   had the turn and produced nothing for 15 minutes. Signs of life: every launcher event of the engine (each stdout or
   stderr line, so Claude's partial messages and streamed tool input count, which give no EngineEvent of their own),
   every EngineEvent, every API-engine stream chunk (`runApiAgent` `activity`), a step added or changed (tool progress),
-  a model-proxy event (busy retries included), a card answer, one of our tool calls starting or ending. The clock does
-  not run while the turn waits for a person or a queue slot, while one of our tools runs (`TurnToolSet.callStarted`,
-  counted around every `tools/call` in mcp/protocol.ts: box_shell may run 30 minutes, a long transcription longer; each
-  tool keeps its own limits) or while the turn waits for the launcher. Why 15 minutes: longer than any silent stretch of
+  a model-proxy event (busy retries included), a model answer streaming through the proxy (`activity`, at most one
+  every 10 s per stream: Codex and Claude's sub-agents print nothing until a model call ends, so a long single call
+  would otherwise look silent), a card answer, one of our tool calls starting or ending. The clock does not run while
+  the turn waits for a person or a queue slot, while one of our tools runs (`TurnToolSet.callStarted`, counted around
+  every `tools/call` in mcp/protocol.ts: box_shell may run 30 minutes, a long transcription longer; each tool keeps its
+  own limits; at most 2 hours per pause, `OWN_CALL_PAUSE_MAX_MS`, so a tool that never returns cannot hold the turn
+  until the backstop) or while the turn waits for the launcher. Why 15 minutes: longer than any silent stretch of
   a working engine (Claude Code's own Bash tool stops at 10 minutes; a model stream sends bytes every few seconds) and
   shorter than the old 20 minutes, so a hung turn frees its slot no later than before. It is not a cap on length: an
   answer that keeps producing anything runs on.
 - A stall ends the answer as an **error** `stalled` (`CHAT_ERROR_MESSAGES.stalled`, code `internal`: "The AI didn't
   respond for 15 minutes, so the answer was stopped. Please try again."), the text so far kept, retry offered; not a
-  pause, since nothing reached a limit. A scheduled run that stalled is `problems`. The model proxy logs a request the
-  stall cut off as `by: 'stalled'`.
+  pause, since nothing reached a limit. A scheduled run that stalled is `failed` (an error, like a crash; a run that
+  paused at the old time limit was `problems`). The model proxy logs a request the stall cut off as `by: 'stalled'`.
 - **Launcher backstop 3 h -> 12 h** (`LAUNCHER_BACKSTOP_MS`, also the turn's proxy token lifetime): it only catches a
   server that is alive but stuck, and must not cut a real long answer. A quarantined slot (the engine's end not
-  confirmed) is released at its latest launch's own hard stop plus 5 minutes (was the wall deadline plus 5 minutes),
-  so the wait stays bounded; the probe still frees it as soon as the engine's process group or the launcher is gone.
+  confirmed after a stop) is released at its latest launch's own hard stop, but at most 45 minutes after the stop
+  (`QUARANTINE_HOLD_MAX_MS`, the bound it had under the old 45-minute limit), plus 5 minutes; the probe still frees it
+  as soon as the engine's process group or the launcher is gone. Without the cap a chat could stay "ending" for 12 h.
 - **Kept for answers stored before:** `time_limit` in `TurnStopReason`, the database CHECK (migration 212) and the
   readers, the "paused" line with Continue, the `<continuation>` note after such an answer, and the `timeout` /
   `wall_timeout` error texts. No new answer gets any of them.

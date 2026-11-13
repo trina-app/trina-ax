@@ -1,10 +1,11 @@
 import { afterEach, beforeAll, expect, spyOn, test } from 'bun:test'
 import { openDb } from '../../server/src/db'
 import { setApiEnginePublicOnly } from '../../server/src/system/egress'
-import { LAUNCHER_BACKSTOP_MS, STALL_TIMEOUT_MS, TURN_STOP_GRACE_MS, TurnExec, type TurnSpec } from '../../server/src/chat/turn'
+import { LAUNCHER_BACKSTOP_MS, QUARANTINE_HOLD_MAX_MS, STALL_TIMEOUT_MS, TURN_STOP_GRACE_MS, TurnExec, type TurnSpec } from '../../server/src/chat/turn'
 import { runApiAgent } from '../../server/src/engine/api-agent'
 import type { ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnRegistry } from '../../server/src/turns'
+import { ALIVE_EVERY_MS, aliveSignal } from '../../server/src/proxy/model-proxy'
 import { silentLogger } from '../../server/src/log'
 
 // The API-engine test below injects a transport for http://127.0.0.1:1: a self-hosted server, where the API engine may
@@ -98,8 +99,11 @@ test('launcher transport loss is not proof of termination and cannot release its
   expect(f.released).toEqual([])
   expect(f.quarantined).toEqual(['t'])
   expect(f.db.query("SELECT status FROM turns WHERE id='t'").get()).toEqual({ status: 'error' })
-  // the launcher ends the engine at the launch's backstop at the latest: the slot is held until then (+ grace)
-  expect(f.exec.quarantineState()!.releaseAt).toBeGreaterThanOrEqual(launchedAt + LAUNCHER_BACKSTOP_MS + 300_000)
+  // held until the launch's own end, but at most 45 minutes past the stop (the backstop is 12 h), plus the grace
+  const releaseAt = f.exec.quarantineState()!.releaseAt
+  expect(releaseAt).toBeGreaterThan(launchedAt + 300_000)
+  expect(releaseAt).toBeLessThanOrEqual(performance.now() + QUARANTINE_HOLD_MAX_MS + 300_000)
+  expect(releaseAt).toBeGreaterThanOrEqual(launchedAt + QUARANTINE_HOLD_MAX_MS + 300_000 - 1000)
 })
 
 test('every launch gets the launcher backstop, not a remaining time; its confirmed exit returns one slot', async () => {
@@ -212,4 +216,18 @@ test('stop revokes tokens now, quarantines after grace, and releases only after 
   release(); await run
   expect(f.released).toEqual(['t'])
   expect(TURN_STOP_GRACE_MS).toBe(10_000)
+})
+
+test('a model answer streaming through the proxy (activity) keeps the turn alive; the signal is throttled per stream', async () => {
+  const f = setup(500)
+  spyOn(f.exec as any, 'execute').mockImplementation(async () => {
+    for (let i = 0; i < 6; i++) { (f.exec as any).onProxyEvent({ type: 'activity' }); await Bun.sleep(400) }
+  })
+  await f.exec.run()
+  expect(f.exec.stopReason).toBeNull()
+  const sent: string[] = []
+  const alive = aliveSignal('t', (turnId, ev) => sent.push(`${turnId}:${ev.type}`))
+  alive(); alive(); alive()
+  expect(sent).toEqual(['t:activity'])
+  expect(ALIVE_EVERY_MS).toBe(10_000)
 })

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 22:48
 - Branch: `feat/no-answer-time-limit`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/chat/` (turn, runtime, queue). Why: the per-answer time limits live in the chat
   runtime that every engine, scheduled task and template run goes through (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a limit is removed and one error text is added; no API or database change
@@ -64,4 +64,12 @@ Out: a per-answer cost cap (budgets do that), Codex/API-engine round caps (uncha
 
 ## Result
 
-(filled in at the end)
+- Done as planned. Review (one independent reviewer, no must-fix) added three things: the model proxy sends a
+  throttled `activity` turn event while a model answer streams (Codex and Claude sub-agents print nothing until a call
+  ends); one of our tool calls pauses the guard at most 2 hours; a quarantined slot waits at most 45 minutes past the
+  stop (not the 12 h backstop). A stalled scheduled run is `failed`.
+- Checks: `bun run typecheck`, `check:i18n`, `check:docs`; under Bun 1.3.12 the 31 chat/queue/proxy test files
+  (428 pass, 0 fail) and web `chat-error-words`; a 181-file run had only the known environment failures on this Mac
+  (HWP engine, g-subscription socket path).
+- Real server (a copy of the QA-Acme team, scripted engine): a 23-minute answer ended `done`; a silent engine ended
+  `stalled` after 15.3 minutes.

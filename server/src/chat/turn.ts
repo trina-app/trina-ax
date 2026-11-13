@@ -121,6 +121,12 @@ export const STALL_TIMEOUT_MS = 15 * 60_000
 /** Launcher hard stop of one engine launch. The server's stall guard ends a hung engine, and the launcher ends it when
  * the server's connection goes; this only catches a server that is alive but stuck. Far above any real answer. */
 export const LAUNCHER_BACKSTOP_MS = 12 * 60 * 60_000
+/** One of our tool calls pauses the stall guard at most this long (each tool has its own, shorter limits; this only
+ * keeps a tool that never returns from holding the turn until the backstop). */
+export const OWN_CALL_PAUSE_MAX_MS = 2 * 60 * 60_000
+/** A quarantined slot (the engine's end not confirmed after a stop) waits at most this long past the stop for the
+ * launcher's own end before the release grace: the same bound as when the 45-minute limit ended every launch. */
+export const QUARANTINE_HOLD_MAX_MS = 45 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
 export const SESSION_STASH_MAX = 20 * 1024 * 1024
@@ -357,6 +363,8 @@ export class TurnExec {
   private lastSignAt = performance.now()
   /** our own tool calls of this turn that run now (mcp/protocol.ts tools/call): the engine waits on them */
   private ownCalls = 0
+  /** when ownCalls last went from 0 to 1 (performance.now()): the pause lasts at most OWN_CALL_PAUSE_MAX_MS */
+  private ownCallsSince = 0
   private humanWaits = 0
   /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
    * back while it waited for the person, and its engine goes on only once it holds one */
@@ -529,7 +537,11 @@ export class TurnExec {
     if (!this.quarantined || this.status !== 'finished') return null
     return { pgid: this.enginePgid, releaseAt: this.quarantineReleaseAt() }
   }
-  private quarantineReleaseAt() { return Math.max(this.launchEndsBy, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+  private quarantineReleaseAt() {
+    // the launch's own hard stop, but never more than QUARANTINE_HOLD_MAX_MS after the stop (the backstop is 12 h)
+    const by = Math.min(Math.max(this.launchEndsBy, this.quarantinedAt), this.quarantinedAt + QUARANTINE_HOLD_MAX_MS)
+    return by + this.rt.quarantineReleaseGraceMs
+  }
   /** A quarantined turn that has not ended (its launcher stays connected but never confirms the end) past the release
    * time: stop waiting for the launcher, so the turn ends (as failed) and its slot follows the probe. True if it did. */
   abandonOverdue(): boolean {
@@ -545,6 +557,7 @@ export class TurnExec {
   /** One of our tools runs for the engine (mcp/protocol.ts tools/call): the engine waits on it, so the stall guard waits
    * too (box_shell may run 30 minutes, a long transcription longer; each tool has its own limits). Returns its end. */
   ownCallStarted(): () => void {
+    if (!this.ownCalls) this.ownCallsSince = performance.now()
     this.ownCalls = (this.ownCalls ?? 0) + 1
     this.sign()
     let ended = false
@@ -561,7 +574,8 @@ export class TurnExec {
    * while the turn waits for a person or a slot, while one of our tools runs, or while it waits for the launcher. */
   private tick() {
     if (this.status !== 'running' || this.stopReason) return
-    if (this.humanWaits > 0 || this.heldAnswers?.length || this.ownCalls > 0 || this.waitingLauncher) { this.sign(); return }
+    const ownCall = this.ownCalls > 0 && performance.now() - this.ownCallsSince < OWN_CALL_PAUSE_MAX_MS
+    if (this.humanWaits > 0 || this.heldAnswers?.length || ownCall || this.waitingLauncher) { this.sign(); return }
     const silentMs = performance.now() - this.lastSignAt
     if (silentMs < this.rt.stallTimeoutMs) return
     this.rt.log.warn('turn stalled: nothing from the engine', { turn: this.id, silentMs: Math.round(silentMs) })
@@ -1119,7 +1133,7 @@ export class TurnExec {
     let proxy: { port: number; token: string } | undefined
     if (codex.auth === 'agent-own') {
       if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
-      proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS }) }
+      proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: 2 * LAUNCHER_BACKSTOP_MS + 60_000 }) }
     }
     if (managed) {
       // managed: plain HTTP to the proxy's /codex path with a placeholder login; no proxy, no turn (fail closed)
@@ -1234,6 +1248,8 @@ export class TurnExec {
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
     this.sign()
+    // a model answer streams for this turn: only a sign of life (the stall guard)
+    if (ev.type === 'activity') return
     // the provider is busy and the engine tries again (QA TC-388): a line in the chat while it lasts
     if (ev.type === 'busy') return this.setBusy(ev.on)
     // what a Codex search asked for: for its step only, never the answer's outcome

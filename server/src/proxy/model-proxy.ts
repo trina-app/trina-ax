@@ -59,6 +59,22 @@ export type ProxyTurnEvent =
    * Only for the step under the answer (chat/turn.ts): Codex's item names no query for an open and ends a refused one
    * as done */
   | { type: 'search'; commands: string[]; refused?: string[] }
+  /** a model answer streams through for this turn (at most one every ALIVE_EVERY_MS): a sign of life for the turn's
+   * stall guard (chat/turn.ts STALL_TIMEOUT_MS), since Codex and Claude's sub-agents print nothing until a call ends */
+  | { type: 'activity' }
+
+/** how often a streaming model answer tells its turn it is alive (ProxyTurnEvent 'activity') */
+export const ALIVE_EVERY_MS = 10_000
+/** A stream's "alive" signal to its turn, at most once per ALIVE_EVERY_MS (the first chunk always). */
+export function aliveSignal(turnId: string, emit: ((turnId: string, ev: ProxyTurnEvent) => void) | undefined): () => void {
+  let last = 0
+  return () => {
+    const now = Date.now()
+    if (now - last < ALIVE_EVERY_MS) return
+    last = now
+    try { emit?.(turnId, { type: 'activity' }) } catch {}
+  }
+}
 
 /** a proxy token row as the proxy reads it */
 export interface TokenRow { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null; credential_id: string | null; family: Family | null; tools: string | null }
@@ -401,6 +417,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         const done = () => { if (!recorded) { recorded = true; record(model, usage) } }
         const dec = new TextDecoder()
         const reader = up.body.getReader()
+        const alive = aliveSignal(row.turn_id, o.onTurnEvent)
         const scan = (chunk: Uint8Array) => {
           buf += dec.decode(chunk, { stream: true })
           let i
@@ -421,6 +438,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
               const { value, done: end } = await reader.read()
               if (end) { done(); ctl.close(); return }
               ctl.enqueue(value)
+              alive()
               scan(value)
             } catch (e) {
               done() // the stream broke off: what was seen so far still counts

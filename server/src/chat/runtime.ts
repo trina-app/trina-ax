@@ -67,8 +67,8 @@ export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
 export const CLAIM_TRIES = 3
-/** a quarantined slot whose engine was never confirmed gone is released this long after its launch's own hard stop:
- * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
+/** a quarantined slot whose engine was never confirmed gone is released this long after its launch's own hard stop, or
+ * after QUARANTINE_HOLD_MAX_MS past the stop when that comes first (chat/turn.ts): a bounded wait, never forever */
 export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
 /** Engines that may be up at once, per slot: answers waiting for a person hold no slot but keep their (idle) engine,
  * so without this cap every queued answer could start beside them where memory is not checked (a Mac, office mode) */
@@ -374,7 +374,7 @@ export class ChatRuntime {
   }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
   /** The chat's earlier answer ended but its engine's end is not confirmed yet (a quarantined slot, at most until its
-   * launch's hard stop plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
+   * launch's hard stop or 45 minutes after the stop, plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
   endingUnconfirmed(chatId: string): boolean {
     for (const e of this.running.values()) if (e.spec.chatId === chatId && e.quarantineState()) return true
     return false
