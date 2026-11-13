@@ -3021,6 +3021,7 @@ export const es: Record<MessageKey, string> = {
   "integrations.pick.label": "Apps",
   "integrations.pick.custom": "Otra app (introducir una dirección)",
   "integrations.pick.back": "Atrás",
+  "integrations.pick.count": "{n, plural, one {# app encontrada} other {# apps encontradas}}",
   'integrations.discover.customHint': "¿No aparece?",
   'integrations.discover.custom': "Añadir por su dirección",
   "integrations.discover.askAdmin": "Pida a un administrador que lo añada.",

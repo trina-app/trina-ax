@@ -3065,6 +3065,7 @@ export const en: Record<MessageKey, string> = {
   "integrations.pick.label": "Apps",
   "integrations.pick.custom": "Custom app (enter an address)",
   "integrations.pick.back": "Back",
+  "integrations.pick.count": "{n, plural, one {# app found} other {# apps found}}",
   'integrations.discover.customHint': 'Not listed?',
   'integrations.discover.custom': "Add one by its address",
   "integrations.discover.askAdmin": "Ask an admin to add it.",

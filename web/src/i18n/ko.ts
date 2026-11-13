@@ -3064,6 +3064,7 @@ export const ko = {
   "integrations.pick.label": "앱",
   "integrations.pick.custom": "직접 추가 (주소 입력)",
   "integrations.pick.back": "뒤로",
+  "integrations.pick.count": "앱 {n}개",
   'integrations.discover.customHint': '목록에 없나요?',
   'integrations.discover.custom': "주소로 직접 추가",
   "integrations.discover.askAdmin": "관리자에게 추가해 달라고 해 주세요.",

@@ -3065,6 +3065,7 @@ export const id: Record<MessageKey, string> = {
   "integrations.pick.label": "Aplikasi",
   "integrations.pick.custom": "Aplikasi lain (masukkan alamat)",
   "integrations.pick.back": "Kembali",
+  "integrations.pick.count": "{n} aplikasi ditemukan",
   'integrations.discover.customHint': 'Tidak ada di daftar?',
   'integrations.discover.custom': "Tambahkan lewat alamatnya",
   "integrations.discover.askAdmin": "Minta admin untuk menambahkannya.",

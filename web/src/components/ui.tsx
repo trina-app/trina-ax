@@ -234,7 +234,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     // reach when the first one went inert)
     const onFocusIn = (e: FocusEvent) => {
       if (!onTop() || !el || !(e.target instanceof Node) || el.contains(e.target)) return
-      const to = first && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
+      // the first control may be gone (a dialog that swapped its content): then the first one there now
+      const to = first?.isConnected && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
       ;(to ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)

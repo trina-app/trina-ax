@@ -3021,6 +3021,7 @@ export const ja: Record<MessageKey, string> = {
   "integrations.pick.label": "アプリ",
   "integrations.pick.custom": "その他のアプリ (アドレスを入力)",
   "integrations.pick.back": "戻る",
+  "integrations.pick.count": "{n, plural, one {#件のアプリ} other {#件のアプリ}}",
   'integrations.discover.customHint': "一覧にありませんか？",
   'integrations.discover.custom': "アドレスで追加",
   "integrations.discover.askAdmin": "管理者に追加を頼んでください。",

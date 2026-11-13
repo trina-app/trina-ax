@@ -19,7 +19,7 @@
 // its key and advanced settings are a computer's work): the dialog is then one line that says so, with no form.
 import clsx from 'clsx'
 import { Check, ChevronRight, Copy, Plus, Search, TriangleAlert, UserPlus } from 'lucide-react'
-import { useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
@@ -46,7 +46,7 @@ type Who = 'team' | 'template'
 /** Who a new team connection or template is for until the admin chooses: the whole team. */
 export const TEAM_DEFAULT_ACCESS: IntegrationAccess = { everyone: true, groups: [], users: [] }
 
-export function IntegrationDialog({ scope, existing, template, connector, choices, startAs, onClose, onSaved, onSavedTemplate }: {
+export function IntegrationDialog({ scope, existing, template, connector, choices, others, startAs, onClose, onSaved, onSavedTemplate }: {
   scope: 'personal' | 'team'
   existing?: Integration
   /** editing this template (Admin) */
@@ -55,6 +55,9 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   connector?: Connector
   /** a new connection: first pick one of these Discover apps, or a custom app by its address (Admin's Add) */
   choices?: Connector[]
+  /** with `choices`: apps listed first that have their own setup (Google's, Slack); picking one closes the dialog and
+   * runs `onPick` (their own page) */
+  others?: { id: string; name: string; logo: string; onPick: () => void }[]
   /** Admin: start as a template instead of one team key (a connector page's "As a template") */
   startAs?: Who
   onClose: () => void
@@ -84,6 +87,16 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   const [picked, setPicked] = useState<Connector | undefined>()
   const [query, setQuery] = useState('')
   const conn = connector ?? picked
+  // the list and the form share one dialog, so the keyboard moves on by hand: to the search after Back, to the form's
+  // first field (or, for a listed app with no field, the dialog itself, which reads its title) after a pick
+  const swapped = useRef(false)
+  useEffect(() => {
+    if (!swapped.current) { swapped.current = true; return }
+    const box = body.current?.closest<HTMLElement>('[role="dialog"]')
+    const to = picking ? box?.querySelector<HTMLElement>('[data-testid="integration-pick-search"]')
+      : box?.querySelector<HTMLElement>('[data-testid="integration-name"]') ?? box
+    to?.focus()
+  }, [picking]) // eslint-disable-line react-hooks/exhaustive-deps
   const [touched, setTouched] = useState<Partial<Record<FormField, boolean>>>({})
   // the fields typed in: leaving an empty field one never typed in shows no error (only Save does)
   const [edited, setEdited] = useState<Partial<Record<FormField, boolean>>>({})
@@ -241,17 +254,29 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   if (picking) {
     const q = query.trim().toLowerCase()
     const shown = (choices ?? []).filter((c) => !q || c.name.toLowerCase().includes(q))
+    const own = (others ?? []).filter((o) => !q || o.name.toLowerCase().includes(q))
     const itemCls = 'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-hover max-md:min-h-11'
     return (
       <Modal open onClose={onClose} width={600} title={title}
         footer={<Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>}>
-        <div data-testid="integration-pick">
+        <div ref={body} data-testid="integration-pick">
           <div className="relative">
             <Search size={15} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
             <input type="search" className={clsx(inputCls, 'pl-9')} value={query} placeholder={t('integrations.pick.search')} aria-label={t('integrations.pick.search')}
               onChange={(e) => setQuery(e.target.value)} data-autofocus data-testid="integration-pick-search" />
           </div>
+          {/* how many apps the search found, said once the typing pauses */}
+          <p className="sr-only" role="status" aria-live="polite" data-testid="integration-pick-count">{q ? t('integrations.pick.count', { n: own.length + shown.length }) : ''}</p>
           <ul className="-mx-2 mt-3" aria-label={t('integrations.pick.label')}>
+            {/* Google's apps and Slack have a setup of their own: picking one opens it */}
+            {own.map((o) => (
+              <li key={o.id}>
+                <button type="button" className={itemCls} onClick={() => { onClose(); o.onPick() }} data-testid={`integration-pick-${o.id}`}>
+                  <img src={o.logo} alt="" width={20} height={20} className="size-5 shrink-0 rounded object-contain" />
+                  <span className="min-w-0 truncate">{o.name}</span>
+                </button>
+              </li>
+            ))}
             {shown.map((c) => (
               <li key={c.id}>
                 <button type="button" className={itemCls} onClick={() => pick(c)} data-testid={`integration-pick-${c.id}`}>
@@ -260,8 +285,9 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
                 </button>
               </li>
             ))}
-            {q && !shown.length && <li className="px-2 py-2 text-sm text-muted" data-testid="integration-pick-none">{t('integrations.noMatch', { q: query.trim() })}</li>}
-            <li className="mt-1 border-t border-line pt-1">
+            {q && !shown.length && !own.length && <li className="px-2 py-2 text-sm text-muted" data-testid="integration-pick-none">{t('integrations.noMatch', { q: query.trim() })}</li>}
+            {/* always in sight at the bottom, however long the list */}
+            <li className="sticky -bottom-5 mt-1 border-t border-line bg-surface pt-1 pb-1 max-sm:-bottom-5">
               <button type="button" className={itemCls} onClick={() => pick()} data-testid="integration-pick-custom">
                 <span className="flex size-5 shrink-0 items-center justify-center text-muted"><Plus size={16} aria-hidden /></span>
                 <span className="min-w-0">{t('integrations.pick.custom')}</span>
