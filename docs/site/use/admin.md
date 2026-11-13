@@ -28,6 +28,8 @@ own accounts, usage limits) are in **Team settings**. **Slack** had its own menu
 **Connected apps** now, and its old address opens it there.
 :::
 
+On a company with Google Workspace, the Google apps can sign in with your company's own Google app, set once for all five: [Use your company's own Google app](google-own-app.md).
+
 ## Your first week
 
 :::steps
