@@ -13,6 +13,7 @@ import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { useAiAccess } from './store/aiAccess'
 import { loadChatList } from './lib/chatListLoad'
+import { loadMarkdown } from './components/LazyMarkdown'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
@@ -44,7 +45,20 @@ useSession.subscribe(({ status }) => {
   readsFor = who
   void loadChatList().catch(() => {})
   void useAiAccess.getState().load()
+  preloadFormatting()
 })
+
+/** The formatting code (components/LazyMarkdown.tsx) loads once the signed-in app is idle (requestIdleCallback, else
+ * after 2 s), so the first answer or message is formatted at once and never shows its raw Markdown first. Never on the
+ * sign-in page: only a signed-in session gets here. A failed load is tried again by the first text that needs it. */
+let formattingAsked = false
+function preloadFormatting() {
+  if (formattingAsked) return
+  formattingAsked = true
+  const load = () => { void loadMarkdown().catch(() => {}) }
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(load, { timeout: 2000 })
+  else setTimeout(load, 2000)
+}
 initPwa()
 followVisualViewport()
 // the phone app and the installed app: no zoom of the whole page (a picture viewer zooms on its own)

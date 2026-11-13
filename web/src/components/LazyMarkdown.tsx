@@ -1,7 +1,8 @@
 // The formatted-text components (components/Markdown.tsx: react-markdown, GFM, math with KaTeX and its styles; with the
 // answer's rich copy, lib/richCopy.tsx, about 1.2 MB) as a file of their own, loaded the first time something on screen
-// needs them: an answer, a room message, a file or a skill's example. The sign-in page and a Home with nothing to format
-// never download them (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand").
+// needs them (an answer, a room message, a file or a skill's example) or, once signed in, when the app is idle
+// (main.tsx preloadFormatting), whichever comes first. The sign-in page never downloads them (docs/DECISIONS.md "First
+// load: compressed files, one language, formatting on demand").
 // Until the file is here (a moment; on a failure, for good) the text shows as it is, its lines kept, so nothing is
 // missing, only not formatted yet. Once loaded, every later use draws formatted at once, with no step in between.
 // Screens that open later anyway (Projects, Skills, the artifact panel) import components/Markdown.tsx directly.

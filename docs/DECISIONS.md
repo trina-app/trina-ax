@@ -12768,7 +12768,8 @@ push service (`pushManager.subscribe` always fails there).
   messages, file previews, chat steps and skill examples. The code loads the first time one of them is drawn; until
   then (about a second on a slow phone connection, once per visit; then cached) the text shows as it is, with its lines,
   size and links, like the plain text `Markdown.tsx` shows when it cannot format. Copying an answer before it is loaded
-  copies the Markdown only. Not loaded ahead on idle: the task was "only when a message needs it".
+  copies the Markdown only. Once signed in, `main.tsx` loads it when the app is idle (`requestIdleCallback`, else after
+  2 s; manager's decision, 2026-11-13), so in practice nobody sees raw Markdown first; the sign-in page never loads it.
   Pages that open later anyway (Projects, Skills, the artifact panel) import `Markdown.tsx` directly.
 - **No duplicate start-up reads.** The chat list (`lib/chatListLoad.ts`: the rail, the tab bar and the history list
   each asked), AI access (`store/aiAccess.ts`: the banner and the welcome card) and `/api/me` (main.tsx and the Gate)
