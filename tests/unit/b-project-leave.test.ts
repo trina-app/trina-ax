@@ -174,9 +174,10 @@ describe('leaving a team project', () => {
     expect(projectOf(trashed)).toEqual({ p: null, u: 'bob' })
     expect(projectOf(ours)).toEqual({ p: p.id, u: 'bob' })
     expect(projectOf(hers)).toEqual({ p: p.id, u: 'alice' })
-    // bob opens his own chat still; the shared one is alice's to see, not his
+    // bob opens his own chat still; the shared one is alice's to see, not his: its link says he is no longer a member
+    // (QA TC-1067)
     expect(await code(h.api('bob').call(API.getChat, { params: { id: mine } }))).toBe('ok')
-    expect(await code(h.api('bob').call(API.getChat, { params: { id: ours } }))).toBe('404 not_found')
+    expect(await code(h.api('bob').call(API.getChat, { params: { id: ours } }))).toBe('404 not_found no_longer_member')
     expect(await code(h.api('alice').call(API.getChat, { params: { id: ours } }))).toBe('ok')
   })
 

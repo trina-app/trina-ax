@@ -81,7 +81,7 @@ import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { isProjectsFolder } from '../lib/projectFolders'
-import { isTeamProject, privateInTeamProject, refusalKey } from '../lib/sharedChat'
+import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { leaveItems, useLeaveProject } from '../components/LeaveProject'
@@ -639,6 +639,8 @@ function ProjectPage() {
   // again behind it
   const [p, setP] = useState<Project | null>(() => keptPage(projectId).project)
   const [missing, setMissing] = useState(false)
+  // not found because I was taken out of it (or left): its name (QA TC-1067)
+  const [goneFrom, setGoneFrom] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [chats, setChats] = useState<Chat[] | null>(() => keptPage(projectId).chats)
   const shownChats = useRef(chats)
@@ -762,6 +764,7 @@ function ProjectPage() {
         if (!live()) return
         if (isApiError(e, 'not_found')) {
           setMissing(true)
+          setGoneFrom(noLongerMemberOf(e))
           useProjectPage.getState().drop(id)
         } else if (shownP.current?.id !== id) setError(errorText(e, locale, t('error.network')))
         // (a page shown from a moment ago stays as it was; the next visit reads it again)
@@ -915,7 +918,7 @@ function ProjectPage() {
     else changeP(next)
   }
 
-  if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  if (missing) return <div data-testid="project-missing" data-gone={goneFrom ? '' : undefined}><EmptyState screen title={goneFrom ? t('projects.noLongerMember', { name: goneFrom }) : t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState></div>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
@@ -926,8 +929,8 @@ function ProjectPage() {
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
   const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
   // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
-  // empty folder comes back (a folder with files becomes its one line)
-  const filesBox = filesEmpty || (!files && p.canEdit)
+  // empty folder comes back (a folder with files becomes its one line). A phone: always its one row (QA TC-1072)
+  const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
@@ -992,7 +995,8 @@ function ProjectPage() {
           </div>
         )}
         {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
-        {/* phone: the box, then the side lines, then the chats; wide: the chats under the box, the lines beside them */}
+        {/* phone: the box, then the chats right under it, then the side lines (QA TC-1072); wide: the chats under the
+            box, the lines beside them */}
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash takes no chat: the note says so, with what the owner and admins
@@ -1031,9 +1035,17 @@ function ProjectPage() {
             )}
           </div>
           {(!outside || hasMembers) && (
-            <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            <aside aria-label={t('projects.about')} className="min-w-0 max-md:order-last lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="divide-y divide-line">
-                {!outside && !p.instructions?.trim() && p.canEdit ? (
+                {!outside && !p.instructions?.trim() && p.canEdit && phone ? (
+                  // a phone: one line, its name and 지침 쓰기 (QA TC-1072: two empty boxes pushed the chats down)
+                  <DisclosureRow
+                    testId="project-instructions"
+                    icon={<ScrollText size={16} />}
+                    label={t('projects.instructions')}
+                    action={<button type="button" className={`${sideAction} touch-hit`} onClick={() => setEditing(true)} data-testid="project-instructions-write">{t('projects.page.writeInstructions')}</button>}
+                  />
+                ) : !outside && !p.instructions?.trim() && p.canEdit ? (
                   // none yet, for whoever may edit: a box that says what they are for, with one clear button (filled,
                   // it is the one quiet line below again)
                   <EmptySideBox
@@ -1097,7 +1109,7 @@ function ProjectPage() {
                     <Link to={`/projects/${p.id}/files`} className="flex min-h-12 items-center gap-2.5 py-3 text-sm" data-testid="project-files-open">
                       <Folder size={16} className="shrink-0 text-muted" aria-hidden />
                       <span className="min-w-0 truncate font-medium">{t('files.title')}</span>
-                      {files && !files.failed && <span className="shrink-0 text-xs text-faint">{files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length })}</span>}
+                      {files && !files.failed && <span className="shrink-0 text-xs text-faint" data-testid={files.entries.length ? undefined : 'project-files-empty'}>{!files.entries.length ? t('projects.page.filesEmpty') : files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length })}</span>}
                       <ChevronRight size={16} className="ml-auto shrink-0 text-faint" aria-hidden />
                     </Link>
                   </div>
@@ -1457,8 +1469,11 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
   )
 }
 
-/** "팀 프로젝트로 공유": a personal project becomes a team project in a new projects/<name>, seen by the people chosen
- * here (and me, the owner and admins); its files are copied there and my personal folder stays. */
+/** "멤버 추가" on a personal project: it becomes a team project in a new projects/<name>, seen by me and the people
+ * chosen here; its files move there (docs/DECISIONS.md "Making a project"). One dialog (QA TC-1069): the picker, the
+ * one count ("5 people", me included: QA TC-1065), and under it plainly what sharing does: they see and edit its files
+ * and instructions and the chats started from now on, my chats so far stay mine (how many), and it can't go back. No
+ * second confirm: Share is the yes. */
 function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Project; chats: number; onClose: () => void; onShared: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -1469,16 +1484,6 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // before sharing, plainly: who may see and edit it, that chats started from now on are shared with them, that my chats
-  // so far stay mine (how many), and that it is one way (docs/DECISIONS.md "Making a project", review M5; "Team project
-  // chats shared by default")
-  const confirmFirst = async () => {
-    const one = participants.length === 1 && participants[0]!.subjectType === 'user' ? options.find((o) => participantKey(o) === participantKey(participants[0]!))?.name : undefined
-    // the people it adds (a group is its people): the server's count without me; before it arrives, the choices
-    const others = count ? Math.max(1, count.n - 1) : participants.length
-    const body = [one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others }), ...(chats ? [t('projects.shareConfirmChats', { n: chats })] : []), t('projects.shareConfirmFinal')].join(' ')
-    if (await confirmDialog({ title: t('projects.shareConfirmTitle'), body, confirm: t('projects.shareConfirm') })) await share()
-  }
   const share = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
@@ -1491,7 +1496,7 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
         setBusy(false)
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('projects.shareConfirm') })) await share(true)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('projects.shareConfirm') })) await share(true)
         return
       }
       setError(errorText(e, locale, t('error.network')))
@@ -1499,23 +1504,24 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       setBusy(false)
     }
   }
+  const note = [t('projects.shareNote'), ...(chats ? [t('projects.shareConfirmChats', { n: chats })] : []), t('projects.shareConfirmFinal')].join(' ')
   return (
     <Modal open onClose={onClose} title={t('projects.members.add')} width={560}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void confirmFirst()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
+          <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <p className="text-sm break-keep text-muted">{t('projects.shareMoveBody')}</p>
+      <div className="space-y-3">
         <MembersField label={t('projects.participants')}>
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
             <AccessSummary count={count} />
           </div>
         </MembersField>
+        <p className="text-sm leading-6 break-keep text-muted" data-testid="project-share-note">{note}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

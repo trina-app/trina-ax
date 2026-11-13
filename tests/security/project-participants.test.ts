@@ -249,8 +249,8 @@ describe('the dry run', () => {
     const theirs = (await preview('carol', { projectId: p.id, participants: [user('erin'), group('finance')] })).body
     expect(theirs).toMatchObject({ added: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [], contentsHidden: true })
     expect(JSON.stringify(theirs)).not.toContain('견적')
-    // narrowing: nothing to confirm
-    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 1, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    // narrowing: nothing counted of what is in it; who loses it, by name (the confirm names them: QA TC-1067)
+    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 1, added: 0, removed: 1, removedNames: ['Erin Yoo'], files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     // a sub-folder nobody added may read is not counted
     const sub = ensureFolderRow(A.ctx.db, `${p.folderPath}/private`)
     A.ctx.db.transaction(() => replaceRules(A.ctx.db, sub.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
@@ -440,7 +440,7 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
     // an ordinary change: neither
     const q = await create('alice', { name: 'Panel plain', participants: [user('erin')] })
     const plain = await preview('alice', { projectId: q.id, participants: [] })
-    expect(plain.body).toEqual({ people: 1, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
+    expect(plain.body).toEqual({ people: 1, added: 0, removed: 1, removedNames: ['Erin Yoo'], files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
   })
 })
 

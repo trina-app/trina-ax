@@ -17,7 +17,8 @@ export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: num
   const who = whoSees(shared)
   // a new chat's box says it as a sentence of the same shape as the shared one ("새 채팅은 나만 볼 수 있어요." / "새 채팅은
   // 멤버 N명이 볼 수 있어요."), whatever the project's own members: one rule, what the server does for the new chat
-  if (who.kind === 'me') return place === 'new' ? t('projects.newChatMe') : t('chat.whoMe')
+  // an open chat only I see: the full sentence, as its header's lock says it (QA TC-1068), not a bare "Only me"
+  if (who.kind === 'me') return place === 'new' ? t('projects.newChatMe') : place === 'chat' ? t('chat.privateLabel') : t('chat.whoMe')
   if (who.kind === 'admins') return t('chat.whoMeAdmins')
   return t(place === 'new' ? 'projects.sharedNewChat' : place === 'chat' ? 'chat.sharedSeen' : 'projects.membersCount', { n: who.n })
 }

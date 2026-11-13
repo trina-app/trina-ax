@@ -380,6 +380,9 @@ export class MockServer {
    * members"): the owner and admins read it only as members. `others`: settings the members screen does not set (POST
    * /__test/project-rules: a person or group who only reads, on the folder itself or on a folder inside it); `hidden`:
    * how many settings inside it the caller may not read (ProjectAccess.otherRulesHidden, for someone who is not a member) */
+  /** `${projectId}:${userId}` of who was taken out of a project or left it, its name then (server/src/chat/project-joins.ts
+   * noLongerMember: their old link says "You're no longer a member of <project>", QA TC-1067) */
+  formerMembers = new Map<string, string>()
   projectMembers = new Map<string, { creator: string; participants: { subjectType: 'group' | 'user'; subjectId: string }[]; version: number; left?: string[]; others?: { path: string; subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }[]; hidden?: number }>()
   /** a team project's folder in the trash with it (DELETE /api/projects/:id the first time): its files, by project id;
    * null once purged (POST /__test/project-purge: restoring it is refused, 409 project_folder_purged) */
@@ -2327,7 +2330,13 @@ export class MockServer {
       this.chats.push(chat)
       return { status: 201, body: chat }
     },
-    getChat: (c) => this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404),
+    getChat: (c) => {
+      const x = this.chats.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      // a shared chat of a project the caller was taken out of: 404 with the project's name (QA TC-1067)
+      const pr = x.projectId ? this.projects.find((p) => p.id === x.projectId) : undefined
+      if (pr && !x.deletedAt && this.sharedChats.has(x.id) && this.formerMembers.has(`${pr.id}:${c.user.id}`) && !this.projectSees(pr, c.user)) this.notFoundFor(pr.id, c.user.id)
+      return x
+    },
     getChatQueue: (c) => {
       const assistant = this.messages.find(m => m.chatId === c.params.id && m.status === 'streaming')
       const position = assistant ? this.queuePositions.get(c.params.id!) ?? 0 : null
@@ -2649,6 +2658,7 @@ export class MockServer {
       if (pm!.creator === c.user.id) { pm!.creator = ''; p.createdBy = null }
       pm!.left = [...(pm!.left ?? []).filter((id) => id !== c.user.id), c.user.id]
       pm!.version++
+      this.formerMembers.set(`${p.id}:${c.user.id}`, p.name)
       const mine = this.chats.filter((x) => x.projectId === p.id && !this.sharedChats.has(x.id) && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
       for (const x of mine) x.projectId = null
       return { movedChats: mine.length }
@@ -2689,8 +2699,11 @@ export class MockServer {
       const before = new Set(this.sharedAudience(p).map((u) => u.id))
       const next = after({ creator: pm.creator, participants: c.body.participants }, own.filter((r) => !removing.includes(r)))
       const added = next.filter((u) => !before.has(u.id)).length
-      const removed = [...before].filter((id) => !next.some((u) => u.id === id)).length
-      const split = c.user.role !== 'member' ? { split: { direct: next.length, byRole: 0 } } : {}
+      const lost = [...before].filter((id) => !next.some((u) => u.id === id))
+      const removed = lost.length
+      // who loses it, by name: three, sorted (the confirm adds "and N more")
+      const names = lost.flatMap((id) => this.users.find((u) => u.id === id)?.name ?? []).sort((a, b) => a.localeCompare(b)).slice(0, 3)
+      const split = { ...(c.user.role !== 'member' ? { split: { direct: next.length, byRole: 0 } } : {}), ...(names.length ? { removedNames: names } : {}) }
       const hidden = !this.projectSees(p, c.user)
       if (!added || hidden) return { people: next.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, ...split, ...(hidden ? { contentsHidden: true } : {}) }
       const under = [...this.files.entries()].filter(([k, v]) => v.type === 'file' && k.startsWith(p.folderPath + '/'))
@@ -2711,6 +2724,10 @@ export class MockServer {
       if (pm.left) pm.left = pm.left.filter((id) => !pm.participants.some((x) => x.subjectType === 'user' && x.subjectId === id))
       if (removing.length) pm.others = (pm.others ?? []).filter((r) => !removing.includes(r))
       pm.version++
+      // who stopped seeing it, and who is back (chat/project-joins.ts member_lost / member_gained)
+      const now = new Set(this.sharedAudience(p).map((u) => u.id))
+      for (const id of before) if (!now.has(id)) this.formerMembers.set(`${p.id}:${id}`, p.name)
+      for (const id of now) this.formerMembers.delete(`${p.id}:${id}`)
       // an owner or admin who starts to see it: its members are told (a stored notice; chat/project-joins.ts)
       for (const u of this.sharedAudience(p)) if (!before.has(u.id) && u.role !== 'member') for (const id of before) this.note(id, { kind: 'project_joined', joinerId: u.id, projectId: p.id })
       return this.projectAccessOf(p, c.user)
@@ -5704,11 +5721,16 @@ export class MockServer {
     return true
   }
 
+  /** 404; to someone taken out of the project (or who left), with its name (server: noLongerMember, QA TC-1067) */
+  notFoundFor(projectId: string | undefined, userId: string): never {
+    const name = projectId ? this.formerMembers.get(`${projectId}:${userId}`) : undefined
+    return name ? fail('not_found', 404, `You're no longer a member of '${name}'.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
+  }
   /** A project the caller reads, or with `manage` one they manage (routes/chats.ts projectFor): else 404, the same
    * answer as no project */
   projectFor(c: Ctx, manage: boolean): Project {
     const p = this.projects.find((x) => x.id === c.params.id)
-    if (!p || !(this.projectSees(p, c.user) || (manage && this.projectManages(p, c.user)))) fail('not_found', 404)
+    if (!p || !(this.projectSees(p, c.user) || (manage && this.projectManages(p, c.user)))) this.notFoundFor(p?.id, c.user.id)
     return p!
   }
   /** a project whose members the caller may change (its creator, the owner or an admin, also without being a member),

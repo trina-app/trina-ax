@@ -26349,9 +26349,10 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   access" rule of my own, and a `project_leavers` row (migration 294) records that I left. A person's rule decides
   before a group's (`policy/access.ts` TIER), so the group stays and everyone else in it keeps the project. That rule
   is a leaver's **exception**, part of the project's members, never another rule: GET …/access puts it on the group's
-  row (`ProjectMember.except`, "Marketing · except Kim"), or, when no group row holds them, on one line
-  (`ProjectAccess.left`, "Left: Kim") with **Add back**.
-- **A leaver stays out until someone adds them back by name** (the members dialog, Add back, the AI's members card,
+  row (`ProjectMember.except`, "Marketing · except Kim"). `ProjectAccess.left` still lists every leaver, but the
+  dialog shows a leaver only on a group's row (owner, 2026-11-13, QA TC-1074: the "Left: Kim" line with **Add back** is
+  gone; adding them by name still brings them back).
+- **A leaver stays out until someone adds them back by name** (the members dialog, the AI's members card,
   Add me): that turns the rule into write and deletes the row. Taking the group out, adding another group of theirs,
   or them joining one does not bring them back; the exception cannot be taken out as an "other rule" either.
 - **Only a "no access" a leaver row backs is an exception** (review of #759). Any other "no access" for a person is an
@@ -26370,3 +26371,63 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   anymore. Your private chats in it move to your own chats." It does not promise "files": a folder inside with rules of
   its own can still be open to them.
 - **Not changed:** rules an admin set on folders inside the project. Leaving is about the project folder.
+
+## Project members, sharing and moving: one count, plain words — 멤버·공유·옮기기 정리 (feat/project-members-ux, 2026-11-13, UX review, QA TC-1065, TC-1067..1075)
+
+넣을 곳: Team AX core (`web/src/components/ProjectMembersDialog.tsx`, `pages/Projects.tsx`, `components/chat/ChatProject.tsx`,
+`ShareChat.tsx`, `SharedChat.tsx`, `WhoSees.tsx`, `panels/ProjectsPanel.tsx`, `list/List.tsx`, `pages/Chat.tsx`, the five
+`web/src/i18n/*.ts`, `server/src/chat/project-joins.ts`, `chat/shared.ts`, `chat/project-access.ts`, `routes/chats.ts`,
+`shared/src/api/chats.ts`). 이유: projects, sharing and their words are core. A UX review walked every project journey as
+admin, creator and member (1440/390) and found the same thing said two ways, counts that disagreed, and steps that asked
+twice. Lean: things are removed, not added.
+
+- **One count per screen, me included (TC-1065).** The members dialog for whoever changes the members shows the picker
+  and one line, "5 people" (the server's dry run, the same count as the Add people dialog's), with or without a pending
+  change; the "In this project: N people" list under it is gone for them (a group row opens to its people). Someone who
+  does not change them still reads that list (it is their only view). The Add people dialog's count includes me, and no
+  second dialog says "4 people" (without me) any more.
+- **Who loses access is asked, by name (TC-1067).** Taking people out no longer saves at once: the save's confirm says
+  "2 people lose access: Kim and Lee" (three names, then "and N more"). `POST /api/projects/access-preview` sends
+  `removedNames` (up to three, by name) to whoever may change the members, who reads these people in the dialog anyway.
+  Supersedes "taking people out alone saves at once" ("Project members in one panel").
+- **"You're no longer a member of <project>" (TC-1067).** Every loss of a team project leaves an audit row
+  `project.member_lost` (`chat/project-joins.ts`, beside `project.member_gained`; the person, who did it, how; `self`
+  when they left; the project's `name` then). `GET /api/projects/:id` and `GET /api/chats/:id` of a shared chat answer
+  someone whose latest gained/lost row for that project is a loss with the 404 they had, plus `params: {reason:
+  'no_longer_member', project: <name>}` and that sentence as the message. The name is the one stored in that row,
+  never the project's current name (security review of #768: a removed member would otherwise learn every later
+  rename); a row without one gives the plain 404. Only that name and that they were in it, both things they knew: a
+  chat shared after they lost it, a shared chat deleted since, someone else's private chat there, a project they were
+  never in or one that is gone keep the one 404 of a missing chat (docs "Team project chats shared by default"). Other project routes keep the
+  plain 404. No migration: the trail is the audit log (its index on target and action); if retention dropped the row,
+  the generic text comes back. The chat page and the project page show the sentence with a link to Projects.
+- **A private chat says so (TC-1068).** Its header has a lock (`PrivateChatMark`, "Only you see this chat" as tooltip
+  and name), where a shared chat has its people icon; the line under an open chat's box is the full sentence
+  `chat.privateLabel`, not "Only me" (the new-chat box keeps its own sentence).
+- **Sharing a personal project is one dialog (TC-1069).** Add people loses "Its files move into the team's Projects
+  folder…"; under the picker and its count it says what sharing does ("Everyone you add can see and edit its files and
+  instructions, and the chats started here from now on."), how many of my chats stay mine, and "This can't go back to
+  only you." **Share** shares; the "Share this project?" confirm is gone. Supersedes that confirm in "Making a project".
+- **The same words (TC-1070), English first, then ko, id, ja, es.** "people" when counting humans ("3 people can see
+  this chat", "Members 3" stays the row's name), "members" for the feature, Trina's name (`{ai}`) for the AI in project
+  texts (the project skills confirm). The instructions editor's hint is the page's ("What Trina should always keep in
+  mind here"); every share button is "Share with project members" (the copy-link toast's too). The one server
+  refusal that quotes a label (`SCREEN.continuePrivately`) did not change.
+- **The Projects panel lists what the page lists (TC-1071).** The owner and admins see a third section, "Other team
+  projects" (the team projects they manage without being members), folded at first (`ListSection folded`), on a
+  computer too; before, the panel said "No projects yet" beside a page that listed one.
+- **The phone project page (TC-1072).** The chats come right under the ask box (the side lines after them,
+  `max-md:order-last`), and empty Instructions and Files are one line each (Instructions with **Write instructions**;
+  Files with "No files yet" and its screen), not the boxes of "Making a project" (kept on a computer).
+- **The share confirm (TC-1073).** The line about material some people can't see is a warning (warn colours and icon),
+  and the focus starts on **Cancel**: sharing can't be undone.
+- **Leavers only on the group row (TC-1074, owner).** See "Leaving a project".
+- **Moving into a project never shares (TC-1075).** The move dialog has no "Share with project members" switch any
+  more; a chat moved in arrives private, and the project page's "chats only you see" line (or the chat's own menu) is
+  where it is shared. Supersedes the switch in "Team project chats shared by default".
+- Tests: `tests/unit/b-no-longer-member.test.ts` (the reason, what keeps the plain 404, back in it, a leaver, the
+  names), `b-project-leave`, `tests/security/project-participants` (the dry run's names); web unit `project-members`,
+  `project-leave`, `project-list-menu`, `who-sees`, `i18n`; e2e `project-participants`, `project-people`,
+  `project-leave` (the old links), `project-page` (the phone order), `project-list-menu`, `share-existing-chat`,
+  `project-skills`.
+- Version impact: **patch** (an optional response field, a 404 reason, words; no data change).

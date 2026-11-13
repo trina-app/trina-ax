@@ -22,7 +22,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -49,7 +49,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, lastOwnQuestion } from '../components/chat/privateAsk'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
@@ -376,6 +376,18 @@ function ChatView({ chatId }: { chatId: string }) {
     composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
+  // a shared chat of a project I was taken out of (or left): its name, plainly (QA TC-1067)
+  const goneFrom = loadError ? noLongerMemberOf(loadError) : null
+  if (goneFrom)
+    return (
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="">
+        <EmptyState screen title={t('projects.noLongerMember', { name: goneFrom })}>
+          <Link to="/projects" className="mt-1 inline-block font-medium text-accent-text underline">
+            {t('projects.title')}
+          </Link>
+        </EmptyState>
+      </div>
+    )
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
@@ -441,6 +453,8 @@ function ChatView({ chatId }: { chatId: string }) {
             </h1>
           )}
           {shared && <SharedChatMark audience={shared.audience} />}
+          {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
+          {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
         {isDesktop() && <BrowserToggle />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}

@@ -427,6 +427,9 @@ export const ProjectAccessPreview = z.object({
   /** an existing project: people who would start or stop seeing it */
   added: z.number().int().nonnegative(),
   removed: z.number().int().nonnegative(),
+  /** an existing project: the names of up to 3 of the `removed` people, by name (the confirm says "Kim, Lee and 2 more
+   * lose access"; QA TC-1067). Only to whoever may change its members, who reads its people anyway. Absent: none */
+  removedNames: z.array(z.string()).max(3).optional(),
   /** what the added people would see (0 when nobody is added): its files, those that other people than the caller put
    * there, its shared chats (each with its whole history) and its project skills (skills/<name>/SKILL.md in its folder) */
   files: z.number().int().nonnegative(),

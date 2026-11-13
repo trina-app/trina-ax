@@ -146,7 +146,7 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
-test('at phone width the page fits: the box first, then the lines, then the chats', async ({ page }) => {
+test('at phone width the page fits: the box first, then the chats, then the lines, empty ones one line each (QA TC-1072)', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   // a server with the dev environment on: still no line for it here
@@ -159,8 +159,17 @@ test('at phone width the page fits: the box first, then the lines, then the chat
   await expect(page.getByTestId('dev-env')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   const top = async (testId: string) => (await page.getByTestId(testId).boundingBox())!.y
-  expect(await top('composer-input')).toBeLessThan(await top('project-instructions'))
-  expect(await top('project-files')).toBeLessThan(await top('project-chats'))
+  expect(await top('composer-input')).toBeLessThan(await top('project-chats'))
+  expect(await top('project-chats')).toBeLessThan(await top('project-instructions'))
+  expect(await top('project-instructions')).toBeLessThan(await top('project-files'))
+  // each is one line
+  for (const id of ['project-instructions', 'project-files']) expect((await page.getByTestId(id).boundingBox())!.height).toBeLessThan(60)
+  // no instructions either: one line too, with 지침 쓰기 on it
+  expect((await page.request.patch(`/api/projects/${id}`, { headers: { [CSRF_HEADER]: '1' }, data: { instructions: '' } })).ok()).toBeTruthy()
+  await page.reload()
+  await expect(page.getByTestId('project-instructions-write')).toBeVisible()
+  expect((await page.getByTestId('project-instructions').boundingBox())!.height).toBeLessThan(60)
+  expect(await top('project-chats')).toBeLessThan(await top('project-instructions'))
   await audit(page, 'project (phone)')
 })
 
@@ -176,6 +185,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await page.goto('/projects')
     const phone = vp.size.width < 768
     const item = page.getByTestId(phone ? 'projects-panel-row' : 'project-card').filter({ hasText: 'Falcon' })
+    // a phone's list: under 다른 팀 프로젝트, folded at first (QA TC-1071)
+    if (phone) await page.getByTestId('projects-other').getByTestId('panel-section-fold').click()
     await expect(item).toBeVisible()
     await expect(item).not.toContainText('멤버가 아니')
     await (phone ? item : item.getByRole('link')).click()
@@ -221,6 +232,7 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await page.getByTestId('project-members-manage').click()
     await page.getByTestId('participant-remove-user-olga').click()
     await page.getByTestId('project-members-save').click()
+    await page.getByTestId('dialog-confirm').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(block).toBeVisible()
     await expect(page.getByTestId('composer-input')).toHaveCount(0)

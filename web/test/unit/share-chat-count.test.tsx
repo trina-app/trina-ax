@@ -32,10 +32,10 @@ test('the dialog counts me in, like the line under the box and the copy-link toa
     expect(translate(l, 'chat.linkCopiedShared', { n: 3 })).toContain('3')
   }
   // the footer's words: "N members can see it"
-  expect(translate('en', 'chat.shareChat.title', { n: 3 })).toBe('Share this chat so 3 members can see it?')
-  expect(translate('en', 'chat.shared', { n: 3 })).toBe('Shared chat · 3 members can see it')
-  expect(translate('ko', 'chat.shareChat.title', { n: 3 })).toBe('이 채팅을 공유해서 멤버 3명이 볼 수 있게 할까요?')
-  expect(translate('ko', 'chat.shared', { n: 3 })).toBe('공유 채팅 · 멤버 3명이 볼 수 있어요')
+  expect(translate('en', 'chat.shareChat.title', { n: 3 })).toBe('Share this chat so 3 people can see it?')
+  expect(translate('en', 'chat.shared', { n: 3 })).toBe('Shared chat · 3 people can see it')
+  expect(translate('ko', 'chat.shareChat.title', { n: 3 })).toBe('이 채팅을 공유해서 3명이 볼 수 있게 할까요?')
+  expect(translate('ko', 'chat.shared', { n: 3 })).toBe('공유 채팅 · 3명이 볼 수 있어요')
 })
 
 for (const l of ['en', 'ko'] as const) {

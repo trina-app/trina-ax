@@ -128,7 +128,7 @@ describe('Leave project on a card', () => {
 })
 
 describe('the members dialog', () => {
-  test("a group's people who left: \"Marketing · except Kim\" on its row", async () => {
+  test("a group's people who left: \"Marketing · except Kim\" on its row, and nowhere else", async () => {
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'mia', name: 'Mia', role: 'admin' }, groups: [], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
     const access: ProjectAccess = {
       editable: true, rulesHash: 'h1', people: 3, otherRules: [],
@@ -148,14 +148,11 @@ describe('the members dialog', () => {
       // not a separate rule
       expect(m.find('project-other-rules')).toBeNull()
       expect(m.get('participant-user-sora').textContent).not.toContain('except')
-      // the others who left: one line, Add back names them again
-      expect(m.get('project-left').textContent).toContain(`${en('projects.leftLabel')}Bob`)
-      expect(en('projects.leftLabel')).toBe('Left:')
-      expect(m.get('project-add-back-bob').getAttribute('aria-label')).toBe(en('projects.addBackLabel', { name: 'Bob' }))
-      await m.click('project-add-back-bob')
-      await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
-      expect(m.get('participant-user-bob').getAttribute('data-state')).toBe('new')
+      // a leaver shows only on a group row (owner, QA TC-1074): no separate "Left: … / Add back" line
       expect(m.find('project-left')).toBeNull()
+      expect(m.find('project-add-back-bob')).toBeNull()
+      // one count, everyone in it (me included), and no second list of the same people for whoever changes them (TC-1065)
+      expect(m.find('project-people')).toBeNull()
     } finally {
       await m.unmount()
     }

@@ -30,6 +30,7 @@ import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, re
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
+import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
@@ -214,9 +215,15 @@ export const chatsRoutes: RouteModule = {
       return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud) }
     }
     /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project). */
-    const projectFor = (p: Principal, id: string, manage: boolean): ProjectRowT => {
+    const projectFor = (p: Principal, id: string, manage: boolean, locale?: Locale): ProjectRowT => {
       const r = rt.store.projectRow(id)
-      if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) return fail('not_found')
+      if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) {
+        // GET of the project (`locale` given) by someone taken out of it (or who left): its name and that they are not
+        // in it any more (QA TC-1067); its other routes keep the one 404
+        const gone = r && locale ? noLongerMember(ctx.db, r.id, p.id) : null
+        if (gone) return fail('not_found', tr('projectNoLongerMember', locale!, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
+        return fail('not_found')
+      }
       return r
     }
 
@@ -817,9 +824,9 @@ export const chatsRoutes: RouteModule = {
       return leaveProject(ctx, projectFor(p, params.id, false), p, c.get('locale'))
     })
 
-    kit.handle(API.getProject, ({ params, query, auth }) => {
+    kit.handle(API.getProject, ({ c, params, query, auth }) => {
       const p = principal(ctx, auth)
-      const r = projectFor(p, params.id, !!query.manage)
+      const r = projectFor(p, params.id, !!query.manage, c.get('locale'))
       return projectOut(r, p, mayEdit(ctx, p, r), auth.user.id)
     })
 

@@ -40,6 +40,20 @@ export function SharedChatMark({ audience }: { audience: number }) {
   )
 }
 
+/** The chat header's mark of a chat only I see in a team project: the lock, as the shared one's people icon, with
+ * "Only you see this chat" as its tooltip and name (QA TC-1068). */
+export function PrivateChatMark() {
+  const t = useT()
+  const label = t('chat.privateLabel')
+  return (
+    <Tooltip label={label}>
+      <span role="img" aria-label={label} className="inline-flex shrink-0 items-center rounded-md p-1 text-muted" data-testid="chat-private">
+        <Lock size={15} aria-hidden />
+      </span>
+    </Tooltip>
+  )
+}
+
 /** In place of the message box while safe operations (1A) are on: a shared chat can only be read then. */
 export function SharedReadOnly() {
   const t = useT()

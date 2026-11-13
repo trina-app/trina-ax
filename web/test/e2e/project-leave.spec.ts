@@ -56,9 +56,12 @@ for (const vp of VIEWPORTS) {
       const gid = await seed(page)
       const id = await project(page, '견적서 제작', [{ subjectType: 'group', subjectId: gid }])
       const b = await asBob(browser)
-      const mine = await b.request.post('/api/chats', { headers: H, data: { title: '내 메모', projectId: id } })
+      const mine = await b.request.post('/api/chats', { headers: H, data: { title: '내 메모', projectId: id, private: true } })
       expect(mine.ok()).toBeTruthy()
       const chatId = ((await mine.json()) as { id: string }).id
+      // and a shared one, which stays with the project
+      const shared = await b.request.post('/api/chats', { headers: H, data: { title: '같이 보는 메모', projectId: id } })
+      const sharedId = ((await shared.json()) as { id: string }).id
 
       await b.goto(`/projects/${id}`)
       await b.getByTestId('project-menu').click()
@@ -82,6 +85,16 @@ for (const vp of VIEWPORTS) {
       expect((await b.request.get(`/api/projects/${id}`)).status()).toBe(404)
       // his own chat there is his chat now
       expect(((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { projectId: string | null }).projectId).toBeNull()
+      // its shared chat's link and its page say plainly that he is no longer a member (QA TC-1067)
+      const gone = await b.request.get(`/api/chats/${sharedId}`)
+      expect(gone.status()).toBe(404)
+      expect(((await gone.json()) as { error: { params?: Record<string, string> } }).error.params).toEqual({ reason: 'no_longer_member', project: '견적서 제작' })
+      await b.goto(`/c/${sharedId}`)
+      await expect(b.getByTestId('chat-not-found')).toContainText(translate('ko', 'projects.noLongerMember', { name: '견적서 제작' }))
+      await shot(b, `leave-old-shared-chat-${vp.name}`)
+      await b.goto(`/projects/${id}`)
+      await expect(b.getByTestId('project-missing')).toContainText(translate('ko', 'projects.noLongerMember', { name: '견적서 제작' }))
+      await shot(b, `leave-old-project-${vp.name}`)
 
       // the owner: the group stays, with Bob as its exception
       await page.goto(`/projects/${id}?members=1`)

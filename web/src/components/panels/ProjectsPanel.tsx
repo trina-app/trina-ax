@@ -1,14 +1,16 @@
 // 프로젝트's list (docs/DECISIONS.md "Projects: a place of their own"; the owner, 2026-11-13: "프로젝트를 그냥 따로 하나의
 // 큰 탭으로"): beside the rail on a computer (ProjectsPanel) and as the phone's 프로젝트 tab (pages/Projects.tsx shows
 // ProjectsList at /projects on a phone). "+ 새 프로젝트" on top (the name-only dialog, NewProjectDialog.tsx), then two sections: 팀
-// 프로젝트 (others see it too) and 내 프로젝트 (only I do: onlyMine below). Each project
+// 프로젝트 (others see it too) and 내 프로젝트 (only I do: onlyMine below), and for the owner and admins a third, folded at
+// first: 다른 팀 프로젝트, the team projects they manage without being a member (as the Projects page lists them; QA
+// TC-1071: the panel said "No projects yet" beside a page that listed one). Each project
 // is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
 // was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
 // recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
 // on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
 import clsx from 'clsx'
-import { Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
+import { FolderLock, Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
@@ -50,19 +52,18 @@ export function NewProjectRow(_: { phone?: boolean } = {}) {
   )
 }
 
-/** The projects I see, the most recently active first (see the top of this file). `phone`: rows a thumb can hit. */
-export function ProjectsList({ phone = false }: { phone?: boolean }) {
+/** The projects I see, the most recently active first (see the top of this file). A phone passes `phone` (its rows are panelRow's own 48 px). */
+export function ProjectsList(_: { phone?: boolean } = {}) {
   const t = useT()
   const locale = useLocale()
   const { groups } = useGroupsRead()
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
-  // a phone (no Projects page beside it): the owner and admins also find the team projects they manage without being
-  // members (GET /api/projects?manage=1: their name and members only), under 팀 프로젝트, as the phone's list had them. A
-  // computer's panel leaves them out: they are not the person's own, and the Projects page (/projects) lists them
-  // (the Projects page's list, store/projects.ts managed: as last read at once, read again behind it)
-  const admin = isAdmin(useMe()) && phone
+  // the owner and admins also find the team projects they manage without being members (GET /api/projects?manage=1:
+  // their name and members only), in their own folded section, as the Projects page has them (store/projects.ts
+  // managed: as last read at once, read again behind it)
+  const admin = isAdmin(useMe())
   const managedList = useProjects((s) => s.managed)
   const managed = useMemo(() => (admin ? (managedList ?? []).filter((p) => p.member === false) : []), [admin, managedList])
   useEffect(() => {
@@ -89,7 +90,8 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
-  const team = projects.filter((p) => !onlyMine(p))
+  const others = projects.filter((p) => p.member === false)
+  const team = projects.filter((p) => p.member !== false && !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (
     <ul>
@@ -114,6 +116,11 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
       {mine.length > 0 && (
         <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={14} className="text-muted" aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
           {rows(mine)}
+        </PanelSection>
+      )}
+      {others.length > 0 && (
+        <PanelSection id="projects-other" foldKey="projects:other" folded label={t('projects.otherTeam')} icon={<FolderLock size={14} className="text-muted" aria-hidden />} count={others.length} labelTestId="projects-panel-label" data-testid="projects-other">
+          {rows(others)}
         </PanelSection>
       )}
     </div>

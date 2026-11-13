@@ -8,11 +8,12 @@
 // (`otherRulesHidden`). Saving goes through the same folder rules as Admin › Folder permissions (the rules hash it read;
 // 409 when someone changed them meanwhile, and the list shows what is there now). A confirm first when someone gains it,
 // or when the save also writes a rule nobody chose here (the floor rule an older folder lacks, the creator's rule taken
-// out in Admin): the server's dry run says what, and how many lose it; when the only one it adds is the caller, the
-// "Add me" confirm instead. Taking people out alone saves at once.
-// Who is in it (docs/DECISIONS.md "Who is in a project, by face"): every person once at the bottom (ProjectPeople.tsx
-// PeopleList, the creator and "나" marked), and each group row opens to its people. Its members open it too (the faces
-// on the project page): for them only that list, and who changes the members.
+// out in Admin): the server's dry run says what; when the only one it adds is the caller, the "Add me" confirm instead.
+// Taking people out asks too: "2 people lose access: Kim and Lee" (names, three and "and N more"; QA TC-1067).
+// Who is in it (docs/DECISIONS.md "Who is in a project, by face"): whoever changes the members reads the picker (each
+// group row opens to its people) and one count under it, "5 people", me included (QA TC-1065: no second list of the same
+// people). Its members open it too (the faces on the project page): for them the list of everyone in it, each once
+// (ProjectPeople.tsx PeopleList, the creator and "나" marked), and who changes the members.
 import { X } from 'lucide-react'
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
@@ -30,8 +31,14 @@ import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticip
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
 export const chosenOf = (a: ProjectAccess): ProjectParticipant[] => a.participants.filter((x) => !x.creator).map(({ subjectType, subjectId }) => ({ subjectType, subjectId }))
 
-/** The dry run asks first: someone gains it, or the save writes a rule nobody chose here. */
-export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || !!p.addsFloor || !!p.restoresCreator
+/** The dry run asks first: someone gains or loses it, or the save writes a rule nobody chose here. */
+export const asksFirst = (p: ProjectAccessPreview) => p.added > 0 || p.removed > 0 || !!p.addsFloor || !!p.restoresCreator
+
+/** "Kim, Lee, Park and 2 more": up to three names the server sent, then how many more of `total`. */
+export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], total: number): string {
+  const list = names.join(t('rooms.nameSep'))
+  return total > names.length ? t('rooms.groupNamesMore', { names: list, n: total - names.length }) : list
+}
 
 /** The confirm: who gains it and what they will see, how many lose it, the rule the save adds; false when cancelled. */
 export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview): Promise<boolean> {
@@ -55,7 +62,11 @@ function ChangeLines({ t, p }: { t: ReturnType<typeof useT>; p?: ProjectAccessPr
   if (!p) return null
   return (
     <>
-      {p.removed > 0 && <p data-testid="project-narrow-line">{t('projects.narrowBody', { n: p.removed })}</p>}
+      {p.removed > 0 && (
+        <p className="break-keep" data-testid="project-narrow-line">
+          {p.removedNames?.length ? t('projects.loseAccess', { n: p.removed, names: namesLine(t, p.removedNames, p.removed) }) : t('projects.narrowBody', { n: p.removed })}
+        </p>
+      )}
       {p.addsFloor && <p className="break-keep" data-testid="project-adds-floor">{t('projects.addsFloor')}</p>}
       {p.restoresCreator && <p className="break-keep" data-testid="project-restores-creator">{t('projects.restoresCreator')}</p>}
     </>
@@ -140,11 +151,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [access, project.folderPath, removed, t])
-  // a group's people who left the project (docs/DECISIONS.md "Leaving a project"): "Marketing · except Kim" on its row;
-  // adding them by name takes the exception away
-  const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(', ') })])), [access, t])
-  // left and not added back in this change
-  const leftOut = (access?.left ?? []).filter((u) => !participants.some((x) => x.subjectType === 'user' && x.subjectId === u.id))
+  // a group's people who left the project (docs/DECISIONS.md "Leaving a project"): "Marketing · except Kim" on its row,
+  // the only place a leaver shows (owner, QA TC-1074); adding them by name takes the exception away
+  const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(t('rooms.nameSep')) })])), [access, t])
   const editable = !!access?.editable
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
@@ -206,24 +215,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
         {access && editable && (
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} />
-            {/* people who left it and whom no group row shows (docs/DECISIONS.md "Leaving a project"): one plain line,
-                Add back names them (they come back with the save) */}
-            {leftOut.length > 0 && (
-              <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm break-keep text-muted" data-testid="project-left">
-                <span>{t('projects.leftLabel')}</span>
-                {leftOut.map((u, i) => (
-                  <span key={u.id} className="inline-flex items-center gap-1">
-                    <span className="text-ink">{u.name}</span>
-                    <button type="button" className="touch-hit rounded-md px-1.5 py-0.5 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => setParticipants((xs) => [...xs, { subjectType: 'user', subjectId: u.id }])} aria-label={t('projects.addBackLabel', { name: u.name })} data-testid={`project-add-back-${u.id}`}>
-                      {t('projects.addBack')}
-                    </button>
-                    {i < leftOut.length - 1 && <span aria-hidden>·</span>}
-                  </span>
-                ))}
-              </p>
-            )}
-            {/* the count after the change; with nothing changed the list of people below says it already */}
-            {(changed || !people || !people.people.length) && <AccessSummary count={count} />}
+            {/* the one count of this dialog: everyone who sees it, me included (after the change while one is pending) */}
+            <AccessSummary count={count} />
           </div>
         )}
         {/* changed elsewhere meanwhile (a folder moved), or a project made before outside projects/: who changes it */}
@@ -269,8 +262,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
             {hidden > 0 && <p className={clsx('text-xs text-faint', otherRules.length > 0 && 'mt-1')} data-testid="project-other-rules-hidden">{t('projects.insideOwn', { n: hidden })}</p>}
           </div>
         )}
-        {/* everyone in it now, each once (a save closes the dialog, so this is always what is saved) */}
-        {people && people.people.length > 0 && <PeopleList people={people.people} />}
+        {/* a member who does not change them: everyone in it now, each once (whoever changes them reads the picker) */}
+        {(!manages || (access && !editable)) && people && people.people.length > 0 && <PeopleList people={people.people} />}
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

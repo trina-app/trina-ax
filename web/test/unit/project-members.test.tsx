@@ -3,8 +3,9 @@
 // - the members now: the creator fixed, a person or group with a rule set in Admin › Folder permissions tagged and
 //   without ×, the rules this screen does not change listed read-only; × takes one out (struck through, 되돌리기 until
 //   the save), the search adds one (새로, the title kept);
-// - the save asks first when someone gains it (what they will see, and how many lose it), or when the server's dry run
-//   says the save also writes the floor rule or puts the creator's rule back; taking people out alone saves at once;
+// - the save asks first when someone gains it (what they will see, and how many lose it), when someone loses it ("2
+//   people lose access: Kim and Lee", QA TC-1067), or when the server's dry run says the save also writes the floor
+//   rule or puts the creator's rule back;
 //   cancelling saves nothing; a change by someone else meanwhile (409 rules_changed) is shown with what is there now;
 // - a project that cannot be changed here says who does it, with no save;
 // - the independent review: Esc on the search or a result closes the results, not the dialog; a "no access" rule from Admin is no
@@ -245,9 +246,9 @@ describe('saving', () => {
     await m.unmount()
   })
 
-  test('taking people out alone saves at once; the floor rule or the creator coming back asks first; no saves nothing', async () => {
+  test('taking people out asks first, by name; the floor rule or the creator coming back asks too; no saves nothing', async () => {
     signedIn('member')
-    let extra: Partial<ProjectAccessPreview> = {}
+    let extra: Partial<ProjectAccessPreview> = { removedNames: ['Sora'] }
     routes = {
       'GET /api/people': () => json(200, PEOPLE),
       [`GET /api/projects/${P1}/access`]: () => json(200, access()),
@@ -259,8 +260,12 @@ describe('saving', () => {
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     await m.click('participant-remove-user-sora')
     await m.click('project-members-save')
+    const lose = await m.until(() => m.find('project-narrow-line'), 'who loses access', 2000)
+    expect(lose.textContent).toBe(en('projects.loseAccess', { n: 1, names: 'Sora' }))
+    expect(m.html()).toContain(en('projects.changeTitle'))
+    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
+    await m.click('dialog-confirm')
     await m.until(() => saved === 1, 'the save', 2000)
-    expect(m.find('project-widen-confirm')).toBeNull()
     expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [], expectedHash: 'h1' })
     await m.unmount()
 
@@ -304,6 +309,7 @@ describe('saving', () => {
       await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
       await m.click('participant-remove-user-sora')
       await m.click('project-members-save')
+      await m.click(await m.until(() => m.find('dialog-confirm'), 'who loses access', 2000))
       await m.until(() => saved, 'the save', 2000)
       expect(calls(`GET /api/projects/${P1}`)).toHaveLength(1)
       // the server's answer; unread, the count from the save and no `alone` (it may no longer be true)
@@ -326,6 +332,7 @@ describe('saving', () => {
     conflict = true
     await m.click('participant-remove-user-sora')
     await m.click('project-members-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'who loses access', 2000))
     await m.until(() => m.html().includes('Someone changed who sees this project'), 'the message', 2000)
     await m.until(() => m.find('participant-user-bob')?.getAttribute('data-state') === 'member', 'Bob, added by someone else', 2000)
     expect(m.find('participant-user-sora')).toBeNull()
@@ -406,7 +413,8 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
     await m.click('project-other-rule-remove-group-g-leads')
     await m.click('project-members-save')
-    // taking it out only narrows: saved at once, with removeRules
+    // taking it out only narrows: asked as a change (who loses it), then saved with removeRules
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm', 2000))
     await m.until(() => saved, 'the save', 2000)
     expect(m.find('project-widen-confirm')).toBeNull()
     expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [{ subjectType: 'user', subjectId: 'sora' }], expectedHash: 'h1', removeRules: [{ subjectType: 'group', subjectId: 'g-leads' }] })
@@ -488,7 +496,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
 describe('who is in it (docs/DECISIONS.md "Who is in a project, by face")', () => {
   const PEOPLE_IN = { people: [{ id: 'mia', name: 'Mia', creator: true }, { id: 'bob', name: 'Bob' }, { id: 'sora', name: 'Sora', avatarVersion: 7 }], groups: [{ id: 'g-leads', name: 'Leads', people: ['bob', 'sora'] }] }
 
-  test('whoever manages it: each person once with the creator and "You" marked; a group row opens to its people', async () => {
+  test('whoever manages it: the picker and one count, no second list of the same people; a group row opens to its people', async () => {
     signedIn('member')
     routes = {
       'GET /api/people': () => json(200, PEOPLE),
@@ -497,11 +505,10 @@ describe('who is in it (docs/DECISIONS.md "Who is in a project, by face")', () =
       'POST /api/projects/access-preview': () => json(200, preview()),
     }
     const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ canManage: true })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await m.until(() => m.find('project-people'), 'the list of people', 2000)
-    expect(m.get('project-people-count').textContent).toBe(en('projects.peopleIn', { n: 3 }))
-    expect(m.get('project-person-tag-mia').textContent).toBe(`${en('projects.creatorTag')} · ${en('projects.youTag')}`)
-    expect(m.find('project-person-tag-bob')).toBeNull()
-    expect(m.get('project-person-sora').querySelector('img')!.getAttribute('src')).toContain('/api/people/sora/avatar')
+    // one count, me included (QA TC-1065), and no "In this project: N people" list under it
+    await m.until(() => m.find('project-access-summary')?.textContent === en('projects.whoMembers', { n: 3 }), 'the count', 2000)
+    expect(en('projects.whoMembers', { n: 3 })).toBe('3 people')
+    expect(m.find('project-people')).toBeNull()
     const toggle = await m.until(() => m.find('participant-group-toggle-g-leads'), 'the group row', 2000)
     expect(toggle.textContent).toContain(en('projects.groupCount', { n: 2 }))
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
@@ -520,6 +527,11 @@ describe('who is in it (docs/DECISIONS.md "Who is in a project, by face")', () =
     }
     const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ canManage: false, membersEditable: false })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
     await m.until(() => m.find('project-people'), 'the list of people', 2000)
+    expect(m.get('project-people-count').textContent).toBe(en('projects.peopleIn', { n: 3 }))
+    expect(m.get('project-person-tag-mia').textContent).toBe(`${en('projects.creatorTag')} · ${en('projects.youTag')}`)
+    expect(m.find('project-person-tag-bob')).toBeNull()
+    expect(m.get('project-person-sora').querySelector('img')!.getAttribute('src')).toContain('/api/people/sora/avatar')
+    expect(m.find('project-access-summary')).toBeNull()
     expect(calls(`GET /api/projects/${P1}/access`)).toHaveLength(0)
     expect(m.find('project-participants')).toBeNull()
     expect(m.get('project-members-locked').textContent).toBe(en('projects.membersByCreator', { name: 'Mia' }))

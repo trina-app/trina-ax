@@ -17,6 +17,7 @@ import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
 import { projectSkillsOn } from '../lib/bulkFiles'
+import { aiName } from '../lib/tabs'
 import { Button, Field, Modal, confirmDialog, inputCls } from './ui'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from './ProjectParticipants'
 
@@ -93,7 +94,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
         setBusy(false)
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('common.save') })) await save(true)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('common.save') })) await save(true)
         return
       }
       // someone else saved first: their version is shown, the next Save is the person's choice over it
@@ -173,7 +174,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
             </div>
           </Field>
         )}
-        <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
+        <Field label={t('projects.instructions')} hint={t('projects.page.instructionsEmpty', { ai: aiName(t) })}>
           {/* phones: no resize grip (the sheet scrolls; a finger cannot drag the corner) */}
           <textarea className={`${inputCls} h-40 resize-y py-2 max-md:resize-none`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
         </Field>

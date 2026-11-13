@@ -102,7 +102,7 @@ describe('the chat and its project', () => {
   })
 
   test('who can see a team project: its members (docs/DECISIONS.md "Project contents only for members"), and groups are 부서 in Korean', () => {
-    expect(translate('ko', 'projects.whoMembers', { n: 9 })).toBe('멤버 9명')
+    expect(translate('ko', 'projects.whoMembers', { n: 9 })).toBe('9명')
     expect(translate('en', 'projects.whoMembers', { n: 9 })).not.toContain('admins')
     expect(translate('ko', 'projects.whoGroup', { name: '영업' })).toBe('영업 부서')
   })
