@@ -14,13 +14,17 @@ import { sharesNewChats } from '../../lib/sharedChat'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
+import { fileChat } from '../../store/navFolders'
 import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine } from './WhoSees'
 
-export function NewChatComposer({ projectId, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
+export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
+  /** one of my chat folders the new chat goes in (the new navigation's folder +; docs/DECISIONS.md "List folders on
+   * screen"): filed once it is made, before it opens */
+  folderId?: string | null
   /** the project, when known: who will see its new chat (whether it is shared, and with how many people) */
   project?: Project | null
   /** opens the project's members dialog (the project page's): the line under the box does, while the new chat will be
@@ -78,6 +82,8 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
     const chatId = pending ? await pending : null
     const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
     forgetDraftChat(me.user.id, draftId)
+    // into the folder asked for (a refusal leaves it in the list's other chats: nothing is lost)
+    if (folderId && !projectId) await fileChat(r.chatId, folderId).catch(() => {})
     onSent?.(r.chatId)
     // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
     // file screen was missing when the person went there that quickly (e2e team-files, flaky)

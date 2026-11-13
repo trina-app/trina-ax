@@ -1,7 +1,8 @@
 // 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, folders, projects, other chats"; the
 // navigation plan docs/AGENTS/plan/20261112-1839-nav-rail.md §2.3, phase P2; only while the server's `navRail` switch
 // is on). In this order:
-//   고정 (my pinned chats) · 폴더 · 나만 보여요 (my list folders, read-only here: making and filling them is phase P4b) ·
+//   고정 (my pinned chats) · 폴더 · 나만 보여요 (my list folders: made, renamed, ordered and filled with nav/NavFolders.tsx,
+//   phase P4b; a folder's + asks Trina into it) ·
 //   프로젝트 (the projects with my activity in the last 14 days, at most 8) · 모든 프로젝트 (N) and + 새 프로젝트 ·
 //   기타 기록 (my other chats; "기록" when no project group shows above it, so a person who never uses projects does not
 //   read their whole history as "other").
@@ -12,10 +13,10 @@
 // in <project>". A project group with no activity of mine for 7 days starts folded; a fold the person chose wins after
 // that (remembered per person in this browser). A folded group keeps the strongest mark of all its chats.
 import clsx from 'clsx'
-import { ChevronDown, Folder, Pin, Plus, SquareKanban } from 'lucide-react'
+import { ChevronDown, Pin, Plus, SquareKanban } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import type { Chat, ChatMark } from '@mycel/shared/api'
+import type { Chat, ChatMark, NavFolder } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { markerOf, type Marker } from '../../lib/sessionMarkers'
@@ -30,6 +31,7 @@ import { SessionMarker } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
+import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, useDropTarget, useFolderActions } from '../nav/NavFolders'
 import { PanelLabel, panelRow } from './PanelFrame'
 
 /** how long a window coming back to the front waits before the groups are read again */
@@ -51,7 +53,7 @@ function readFolds(key: string): Record<string, Fold> {
 }
 
 /** The person's chosen folds in this browser (a private window may refuse: it just forgets). */
-function useFolds() {
+export function useFolds() {
   const key = foldKey(useMeStrict().user.id)
   const [state, setState] = useState(() => ({ key, folds: readFolds(key) }))
   const folds = state.key === key ? state.folds : readFolds(key)
@@ -184,8 +186,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
       {groups.folders.length > 0 && (
         <section aria-labelledby="trina-folders" data-testid="trina-folders">
-          <Label id="trina-folders" icon={<Folder size={12} aria-hidden />}>
-            {t('trinaList.folders')} <span className="font-normal">· {t('trinaList.onlyYou')}</span>
+          <Label id="trina-folders" icon={<FolderIcon />} action={<NewFolderButton kind="chats" />}>
+            <FoldersLabelWords />
           </Label>
           {groups.folders.map((f) => {
             const key = `folder:${f.id}`
@@ -193,8 +195,9 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
               <Group
                 key={f.id}
                 kind="folder"
+                folder={{ id: f.id, kind: 'chats', name: f.name, position: f.position, count: f.count, top: f.top }}
                 name={f.name}
-                icon={<Folder size={12} className="shrink-0" aria-hidden />}
+                icon={<FolderIcon />}
                 head={f}
                 folded={folds[key] === 'folded'}
                 onFold={(v) => fold(key, v)}
@@ -203,7 +206,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
                 rows={withOpen(f.top, onScreen?.folderId === f.id)}
                 row={row}
                 markOf={markOf}
-                empty={t('trinaList.emptyFolder')}
+                empty={t('navFolders.empty')}
               />
             )
           })}
@@ -261,6 +264,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
             <Plus size={16} className="text-faint" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
           </Link>
         )}
+        {/* no folder yet: "새 폴더" beside the other "make a group" rows (with folders, the + on their label) */}
+        {!groups.folders.length && <NewFolderRow kind="chats" />}
       </div>
 
       {otherRows.length > 0 && (
@@ -321,6 +326,8 @@ function strongest(marks: readonly ChatMark[], markOf: (m: ChatMark) => Marker |
  * asks Trina there), its rows, and "N개 더 보기" for the rest (the mark of what it holds back). */
 function Group(props: {
   kind: 'folder' | 'project'
+  /** a folder of mine: its "⋯", its + ("Ask Trina" into it) and a row dragged onto it goes in */
+  folder?: NavFolder
   projectId?: string
   name: string
   icon: ReactNode
@@ -345,10 +352,16 @@ function Group(props: {
   const headMark = folded ? strongest(marks, markOf) : null
   const hiddenCount = opened && !opened.cursor ? 0 : Math.max(0, head.count - rows.length)
   const moreMark = !folded && hiddenCount > 0 ? strongest(head.marked.filter((m) => !shownIds.has(m.id)), markOf) : null
-  const canAsk = kind === 'project'
+  const folder = props.folder
+  const canAsk = kind === 'project' || !!folder
+  const act = useFolderActions('chats')
+  const drop = useDropTarget('chats', (id) => {
+    if (folder && !rows.some((c) => c.id === id)) void act.file(id, folder)
+  })
+  const askLabel = t('history.group.newChat', { name, ai: aiName(t) })
   return (
-    <div className="mt-1" data-testid="trina-group" data-kind={kind} data-folded={folded ? '' : undefined}>
-      <div className={clsx('group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint', canAsk && headMark && 'pointer-coarse:pr-16')} data-testid="trina-group-head">
+    <div className={clsx('mt-1', folder && drop.over && DROP_OVER)} {...(folder ? drop.props : {})} data-testid="trina-group" data-kind={kind} data-folded={folded ? '' : undefined}>
+      <div className={clsx('group/head relative flex h-7 items-center gap-1 pl-3 text-xs font-medium text-faint', folder ? 'pr-16' : 'pr-9', canAsk && headMark && (folder ? 'pointer-coarse:pr-24' : 'pointer-coarse:pr-16'))} data-testid="trina-group-head">
         <h4 className="flex h-full min-w-0 items-center gap-1">
           {icon}
           {projectId ? (
@@ -364,22 +377,30 @@ function Group(props: {
           <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
         </button>
         {headMark && (
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', canAsk && 'group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-9')} data-testid="trina-group-mark">
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', canAsk && 'group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0', canAsk && (folder ? 'pointer-coarse:right-16' : 'pointer-coarse:right-9'))} data-testid="trina-group-mark">
             <SessionMarker marker={headMark} label={reasonText(headMark.reason, t)} />
           </span>
         )}
         {canAsk && (
-          <Tooltip label={t('history.group.newChat', { name, ai: aiName(t) })}>
+          <Tooltip label={askLabel}>
             <button
               type="button"
-              aria-label={t('history.group.newChat', { name, ai: aiName(t) })}
-              onClick={() => navigate(`/projects/${projectId}`, { state: { newChat: true } })}
-              className="absolute top-1/2 right-1 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100"
+              aria-label={askLabel}
+              onClick={() => (folder ? navigate(`/?folder=${folder.id}`) : navigate(`/projects/${projectId}`, { state: { newChat: true } }))}
+              className={clsx('absolute top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100', folder ? 'right-8' : 'right-1')}
               data-testid="trina-group-ask"
             >
               <Plus size={14} aria-hidden />
             </button>
           </Tooltip>
+        )}
+        {folder && (
+          <FolderMenu
+            folder={folder}
+            count={head.count}
+            className="absolute top-1/2 right-1 -translate-y-1/2"
+            buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
+          />
         )}
       </div>
       <ul id={listId} hidden={folded} data-testid="trina-group-rows">

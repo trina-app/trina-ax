@@ -14,6 +14,8 @@ import { useRooms } from '../../store/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { PresenceText } from '../Presence'
+import { useNavRail } from '../../lib/navRail'
+import { dragRow } from './NavFolders'
 
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
 const ALL_KEY = 'mycel.sidebar.roomsAll'
@@ -226,13 +228,15 @@ export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:fo
 export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
 
 /** `section`: the kind's section it is in under an opened "더 보기" (none in the top rows) */
-export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' }) {
+export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const unread = roomUnread(room)
   const menu = useRowMenu()
+  // the new navigation: a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
+  const rail = useNavRail()
   return (
-    <li className="group relative" {...menu.row} data-testid="sidebar-room-row" data-section={section}>
+    <li className="group relative" {...menu.row} {...(rail ? dragRow('rooms', room.id, !room.hidden) : {})} data-testid="sidebar-room-row" data-section={section}>
       <NavLink
         to={`/rooms/${room.id}`}
         onClick={(e) => {
@@ -276,6 +280,7 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
         openSignal={menu.openSignal}
         openRequest={menu.openRequest}
         testId="sidebar-room-menu"
+        folders={rail}
       />
     </li>
   )

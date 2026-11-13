@@ -25,9 +25,11 @@ export interface ChatMenuOptions {
   onChanged?: (c: Chat) => void
   /** the chat went to the trash */
   onRemoved?: (c: Chat) => void
+  /** more items after 이름 바꾸기 (the new navigation's 폴더로 옮기기 / 폴더에서 빼기, nav/NavFolders.tsx) */
+  extra?: MenuItem[]
 }
 
-export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => () => void fn(), onMove, onChanged, onRemoved }: ChatMenuOptions): MenuItem[] {
+export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => () => void fn(), onMove, onChanged, onRemoved, extra = [] }: ChatMenuOptions): MenuItem[] {
   const t = useT()
   const actions = useChatActions()
   // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; a pin for anyone
@@ -40,6 +42,7 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
       : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat).then(changed)), testId: `${testId}-pin` },
     linkItem,
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat).then(changed)), testId: `${testId}-rename` }] : []),
+    ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
     ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat).then((ok) => ok && onRemoved?.(chat))), testId: `${testId}-delete` }] : []),

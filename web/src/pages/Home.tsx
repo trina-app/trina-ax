@@ -31,7 +31,7 @@
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
-import { Sparkles } from 'lucide-react'
+import { Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
@@ -57,6 +57,8 @@ import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
 import { TrinaStar } from '../components/TrinaStar'
 import { FileDropZone } from '../components/FileDropZone'
+import { useFolders } from '../components/nav/NavFolders'
+import { useNavRail } from '../lib/navRail'
 
 // Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
 // chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).
@@ -72,8 +74,14 @@ function HomePage() {
   const t = useT()
   const me = useMeStrict()
   const navigationType = useRealNavigationType()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const projectId = params.get('project')
+  // the new navigation: a folder's + ("Ask Trina" in it, `?folder=<id>`) puts the new chat in that folder of mine; an id
+  // that is not one of my chat folders is ignored
+  const rail = useNavRail()
+  const folderAsked = rail && !projectId ? params.get('folder') : null
+  const chatFolders = useFolders('chats', !!folderAsked)
+  const folder = folderAsked ? chatFolders.find((f) => f.id === folderAsked) ?? null : null
   const prompt = params.get('prompt') ?? undefined
   const chats = useChats((s) => s.chats)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
@@ -138,6 +146,7 @@ function HomePage() {
       <NewChatComposer
         projectId={projectId}
         project={project}
+        folderId={folder?.id ?? null}
         initialText={preset?.text}
         resetKey={preset?.n ?? 0}
         // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. A
@@ -165,6 +174,15 @@ function HomePage() {
           <div className="max-md:flex max-md:flex-1 max-md:flex-col max-md:items-center max-md:justify-center max-md:py-6 md:contents" data-testid="home-head">
             {/* not under a welcome or lead card: they fill the top, and the mark would sit alone over the box */}
             {!leadCard && !welcomeCard && <HomeMark />}
+            {folder && (
+              <p className="mb-2 flex items-center justify-center gap-1.5 text-sm text-muted" data-testid="home-folder">
+                <Folder size={14} className="shrink-0" aria-hidden />
+                <span className="truncate">{t('navFolders.goesInto', { name: folder.name })}</span>
+                <button type="button" aria-label={t('navFolders.goesIntoClear')} title={t('navFolders.goesIntoClear')} onClick={() => setParams({}, { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
+                  <X size={14} aria-hidden />
+                </button>
+              </p>
+            )}
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">

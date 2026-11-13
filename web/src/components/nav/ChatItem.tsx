@@ -20,6 +20,8 @@ import { SharedIcon } from '../chat/SharedChat'
 import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
+import { useNavRail } from '../../lib/navRail'
+import { dragRow, useFolderRowItems } from './NavFolders'
 import { useRoomTitle } from '../rooms/RoomIcon'
 
 /** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
@@ -40,7 +42,11 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
-  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
+  // the new navigation: 폴더로 옮기기 / 폴더에서 빼기 among its items, and a mouse may drag it onto a folder (a project's
+  // chat stays in its project: the item is off and says why; a room's side chat is in no list folder)
+  const rail = useNavRail()
+  const folder = useFolderRowItems({ on: rail && !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId, more })
+  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: folder.items })
 
   return (
     <li
@@ -51,6 +57,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       onMouseLeave={peek.hide}
       data-marker={marker?.kind}
       data-pinned={chat.pinnedAt ? '' : undefined}
+      {...(rail ? dragRow('chats', chat.id, !chat.projectId && !chat.sideRoomId) : {})}
     >
       <NavLink
         to={`/c/${chat.id}`}
@@ -90,8 +97,10 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
         openRequest={menu.openRequest}
         sheetTitle={title}
         buttonRef={more}
+        footer={folder.footer}
         testId="chat-row-menu"
       />
+      {folder.picker}
     </li>
   )
 }
