@@ -17,6 +17,7 @@ import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
 import { readProjectList } from '../../store/projects'
 import { cardChats, useWaitingChats } from '../../store/sessionMarkers'
@@ -62,8 +63,9 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const loadChats = useChats((s) => s.loadChats)
   const [moreLoading, setMoreLoading] = useState(false)
   useEffect(() => {
-    if (!loaded) void loadChats(true).catch(() => {})
-  }, [loaded, loadChats])
+    // the first read is shared with the rail's marks (lib/chatListLoad.ts)
+    if (!loaded) void loadChatList().catch(() => {})
+  }, [loaded])
   // a chat that joined my list on another screen (a shared project chat I just wrote in, its event telling only its
   // maker's view) is in the server's heads: put it in the list, so 최근 기록 has it without a reload
   useEffect(() => {

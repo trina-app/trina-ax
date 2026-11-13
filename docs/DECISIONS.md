@@ -12734,6 +12734,47 @@ push service (`pushManager.subscribe` always fails there).
   Its words are one live region that is always there (the reason replaces the question inside it); the buttons stay
   focusable while it works (`aria-busy`, not disabled); when it goes away under the keyboard's focus, the focus moves
   to `#main`.
+## First load: compressed files, one language, formatting on demand (perf/first-load, 2026-11-13)
+
+**Decision.** The first visit to a team downloads what the page needs and no more:
+
+- **Compressed files.** `bun run build` ends with `web/scripts/compress-dist.ts`: a Brotli (`.br`, quality 11) and a gzip
+  (`.gz`, level 9) copy next to every text file of `web/dist` (js, css, html, svg, json, the manifest, wasm, fonts;
+  `COMPRESSIBLE` in `server/src/routes/web-static.ts`) of at least 1 KB that it makes at least 10% smaller. The notice
+  folder (`licenses/`) has no copies: a bundle build writes it again. The server (`staticResponse`) sends the Brotli
+  copy when the browser takes `br`, else the gzip copy, else the file, with `Vary: Accept-Encoding` on every
+  compressible file. Chrome and Safari send `br` only over https, so an office address over plain http gets gzip.
+  Nothing is compressed on the fly; a build without the step (`build:app`, the dev server) sends files as before.
+- **Revalidation.** Every static file and the app shell get an `ETag` (size, time and coding: each coding is its own
+  representation) and `Last-Modified`, and a matching `If-None-Match` gets `304`. The `no-cache` files (`index.html`,
+  `sw.js`, the manifest, icons) are asked for on each visit as before, but no longer sent again in full. Hashed files
+  keep `max-age=31536000, immutable`.
+- **One language.** Each of the five dictionaries is its own file, loaded when it is shown (`web/src/i18n/index.ts`
+  `loadLocale`). `main.tsx` asks `/api/me` at once and draws the page once the starting language is there; the
+  language the last person on this browser used loads alongside. The session store loads the account's language
+  before it shows the signed-in screen, so it does not come up in English first. `setLocale` switches only when the
+  new language's words are here (a moment; on a failure the screen keeps its language). Under Bun every dictionary is
+  there from the start (`i18n/bundled.ts`): the tests, the e2e specs and `check:i18n` read `DICTS` unchanged; the web
+  build puts `bundled.web.ts` (none) in its place (`web/scripts/locales-on-demand.ts`). App code reads words only
+  through `translate`, `messageOf` and `hasMessage` (checked by `web/test/unit/i18n-on-demand.test.ts`).
+- **Formatting on demand.** `components/LazyMarkdown.tsx` stands in for `components/Markdown.tsx` (react-markdown,
+  GFM, KaTeX and its styles, with the rich copy of answers) in everything the first page pulls in: answers, room
+  messages, file previews, chat steps and skill examples. The code loads the first time one of them is drawn; until
+  then the text shows as it is, with its lines. Copying an answer before it is loaded copies the Markdown only.
+  Pages that open later anyway (Projects, Skills, the artifact panel) import `Markdown.tsx` directly.
+- **No duplicate start-up reads.** The chat list (`lib/chatListLoad.ts`: the rail, the tab bar and the history list
+  each asked), AI access (`store/aiAccess.ts`: the banner and the welcome card) and `/api/me` (main.tsx and the Gate)
+  each share a read already on its way.
+
+**Why.** The cache audit of 2026-11-13 measured a first visit to Home at about 29 s on Fast 3G with a 4x slower CPU:
+4.7 MB of uncompressed files (an office server, the desktop app and self-hosted teams without Cloudflare get no
+compression), 2 MB of it all five languages and 1.2 MB the Markdown and math code, which even the sign-in page
+loaded. Precompressing at build costs about 20 s of build time and about 13 MB more in `web/dist` (and in bundles),
+and keeps the server doing no work per request.
+
+**Not done.** The sign-in page still loads the signed-in app's code (routes are not split by sign-in state). The
+signed-in screen's reads (rooms, projects, notices) still start after `/api/me` answers.
+
 ## No password for the team's official AI accounts (2026-11-07, product owner)
 
 **Decision.** Adding or replacing a team AI connection and starting a Claude or ChatGPT sign-in no longer ask for the

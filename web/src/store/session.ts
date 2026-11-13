@@ -4,7 +4,7 @@ import { SETUP_TOKEN_HEADER, type Locale, type Me, type TextSize, type Theme, ty
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
-import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { loadLocale, pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -86,42 +86,25 @@ export function setBeforePersonSwitch(fn: () => void) {
   beforePersonSwitch = fn
 }
 
+/** The first read of who is signed in (main.tsx starts it before the first render, the app's Gate asks again on mount):
+ * one request, shared while the screen still waits for it. A later load (Retry, after setup) always asks again. */
+let booting: Promise<void> | null = null
+/** The language a screen is about to show, loaded before the screen changes (index.ts loadLocale): the signed-in app
+ * or the sign-in page comes up in its own words, not English first. A language that cannot load is shown later, or
+ * not at all (the switch then keeps the language on screen). */
+const wordsFor = (l: Locale) => loadLocale(l).catch(() => {})
+
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
 
-  async load() {
-    try {
-      const me = await api.call(API.me)
-      get().signedIn(me)
-    } catch (e) {
-      if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
-        storeRecentLocale(null)
-        // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
-        useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-        try {
-          // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
-          // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
-          // setupStatusFor)
-          const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
-          rememberSetupToken(linked)
-          const token = linked ?? keptSetupToken()
-          const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
-          // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
-          // per-address token limit that everyone behind this address shares
-          if (!s.needed) forgetSetupToken()
-          lastTeamDefault = s.defaultLocale ?? null
-          // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
-          useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))
-          set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
-        } catch {
-          set({ status: { kind: 'signed-out' } })
-        }
-        return
-      }
-      // Only the error screen uses the recovery hint. A server response still decides account/team language.
-      useLocaleStore.getState().setLocale(recoveryLocale(recentLocale(), storedLocale()))
-      set({ status: { kind: 'error', error: e } })
+  load() {
+    if (booting && get().status.kind === 'loading') return booting
+    const p = readMe(get, set)
+    if (get().status.kind === 'loading') {
+      booting = p
+      void p.finally(() => { if (booting === p) booting = null })
     }
+    return p
   },
 
   signedIn(me, opts) {
@@ -267,6 +250,50 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 }))
+
+type Get = () => SessionState
+type Set = (s: Partial<SessionState>) => void
+
+/** GET /api/me and what follows from its answer (useSession.load). */
+async function readMe(get: Get, set: Set): Promise<void> {
+  try {
+    const me = await api.call(API.me)
+    await wordsFor(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
+    get().signedIn(me)
+  } catch (e) {
+    if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
+      storeRecentLocale(null)
+      // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
+      useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
+      try {
+        // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
+        // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
+        // setupStatusFor)
+        const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
+        rememberSetupToken(linked)
+        const token = linked ?? keptSetupToken()
+        const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
+        // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
+        // per-address token limit that everyone behind this address shares
+        if (!s.needed) forgetSetupToken()
+        lastTeamDefault = s.defaultLocale ?? null
+        // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
+        const locale = pickLocale(storedLocale(), s.defaultLocale)
+        await wordsFor(locale)
+        useLocaleStore.getState().setLocale(locale)
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
+      } catch {
+        set({ status: { kind: 'signed-out' } })
+      }
+      return
+    }
+    // Only the error screen uses the recovery hint. A server response still decides account/team language.
+    const locale = recoveryLocale(recentLocale(), storedLocale())
+    await wordsFor(locale)
+    useLocaleStore.getState().setLocale(locale)
+    set({ status: { kind: 'error', error: e } })
+  }
+}
 
 export function useMe(): Me | null {
   return useSession((s) => (s.status.kind === 'signed-in' ? s.status.me : null))

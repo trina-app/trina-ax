@@ -7,9 +7,11 @@ import { followVisualViewport } from './lib/viewport'
 import { holdPageZoom } from './lib/pageZoom'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
-import { useLocaleStore, t } from './i18n'
+import { loadLocale, recentLocale, useLocaleStore, t } from './i18n'
 import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
+import { useAiAccess } from './store/aiAccess'
+import { loadChatList } from './lib/chatListLoad'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
@@ -30,6 +32,18 @@ useSession.subscribe(state => {
   setPushSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setMobilePushSession(status.kind === 'signed-in' && !status.me.user.mustChangePassword ? `${status.me.user.id}:${status.me.session.id}` : null)
 })
+// the signed-in screen's first reads start the moment the session is known, not after its first render: the chat list
+// (the rail's marks and the history) and AI access (the box's banner); the screens share these reads (lib/chatListLoad.ts,
+// store/aiAccess.ts). Not while the password must be changed first: that screen shows nothing else.
+let readsFor = ''
+useSession.subscribe(({ status }) => {
+  if (status.kind !== 'signed-in' || status.me.user.mustChangePassword) return
+  const who = `${status.me.user.id}:${status.me.session.id}`
+  if (who === readsFor) return
+  readsFor = who
+  void loadChatList().catch(() => {})
+  void useAiAccess.getState().load()
+})
 initPwa()
 followVisualViewport()
 // the phone app and the installed app: no zoom of the whole page (a picture viewer zooms on its own)
@@ -39,8 +53,24 @@ guardFileDrops(window)
 // what the old navigation remembered (its lists open or showing all): nothing reads it now
 try { for (const k of ['mycel.sidebar.recents', 'mycel.sidebar.recentsAll', 'mycel.sidebar.rooms', 'mycel.sidebar.roomsAll']) localStorage.removeItem(k) } catch { /* storage blocked */ }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+// First load (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"): who is signed in (GET /api/me) is
+// asked at once, while the screen's language loads; the page draws once its words are here. The language the last
+// person here used (the one the account is likely to have) loads alongside, so the signed-in screen does not wait for
+// it. A language that cannot load (offline, a tab of an older build) does not stop the page: it draws with English.
+void useSession.getState().load()
+const startLocale = useLocaleStore.getState().locale
+const recent = recentLocale()
+if (recent && recent !== startLocale) void loadLocale(recent).catch(() => {})
+void loadLocale(startLocale)
+  .catch(() => {
+    useLocaleStore.getState().setLocale('en')
+    return loadLocale('en')
+  })
+  .catch(() => {})
+  .finally(() => {
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+  })

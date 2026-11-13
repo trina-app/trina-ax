@@ -26,24 +26,37 @@ interface State {
 
 /** bumped on sign-out: an answer that arrives after it belongs to the previous person and is dropped */
 let generation = 0
+/** the read on its way: the banner and the welcome card mount together and each asked (two at start); one is shared */
+let reading: { generation: number; force: boolean; read: Promise<void> } | null = null
+
+/** GET /api/me/ai-access into the store (an answer for the previous person is dropped). */
+async function readAccess(get: () => State, set: (s: Partial<State>) => void): Promise<void> {
+  const g = generation
+  try {
+    const r = await api.call(API.getAiAccess)
+    if (g !== generation) return
+    // a press that went through while this answer was on its way stays "Told"
+    set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
+  } catch {
+    if (g !== generation) return
+    // a failed check is not "no AI": nothing shows
+    set({ loaded: true, usable: true })
+  }
+}
 
 export const useAiAccess = create<State>((set, get) => ({
   loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false,
-  async load(force) {
-    if (get().loaded && !force) return
-    const g = generation
-    try {
-      const r = await api.call(API.getAiAccess)
-      if (g !== generation) return
-      // a press that went through while this answer was on its way stays "Told"
-      set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
-    } catch {
-      if (g !== generation) return
-      // a failed check is not "no AI": nothing shows
-      set({ loaded: true, usable: true })
-    }
+  load(force) {
+    if (get().loaded && !force) return Promise.resolve()
+    // a forced read wants an answer from after now: it shares only another forced one
+    if (reading && reading.generation === generation && (reading.force || !force)) return reading.read
+    const entry = { generation, force: !!force, read: readAccess(get, set) }
+    reading = entry
+    const done = () => { if (reading === entry) reading = null }
+    entry.read.then(done, done)
+    return entry.read
   },
-  reset() { generation++; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
+  reset() { generation++; reading = null; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
   markNotReadyTold() { set({ notReadyTold: true }) },
   async ask() {
     if (get().sending || get().requested) return

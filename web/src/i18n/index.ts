@@ -6,14 +6,62 @@ import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } fro
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
-import { en } from './en'
-import { ja } from './ja'
-import { es } from './es'
-import { id } from './id'
-import { ko, type MessageKey } from './ko'
+import { BUNDLED } from './bundled'
+import type { MessageKey } from './ko'
 
 export type { MessageKey }
-export const DICTS: Record<Locale, Record<MessageKey, string>> = { ko, en, id, ja, es }
+type Dictionary = Record<MessageKey, string>
+
+/**
+ * Each language is its own file (about 400 KB each), loaded when it is first shown: the first visit downloads one, not
+ * all five (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"). main.tsx waits for the starting
+ * language before the first render, and useLocaleStore.setLocale switches only once the new one is here, so t() always
+ * has the words of the language on screen. Under Bun (tests, scripts) bundled.ts has all five from the start.
+ */
+const LOADERS: Record<Locale, () => Promise<Dictionary>> = {
+  ko: () => import('./ko').then((m) => m.ko),
+  en: () => import('./en').then((m) => m.en),
+  id: () => import('./id').then((m) => m.id),
+  ja: () => import('./ja').then((m) => m.ja),
+  es: () => import('./es').then((m) => m.es),
+}
+const loaded: Partial<Record<Locale, Dictionary>> = { ...BUNDLED }
+const loading = new Map<Locale, Promise<void>>()
+
+/**
+ * The dictionaries loaded so far: all five under Bun (the tests and scripts read them here), in the web build only the
+ * languages shown so far. App code reads words through translate / messageOf / hasMessage, never through this
+ * (web/test/unit/i18n-on-demand.test.ts checks that).
+ */
+export const DICTS = loaded as Record<Locale, Dictionary>
+
+export const localeLoaded = (l: Locale): boolean => !!loaded[l]
+/** A language as if not loaded yet (web/test/unit/i18n-on-demand.test.ts); loadLocale loads it again. */
+export function forgetLocaleForTest(l: Locale) { delete loaded[l] }
+
+/** Load a language's words (once; a load already on its way is shared). Rejects when the file cannot be fetched
+ * (offline, or a tab still on an older build after an update): the language on screen stays. */
+export function loadLocale(l: Locale): Promise<void> {
+  if (loaded[l]) return Promise.resolve()
+  let p = loading.get(l)
+  if (!p) {
+    p = LOADERS[l]().then((d) => { loaded[l] = d }).finally(() => loading.delete(l))
+    loading.set(l, p)
+  }
+  return p
+}
+
+/** A text's template in a language (English when that language lacks it), or undefined for an unknown key. */
+export function messageOf(locale: Locale, key: MessageKey): string | undefined {
+  return loaded[locale]?.[key] ?? loaded[DEFAULT_LOCALE]?.[key]
+}
+
+/** Is this a key of the dictionaries (an id the server sent: an audit action, a refusal reason)? Every dictionary has
+ * the same keys (bun run check:i18n), so the one on screen answers. */
+export function hasMessage(key: string): key is MessageKey {
+  const dict = loaded[currentLocale()] ?? Object.values(loaded)[0]
+  return !!dict && Object.hasOwn(dict, key)
+}
 /** Each language named in its own language, English first. */
 export const LOCALES: { id: Locale; label: string }[] = LOCALE_ORDER.map((l) => ({ id: l, label: LOCALE_NAMES[l] }))
 
@@ -69,7 +117,7 @@ export function format(template: string, callerParams?: Params, locale: string =
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {
-  return format(DICTS[locale]?.[key] ?? DICTS[DEFAULT_LOCALE][key] ?? key, params, locale)
+  return format(messageOf(locale, key) ?? key, params, locale)
 }
 
 /** The person's own choice (signed in), else the team default, else English. */
@@ -130,9 +178,21 @@ interface LocaleState {
   setLocale: (l: Locale) => void
 }
 
+/** the latest language asked for: a load that ends after a later choice does not switch to its language */
+let wanted: Locale | null = null
+
 export const useLocaleStore = create<LocaleState>((set) => ({
   locale: storedLocale() ?? DEFAULT_LOCALE,
   setLocale: (locale) => {
+    wanted = locale
+    if (!loaded[locale]) {
+      // shown once its words are here; until then (a moment, or never when offline) the screen keeps its language
+      loadLocale(locale).then(
+        () => { if (wanted === locale) useLocaleStore.getState().setLocale(locale) },
+        () => { /* not loaded: the language on screen stays */ },
+      )
+      return
+    }
     if (typeof document !== 'undefined') {
       document.documentElement.lang = locale
       // the relay's own pages (team server offline) read it: relay/src/pages.ts LOCALE_COOKIE
