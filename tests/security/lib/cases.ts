@@ -288,6 +288,17 @@ export const SPECS: Record<string, Spec> = {
       const bob = w.inst.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Team plan' AND r.subject_id = 'bob'").get()
       if (bob) throw new Error(`${who}: bob was added to alice's team project`)
     } },
+  // leaving a team project (docs/DECISIONS.md "Leaving a project"): only someone in it. A fresh project of alice's with
+  // frank in it (so she is not the last one); erin and bob are not in it, the owner and admins manage it without being
+  // members: 404 as for no project, and nobody else's rule changes
+  leaveProject: { build: async (c, w) => {
+    const made = await w.as.memberIn.post('/api/projects', { name: `Leave ${Math.random().toString(36).slice(2, 8)}`, participants: [{ subjectType: 'user', subjectId: 'frank' }], instructions: '' })
+    return c.post(`/api/projects/${made.json.id}/leave`)
+  }, scope: 'own-alice',
+    check: (r, w, who) => {
+      if (who === 'memberIn' || r.status >= 300) return
+      throw new Error(`${who} left a project they are not in`)
+    } },
   getProject: { build: (c, w) => c.get(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice' },
   updateProject: { build: (c, w) => c.patch(`/api/projects/${w.ids.projAlice}`, { instructions: 'pwned' }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's project`) } },
