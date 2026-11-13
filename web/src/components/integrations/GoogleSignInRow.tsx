@@ -112,11 +112,13 @@ export function GoogleSignInRow({ status, onChange }: { status: GoogleOwnAppStat
   }
   return (
     <>
-      <SettingRow heading title={t('gsign.title')} testId="gsign-row" attrs={{ 'data-state': active ? 'company' : 'trina' }}
-        desc={active ? [t('gsign.company'), setLine].filter(Boolean).join(' ') : t('gsign.trina')}
+      {/* the company's app: ⋯ stays beside the title on a phone too (inline, as a phone's settings row), and the line
+          stays narrower than the open menu leaves free (the page column caps the row), so the menu never covers it */}
+      <SettingRow heading inline={active} title={t('gsign.title')} testId="gsign-row" attrs={{ 'data-state': active ? 'company' : 'trina' }}
+        desc={active ? <span className="block max-w-md">{[t('gsign.company'), setLine].filter(Boolean).join(' ')}</span> : t('gsign.trina')}
         more={active ? t('gsign.addressMore') : undefined}
         control={active
-          ? <CardMenu label={t('gsign.more')} testId="gsign-menu" startOnPhone items={[
+          ? <CardMenu label={t('gsign.more')} testId="gsign-menu" items={[
               ...(status.available ? [{ label: t('gsign.replace'), onSelect: () => setDialog('replace'), testId: 'gsign-replace' }] : []),
               { label: t(status.canGoBack ? 'gsign.goBack' : 'gsign.remove'), onSelect: () => void remove(), danger: !status.canGoBack, testId: 'gsign-remove' },
             ]} />

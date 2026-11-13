@@ -5391,7 +5391,7 @@ export const ja: Record<MessageKey, string> = {
   "gsign.error.notService": "このサーバーはホスティングサービス経由で Google にログインしていません。代わりに各 Google アプリのページで個別に設定してください。",
   "gsign.error.unsafe": "今はサーバーがファイルを安全に保管できません。サーバーの運用担当者に非公開フォルダーを確認してもらってください。",
   "gsign.confirm.what": "保存すると、Google ドライブ、Gmail、カレンダー、ドキュメント、スプレッドシートは会社のアプリでログインします。",
-  "gsign.confirm.people": "{n, plural, one {# 人が Google をもう一度接続します。} other {# 人が Google をもう一度接続します。}}",
+  "gsign.confirm.people": "{n, plural, one {# 人が Google をもう一度接続する必要があります。} other {# 人が Google をもう一度接続する必要があります。}}",
   "gsign.confirm.nobody": "まだここで Google を接続した人がいないため、接続し直す人もいません。",
   "gsign.confirm.shared": "{n, plural, one {共有の Google アカウントとチームに共有したドライブ # 件は、管理者が接続し直す必要があります。} other {共有の Google アカウントとチームに共有したドライブ # 件は、管理者が接続し直す必要があります。}}",
   "gsign.confirm.nothing": "「保存」を押すまで何も変わりません。",

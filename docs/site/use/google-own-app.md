@@ -140,11 +140,11 @@ refused, with a line saying which one to add in Google Cloud.
 ![The dialog, Add it here: the button to upload the file downloaded from Google, a line saying it can also be dropped there, and Enter the ID and secret instead](../images/google-own-app/dialog-upload.webp "The dialog, step 3: Add it here")
 
 #### Check and save
-The last step, **Before you save**, says what changes, with your team's numbers: how many people will connect Google
-again, and that shared Google accounts and Drives shared with the team need an admin to reconnect them. Nothing
+The last step, **Before you save**, says what changes, with your team's numbers: how many people will need to
+connect Google again, and that shared Google accounts and Drives shared with the team need an admin to reconnect them. Nothing
 changes until you choose **Save**. **Cancel** leaves everything as it was.
 
-![The dialog, Before you save: how many people in Acme will connect Google again, a line about shared Google accounts and Drives shared with the team, and the Save and Cancel buttons](../images/google-own-app/dialog-confirm.webp "The dialog, step 4: Before you save")
+![The dialog, Before you save: how many people in Acme will need to connect Google again, a line about shared Google accounts and Drives shared with the team, and the Save and Cancel buttons](../images/google-own-app/dialog-confirm.webp "The dialog, step 4: Before you save")
 :::
 
 After **Save**, the row says "People sign in with your company's Google app, for Google Drive, Gmail, Calendar, Docs
@@ -153,9 +153,9 @@ and **Use Trina's Google sign-in again**. You set it once: the row is the same o
 
 ![The Google sign-in row after Save: People sign in with your company's Google app, set by an admin of Acme on a date, with the ⋯ menu open showing Replace and Use Trina's Google sign-in again](../images/google-own-app/row-company.webp "Google sign-in, with your company's app")
 
-On a phone the button goes under the line.
+On a phone the ⋯ stays beside the row's name, as in a phone's settings.
 
-![The Google sign-in row on a phone, 390 pixels wide: the line about your company's Google app, with the ⋯ button under it](../images/google-own-app/row-company-phone.webp "Google sign-in on a phone")
+![The Google sign-in row on a phone, 390 pixels wide: the line about your company's Google app, with the ⋯ button beside the row's name](../images/google-own-app/row-company-phone.webp "Google sign-in on a phone")
 
 ## What members see
 

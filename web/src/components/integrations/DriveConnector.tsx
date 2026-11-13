@@ -179,7 +179,8 @@ export function ReturnAddress({ label, value, testId = 'drive-setup-redirect', c
     <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2" data-testid={`${testId}-row`}>
       <span className="min-w-0 flex-1">
         <span className="block text-xs text-muted">{label}</span>
-        <code className="block text-xs break-all" data-testid={testId}>{value}</code>
+        {/* a long address wraps only after a slash (each line ends at one); Copy copies `value` as it is */}
+        <code className="block text-xs break-words" data-testid={testId}>{value.split(/(?<=\/)(?!\/)/).map((part, i) => <span key={i}>{i > 0 && <wbr />}{part}</span>)}</code>
       </span>
       <Tooltip label={copied ? t('common.copied') : t('common.copy')}>
         <Button size="sm" variant="ghost" onClick={() => void copy(value)} aria-label={name} data-testid={`${testId === 'drive-setup-redirect' ? 'drive-setup' : testId}-copy`}>
