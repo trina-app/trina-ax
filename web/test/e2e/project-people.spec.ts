@@ -28,7 +28,7 @@ async function as(browser: Browser, who: { username: string; password: string },
   return p
 }
 
-test('the owner: faces under the name and on the 멤버 line; the dialog lists everyone once, groups open to their people', async ({ page }) => {
+test('the owner: faces under the name and on the 멤버 line; the dialog counts everyone once, groups open to their people', async ({ page }) => {
   await reset(page, { withAdmin: true })
   await signIn(page)
   const { id, lead } = await seed(page)
@@ -43,14 +43,10 @@ test('the owner: faces under the name and on the 멤버 line; the dialog lists e
 
   await header.getByTestId('project-header-open').click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByTestId('project-people-count')).toHaveText('이 프로젝트에 있는 사람 5명')
-  // the count line says it only after a change, not twice
-  await expect(dialog.getByTestId('project-access-summary')).toHaveCount(0)
-  await expect(dialog.locator('[data-testid^="project-person-tag-"]')).toHaveCount(1)
-  await expect(dialog.getByTestId('project-person-tag-olga')).toHaveText('만든 사람 · 나')
-  // Bob and Sora, in both groups, once each
-  await expect(dialog.getByTestId('project-person-bob')).toHaveCount(1)
-  await expect(dialog.getByTestId('project-person-sora')).toHaveCount(1)
+  // whoever changes the members: one count, me included, and no second list of the same people (QA TC-1065)
+  await expect(dialog.getByTestId('project-access-summary')).toHaveText('5명')
+  await expect(dialog.getByTestId('project-people-count')).toHaveCount(0)
+  await expect(dialog.locator('[data-testid^="project-person-"]')).toHaveCount(0)
   const toggle = dialog.getByTestId(`participant-group-toggle-${lead}`)
   await expect(toggle).toContainText('4명')
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')

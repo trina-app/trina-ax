@@ -319,7 +319,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // Members: the dialog over the list
       await menu.getByRole('menuitem', { name: t['projects.participants'] }).click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
-      await expect(page.getByTestId('project-people-count')).toHaveText(translate('ko', 'projects.peopleIn', { n: 1 }))
+      // one count (no second list of the same people for whoever changes them: QA TC-1065)
+      await expect(page.getByTestId('project-access-summary')).toHaveText(translate('ko', 'projects.whoMembers', { n: 1 }))
+      await expect(page.getByTestId('project-people-count')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
       // Delete: to the trash with its files and chats; the card stays and says so
       menu = await openCard(page, 'Falcon', vp.phone)

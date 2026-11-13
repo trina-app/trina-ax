@@ -58,7 +58,7 @@ beforeAll(() => {
     // the members dialog (project-members.test.tsx has the rest)
     if (key === 'GET /api/people') return json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] })
     if (key.endsWith('/access')) return json(200, { editable: true, rulesHash: 'h1', people: 3, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }, { subjectType: 'user', subjectId: 'sora', name: 'Sora' }] })
-    if (key === 'POST /api/projects/access-preview') return json(200, { people: 2, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
+    if (key === 'POST /api/projects/access-preview') return json(200, { people: 2, added: 0, removed: 1, removedNames: ['Sora'], files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
     if (key.endsWith('/participants')) {
       // the project as the server says it after the save (the dialog reads it again)
       const pid = key.split('/').at(-2)!
@@ -148,6 +148,10 @@ describe('the Projects list', () => {
       expect(m.html()).toContain(ko('projects.membersTitle', { name: 'Acme sales' }))
       await m.click('participant-remove-user-sora')
       await m.click('project-members-save')
+      // taking someone out asks first, by name (QA TC-1067)
+      await m.until(() => m.find('project-narrow-line'), 'who loses access')
+      expect(m.get('project-narrow-line').textContent).toBe(ko('projects.loseAccess', { n: 1, names: 'Sora' }))
+      await m.click('dialog-confirm')
       await m.until(() => !m.find('project-members-dialog'), 'the dialog closed')
       expect(calls.find((c) => c.key === `PUT /api/projects/${SHARED}/participants`)?.body).toEqual({ participants: [], expectedHash: 'h1' })
       expect(useProjects.getState().byId[SHARED]?.audience).toBe(2)

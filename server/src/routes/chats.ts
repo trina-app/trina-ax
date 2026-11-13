@@ -218,9 +218,10 @@ export const chatsRoutes: RouteModule = {
     const projectFor = (p: Principal, id: string, manage: boolean, locale?: Locale): ProjectRowT => {
       const r = rt.store.projectRow(id)
       if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) {
-        // someone taken out of it (or who left): its name and that they are not in it any more (QA TC-1067)
-        const gone = r ? noLongerMember(ctx.db, r.id, p.id) : null
-        if (gone) return fail('not_found', tr('projectNoLongerMember', locale ?? 'en', { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
+        // GET of the project (`locale` given) by someone taken out of it (or who left): its name and that they are not
+        // in it any more (QA TC-1067); its other routes keep the one 404
+        const gone = r && locale ? noLongerMember(ctx.db, r.id, p.id) : null
+        if (gone) return fail('not_found', tr('projectNoLongerMember', locale!, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
         return fail('not_found')
       }
       return r

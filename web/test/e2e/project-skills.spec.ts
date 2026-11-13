@@ -149,11 +149,11 @@ test('sharing a personal project whose skills/ holds a skill: asked first by nam
   await page.getByTestId('project-share').click()
   await page.getByTestId('project-participants-search').fill('Bob')
   await page.getByTestId('participant-add-user-bob').click()
+  // Share is the yes: no second confirm (QA TC-1069)
   await page.getByTestId('project-share-confirm').click()
-  await page.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' }).getByTestId('dialog-confirm').click()
   // the skills that would switch on, by name, before anything is made
   const ask = page.getByRole('dialog').filter({ hasText: '프로젝트 스킬이 켜져요' })
-  await expect(ask).toContainText('이 폴더의 스킬 1개가 이 프로젝트 채팅에서 AI가 따르는 스킬이 돼요: jot')
+  await expect(ask).toContainText(/이 폴더의 스킬 1개가 이 프로젝트 채팅에서 .+가 따르는 스킬이 돼요: jot/)
   await ask.getByTestId('dialog-confirm').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const after = await (await page.request.get(`/api/projects/${mine.id}`)).json() as { folderPath: string }
