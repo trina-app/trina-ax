@@ -1,13 +1,14 @@
 // "Who can open it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place" and "Who can open it, like
 // Drive's Share"): a chip at the end of the breadcrumbs for the folder on screen, and a panel (the chip, or a folder
-// row's ⋯ menu). What a member learns is the server's answer (GET /api/files/audience: a count only where they can
+// row's ⋯ menu "Share"; docs/DECISIONS.md "Share like Google Drive (P1)": the dialog is titled Share "<name>", and Admin ›
+// Folder permissions opens the same one). What a member learns is the server's answer (GET /api/files/audience: a count only where they can
 // write) or a team project's own count (Project.audience); their own folder says "only you" by its path. The owner and
 // admins' chip says the people by its rules ("3명"; the server's split, never sent to members). An admin's panel is
 // Drive's Share dialog in our words (pages/admin/FolderSharing.tsx, loaded only for admins): the people and groups who
 // can open it, one general access setting, changed in place. A team project's folder and everything inside it are shown,
 // not changed, and asked of no admin endpoint (their people follow the project's members). Nothing here decides access.
 import { ChevronLeft, UserRound, Users } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Access, AccessTreeNode, FolderAudience, Project } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -118,12 +119,19 @@ export function offersFolderAccess(path: string, access: Access, me: string, pro
  * inside it the count apart and the way to its members. "Change there" on a row from a folder above shows that folder
  * here, with the way back; leaving with changes asks first (`guard`).
  */
-export function FolderAccessPanel({ target, project, projectOf, onClose }: {
+export function FolderAccessPanel({ target, project, projectOf, onClose, fromAdmin, onSaved, guard: outerGuard }: {
   target: { path: string; access: Access } | null
   project: Project | null
   /** a team project by its folder (the folders shown after "Change there") */
   projectOf?: (path: string) => Project | null
   onClose: () => void
+  /** opened from Admin › Folder permissions (admins only): any folder there is shared here, the team root and the top
+   * folders too (a team project's folder only by its address: the server refuses it, and the dialog says why) */
+  fromAdmin?: boolean
+  /** after a save in the dialog */
+  onSaved?: (path: string) => void
+  /** the caller's copy of the leave question (Admin asks it before its own moves) */
+  guard?: MutableRefObject<() => Promise<boolean>>
 }) {
   const t = useT()
   const me = useMeStrict()
@@ -137,12 +145,13 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
   const access: Access = !target ? 'none' : trail.length ? 'write' : target.access
   const proj = !target ? null : trail.length ? (projectOf?.(path!) ?? null) : project
   const place = path !== null ? chipPlace(path, { me: me.user.id, access, project: proj }) : null
-  const sharing = admin && path !== null && editableHere(path, place)
+  const sharing = admin && path !== null && (fromAdmin ? !path.startsWith('users/') : editableHere(path, place))
   // the count (members, one's own folder, a team project's folder and inside it): never an admin endpoint
   const a = useFolderAccess(!sharing && place ? path : null, place, false)
   const chip = a.ready ? chipOf(place, { audience: a.audience, project: proj, apart: admin }) : null
   /** set by FolderSharing: true when the panel may go (nothing changed, or the admin dropped it) */
-  const guard = useRef<() => Promise<boolean>>(async () => true)
+  const ownGuard = useRef<() => Promise<boolean>>(async () => true)
+  const guard = outerGuard ?? ownGuard
   /** the add field's list: Esc closes it before the panel */
   const list = useRef({ open: false, close: () => {} })
   const close = async () => {
@@ -168,20 +177,19 @@ export function FolderAccessPanel({ target, project, projectOf, onClose }: {
   /** the sheet's footer, where FolderSharing puts what will happen and its buttons (always in sight, on phones too) */
   const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null)
   return (
-    <Modal open={!!target && !!place} onClose={() => void close()} title={t('folderAccess.menu')} width={520} footer={sharing ? <div ref={setFooterEl} className="w-full" data-testid="sharing-footer-slot" /> : undefined}>
-      {target && place && path !== null && (
+    <Modal open={!!target && (!!place || sharing)} onClose={() => void close()} title={path !== null ? t('folderAccess.title', { name: path === '' ? me.team.name : nameOf(path) }) : t('folderAccess.menu')} width={520} footer={sharing ? <div ref={setFooterEl} className="w-full" data-testid="sharing-footer-slot" /> : undefined}>
+      {target && (place || sharing) && path !== null && (
         <div className="space-y-3" data-testid="folder-access-panel" data-path={path}>
           {trail.length > 0 && (
             <button type="button" onClick={() => void back()} className="-mt-1 -ml-1 inline-flex min-h-11 items-center gap-1 rounded-md px-1 text-sm font-medium text-muted hover:text-ink sm:min-h-0" data-testid="folder-access-back">
               <ChevronLeft size={16} aria-hidden /> {t('folderAccess.backTo', { folder: nameOf(previous) })}
             </button>
           )}
-          <p className="-mt-2 text-xs [overflow-wrap:anywhere] text-muted" data-testid="folder-access-name">{nameOf(path)}</p>
           {sharing ? (
             <>
               {projectFolder && <ProjectLines project={proj} admin go={go} />}
               <Suspense fallback={<Skeleton lines={4} />}>
-                <FolderSharing key={path} path={path} project={proj} projectOf={projectOf ?? (() => null)} onSwap={(to) => setTrail((tr) => [...tr, to])} onLeave={leave} guard={guard} list={list} footer={footerEl} />
+                <FolderSharing key={path} path={path} project={proj} projectOf={projectOf ?? (() => null)} onSwap={(to) => setTrail((tr) => [...tr, to])} onLeave={leave} guard={guard} list={list} footer={footerEl} admin={fromAdmin} onSaved={() => onSaved?.(path)} />
               </Suspense>
             </>
           ) : (

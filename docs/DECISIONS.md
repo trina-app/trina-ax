@@ -26545,3 +26545,62 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   `project-trash-members.spec.ts` (`SHOTS_DIR`: 1440 and 390, light and dark, as admin, creator and member).
 - Version impact: **minor** (members see a trashed project's card; creators restore; API fields `trashed`,
   `wasMember`, `canRestore`, `TrashItem.project`).
+
+## 드라이브처럼 공유 (P1) — Share like Google Drive, one dialog (feat/share-like-drive-p1, 2026-11-14, product owner, QA TC-1305..1312)
+
+넣을 곳: Team AX core (`web/src/pages/admin/FolderSharing.tsx`, `web/src/components/FolderAccess.tsx`,
+`web/src/lib/folder-sharing.ts`, `web/src/pages/admin/AccessTree.tsx`, `web/src/pages/Files.tsx`), 이유: files and
+permissions are core. Plan: `docs/AGENTS/plan/20261113-2306-share-like-drive-p1.md`. Amends "열 수 있는 사람, 드라이브
+공유 창처럼" (2026-11-11). Spec and an independent review compared the dialog with Google Drive's help pages (Share and
+manage access, Limited access, Shared drives, the Drive API's sharing guides).
+
+The owner: sharing must look **the same** as Google Drive. P1 changes the look and the words only; who can open what,
+the data and the API do not change. P2 (Drive's additive inheritance, a `limited` flag) is a separate change.
+
+- **One dialog, Drive's order and words.** Files › folder ⋯ › **Share** (was "Who can open it") and Admin › Folder
+  permissions › **[Share]** (was [Change rules] / [Set rules]) open the same dialog, titled `Share "<name>"`: **Add
+  people and groups**, **People with access** (a row per person or group with one role menu: **Viewer / Editor**, a
+  separator, **Remove access**; no ✕), greyed rows from the folders above (`From "Sales" · Change there ›`), a fixed
+  **Owner and admins · Full access** row (not in a team project's folder or inside it, not in personal folders), then
+  **General access**: **Restricted** or the team, and for the team a **Viewer / Editor** select. The breadcrumb chip
+  stays the count.
+- **No "Same as …" choice.** Drive has none: a folder with no setting of its own shows what it gets from above, with
+  `From "Company-wide" · Change there ›`. Picking that same value stores nothing (the folder keeps following its
+  parent); picking the value the folder started with keeps its stored form; anything else is stored. `shared/`,
+  `skills/` and the team root keep a setting of their own (they never become "no setting here").
+- **Deepest rule still wins (until P2), said truthfully in Drive's words** (review A1). Drive readers expect access to
+  add up, so wherever a listed Viewer gives less than the person would get otherwise, the row says why, in the warning
+  colour and never cut: "Can only view here, though anyone at Acme can edit "Company-wide"" (the team above), "…though
+  Sales can edit "Plans"" (a group above, or for a group row a member's own row above, by name), "…though anyone at
+  Acme can edit it" (General access Editor on the same folder: a group beats everyone there), "In Sales, but can only
+  view here" (a person below their group on the same folder). General access lower than the folder above keeps a line
+  for as long as it is so, not only before Save: "Lower than "Company-wide", where anyone at Acme can edit…", "Anyone at
+  Acme can open "Company-wide", but not this folder." The captions come from the server's `above` / `everyoneAbove`
+  answer; unit tests check each against the permission function. "What will happen" and the confirm are unchanged.
+- **Access removed** (Drive's own section): existing "No access" rows (set in Admin before P1) are listed apart with
+  "Can't open it here" and Drive's **Add**, which brings them back as Viewer (asked before Save like any more access).
+  Not "Remove from list": in Trina that deletes a deny row, which grants access (review A3). Rows from a folder above
+  that keep someone out show there too, greyed. New "No access" rows are no longer offered anywhere.
+- **Admin's second editor is removed** (`AccessEdit.tsx`, its four Basic access radios, Can view / Can edit / No access
+  strips, "How rules work", the Save button's counts, its phone page `&rules=`). Admin's tree and By person stay the
+  overview (who sees what, and why); the folder part loses its "This folder's rules" chips (the dialog shows the rows).
+  The dialog in Admin takes any folder there (the team root, a rule row the tree does not show), opens every folder
+  above in place, and has no "Open in Folder permissions". `?edit=<path>` (By person, Files) still opens it; Done goes
+  back to where it came from. The draft, preview, hash, 409 and save are the same hook as before (`useRulesDraft`).
+- **File ⋯ "Share (copy)" is "Copy to…"** (`Copy "<name>" to: pick a folder`), so "Share" means one thing.
+- **Phones:** the same dialog in the app's bottom sheet, in Files and Admin; Back closes it.
+- **Words:** English first, then ko with Google Drive's own Korean labels where it has them (공유, 사용자 및 그룹 추가,
+  액세스 권한이 있는 사용자, 뷰어, 편집자, 액세스 권한 삭제, 일반 액세스, 제한됨, 액세스 권한이 삭제됨). This differs
+  from the house style ("keep the idea, not the wording"); the owner's "the same as Drive" overrides it for this
+  dialog. "팀장 및 관리자 · 모든 권한" (Owner and admins · Full access) is kept knowingly: it is the shared-drive
+  Manager idea, and "관리자 · 관리자" would read badly.
+- **Deliberate differences from Drive:** no Commenter (Trina has no comments), no "Notify people" (Trina tells people
+  who start seeing a project its own way), no "Copy link" (no per-folder link), members do not share (only the owner
+  and admins change access; members see the count and "An admin changes who can open it."). The model copied is the
+  shared drive's (the team owns the folders, the owner and admins act like Managers).
+- Tests: web unit `folder-sharing.test.ts` (General access picks, the downgrade captions against the permission
+  function), `folder-sharing-panel.test.tsx` (role menu, Access removed + Add, the lasting General access line);
+  e2e `folder-access.spec.ts` (the dialog, Remove access, the Downgrade world before and after Save, Access removed),
+  Admin specs moved from the old editor to the dialog. `tests/security/folder-sharing.test.ts` is unchanged (same
+  endpoints).
+- Version impact: **minor** (the sharing dialog and its words; no data, API or migration change).

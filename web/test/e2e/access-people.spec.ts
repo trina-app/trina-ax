@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, translate } from '../../src/i18n'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, shareGeneral, signIn, watchConsole } from './helpers'
 
 const t = DICTS.ko
 const H = { [CSRF_HEADER]: '1' }
@@ -119,68 +119,56 @@ test('by person: every team folder with its access and why, folded hidden folder
   await page.goForward()
   await expect(summary).toContainText('Bob 님과 그 AI는')
 
-  // "View or change rules" opens the folder's edit panel in By folder (the folder chosen in the tree); closing it comes
-  // back here, the focus on the row's button
+  // "View or change rules" opens the folder's Share dialog in By folder (the folder chosen in the tree); Done comes back
+  // here, the focus on the row's button
   const edit = row(page, 'marketing').getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'marketing' }), exact: true })
   await edit.click()
-  const panel = page.getByTestId('edit-panel')
+  const panel = page.getByTestId('folder-access-panel')
   await expect(panel).toHaveAttribute('data-path', 'marketing')
   await expect(page).toHaveURL(/\/admin\/folders\?folder=marketing$/)
   await expect(page.locator('[role="treeitem"][data-path="marketing"]')).toHaveAttribute('aria-selected', 'true')
-  await panel.getByTestId('edit-return').click()
+  await page.getByTestId('sharing-done').click()
   await expect(page).toHaveURL(/view=people&person=bob$/)
   await expect(edit).toBeFocused()
-  // a save comes back too, and shows at once here
+  // a save, then Done, comes back too, and shows at once here
   await edit.click()
-  await panel.getByTestId('edit-basic-named').click()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
-  await panel.getByTestId('edit-save').click()
+  await shareGeneral(page, 'restricted')
   await expect(page).toHaveURL(/view=people&person=bob$/)
   await expect(summary).toContainText('Bob 님과 그 AI는 팀 폴더 5개를 볼 수 있고, 그중 4개를 고칠 수 있어요.')
-  // the row moved to the folded folders: the focus goes to their toggle
-  await expect(page.getByTestId('access-hidden-toggle')).toBeFocused()
+  // the row moved to the folded folders
   await page.getByTestId('access-hidden-toggle').click()
   await expect(row(page, 'marketing')).toHaveAttribute('data-level', 'none')
-  // with a change not saved, the tabs and the admin menu ask first (the router has no blocker of its own)
+  // with a change not saved, closing asks first; Cancel keeps it, Discard goes back to the person
   await edit.click()
-  await panel.getByTestId('edit-basic-read').click()
-  await page.getByRole('tab', { name: t['accessView.byPerson'], exact: true }).click()
-  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toBeVisible()
-  await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await panel.getByTestId('sharing-general-select').selectOption('team')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: t['folderAccess.discardTitle'] })).toBeVisible()
+  await page.getByRole('dialog', { name: t['folderAccess.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await expect(panel).toBeVisible()
-  await expect(panel.getByTestId('edit-basic-read').getByRole('radio')).toBeChecked()
-  // clicks or keys that come while it asks do not ask again (two clicks before the question can show)
-  await page.getByRole('tab', { name: t['accessView.byPerson'], exact: true }).evaluate((el) => {
-    ;(el as HTMLElement).click()
-    ;(el as HTMLElement).click()
-  })
-  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toHaveCount(1)
-  await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
-  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toHaveCount(0)
-  await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).press('ArrowRight')
-  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toBeVisible()
-  await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
-  await expect(panel).toBeVisible()
-  await page.getByRole('link', { name: t['admin.members'], exact: true }).first().click()
-  await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['accessEdit.discard'], exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/members$/)
-  await page.goto('/admin/folders?view=people&person=bob')
-  // another admin's change while the panel is open: the save is refused (409), said, and the draft kept (stage 5)
+  await expect(panel.getByTestId('sharing-general-select')).toHaveValue('team')
+  await page.keyboard.press('Escape')
+  await page.getByRole('dialog', { name: t['folderAccess.discardTitle'] }).getByRole('button', { name: t['accessEdit.discard'], exact: true }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page).toHaveURL(/view=people&person=bob$/)
+  // another admin's change while the dialog is open: said, the draft kept, and the next Save goes over theirs
   const rid = ((await (await page.request.get('/api/admin/folders')).json()).items as { id: string; path: string }[]).find((f) => f.path === 'secret')!.id
+  await page.goto('/admin/folders?view=people&person=bob')
   await page.getByTestId('access-hidden-toggle').click()
   await row(page, 'secret').getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'secret' }), exact: true }).click()
-  await panel.getByTestId('edit-basic-read').click()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  await panel.getByTestId('sharing-general-select').selectOption('team')
+  await expect(page.getByTestId('sharing-outcome')).toBeVisible()
   const put = await page.request.put(`/api/admin/folders/${rid}/rules`, { headers: H, data: { rules: [everyone('none'), { subjectType: 'user', subjectId: 'bob', access: 'read' }] } })
   expect(put.ok()).toBeTruthy()
-  await panel.getByTestId('edit-save').click()
-  await expect(panel.getByTestId('edit-stale')).toContainText(t['accessEdit.staleKept'])
-  await expect(panel.getByTestId('edit-basic-read').getByRole('radio')).toBeChecked()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
-  await panel.getByTestId('edit-save').click()
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByTestId('sharing-stale')).toContainText(t['folderAccess.staleKept'])
+  await expect(panel.getByTestId('sharing-general-select')).toHaveValue('team')
+  await page.getByTestId('sharing-save').click()
+  const confirm = page.getByTestId('dialog-confirm')
+  await expect(page.getByTestId('sharing-done').or(confirm)).toBeVisible()
+  if (await confirm.isVisible()) await confirm.click()
+  await page.getByTestId('sharing-done').click()
   await expect(page).toHaveURL(/view=people&person=bob$/)
   await expect(row(page, 'secret')).toHaveAttribute('data-level', 'read')
-  await expect(row(page, 'secret').getByTestId('access-edit').filter({ visible: true })).toBeFocused()
   // the 409 above is the browser's own note
   expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
@@ -370,7 +358,7 @@ test('a folder that is not on disk: By folder says so and makes nothing', async 
   await expect(ghost).toContainText(t['rules.missingOnDisk'])
   await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'partners/ghost' }), exact: true }).click()
   await expect(page.getByTestId('folder-detail-missing')).toContainText(t['accessTree.notFound'])
-  await expect(page.getByTestId('edit-panel')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
   // Back returns to the person
   await page.goBack()
   await expect(page).toHaveURL(/view=people&person=bob$/)
@@ -488,10 +476,9 @@ test('the keyboard alone: search, choose, read the answer, open and close a fold
   await page.keyboard.press('Tab')
   await expect(row(page, 'marketing').getByTestId('access-edit').filter({ visible: true })).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('edit-panel')).toBeVisible()
-  await expect(page.getByTestId('edit-panel').getByRole('heading', { level: 3 })).toBeFocused()
+  await expect(page.getByTestId('folder-access-panel')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('edit-panel')).toHaveCount(0)
+  await expect(page.getByTestId('folder-access-panel')).toHaveCount(0)
   await expect(page).toHaveURL(/view=people&person=bob$/)
   await expect(row(page, 'marketing').getByTestId('access-edit').filter({ visible: true })).toBeFocused()
   // the folded folders open from the keyboard

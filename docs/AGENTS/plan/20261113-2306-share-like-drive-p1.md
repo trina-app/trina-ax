@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 23:06
 - Branch: `feat/share-like-drive-p1`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`web/`). Why: files and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, the folder sharing dialog and its words change; no data, API or migration change
 
@@ -60,4 +60,7 @@ Deliberate differences from Drive: no Commenter, no "Notify people", no "Copy li
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences: a group row's caption also names a member whose own row above lets them edit; in Admin a
+team project's folder opened by its address shows the server's refusal in the dialog; Admin's live "who can edit
+skills" line in the old editor is now the one line Drive-style ("Editors can change the team's skills"). PR: see the
+branch's pull request to dev.
