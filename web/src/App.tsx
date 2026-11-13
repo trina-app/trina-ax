@@ -152,7 +152,7 @@ setBeforePersonSwitch(() => {
 
 // the addresses of room pictures carry this sign-in's media key (lib/api.ts roomFileUrl): set before any screen of the
 // session draws (a store subscription runs as the status changes, before React renders), none while signed out
-const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session.mediaKey ?? null : null)
+const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session?.mediaKey ?? null : null)
 setMediaKey(mediaKeyOf(useSession.getState()))
 useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
 
