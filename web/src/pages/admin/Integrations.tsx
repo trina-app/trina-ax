@@ -61,7 +61,8 @@ export default function AdminIntegrations() {
   // an older server has no templates: the page works without them
   const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
   // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it
-  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector; startAs?: 'team' | 'template'; toList?: boolean } | null>(null)
+  // pick: Add first lists the Discover apps not connected yet, a custom app by its address last (QA TC-189)
+  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector; startAs?: 'team' | 'template'; toList?: boolean; pick?: boolean } | null>(null)
   // Google Drive on this server (an older server has no such address: Drive is then left out)
   const drive = useLoad(async () => { try { return await api.call(API.driveAdminStatus) } catch { return null as DriveAdminStatus | null } })
   const [driveSetup, setDriveSetup] = useState(false)
@@ -148,9 +149,9 @@ export default function AdminIntegrations() {
         query={query}
         onQuery={(q) => { setQuery(q); setOpen(null) }}
         // a phone: adding a service by its address (kind, sign-in, headers) is a computer's job; Discover's line says so
-        onAdd={phone ? undefined : () => setDialog({ toList: !!open })}
+        onAdd={phone ? undefined : () => setDialog({ toList: !!open, pick: true })}
         moreAdd={[
-          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({ toList: !!open }), testId: 'integration-add-team' },
+          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({ toList: !!open, pick: true }), testId: 'integration-add-team' },
           { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
         ]}
       />
@@ -317,6 +318,7 @@ export default function AdminIntegrations() {
           existing={dialog.existing}
           template={dialog.template}
           connector={dialog.connector}
+          choices={dialog.pick ? CONNECTORS.filter((c) => !isConnected(c, [...(state.data ?? []), ...(templates.data ?? [])].map((i) => i.url))) : undefined}
           startAs={dialog.startAs}
           onClose={() => setDialog(null)}
           onSavedTemplate={() => {

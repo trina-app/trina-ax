@@ -2,7 +2,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { navRail, openRail, reset, signIn, adv } from './helpers'
+import { navRail, openRail, reset, signIn, adv, choose } from './helpers'
 import { newChatButton } from './nav'
 import { makePng, SVG } from '../../../tests/lib/images'
 
@@ -309,11 +309,11 @@ async function auditIntegrations(page: Page, where: string) {
   await audit(page, `add from discover${where}`)
   await page.keyboard.press('Escape')
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-write-deny')).check()
+  await choose(page, 'integration-write-deny')
   await page.getByTestId('integration-save').click() // shows the field errors
   await audit(page, `integration add (MCP)${where}`)
-  await (await adv(page, 'integration-kind-http')).check()
-  await page.getByTestId('integration-header-custom').check()
+  await choose(page, 'integration-kind-http')
+  await choose(page, 'integration-header-custom')
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
   await page.locator('[data-testid="connected-app"]').filter({ hasText: 'AI PM' }).click()
@@ -340,6 +340,8 @@ async function auditIntegrations(page: Page, where: string) {
     return
   }
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toBeVisible()

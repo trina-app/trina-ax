@@ -4,7 +4,7 @@
 // team connection an admin gives to a group and a person that a member then sees read-only.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole, adv } from './helpers'
+import { realErrors, reset, signIn, watchConsole, adv, choose } from './helpers'
 import { activityRows, openNotice } from './nav'
 
 const KEY = 'pm-secret-' + 'k'.repeat(24)
@@ -50,13 +50,13 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '주소로 서비스 추가' })).toBeVisible()
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   // an API starts with a key; signing in there needs your own app (its fields show only then)
-  await expect((await adv(page, 'integration-auth-key'))).toBeChecked()
+  await expect(await adv(page, 'integration-auth-key')).toHaveJSProperty('selected', true)
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
-  await (await adv(page, 'integration-auth-oauth')).check()
+  await choose(page, 'integration-auth-oauth')
   await expect(page.getByTestId('integration-app-auth-url')).toBeVisible()
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
   await page.getByTestId('integration-name').fill('AI PM')
   await page.getByTestId('integration-url').fill('http://pm.example.com/api')
@@ -72,8 +72,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   // "run without asking" is for team connections only (an admin chooses it); a personal one asks or refuses
   await expect((await adv(page, 'integration-write-allow'))).toHaveCount(0)
   await expect(page.getByTestId('integration-allow-team-only')).toContainText('팀 연결에서만')
-  await (await adv(page, 'integration-write-deny')).check()
-  await (await adv(page, 'integration-write-ask')).check()
+  await choose(page, 'integration-write-deny')
+  await choose(page, 'integration-write-ask')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toEqual({ kind: 'http', name: 'AI PM', url: 'https://pm.example.com/api', auth: 'bearer', authHeader: null, secret: KEY, notes: '프로젝트 목록은 GET /projects', writePolicy: 'ask' })
@@ -118,10 +118,10 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   // the server's own refusal shows at its field (Add is on the list)
   await toList(page)
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   await page.getByTestId('integration-name').fill('Local')
   await page.getByTestId('integration-url').fill('https://localhost/api')
-  await (await adv(page, 'integration-auth-none')).check()
+  await choose(page, 'integration-auth-none')
   await page.getByTestId('integration-save').click()
   await expect(dialog.getByRole('alert')).toContainText('사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.')
   await expect(page.getByTestId('integration-url')).toHaveAttribute('aria-invalid', 'true')
@@ -149,8 +149,8 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await page.goto('/connectors')
   await page.getByTestId('integration-add').click()
   // an MCP server that signs in is the default
-  await expect((await adv(page, 'integration-kind-mcp'))).toBeChecked()
-  await expect((await adv(page, 'integration-auth-oauth'))).toBeChecked()
+  await expect(await adv(page, 'integration-kind-mcp')).toHaveJSProperty('selected', true)
+  await expect(await adv(page, 'integration-auth-oauth')).toHaveJSProperty('selected', true)
   await page.getByTestId('integration-name').fill('Notion')
   await page.getByTestId('integration-url').fill('https://mcp.notion.example/mcp')
   await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
@@ -173,7 +173,7 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await page.getByTestId('integration-add').click()
   await page.getByTestId('integration-name').fill('Linear')
   await page.getByTestId('integration-url').fill('https://mcp.linear.example/mcp')
-  await (await adv(page, 'integration-auth-none')).check()
+  await choose(page, 'integration-auth-none')
   await expect(page.getByTestId('integration-save')).toHaveText('저장')
   await page.getByTestId('integration-save').click()
   const linear = row(page, 'Linear')
@@ -233,8 +233,8 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   // an API that signs in (NAVER WORKS style): the app with both addresses, in the main form
   await toList(page)
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-kind-http')).check()
-  await (await adv(page, 'integration-auth-oauth')).check()
+  await choose(page, 'integration-kind-http')
+  await choose(page, 'integration-auth-oauth')
   await page.getByTestId('integration-name').fill('Works')
   await page.getByTestId('integration-url').fill('https://www.worksapis.com/v1.0')
   await page.getByTestId('integration-app-client-id').fill('works-app')
@@ -337,6 +337,8 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(page.getByTestId('team-connected')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   const access = (await adv(page, 'integration-access'))
@@ -351,10 +353,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   // the admin is in the finance group: giving it to the group includes them
   await access.getByRole('checkbox', { name: '재무팀' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toHaveCount(0)
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   await page.getByTestId('integration-name').fill('Company PM')
   await page.getByTestId('integration-url').fill('https://pm.example.com/api')
-  await page.getByTestId('integration-header-custom').check()
+  await choose(page, 'integration-header-custom')
   await page.getByTestId('integration-header-name').fill('X API Key')
   await page.getByTestId('integration-header-name').blur()
   await expect(dialog).toContainText('헤더 이름은 영문, 숫자, -만 쓸 수 있어요.')
@@ -362,9 +364,9 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await page.getByTestId('integration-key').fill(KEY)
   // a team connection may "run without asking" (the admin's choice), and it says plainly what that allows
   await expect(page.getByTestId('integration-allow-team-only')).toHaveCount(0)
-  await (await adv(page, 'integration-write-allow')).check()
+  await choose(page, 'integration-write-allow')
   await expect(page.getByTestId('integration-allow-warning')).toContainText('묻지 않고 이 서비스로 보낼 수 있어요')
-  await (await adv(page, 'integration-write-deny')).check()
+  await choose(page, 'integration-write-deny')
   await expect(page.getByTestId('integration-allow-warning')).toHaveCount(0)
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
@@ -688,12 +690,14 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   const notion = cards.filter({ hasText: 'Notion' })
   await notion.getByRole('button', { name: 'Notion 추가' }).click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
-  // in Admin it says it becomes a team connection
-  await expect(dialog.getByRole('heading', { name: 'Notion 팀 연결 추가' })).toBeVisible()
+  // the app's icon and "Notion 추가" in the title (QA TC-190); that it is for the team is the "For" line's
+  await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
+  await expect(dialog.getByTestId('integration-title-app').locator('img')).toHaveAttribute('src', '/icons/connectors/notion.svg')
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
   // what the list answers is not asked; who may use it and what the AI may change still are
   for (const id of ['integration-name', 'integration-url', 'integration-kind-http', 'integration-auth-oauth']) await expect(page.getByTestId(id)).toHaveCount(0)
-  await expect((await adv(page, 'integration-write-ask'))).toBeChecked()
+  await expect(await adv(page, 'integration-write-ask')).toHaveJSProperty('selected', true)
   await expect((await adv(page, 'integration-access')).getByTestId('integration-access-everyone')).toBeChecked()
   await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
@@ -735,8 +739,8 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // any other MCP server or API by its address
   await page.getByTestId('connector-custom').click()
   await expect(page.getByTestId('integration-url')).toHaveValue('')
-  await expect((await adv(page, 'integration-kind-mcp'))).toBeChecked()
-  await expect((await adv(page, 'integration-kind-http'))).toBeVisible()
+  await expect(await adv(page, 'integration-kind-mcp')).toHaveJSProperty('selected', true)
+  await expect(await adv(page, 'integration-kind-http')).toHaveCount(1)
   await page.keyboard.press('Escape')
 
   // a team connection the member may use counts as connected: Discover no longer offers that service to him
@@ -813,17 +817,17 @@ test('screenshots', async ({ page }) => {
     await page.screenshot({ path: `${dir}/int-settings-row${suffix}.png`, fullPage: true })
     await toList(page)
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
+    await choose(page, 'integration-kind-http')
     await page.getByTestId('integration-name').fill('AI PM')
     await page.getByTestId('integration-url').fill('https://pm.example.com/api')
-    await (await adv(page, 'integration-write-deny')).check()
+    await choose(page, 'integration-write-deny')
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-add-dialog${suffix}.png` })
     await page.keyboard.press('Escape')
     // your own app: an API that signs in, and an MCP server's choice in Advanced
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
-    await (await adv(page, 'integration-auth-oauth')).check()
+    await choose(page, 'integration-kind-http')
+    await choose(page, 'integration-auth-oauth')
     await page.getByTestId('integration-advanced').click()
     await page.getByTestId('integration-name').fill('NAVER WORKS')
     await page.getByTestId('integration-url').fill('https://www.worksapis.com/v1.0')
@@ -849,6 +853,8 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-admin-list${suffix}.png`, fullPage: true })
     await page.getByTestId('integration-add').click()
+    // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+    await page.getByTestId('integration-pick-custom').click()
     await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
     await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
     await (await adv(page, 'integration-access')).scrollIntoViewIfNeeded()
@@ -864,8 +870,8 @@ test('screenshots', async ({ page }) => {
     await page.screenshot({ path: `${dir}/int-phone-add${suffix}.png` })
     await page.keyboard.press('Escape')
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
-    await (await adv(page, 'integration-auth-oauth')).check()
+    await choose(page, 'integration-kind-http')
+    await choose(page, 'integration-auth-oauth')
     await page.getByTestId('integration-advanced').click()
     await page.getByTestId('integration-app-client-id').scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)

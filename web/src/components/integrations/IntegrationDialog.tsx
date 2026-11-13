@@ -10,14 +10,19 @@
 // goes through your own app there (AppSection): its client ID and secret, an API's sign-in and token addresses, the
 // scopes, and the redirect address to register at the service. On a template it is the team's app; members never see
 // its secret. A stored secret stays only where it went before (storedSecretStays, the server's rule).
+// Laid out like Team settings (QA TC-187): each field a row with its words and one short line on the left and the field,
+// a select or a switch on the right; an error shows after Save or after leaving a field one typed in. A team connection's
+// "For: … · Change" and the sign-in note share one quiet line; Change opens who may use it under that line (not again
+// inside Advanced). Admin's Add first lists the Discover apps (`choices`, QA TC-189), a custom app by its address last;
+// a picked app is then like one added from Discover: its icon and name in the title, its address one small line.
 // In the phone app a new connection of one's own is made on a computer (its sign-in has no way back to the app, and
 // its key and advanced settings are a computer's work): the dialog is then one line that says so, with no form.
 import clsx from 'clsx'
-import { Check, ChevronRight, Copy, TriangleAlert, UserPlus } from 'lucide-react'
+import { Check, ChevronRight, Copy, Plus, Search, TriangleAlert, UserPlus } from 'lucide-react'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import type { Connector } from '../../lib/connectors'
+import { connectorLogo, type Connector } from '../../lib/connectors'
 import {
   appInput, appPatch, authOf, storedSecretStays, CLIENT_ID_MAX, CLIENT_SECRET_MAX, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, SCOPE_MAX, serverFieldErrors, toInput, toPatch, URL_MAX, usesApp, validate, withKind,
   type FormErrors, type FormField, type IntegrationForm, type SignInMethod,
@@ -25,8 +30,8 @@ import {
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
-import { useLoad } from '../../pages/admin/common'
-import { Button, Field, Modal, inputCls, useCopy } from '../ui'
+import { SettingRow, useLoad } from '../../pages/admin/common'
+import { Button, Field, Modal, Switch, inputCls, useCopy } from '../ui'
 import { Tooltip } from '../Tooltip'
 import type { OAuthClientView } from '@mycel/shared/api'
 import { reserveSignInWindow } from './IntegrationRow'
@@ -34,20 +39,22 @@ import { reserveSignInWindow } from './IntegrationRow'
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
 /** the fields inside Advanced (it opens when one of them needs fixing): an MCP server's own app is there, an API's not */
 const advancedFields = (f: IntegrationForm): FormField[] =>
-  ['method', 'notes', 'writePolicy', 'access', ...(f.kind === 'mcp' ? ['clientId', 'clientSecret', 'scope', 'authUrl', 'tokenUrl'] as FormField[] : [])]
+  ['method', 'notes', 'writePolicy', ...(f.kind === 'mcp' ? ['clientId', 'clientSecret', 'scope', 'authUrl', 'tokenUrl'] as FormField[] : [])]
 /** Admin: a connection for the team with one key, or a template each member connects with their own */
 type Who = 'team' | 'template'
 
 /** Who a new team connection or template is for until the admin chooses: the whole team. */
 export const TEAM_DEFAULT_ACCESS: IntegrationAccess = { everyone: true, groups: [], users: [] }
 
-export function IntegrationDialog({ scope, existing, template, connector, startAs, onClose, onSaved, onSavedTemplate }: {
+export function IntegrationDialog({ scope, existing, template, connector, choices, startAs, onClose, onSaved, onSavedTemplate }: {
   scope: 'personal' | 'team'
   existing?: Integration
   /** editing this template (Admin) */
   template?: IntegrationTemplate
   /** adding this service from Discover */
   connector?: Connector
+  /** a new connection: first pick one of these Discover apps, or a custom app by its address (Admin's Add) */
+  choices?: Connector[]
   /** Admin: start as a template instead of one team key (a connector page's "As a template") */
   startAs?: Who
   onClose: () => void
@@ -72,7 +79,16 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     const blank = emptyForm('mcp', team ? { ...TEAM_DEFAULT_ACCESS } : null)
     return connector ? { ...blank, name: connector.name, url: connector.url } : blank
   })
+  // Admin's Add: the list of apps first; a picked one fills the form like one added from Discover
+  const [picking, setPicking] = useState(!!choices && !connector && !existing && !template)
+  const [picked, setPicked] = useState<Connector | undefined>()
+  const [query, setQuery] = useState('')
+  const conn = connector ?? picked
   const [touched, setTouched] = useState<Partial<Record<FormField, boolean>>>({})
+  // the fields typed in: leaving an empty field one never typed in shows no error (only Save does)
+  const [edited, setEdited] = useState<Partial<Record<FormField, boolean>>>({})
+  // who may use it, opened under the "For" line by Change
+  const [accessOpen, setAccessOpen] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [server, setServer] = useState<Partial<Record<FormField, string | null>>>({})
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +97,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   // Advanced starts closed, except when what needs fixing is in it
   const [advanced, setAdvanced] = useState(false)
   const advancedId = useId()
+  const ids = { name: useId(), url: useId(), who: useId(), kind: useId(), auth: useId(), write: useId() }
   const groups = useLoad(async () => (team ? (await api.call(API.listGroups)).items : []), [team])
   const users = useLoad(async () => (team ? (await api.call(API.listUsers)).items : []), [team])
   // a template takes no key: what is wrong with one is not this form's
@@ -98,16 +115,6 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     ...f.access.groups.map((id) => groups.data?.find((g) => g.id === id)?.name),
     ...f.access.users.map((id) => users.data?.find((u) => u.id === id)?.name),
   ].filter(Boolean).join(', ') || t('integrations.forNobody')
-  // what Advanced holds, in one line next to it
-  const summary = [
-    team && !existing && !template ? t(`integrations.who.${who}`) : null,
-    // collapsed, in plain words (QA TC-204): no "MCP server" / "API" kind and no "(OAuth)"; the open section says them
-    fromTeam || f.method === 'none' ? null : f.method === 'oauth' ? t('integrations.summary.signIn') : t(`integrations.auth.${f.method}`),
-    !fromTeam && f.kind === 'mcp' && usesApp(f) ? t('integrations.app.use') : null,
-    asTemplate ? null : t(`integrations.write.${f.writePolicy}`),
-    team && f.access ? (f.access.everyone ? t('integrations.access.everyone') : t('integrations.access.pick')) : null,
-  ].filter(Boolean).join(' · ')
-
   const errorOf = (k: FormField): string | null => {
     if (k in server) return server[k] ?? t('integrations.error.field')
     const e = errors[k]
@@ -115,16 +122,32 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   }
   const change = (patch: Partial<IntegrationForm>, ...fields: FormField[]) => {
     setF((x) => ({ ...x, ...patch }))
+    if (fields.length) setEdited((x) => ({ ...x, ...Object.fromEntries(fields.map((k) => [k, true])) }))
     if (fields.some((k) => k in server)) setServer((s) => Object.fromEntries(Object.entries(s).filter(([k]) => !fields.includes(k as FormField))))
     setError(null)
   }
-  const blur = (k: FormField) => () => setTouched((x) => ({ ...x, [k]: true }))
+  const blur = (k: FormField) => () => { if (edited[k]) setTouched((x) => ({ ...x, [k]: true })) }
+  /** an app from the list, or (none) a custom app by its address: a fresh form for it, who it is for kept */
+  const pick = (c?: Connector) => {
+    setPicked(c)
+    setF((x) => {
+      const blank = { ...emptyForm('mcp', x.access), writePolicy: x.writePolicy }
+      return c ? { ...blank, name: c.name, url: c.url } : blank
+    })
+    setTouched({})
+    setEdited({})
+    setSubmitted(false)
+    setServer({})
+    setError(null)
+    setPicking(false)
+  }
 
   const save = async () => {
     if (busy) return
     setSubmitted(true)
     if (Object.keys(errors).length) {
       if (advancedFields(f).some((k) => k in errors)) setAdvanced(true)
+      if ('access' in errors) setAccessOpen(true)
       requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
       return
     }
@@ -146,8 +169,9 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
       const fields = serverFieldErrors(e)
       setServer(fields)
       if (advancedFields(f).some((k) => k in fields)) setAdvanced(true)
+      if ('access' in fields) setAccessOpen(true)
       // from Discover the name and address are not on screen, so an error about them has to say so here
-      if (!Object.keys(fields).length || connector) setError(errorText(e, locale, t('error.network')))
+      if (!Object.keys(fields).length || conn) setError(errorText(e, locale, t('error.network')))
       else requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
     } finally {
       setBusy(false)
@@ -185,7 +209,8 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     } catch (e) {
       const fields = serverFieldErrors(e)
       setServer(fields)
-      if (!Object.keys(fields).length || connector) setError(errorText(e, locale, t('error.network')))
+      if ('access' in fields) setAccessOpen(true)
+      if (!Object.keys(fields).length || conn) setError(errorText(e, locale, t('error.network')))
       else requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
     } finally {
       setBusy(false)
@@ -205,8 +230,53 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     )
   const title = template ? t('integrations.template.editTitle')
     : existing ? t('integrations.editTitle')
-      : connector ? t(team ? 'integrations.discover.addTeam' : 'integrations.discover.add', { name: connector.name })
+      : conn ? (
+        <span className="flex min-w-0 items-center gap-2" data-testid="integration-title-app">
+          <img src={connectorLogo(conn)} alt="" width={20} height={20} className="size-5 shrink-0 rounded object-contain" />
+          <span className="min-w-0 break-words">{t('integrations.discover.add', { name: conn.name })}</span>
+        </span>
+      )
         : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')
+  // the list of apps (Admin's Add): a search, the apps with their icons, a custom app by its address last
+  if (picking) {
+    const q = query.trim().toLowerCase()
+    const shown = (choices ?? []).filter((c) => !q || c.name.toLowerCase().includes(q))
+    const itemCls = 'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-hover max-md:min-h-11'
+    return (
+      <Modal open onClose={onClose} width={600} title={title}
+        footer={<Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>}>
+        <div data-testid="integration-pick">
+          <div className="relative">
+            <Search size={15} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
+            <input type="search" className={clsx(inputCls, 'pl-9')} value={query} placeholder={t('integrations.pick.search')} aria-label={t('integrations.pick.search')}
+              onChange={(e) => setQuery(e.target.value)} data-autofocus data-testid="integration-pick-search" />
+          </div>
+          <ul className="-mx-2 mt-3" aria-label={t('integrations.pick.label')}>
+            {shown.map((c) => (
+              <li key={c.id}>
+                <button type="button" className={itemCls} onClick={() => pick(c)} data-testid={`integration-pick-${c.id}`}>
+                  <img src={connectorLogo(c)} alt="" width={20} height={20} className="size-5 shrink-0 rounded object-contain" />
+                  <span className="min-w-0 truncate">{c.name}</span>
+                </button>
+              </li>
+            ))}
+            {q && !shown.length && <li className="px-2 py-2 text-sm text-muted" data-testid="integration-pick-none">{t('integrations.noMatch', { q: query.trim() })}</li>}
+            <li className="mt-1 border-t border-line pt-1">
+              <button type="button" className={itemCls} onClick={() => pick()} data-testid="integration-pick-custom">
+                <span className="flex size-5 shrink-0 items-center justify-center text-muted"><Plus size={16} aria-hidden /></span>
+                <span className="min-w-0">{t('integrations.pick.custom')}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </Modal>
+    )
+  }
+  // the sign-in note: with a team connection it shares the "For" line
+  const signInNote = !asTemplate && f.method === 'oauth' && !dropped && !(existing?.hasSecret && existing.auth === 'oauth')
+    ? t(phone ? 'integrations.signIn.phone' : 'integrations.signIn.nextShort') : null
+  const forLine = team && !!f.access
+  const rows = !fromTeam && !conn
   return (
     <Modal
       open
@@ -215,6 +285,11 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
       title={title}
       footer={
         <>
+          {choices && !connector && !existing && !template && (
+            <Button variant="ghost" className="mr-auto" onClick={() => setPicking(true)} data-testid="integration-pick-back">
+              {t('integrations.pick.back')}
+            </Button>
+          )}
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
@@ -225,45 +300,39 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
       }
     >
       <form
-        className="space-y-5"
         noValidate
         onSubmit={(e) => {
           e.preventDefault()
           void save()
         }}
       >
-        <div ref={body} className="space-y-5">
+        <div ref={body} className="space-y-4">
           {fromTeam && existing ? (
             <div className="space-y-1 text-sm" data-testid="integration-from-team">
               <p className="text-muted">{t('integrations.field.url')}: <span className="font-medium break-all text-ink">{existing.url}</span></p>
               <p className="text-xs text-faint">{t('integrations.template.memberNote')}</p>
             </div>
-          ) : connector ? (
-            <p className="text-sm text-muted" data-testid="connector-summary">
-              {t('integrations.field.url')}: <span className="font-medium break-all text-ink">{connector.url}</span>
+          ) : conn ? (
+            <p className="text-xs break-all text-faint" data-testid="connector-summary">
+              {t('connectors.addressLine', { address: conn.url })}
             </p>
-          ) : (
-            <>
-              <Field label={t('integrations.field.name')} error={errorOf('name')}>
-                <input className={inputCls} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} onBlur={blur('name')} data-autofocus={existing ? true : undefined} data-testid="integration-name" />
-              </Field>
-              <Field label={t('integrations.field.url')} hint={t(f.kind === 'mcp' ? 'integrations.field.urlHint.mcp' : 'integrations.field.urlHint.http')} error={errorOf('url')}>
-                <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-url" />
-              </Field>
-            </>
-          )}
-          {/* a new team connection or template: who it is for, without opening Advanced; Change opens the chooser */}
-          {team && f.access && !existing && !template && (
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted" data-testid="integration-for">
-              <span className="min-w-0 break-words">{t('integrations.forLine', { who: forWho })}</span>
-              <button type="button" className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" aria-label={t('integrations.forChangeLabel')}
-                onClick={() => { setAdvanced(true); requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[data-testid="integration-access"] input:checked')?.focus()) }} data-testid="integration-for-change">
-                {t('integrations.forChange')}
-              </button>
-            </p>
-          )}
-          {f.method === 'key' && (
-            <KeySection f={f} existing={existing} change={change} errorOf={errorOf} blur={blur} noKey={asTemplate} fixedHeader={fromTeam} />
+          ) : null}
+          {(rows || f.method === 'key') && (
+            <div className="divide-y divide-line [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+              {rows && (
+                <>
+                  <Row id={ids.name} label={t('integrations.field.name')} hint={t('integrations.field.nameShort')} error={errorOf('name')}>
+                    <input id={ids.name} {...described(ids.name, errorOf('name'))} className={clsx(inputCls, 'md:w-72')} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} onBlur={blur('name')} data-autofocus={existing ? true : undefined} data-testid="integration-name" />
+                  </Row>
+                  <Row id={ids.url} label={t('integrations.field.url')} hint={t('integrations.field.urlShort')} error={errorOf('url')}>
+                    <input id={ids.url} {...described(ids.url, errorOf('url'))} className={clsx(inputCls, 'md:w-72')} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-url" />
+                  </Row>
+                </>
+              )}
+              {f.method === 'key' && (
+                <KeySection f={f} existing={existing} change={change} errorOf={errorOf} blur={blur} noKey={asTemplate} fixedHeader={fromTeam} />
+              )}
+            </div>
           )}
           {asTemplate && f.method === 'oauth' && (
             <p className="text-sm text-muted" data-testid="integration-template-oauth-note">{t('integrations.template.oauthNote')}</p>
@@ -272,14 +341,37 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
           {f.method === 'oauth' && f.kind === 'http' && !fromTeam && (
             <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
           )}
-          {!asTemplate && f.method === 'oauth' && (
+          {/* a team connection: who it is for and, when signing in comes next, that note, as one quiet line; Change opens who may use it */}
+          {forLine && f.access && (
+            <div>
+              <p className="text-sm text-muted" data-testid="integration-for">
+                <span className="break-words">{t('integrations.forLine', { who: forWho })}</span>
+                {' · '}
+                <button type="button" className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" aria-label={t('integrations.forChangeLabel')} aria-expanded={accessOpen}
+                  onClick={() => {
+                    const opening = !accessOpen
+                    setAccessOpen(opening)
+                    if (opening) requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[data-testid="integration-access"] input:checked')?.focus())
+                  }} data-testid="integration-for-change">
+                  {t('integrations.forChange')}
+                </button>
+                {signInNote && <span data-testid="integration-oauth-note">{' · '}{signInNote}</span>}
+              </p>
+              {accessOpen && (
+                <div className="mt-3">
+                  <AccessPicker value={f.access} onChange={(a) => change({ access: a }, 'access')} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate} />
+                </div>
+              )}
+            </div>
+          )}
+          {!asTemplate && f.method === 'oauth' && !(forLine && signInNote) && (
             <div className="text-sm" data-testid="integration-oauth-note">
               {existing?.hasSecret && existing.auth === 'oauth' && !dropped ? (
                 <p className="text-muted">{existing.account ? t('integrations.account', { account: existing.account }) : t('integrations.signedIn')}</p>
               ) : dropped ? (
                 <Warning>{t('integrations.signIn.dropWarning')}</Warning>
               ) : (
-                <p className="text-muted">{t(phone ? 'integrations.signIn.phone' : 'integrations.signIn.next')}</p>
+                <p className="text-muted">{signInNote}</p>
               )}
             </div>
           )}
@@ -293,75 +385,61 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
               <Warning>{t('integrations.write.allowWarning')}</Warning>
             </div>
           )}
-          {/* the rest is one click away: type, sign-in, notes, what the AI may change, and (Admin) who connects and who may use it */}
-          <div className="rounded-xl border border-line">
+          {/* the rest is one click away: who connects, type, sign-in, notes and what the AI may change */}
+          <div>
             <button type="button" aria-expanded={advanced} aria-controls={advancedId} onClick={() => setAdvanced((v) => !v)}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover" data-testid="integration-advanced">
-              <ChevronRight size={15} aria-hidden className={clsx('shrink-0 text-muted transition', advanced && 'rotate-90')} />
-              <span className="font-medium">{t('integrations.advanced')}</span>
-              <span className="ml-auto min-w-0 truncate text-xs text-muted" data-testid="integration-advanced-summary">{summary}</span>
+              className="touch-hit inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink max-md:min-h-11" data-testid="integration-advanced">
+              <ChevronRight size={15} aria-hidden className={clsx('shrink-0 transition', advanced && 'rotate-90')} />
+              {t('integrations.advanced')}
             </button>
-            <div id={advancedId} hidden={!advanced} className="space-y-5 border-t border-line p-3">
+            <div id={advancedId} hidden={!advanced} className="mt-2 divide-y divide-line border-t border-line [&>*:last-child]:pb-0">
               {team && !existing && !template && (
-                <Choices<Who>
-                  legend={t('integrations.who')}
-                  value={who}
+                <SelectRow<Who> id={ids.who} label={t('integrations.who')} hint={t('integrations.who.short')} value={who} testId="integration-who"
                   onChange={(w) => {
                     setWho(w)
                     // a template is for a member's own key or sign-in: never "no sign-in"
                     if (w === 'template' && f.method === 'none') change({ method: 'key' }, 'method')
                   }}
-                  options={(['team', 'template'] as const).map((w) => ({ value: w, label: t(`integrations.who.${w}`), desc: t(`integrations.who.${w}.desc`), testId: `integration-who-${w}` }))}
+                  options={(['team', 'template'] as const).map((w) => ({ value: w, label: t(`integrations.who.${w}`), testId: `integration-who-${w}` }))}
                 />
               )}
-              {!existing && !connector && !fromTeam && (
-                <Choices<IntegrationKind>
-                  legend={t('integrations.field.kind')}
-                  value={f.kind}
+              {!existing && !conn && !fromTeam && (
+                <SelectRow<IntegrationKind> id={ids.kind} label={t('integrations.field.kind')} hint={t('integrations.kind.short')} value={f.kind} testId="integration-kind"
                   onChange={(k) => change(withKind(f, k), 'method')}
-                  options={(['mcp', 'http'] as const).map((k) => ({ value: k, label: t(`integrations.kind.${k}`), desc: t(`integrations.kind.${k}.desc`), testId: `integration-kind-${k}` }))}
+                  options={(['mcp', 'http'] as const).map((k) => ({ value: k, label: t(`integrations.kind.${k}`), testId: `integration-kind-${k}` }))}
                 />
               )}
               {existing && !fromTeam && (
-                <p className="text-sm text-muted">
+                <p className="py-4 text-sm text-muted">
                   {t('integrations.field.kind')}: <span className="font-medium text-ink">{t(existing.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')}</span>
                 </p>
               )}
-              {!connector && !fromTeam && (
-                <Choices<SignInMethod>
-                  legend={t('integrations.field.auth')}
-                  value={f.method}
+              {!conn && !fromTeam && (
+                <SelectRow<SignInMethod> id={ids.auth} label={t('integrations.field.auth')} hint={t('integrations.auth.short')} value={f.method} testId="integration-auth"
                   onChange={(m) => change({ method: m }, 'method', 'secret', 'headerName')}
                   error={errorOf('method')}
-                  options={methods.map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: t(`integrations.auth.${m}.desc`), testId: `integration-auth-${m}` }))}
+                  options={methods.map((m) => ({ value: m, label: t(`integrations.auth.${m}`), testId: `integration-auth-${m}` }))}
                 />
               )}
               {/* most MCP servers register an app by themselves: their own app is the exception, one click away */}
-              {f.method === 'oauth' && f.kind === 'mcp' && !connector && !fromTeam && (
+              {f.method === 'oauth' && f.kind === 'mcp' && !conn && !fromTeam && (
                 <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
               )}
               {(f.kind === 'http' || asTemplate) && !fromTeam && (
-                <Field label={t(asTemplate ? 'integrations.template.note' : 'integrations.field.notes')} hint={asTemplate ? t('integrations.template.noteHint') : t('integrations.field.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
-                  <textarea className={clsx(inputCls, 'h-auto min-h-24 py-2')} rows={asTemplate ? 3 : 4} maxLength={NOTES_MAX} value={f.notes} placeholder={asTemplate ? t('integrations.template.notePlaceholder') : t('integrations.field.notesPlaceholder')} onChange={(e) => change({ notes: e.target.value }, 'notes')} onBlur={blur('notes')} data-testid="integration-notes" />
-                </Field>
+                <div className="py-4">
+                  <Field label={t(asTemplate ? 'integrations.template.note' : 'integrations.field.notes')} hint={asTemplate ? t('integrations.template.noteHint') : t('integrations.field.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
+                    <textarea className={clsx(inputCls, 'h-auto min-h-24 py-2')} rows={asTemplate ? 3 : 4} maxLength={NOTES_MAX} value={f.notes} placeholder={asTemplate ? t('integrations.template.notePlaceholder') : t('integrations.field.notesPlaceholder')} onChange={(e) => change({ notes: e.target.value }, 'notes')} onBlur={blur('notes')} data-testid="integration-notes" />
+                  </Field>
+                </div>
               )}
-              {!asTemplate && <div>
-                <Choices<WritePolicy>
-                  legend={t('integrations.field.write')}
-                  value={f.writePolicy}
+              {!asTemplate && (
+                <SelectRow<WritePolicy> id={ids.write} label={t('integrations.field.write')} hint={t('integrations.write.short')} value={f.writePolicy} testId="integration-write"
                   onChange={(p) => change({ writePolicy: p }, 'writePolicy')}
                   error={errorOf('writePolicy')}
                   // "run without asking" is the team's choice (an admin's), never one person's for their own connection
-                  options={POLICIES.filter((p) => team || p !== 'allow' || f.writePolicy === 'allow').map((p) => ({ value: p, label: t(`integrations.write.${p}`), desc: t(`integrations.write.${p}.desc`), testId: `integration-write-${p}` }))}
+                  options={POLICIES.filter((p) => team || p !== 'allow' || f.writePolicy === 'allow').map((p) => ({ value: p, label: t(`integrations.write.${p}`), testId: `integration-write-${p}` }))}
+                  below={!team ? <p className="mt-1.5 text-xs text-faint" data-testid="integration-allow-team-only">{t('integrations.write.allowTeamOnly')}</p> : undefined}
                 />
-                {!team && (
-                  <p className="mt-1.5 text-xs text-faint" data-testid="integration-allow-team-only">
-                    {t('integrations.write.allowTeamOnly')}
-                  </p>
-                )}
-              </div>}
-              {team && f.access && (
-                <AccessPicker value={f.access} onChange={(a) => change({ access: a }, 'access')} groups={groups.data ?? []} users={users.data ?? []} me={{ id: me.user.id, groupIds: me.groups.map((g) => g.id) }} error={errorOf('access')} template={asTemplate} />
               )}
             </div>
           </div>
@@ -375,6 +453,39 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
         <button type="submit" hidden tabIndex={-1} aria-hidden />
       </form>
     </Modal>
+  )
+}
+
+/** the aria attributes of a row's control: its short line, or its error once there is one */
+const described = (id: string, error: string | null | undefined) => ({ 'aria-describedby': error ? `${id}-error` : `${id}-desc`, 'aria-invalid': error ? true : undefined })
+
+/** One row like Team settings': the words and one short line (or the error) on the left, the control on the right. */
+function Row({ id, label, hint, error, below, children, testId }: { id: string; label: string; hint?: string; error?: string | null; below?: ReactNode; children: ReactNode; testId?: string }) {
+  return (
+    <SettingRow id={id} title={label} desc={error ? undefined : hint} control={children} testId={testId}
+      below={(error || below) ? <>{error && <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-danger">{error}</p>}{below}</> : undefined} />
+  )
+}
+
+/** A row whose control is a select (Team settings' kind of choice, in place of a row of radio pills). Each option keeps
+ * its own test id. */
+function SelectRow<T extends string>({ id, label, hint, value, onChange, options, error, below, testId }: {
+  id: string
+  label: string
+  hint?: string
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: string; testId?: string }[]
+  error?: string | null
+  below?: ReactNode
+  testId?: string
+}) {
+  return (
+    <Row id={id} label={label} hint={hint} error={error} below={below}>
+      <select id={id} {...described(id, error)} className={clsx(inputCls, 'md:w-64')} value={value} onChange={(e) => onChange(e.target.value as T)} data-testid={testId}>
+        {options.map((o) => <option key={o.value} value={o.value} data-testid={o.testId}>{o.label}</option>)}
+      </select>
+    </Row>
   )
 }
 
@@ -394,6 +505,7 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
 }) {
   const t = useT()
   const { copied, copy } = useCopy()
+  const switchId = useId()
   const api = f.kind === 'http'
   // what the server builds from this page's address (routes/integrations.ts linkBase)
   const redirect = typeof window !== 'undefined' && window.location ? `${window.location.origin}/api/integrations/oauth/callback` : '/api/integrations/oauth/callback'
@@ -401,7 +513,7 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   // an MCP server finds its addresses; given ones (set before) stay visible so they can be fixed or cleared
   const addresses = api || !!f.authUrl.trim() || !!f.tokenUrl.trim()
   const fields = (
-    <div className={clsx('space-y-4', !api && 'pl-6')} data-testid="integration-app-fields">
+    <div className={clsx('space-y-4', !api && 'mt-3')} data-testid="integration-app-fields">
       <div className="flex items-center gap-2 rounded-lg bg-hover px-3 py-2">
         <span className="min-w-0 flex-1">
           <span className="block text-xs text-muted">{t('integrations.app.redirect')}</span>
@@ -445,17 +557,11 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
     </div>
   )
   if (api) return fields
+  // a row like Team settings': the words on the left, a switch on the right; the app's fields open under it
   return (
-    <div className="space-y-3" data-testid="integration-app">
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" className="mt-1" checked={f.ownApp} onChange={(e) => change({ ownApp: e.target.checked }, 'clientId', 'clientSecret', 'scope')} data-testid="integration-app-use" />
-        <span className="min-w-0">
-          <span className="font-medium">{t('integrations.app.use')}</span>
-          <span className="block text-xs text-muted">{t('integrations.app.useDesc')}</span>
-        </span>
-      </label>
-      {f.ownApp && fields}
-    </div>
+    <Row id={switchId} label={t('integrations.app.use')} hint={t('integrations.app.useShort')} testId="integration-app" below={f.ownApp ? fields : undefined}>
+      <Switch id={switchId} external describedBy={`${switchId}-desc`} label={t('integrations.app.use')} checked={f.ownApp} onChange={(on) => change({ ownApp: on }, 'clientId', 'clientSecret', 'scope')} testId="integration-app-use" />
+    </Row>
   )
 }
 
@@ -471,58 +577,65 @@ function KeySection({ f, existing, change, errorOf, blur, noKey, fixedHeader }: 
   fixedHeader?: boolean
 }) {
   const t = useT()
+  const headerId = useId()
+  const headerNameId = useId()
+  const keyId = useId()
   const stored = !!existing?.hasSecret && (existing.auth === 'bearer' || existing.auth === 'header') && !dropsSecret(f, existing)
+  // rows in the dialog's list (Team settings' layout): the header, its name, then the key
   return (
-    <div className="space-y-4">
-      {!fixedHeader && <Choices<'bearer' | 'custom'>
-        legend={t('integrations.field.header')}
-        value={f.header}
-        onChange={(h) => change({ header: h }, 'headerName')}
-        compact
-        options={[
-          { value: 'bearer', label: t('integrations.header.bearer'), testId: 'integration-header-bearer' },
-          { value: 'custom', label: t('integrations.header.custom'), testId: 'integration-header-custom' },
-        ]}
-      />}
+    <>
+      {!fixedHeader && (
+        <SelectRow<'bearer' | 'custom'> id={headerId} label={t('integrations.field.header')} hint={t('integrations.field.headerShort')} value={f.header} testId="integration-header"
+          onChange={(h) => change({ header: h }, 'headerName')}
+          options={[
+            { value: 'bearer', label: t('integrations.header.bearer'), testId: 'integration-header-bearer' },
+            { value: 'custom', label: t('integrations.header.custom'), testId: 'integration-header-custom' },
+          ]}
+        />
+      )}
       {f.header === 'custom' && !fixedHeader && (
-        <Field label={t('integrations.field.headerName')} hint={t('integrations.field.headerNameHint')} error={errorOf('headerName')}>
-          <input className={inputCls} value={f.headerName} maxLength={64} autoComplete="off" spellCheck={false} placeholder="X-API-Key" onChange={(e) => change({ headerName: e.target.value }, 'headerName')} onBlur={blur('headerName')} data-testid="integration-header-name" />
-        </Field>
+        <Row id={headerNameId} label={t('integrations.field.headerName')} hint={t('integrations.field.headerNameHint')} error={errorOf('headerName')}>
+          <input id={headerNameId} {...described(headerNameId, errorOf('headerName'))} className={clsx(inputCls, 'md:w-72')} value={f.headerName} maxLength={64} autoComplete="off" spellCheck={false} placeholder="X-API-Key" onChange={(e) => change({ headerName: e.target.value }, 'headerName')} onBlur={blur('headerName')} data-testid="integration-header-name" />
+        </Row>
       )}
       {noKey ? (
-        <p className="text-xs text-faint" data-testid="integration-template-key-note">{t('integrations.template.keyNote')}</p>
+        <p className="py-4 text-sm text-muted" data-testid="integration-template-key-note">{t('integrations.template.keyNote')}</p>
       ) : stored && f.keyAction !== 'replace' ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm" data-testid="integration-key-saved">
-          <span className="min-w-0 flex-1">{f.keyAction === 'remove' ? t('integrations.key.removing') : t('integrations.key.saved')}</span>
-          {f.keyAction === 'keep' ? (
-            <>
-              <Button size="sm" onClick={() => change({ keyAction: 'replace', secret: '' }, 'secret')} data-testid="integration-key-replace">
-                {t('integrations.key.replace')}
+        <div className="py-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm" data-testid="integration-key-saved">
+            <span className="min-w-0 flex-1">{f.keyAction === 'remove' ? t('integrations.key.removing') : t('integrations.key.saved')}</span>
+            {f.keyAction === 'keep' ? (
+              <>
+                <Button size="sm" onClick={() => change({ keyAction: 'replace', secret: '' }, 'secret')} data-testid="integration-key-replace">
+                  {t('integrations.key.replace')}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => change({ keyAction: 'remove', secret: '' }, 'secret')} data-testid="integration-key-remove">
+                  {t('integrations.key.remove')}
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" onClick={() => change({ keyAction: 'keep' }, 'secret')}>
+                {t('integrations.key.keep')}
               </Button>
-              <Button size="sm" variant="danger" onClick={() => change({ keyAction: 'remove', secret: '' }, 'secret')} data-testid="integration-key-remove">
-                {t('integrations.key.remove')}
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" onClick={() => change({ keyAction: 'keep' }, 'secret')}>
-              {t('integrations.key.keep')}
-            </Button>
-          )}
+            )}
+          </div>
         </div>
       ) : (
-        <div className="space-y-2">
-          {existing?.hasSecret && dropsSecret(f, existing) && <Warning>{t('integrations.key.dropWarning')}</Warning>}
-          <Field label={t(stored ? 'integrations.field.newKey' : 'integrations.field.key')} hint={t('integrations.field.keyHint')} error={errorOf('secret')}>
-            <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={f.secret} onChange={(e) => change({ secret: e.target.value }, 'secret')} onBlur={blur('secret')} data-testid="integration-key" />
-          </Field>
-          {stored && f.keyAction === 'replace' && (
-            <Button size="sm" variant="ghost" onClick={() => change({ keyAction: 'keep', secret: '' }, 'secret')}>
-              {t('integrations.key.keep')}
-            </Button>
-          )}
-        </div>
+        <Row id={keyId} label={t(stored ? 'integrations.field.newKey' : 'integrations.field.key')} hint={t('integrations.field.keyHint')} error={errorOf('secret')}
+          below={(existing?.hasSecret && dropsSecret(f, existing)) || (stored && f.keyAction === 'replace') ? (
+            <div className="mt-2 space-y-2">
+              {existing?.hasSecret && dropsSecret(f, existing) && <Warning>{t('integrations.key.dropWarning')}</Warning>}
+              {stored && f.keyAction === 'replace' && (
+                <Button size="sm" variant="ghost" onClick={() => change({ keyAction: 'keep', secret: '' }, 'secret')}>
+                  {t('integrations.key.keep')}
+                </Button>
+              )}
+            </div>
+          ) : undefined}>
+          <input id={keyId} {...described(keyId, errorOf('secret'))} className={clsx(inputCls, 'md:w-72')} type="password" autoComplete="off" spellCheck={false} value={f.secret} onChange={(e) => change({ secret: e.target.value }, 'secret')} onBlur={blur('secret')} data-testid="integration-key" />
+        </Row>
       )}
-    </div>
+    </>
   )
 }
 

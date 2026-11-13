@@ -256,7 +256,7 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
   }, [open, ref])
 }
 
-export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: string; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
+export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()

@@ -25268,3 +25268,22 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
 - The page keeps its name, AI accounts; the rename asked in QA TC-192 is a separate PR (fix/providers-rename) that
   waits for a product decision.
 - Version impact: **patch** (web UI only; no API or data change).
+
+## The add-app dialog: Team settings' rows, the apps first (fix/add-team-app-dialog, 2026-11-13, QA TC-187, TC-189, TC-190)
+
+- **Layout.** IntegrationDialog's fields are Team settings rows (`SettingRow`: the words and one short line left, the
+  control right; stacked on a phone). The choices under Advanced (who connects, type, sign-in method, writing/deleting/
+  sending, a key's header) are selects instead of radio pills; each option keeps its test id. "Sign in with my own app"
+  is a switch row. Advanced is the word only: the collapsed summary of its choices (QA TC-204) is gone, since the closed
+  section now says nothing a member must read.
+- **Who may use it, once.** A team connection's "For: … · Change" line (now also when editing one or a template) carries
+  the sign-in note too; Change opens the access chooser under that line. It is no longer inside Advanced, so it shows
+  once. Defaults are unchanged: a new team connection or template is for the whole team.
+- **Errors.** A field's error shows after Save, or after leaving a field one typed in; leaving an empty field one never
+  typed in shows nothing (QA TC-187 saw red under a fresh form after clicking Advanced).
+- **The apps first.** Admin's Add (and "Team connection") opens a searchable list of the Discover apps the team has not
+  connected (icon and name), "Custom app (enter an address)" last; Back returns to it. A picked app is exactly the
+  Discover path (its name, address, MCP and sign-in, not editable). "Add one by its address" still opens the custom form
+  directly; the person's own Settings › Connectors and onboarding have no list (their Discover is on the page).
+- **Title.** Adding a listed app reads "Add Notion" with the app's icon (the "as a team connection" title is gone: the
+  For line says who it is for); its address is one small line. `Modal`'s title takes any content (a string still works).

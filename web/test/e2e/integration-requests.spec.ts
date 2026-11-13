@@ -216,6 +216,8 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   // the Team connection item opens the team dialog, like the main button
   await page.getByTestId('integration-add-more').click()
   await page.getByTestId('integration-add-team').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })

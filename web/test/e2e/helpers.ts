@@ -41,9 +41,22 @@ export const realErrors = (errors: string[]) => errors.filter((e) => !/status of
 /** A field of the add-connection dialog that sits under its collapsed "Advanced" (type, sign-in, write rule, who connects,
  * who may use it): opens Advanced first when it is closed. `root`: the page or the dialog. */
 export async function adv(root: Page | Locator, testId: string): Promise<Locator> {
+  // who may use a team connection opens under its "For: … · Change" line, not under Advanced
+  if (testId.startsWith('integration-access')) {
+    const change = root.getByTestId('integration-for-change')
+    if ((await change.count()) && (await change.first().getAttribute('aria-expanded')) === 'false') await change.first().click()
+    return root.getByTestId(testId)
+  }
   const toggle = root.getByTestId('integration-advanced')
   if ((await toggle.count()) && (await toggle.first().getAttribute('aria-expanded')) === 'false') await toggle.first().click()
   return root.getByTestId(testId)
+}
+
+/** Choose one option of the add-connection dialog's selects (who connects, type, sign-in, write rule, the key's header)
+ * by the option's test id, opening Advanced first when it is closed. */
+export async function choose(root: Page | Locator, testId: string) {
+  const option = await adv(root, testId)
+  await option.locator('xpath=..').selectOption({ value: (await option.getAttribute('value'))! })
 }
 
 /** @deprecated The new navigation's server switch is retired (docs/DECISIONS.md "navRail: retired, the old navigation
