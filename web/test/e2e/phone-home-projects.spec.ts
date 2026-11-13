@@ -127,7 +127,8 @@ test.describe('TC-253: Home on a phone', () => {
     await scrollHome(page, 'bottom')
     const atBottom = await box(page, 'home-dock')
     expect(Math.round(atBottom.y)).toBe(Math.round(atTop.y))
-    const bar = await box(page, 'phone-topbar')
+    // /new's own bar (‹ 트리나), the phone's page bar
+    const bar = await box(page, 'phone-page-bar')
     expect(atTop.y).toBeGreaterThanOrEqual(bar.y + bar.height)
     const floor = (await tabBar(page).isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
     expect(Math.abs(atTop.y + atTop.height - floor)).toBeLessThanOrEqual(1)
