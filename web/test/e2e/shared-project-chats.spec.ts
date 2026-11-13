@@ -789,8 +789,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await seenLine(page).getByRole('button', { name: '2명이 이 채팅을 볼 수 있어요.' }).click()
       await page.getByTestId('participant-remove-user-bob').click()
       await page.getByTestId('project-members-save').click()
+      // taking Bob out asks first, by name (QA TC-1067)
+      await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 보는 채팅' : `${FOOTER_START} 나만 보는 채팅`)
       await audit(page, 'shared chat, only me')
 
       // a chat without a project: only me, nothing to open (a phone's new chat is /new)
@@ -798,7 +800,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('composer-input').fill('혼자 볼 메모')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 보는 채팅' : `${FOOTER_START} 나만 보는 채팅`)
       await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await shots(page, 'chat-only-me')
 
