@@ -85,7 +85,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   return (
     <section className={clsx('mb-6 max-md:mb-0', frame)} aria-labelledby={`${ids}-title`} data-testid="member-welcome" data-state="open">
       <div className="max-md:px-3">
-        <h2 id={`${ids}-title`} className="text-lg font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">{t('memberWelcome.title', { team: welcome.team, name })}</h2>
+        <h2 id={`${ids}-title`} className="text-display font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">{t('memberWelcome.title', { team: welcome.team, name })}</h2>
         <p className="mt-0.5 text-sm text-muted" data-testid="member-welcome-line">
           {welcome.inviter ? t('memberWelcome.invited', { inviter: welcome.inviter.name, n: welcome.people }) : people}
         </p>

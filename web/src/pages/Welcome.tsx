@@ -447,7 +447,7 @@ const COLS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'g
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-lg font-semibold text-ink">{title}</h2>
+      <h2 className="text-display font-semibold text-ink">{title}</h2>
       {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
     </div>
   )

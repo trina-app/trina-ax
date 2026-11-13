@@ -136,7 +136,7 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       {icon && <div className="text-faint">{icon}</div>}
-      <p className="max-w-md font-medium text-balance text-ink">{title}</p>
+      <p className="max-w-md text-display font-semibold text-balance text-ink">{title}</p>
       {children && <div className="max-w-md text-sm text-balance text-muted">{children}</div>}
     </div>
   )
@@ -286,7 +286,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 max-sm:pr-3 max-sm:pl-4 sm:py-3">
-          <h2 id={titleId} className="min-w-0 font-semibold">
+          <h2 id={titleId} className="min-w-0 text-title-sm font-semibold">
             {title}
           </h2>
           <IconButton label={t('common.close')} onClick={onClose}>
@@ -854,7 +854,7 @@ export function PageHeader({ title, desc, actions, testId }: { title: ReactNode;
       <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
+        <h1 className="text-title font-semibold tracking-tight max-md:sr-only">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted max-md:mt-0">{desc}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

@@ -386,7 +386,7 @@ function NotFound() {
   return (
     // the layout already has the <main> landmark; the page heading is an h1 like on other pages
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
-      <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
+      <h1 className="text-display font-semibold text-balance text-ink">{t('notFound.title')}</h1>
       <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
       <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-3">
         {t('notFound.home')}

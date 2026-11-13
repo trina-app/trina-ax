@@ -101,7 +101,7 @@ export function MyRequests({ onConnected, version }: { onConnected: (i: Integrat
       )}
       {items.length > 0 && (
         <>
-          <h3 id="integrations-asked" className="text-sm font-semibold">
+          <h3 id="integrations-asked" className="text-title-sm font-semibold">
             {t('integrations.asked.title')}
           </h3>
           <p className="mt-0.5 mb-2 text-xs text-muted">{t('integrations.asked.hint')}</p>

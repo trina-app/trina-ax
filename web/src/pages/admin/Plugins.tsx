@@ -382,7 +382,7 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
         <div className="flex flex-wrap items-center gap-4">
           <PluginTile kinds={of.kinds} big />
           <div className="min-w-0 flex-1">
-            <h3 id={titleId} className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <h3 id={titleId} className="flex items-center gap-2 text-display font-semibold tracking-tight">
               <span className="truncate">{of.name}</span>
               {official && <OfficialMark size={18} />}
             </h3>
@@ -417,19 +417,19 @@ function PluginDetail({ p, c, fileInstall, reload, review, onBack }: { p: Instal
         <HwpWriting id={of.id} />
       </div>
       <div>
-        <h4 className="mb-3 text-base font-semibold">{t('plugins.prompt.does')}</h4>
+        <h4 className="mb-3 text-title-sm font-semibold">{t('plugins.prompt.does')}</h4>
         {p ? <Permissions items={p.permissions} showGrant /> : <Permissions items={of.permissions} />}
         {p && p.skills.length > 0 && <p className="mt-3 text-sm text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
       </div>
       <div>
-        <h4 className="mb-2 text-base font-semibold">{t('plugins.details')}</h4>
+        <h4 className="mb-2 text-title-sm font-semibold">{t('plugins.details')}</h4>
         <PluginMeta text={`${of.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · ${t('plugins.platforms', { list: platformText(t, of.platforms) })}`} license={of.license} />
       </div>
     </section>
   )
 }
 
-const sectionTitle = 'mb-3 text-sm font-semibold'
+const sectionTitle = 'mb-3 text-title-sm font-semibold'
 /** two columns of cards; a phone, one row each with a hairline between (as Connectors' Discover) */
 const pluginListCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
 
@@ -482,7 +482,7 @@ export default function Plugins() {
     <>
     {!(phone && open) && <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="plugins-header">
       {/* a phone: the bar above says the name, so only the search row stays here */}
-      <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{t('admin.plugins')}</h2>
+      <h2 className="text-title font-semibold tracking-tight max-md:sr-only">{t('admin.plugins')}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -555,7 +555,7 @@ export default function Plugins() {
                 )}
                 {imports.length > 0 && (
                   <section className="mt-6 border-t border-line pt-6" data-testid="plugins-imports">
-                    <h3 className="text-sm font-semibold">{t('plugins.imports')}</h3>
+                    <h3 className="text-title-sm font-semibold">{t('plugins.imports')}</h3>
                     <p className="mt-1 mb-2 text-xs text-muted">{t('plugins.importsDesc')}</p>
                     <ul className="-mx-2 divide-y divide-line">
                       {imports.map((f) => (

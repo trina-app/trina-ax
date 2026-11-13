@@ -729,7 +729,7 @@ export function MyCredentials() {
               return (
                 <section key={fam} aria-labelledby={`my-cred-${fam}`} data-testid={`my-provider-${fam}`}>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <h3 id={`my-cred-${fam}`} className="text-sm font-medium">{t(`credentials.group.${fam}`)}</h3>
+                    <h3 id={`my-cred-${fam}`} className="text-title-sm font-semibold">{t(`credentials.group.${fam}`)}</h3>
                     {d.allowed && kinds.length > 0 && !phone && (
                       <Button size="sm" onClick={() => setAdding(fam)} data-testid={`my-credential-add-${fam}`}><Plus size={14} aria-hidden /> {t('providers.addAccount')}</Button>
                     )}

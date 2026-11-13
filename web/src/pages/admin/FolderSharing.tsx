@@ -501,7 +501,7 @@ function GeneralAccess({ value, choices, label, hint, except, onChange, from, fr
   const id = useId()
   return (
     <section aria-labelledby={id} data-testid="sharing-general">
-      <h3 id={id} className="text-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
+      <h3 id={id} className="text-title-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
       <select
         value={value}
         aria-labelledby={id}

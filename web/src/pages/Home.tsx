@@ -186,7 +186,7 @@ function HomePage() {
                 · {t('home.inProject')}
               </p>
             )}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance max-md:mb-0 sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0">{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
           </div>
           {!phone && dock}

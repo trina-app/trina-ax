@@ -158,7 +158,7 @@ export default function AccessPeople() {
       <>
         {sideNote}
         <div className="mb-4" data-testid="access-new-setup">
-          <h3 className="text-base font-semibold text-ink">{t('accessView.newPerson')}</h3>
+          <h3 className="text-title-sm font-semibold text-ink">{t('accessView.newPerson')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('accessView.newNote')}</p>
           <div className="mt-3 flex flex-col gap-3">
             <div className="max-w-60">
@@ -184,7 +184,7 @@ export default function AccessPeople() {
         {sideNote}
         <div className="mb-4" data-testid="access-person">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="min-w-0 text-base font-semibold break-words text-ink">{u.name}</h3>
+            <h3 className="min-w-0 text-title-sm font-semibold break-words text-ink">{u.name}</h3>
             <Badge>{t(`role.${u.role}`)}</Badge>
             {u.status === 'disabled' && <Badge>{t('members.disabled')}</Badge>}
           </div>

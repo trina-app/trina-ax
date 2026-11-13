@@ -28,7 +28,7 @@ export function ConnectorsHeader({ title, query, onQuery, onAdd, moreAdd }: {
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       {/* a phone: the bar above says the name (Admin's and Settings' phone bar), so only the search row stays here */}
-      <h2 className="text-lg font-semibold tracking-tight max-md:sr-only">{title}</h2>
+      <h2 className="text-title font-semibold tracking-tight max-md:sr-only">{title}</h2>
       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
         <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -55,7 +55,7 @@ export function useSectionIds() {
 
 /** A section heading of the page, which takes the keyboard when something leads there (tabIndex -1, no ring: it is not
  * a control). */
-export const sectionTitleCls = 'text-sm font-semibold focus:outline-none'
+export const sectionTitleCls = 'text-title-sm font-semibold focus:outline-none'
 
 /** Show a section of the page and give its heading the keyboard: back from a connector's page (Discover), and after
  * adding from Discover (the connections, where the new one is). From the next paint on, for a few frames, for a section

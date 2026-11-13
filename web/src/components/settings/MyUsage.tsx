@@ -57,7 +57,7 @@ export default function MyUsage() {
       {/* like the Console: the title, one dim line, and the period pill with refresh on the right */}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
         <div className="min-w-0 flex-1 max-md:basis-full">
-          <h2 id={`${ids}-h`} className="text-base font-semibold max-md:sr-only">
+          <h2 id={`${ids}-h`} className="text-title-sm font-semibold max-md:sr-only">
             {t('myUsage.title')}
           </h2>
           <p className="mt-1 text-xs text-muted max-md:mt-0" data-testid="my-usage-desc">
@@ -121,7 +121,7 @@ export default function MyUsage() {
 
           {/* the person's own answers in the chosen period, by engine and model */}
           <section className="mt-4 rounded-xl border border-line bg-surface p-5 max-md:mt-6 max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:bg-transparent max-md:px-0 max-md:pb-0" aria-labelledby={`${ids}-models`}>
-            <h3 id={`${ids}-models`} className="text-base font-medium">{t('myUsage.byModel')}</h3>
+            <h3 id={`${ids}-models`} className="text-title-sm font-semibold">{t('myUsage.byModel')}</h3>
             {!d.byModel.length ? (
               <p className="mt-3 text-sm text-muted" data-testid="my-usage-none">
                 {t('usage.none')}

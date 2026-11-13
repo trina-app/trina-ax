@@ -247,7 +247,7 @@ function ConnectorsHome() {
       {/* the section's top, like Settings' other sections: its name (a phone's bar says it, so there for screen readers
           only), one line, the search and Add; it scrolls with the list (QA TC-262) */}
       <div data-testid="connectors-header">
-        <h2 className="text-base font-semibold max-md:sr-only">{t('integrations.title')}</h2>
+        <h2 className="text-title-sm font-semibold max-md:sr-only">{t('integrations.title')}</h2>
         <p className="mt-1 text-sm text-muted max-md:mt-0">{t('connectorsPage.desc')}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
       </div>
@@ -271,7 +271,7 @@ function ConnectorsHome() {
             )}
             {yours.length > 0 && (
               <section aria-labelledby="connectors-yours">
-                <h3 id="connectors-yours" className="mb-1 text-sm font-semibold">{t('connectors.yours')}</h3>
+                <h3 id="connectors-yours" className="mb-1 text-title-sm font-semibold">{t('connectors.yours')}</h3>
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
@@ -279,7 +279,7 @@ function ConnectorsHome() {
             {cards.length > 0 && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">
                 <div className="mb-1 flex items-center gap-2">
-                  <h3 id="connectors-discover" className="text-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
+                  <h3 id="connectors-discover" className="text-title-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
                   {!q && cards.length > POPULAR_FIRST && (
                     // a text link; on a phone 44 px tall (and at least as wide), still without a box
                     <button type="button" className="touch-hit ml-auto text-sm text-muted hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-end" aria-expanded={all} onClick={() => setAll((v) => !v)} data-testid="connector-show-all">

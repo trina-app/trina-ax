@@ -173,7 +173,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         ) : (
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
             {/* a phone starts on the title, not on a hidden ✕; a computer still starts on its first button */}
-            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none" data-testid="settings-title">
+            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 text-title-sm font-semibold outline-none" data-testid="settings-title">
               {phone ? t('tabs.me') : t('settings.title')}
             </h2>
             <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">

@@ -60,7 +60,7 @@ export default function SlackLink() {
   return (
     <section className="mx-auto max-w-xl space-y-5 p-4 sm:p-6" data-testid="slack-link">
       <div>
-        <h1 className="text-xl font-semibold">{t('slack.link.title')}</h1>
+        <h1 className="text-title font-semibold">{t('slack.link.title')}</h1>
         {!done && <p className="mt-2 text-sm text-muted">{t('slack.link.desc')}{info?.signIn ? ` ${t('slack.link.alsoRead')}` : ''}</p>}
       </div>
       {/* what went wrong, as a line like the outcome on /slack/done and in Settings: no box */}

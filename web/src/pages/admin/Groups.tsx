@@ -64,7 +64,7 @@ export default function Groups() {
       <>
         <div className="-mx-4" data-testid="group-page">
           <div className="px-4">
-            <h2 className="text-lg font-semibold break-words text-ink">{group.name}</h2>
+            <h2 className="text-title font-semibold break-words text-ink">{group.name}</h2>
             {group.description && <p className="mt-0.5 text-sm text-muted">{group.description}</p>}
           </div>
           <PhoneListGroup title={`${t('groups.members')} · ${t('groups.memberCount', { n: group.memberIds.length })}`} labelId="group-page-members" testId="group-page-members">

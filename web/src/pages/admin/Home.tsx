@@ -36,7 +36,7 @@ export default function Home() {
         <section aria-labelledby="admin-home-attention">
           {attention.length ? (
             <>
-              <h2 id="admin-home-attention" className="mb-2 text-sm font-semibold">
+              <h2 id="admin-home-attention" className="mb-2 text-title-sm font-semibold">
                 {t('adminHome.attention')}
               </h2>
               <AttentionList items={attention} />
@@ -60,7 +60,7 @@ export default function Home() {
       {owner && <OwnerSetup />}
 
       <section aria-labelledby="admin-home-areas">
-        <h2 id="admin-home-areas" className="mb-2 text-sm font-semibold">
+        <h2 id="admin-home-areas" className="mb-2 text-title-sm font-semibold">
           {t('adminHome.areas')}
         </h2>
         <div className="grid gap-3 md:grid-cols-2">

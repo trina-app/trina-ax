@@ -88,7 +88,7 @@ export function UsageChart({ days, points, keys, title, desc, testId = 'usage-ch
   return (
     // a phone: no frame (Admin › Usage on phones, docs/DECISIONS.md "Admin and Settings on phones")
     <section className="rounded-xl border border-line bg-surface p-5 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0" data-testid={testId} aria-labelledby={`${testId}-title`}>
-      <h3 id={`${testId}-title`} className="text-base font-medium">{title}</h3>
+      <h3 id={`${testId}-title`} className="text-title-sm font-semibold">{title}</h3>
       <p className="mt-1 text-sm text-muted">{desc}</p>
       {empty ? (
         <div className="flex h-56 flex-col items-center justify-center gap-3 text-center" data-testid={`${testId}-empty`}>

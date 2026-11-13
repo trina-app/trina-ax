@@ -126,7 +126,7 @@ export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   return (
     <section aria-labelledby="owner-check" data-testid="owner-checklist">
       <div className="mb-2 flex items-center justify-between">
-        <h2 id="owner-check" className="text-sm font-semibold">{t('owner.check.title')}</h2>
+        <h2 id="owner-check" className="text-title-sm font-semibold">{t('owner.check.title')}</h2>
         <IconButton label={t('common.hide')} onClick={hide} data-testid="owner-checklist-hide"><X size={15} aria-hidden /></IconButton>
       </div>
       <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">

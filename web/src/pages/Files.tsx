@@ -892,7 +892,7 @@ function Files() {
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
         {/* the trash is a row of 파일's list beside the rail, so no tabs here; the list says 파일 already, the breadcrumbs
             where this is: the title is for screen readers */}
-        <h1 className={clsx('mr-2 text-lg font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
+        <h1 className={clsx('mr-2 text-title font-semibold', view !== 'trash' && 'sr-only')}>{view === 'trash' ? t('files.trash') : t('files.title')}</h1>
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
           // only their icons, and the search box takes the width they leave

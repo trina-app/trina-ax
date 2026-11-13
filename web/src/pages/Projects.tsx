@@ -735,7 +735,7 @@ function ProjectPage() {
       )}
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
         {/* phones: the name is the bar's; here for screen readers only */}
-        <h1 className="text-[1.625rem] font-semibold tracking-tight break-words max-md:sr-only sm:text-[1.875rem]">{p.name}</h1>
+        <h1 className="text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
         {summary && (
           <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted max-md:mt-0" data-testid="project-summary">
             {summary}

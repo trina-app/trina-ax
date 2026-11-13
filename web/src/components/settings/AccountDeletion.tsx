@@ -94,7 +94,7 @@ export function AccountDeletion() {
   return (
     // the way back is the dialog's: Profile stays marked in its list, and a phone's back arrow goes to Profile
     <section data-testid="account-deletion">
-      <h2 className="mb-3 text-base font-semibold">{t('accountDeletion.title')}</h2>
+      <h2 className="mb-3 text-title-sm font-semibold">{t('accountDeletion.title')}</h2>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!value && !error && <Skeleton lines={2} />}
       {value && <AccountDeletionView value={value} days={chatTrashDays(me)} busy={busy} onRequest={() => void send(false)} onCancel={() => void send(true)} viewerIsAdmin={me.user.role === 'admin'} />}

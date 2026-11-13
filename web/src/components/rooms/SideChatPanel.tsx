@@ -476,7 +476,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </IconButton>
         )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="shrink-0 text-base font-medium text-ink">{t('sideChat.title', { name })}</span>
+          <span className="shrink-0 text-title-sm font-semibold text-ink">{t('sideChat.title', { name })}</span>
           <span className="truncate text-xs text-faint" data-testid="side-chat-room">{roomTitle}</span>
         </h2>
         {/* a phone's room shows this panel full screen already: no "open full screen" there (the chat is in the history

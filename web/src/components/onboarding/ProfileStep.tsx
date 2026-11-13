@@ -273,7 +273,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   )
   const head = (title: string, desc?: ReactNode) => (
     <div className="space-y-1">
-      <h2 ref={heading} tabIndex={-1} className="text-lg font-semibold text-ink outline-none">
+      <h2 ref={heading} tabIndex={-1} className="text-display font-semibold text-ink outline-none">
         {title}
       </h2>
       {desc && <p className="text-sm text-muted">{desc}</p>}
