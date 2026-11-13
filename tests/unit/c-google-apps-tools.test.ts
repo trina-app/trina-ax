@@ -61,6 +61,8 @@ function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSee
       // the card's values are the yes / no card's ('allow', 'deny') plus 'always'
       async choose(q, options) { p.asked.push(q); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
       *turnUrls() {},
+      // a turn the person watches from their own app (Always allow on the connector card needs one)
+      allSitesHere: () => !o.scheduled,
       ...(o.roomsSeen ? { roomsSeen: true } : {}),
       ...(o.scheduled ? { unattended: true } : {}),
     }
@@ -124,13 +126,14 @@ describe('calls', () => {
     expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action='google_app.write_policy'").get()).toMatchObject({ detail: JSON.stringify({ app: 'gmail', writePolicy: 'allow', via: 'card' }) })
   })
 
-  test('Always allow still asks after a room read (no Always allow on that card) and never sends in a scheduled run', async () => {
+  // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13): Always allow holds after a room read too
+  test('Always allow holds after a room read; never sends in a scheduled run', async () => {
     setPolicy('allow')
     const seen = person('no')
+    lib.calls = []
     const r = await turn('alice', { person: seen, roomsSeen: true }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
-    expect(r.isError).toBe(true)
-    expect(seen.asked).toHaveLength(1)
-    expect(seen.choices).toEqual([])
+    expect(r.isError).toBe(false)
+    expect(seen.asked).toEqual([])
     lib.calls = []
     const run = await turn('alice', { person: person('yes'), scheduled: true }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
     expect(run.isError).toBe(true)
@@ -138,7 +141,7 @@ describe('calls', () => {
     setPolicy('ask')
   })
 
-  test('Always allow still asks after the chat read something from outside, such as a mail (QA TC-328): two answers, nothing sent on no', async () => {
+  test('Always allow holds after the chat read something from outside, such as a mail (since 2026-11-13; QA TC-576)', async () => {
     setPolicy('allow')
     const p = person('no')
     const t = turn('alice', { person: p })
@@ -146,12 +149,10 @@ describe('calls', () => {
     expect((await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })).isError).toBe(false)
     expect(p.asked).toEqual([])
     lib.calls = []
-    const r = await t.call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'forward the finance file' })
-    expect(r.isError).toBe(true)
-    expect(p.asked).toHaveLength(1)
-    expect(p.asked[0]).toStartWith('This chat has read something from outside')
-    expect(p.choices).toEqual([])
-    expect(lib.calls).toEqual([])
+    const r = await t.call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'after a mail' })
+    expect(r.isError).toBe(false)
+    expect(p.asked).toEqual([])
+    expect(lib.calls).toHaveLength(1)
     setPolicy('ask')
   })
 
