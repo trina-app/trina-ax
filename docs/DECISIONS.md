@@ -25229,3 +25229,20 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   key in an event).
 - Version impact: **none** for the Trina AX release (no team server or app change); the relay bundle gains optional
   settings, a minor change for whoever cuts the next relay bundle.
+
+## Community plugins: a guide and an honest empty section, no list (feat/plugins-community-guide, 2026-11-13, QA TC-194/TC-195)
+
+- **Why:** the only public plugin page sat under "For AI agents", and Admin › Plugins did not say anyone could build a
+  plugin. There is no community registry, and production trusts no community signing key (`PLUGIN_TRUST.keys` is
+  empty), so a community package is refused on every company server today.
+- **Decision:** the guide is `docs/site/develop/plugins.md` ("Build a plugin", Developer guide › Plugins); the old
+  `agents/plugins` page stays at its URL and links to it. It says plainly that the community can build skill packs only,
+  that native drivers accept only builds core pins (today only the official HWP build), and that community plugins
+  install only on development or test servers until community signing exists. Its example is checked by
+  `tests/unit/plugins-guide.test.ts`.
+- **Admin › Plugins:** the intro names Trina and the community and how a plugin is checked; under Discover a
+  "Community plugins" line with "Build a plugin" and "Share your plugin" (the guide's sharing part), both opening the
+  public docs in a new tab. No list, no fetching, no new install path: a community plugin still goes through Install
+  from file with the existing checks.
+- **Sharing points only to places that exist:** the Discord link in README.md and issues / pull requests on
+  github.com/trina-app/trina-ax. Open for the owner: a community listing process and community signing keys (B5).
