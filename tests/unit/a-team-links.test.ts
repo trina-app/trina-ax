@@ -366,6 +366,7 @@ describe('seats', () => {
     const full = await join(t)
     expect(full.status).toBe(409)
     expect(full.body.error.params.reason).toBe('seat_limit')
+    expect(full.body.error.params.changePlan).toBeUndefined() // the person joining is not told to change the plan
     expect((await owner.call('GET', '/api/admin/team-link')).link.uses).toBe(2)
     // no new link while every seat is taken
     expect((await owner.try('POST', '/api/admin/team-link', {})).body.error.params.reason).toBe('seat_limit')

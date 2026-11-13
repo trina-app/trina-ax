@@ -22747,6 +22747,28 @@ signed out, does not tell whether first-run setup is finished:
 
 This is the same line as #369 for `/api/health`.
 
+## Store apps show no purchase links (fix/store-no-purchase-links, 2026-11-13, product owner)
+
+Plans are bought, changed and managed only on the web console (the account site). The store apps — the Mac App Store
+and Microsoft Store desktop builds (`storeApp()`) and the iPhone and Android app (`mobileApp()`); together
+`noPurchaseLinks()` in `web/src/lib/desktop.ts` — show no button, link or call to action toward buying, upgrading,
+changing or managing the plan, and name no price. Apple App Review 3.1.1 forbids steering to a purchase outside in-app
+purchase outside the US storefront; a team app sold to organisations may bill on its own (3.1.3(b)(c)), so the model is
+fine as long as the app does not steer. Google Play's payments policy has the same rule. This follows "No [팀 만들기]
+in store builds" (the first-run screen, `firstRunLinks`) and the Mac App Store entry above.
+- **Admin › System › Plan** has no "Manage plan" link there; the status and support links stay.
+- **A full plan is said as a fact**: "The plan's member seats are all taken. To add someone, turn off an account that
+  is no longer used. The team owner manages the plan on the web." No link, no price. The same for the team link's "no
+  seats left".
+- **The server's seat refusal** to an admin (`assertSeatFree`: "… or change the plan. Change the plan: <account
+  page>") now carries `params.changePlan: true`; inside a store app the web client swaps its message for the app's own
+  words and drops `manageUrl` (`storeSafeError`, lib/api.ts). The server cannot tell a store app from a browser, so the
+  client words it. An invitee's "the team is full, let the person who invited you know" has no flag and is unchanged.
+- The plain web and the dmg/exe desktop builds are unchanged. The sign-in page has no signup or trial link in any build,
+  and the phone app's first-run screen links only the repository's install guide.
+- The Microsoft Store build follows the same rule here (one `storeApp()` check), although its first-run screen keeps
+  [팀 만들기]: the stricter choice for plan links.
+
 ## Budget during an answer: usage counted as it comes, the answer stops at a used-up block budget (fix/budget-mid-answer, 2026-11-11)
 
 - **Usage is counted as it comes.** The engine's usage goes on the turn row on every usage event (Claude Code's running

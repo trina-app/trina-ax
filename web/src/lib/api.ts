@@ -2,7 +2,8 @@
 // added by ApiClient. Every call goes through the shared contract (`API.x`), so request and response shapes are the
 // server's own zod schemas.
 import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
-import { currentLocale } from '../i18n'
+import { currentLocale, t } from '../i18n'
+import { noPurchaseLinks } from './desktop'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 import { xhrFetch } from './xhr'
 
@@ -51,7 +52,24 @@ const inWindow = (init?: RequestInit): RequestInit => {
   headers.set(LOCALE_HEADER, currentLocale())
   return { ...init, headers, credentials: 'same-origin' }
 }
-const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, inWindow(init))) as typeof fetch
+/** A store app (lib/desktop.ts noPurchaseLinks) says "the plan's seats are full" without the server's "change the plan:
+ * <account page>": the refusal that carries `changePlan` (server/src/system/limits.ts assertSeatFree) gets this app's
+ * words, and its manageUrl is dropped. Anything else, and every answer outside a store app, is returned as it came. */
+export async function storeSafeError(res: Response, store = noPurchaseLinks()): Promise<Response> {
+  if (!store || res.status !== 409) return res
+  let body: { error?: { code?: unknown; message?: unknown; params?: Record<string, unknown> } }
+  try { body = await res.clone().json() } catch { return res }
+  const e = body?.error
+  if (!e || e.code !== 'plan_limit' || e.params?.changePlan !== true) return res
+  const params = { ...e.params }
+  delete params.manageUrl
+  const limit = typeof params.limit === 'number' ? params.limit : 0
+  const fixed = { ...body, error: { ...e, message: t('plan.seatLimitStore', { limit }), params } }
+  const headers = new Headers(res.headers)
+  headers.delete('content-length')
+  return new Response(JSON.stringify(fixed), { status: res.status, statusText: res.statusText, headers })
+}
+const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => storeSafeError(await fetch(input, inWindow(init)))) as typeof fetch
 
 export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })
 export { API, ApiError }
