@@ -65,6 +65,7 @@ import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
+import { NewProjectDialog } from '../components/NewProjectDialog'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { isProjectsFolder } from '../lib/projectFolders'
@@ -356,7 +357,7 @@ export function ProjectList() {
             <ProjectsList phone />
           </div>
         </nav>
-        {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
+        {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
       </div>
     )
   return (
@@ -391,7 +392,7 @@ export function ProjectList() {
           ))}
         </ul>
       </div>
-      {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
+      {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? r : x)))} />}
     </div>

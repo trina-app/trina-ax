@@ -2,7 +2,7 @@
 // "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
 //   답을 기다려요 N (one quiet row while an AI chat waits on me) ·
 //   고정 (my pinned chats) ·
-//   최근 기록 (every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
+//   최근 기록 (its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
 // Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx), and a personal
 // project ("내 프로젝트") is where a person keeps their own chats together: the owner dropped the Trina list's folders
@@ -10,7 +10,7 @@
 // The pinned chats come from the server's one read (store/chatGroups.ts); 최근 기록 is the chat list this window keeps
 // (store/chats.ts, as the filtered history reads it), so its rows and marks are live.
 import clsx from 'clsx'
-import { Pin } from 'lucide-react'
+import { Pin, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
@@ -23,6 +23,7 @@ import { cardChats, useWaitingChats } from '../../store/sessionMarkers'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
+import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { PanelSection, panelRow } from './PanelFrame'
 
@@ -105,7 +106,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
       )}
 
       {recent.length > 0 && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} labelTestId="trina-label" data-testid="trina-other">
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           <ul>
             {recent.map((c) => (
               <ChatItem key={c.id} chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />
@@ -134,6 +135,22 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 }
 
 const noop = () => {}
+
+/** 최근 기록's "⋯": 삭제한 기록 (the deleted AI chats, /trash), rarely needed, so not a row of its own */
+function RecentMenu() {
+  const t = useT()
+  const navigate = useNavigate()
+  return (
+    <MenuButton
+      label={t('trinaList.recentMenu')}
+      tip={t('trinaList.recentMenu')}
+      compact
+      muted
+      items={[{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }]}
+      testId="trina-recent-menu"
+    />
+  )
+}
 
 /** "? 답을 기다려요 N" on top of the list while any AI chat waits on me (the rail's "?"): one quiet row, no card; it opens
  * the first one that is not on screen already (UX review S2). */

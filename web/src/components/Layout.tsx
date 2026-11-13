@@ -25,6 +25,7 @@ import SearchDialog from './SearchDialog'
 import { TeamInviteDialog } from './TeamMenu'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
+import { TrinaDrawer } from './phone/TrinaDrawer'
 import { PhonePushAsk } from './settings/PushNotifications'
 import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
@@ -180,6 +181,8 @@ export default function Layout() {
           <WebPushAsk at="bottom" />
           {/* phones: 트리나 · 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
+          {/* phones: the 트리나 tab's ☰ drawer (the AI's history) */}
+          <TrinaDrawer />
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums

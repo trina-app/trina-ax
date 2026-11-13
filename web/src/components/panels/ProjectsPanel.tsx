@@ -1,6 +1,6 @@
 // 프로젝트's list (docs/DECISIONS.md "Projects: a place of their own"; the owner, 2026-11-13: "프로젝트를 그냥 따로 하나의
 // 큰 탭으로"): beside the rail on a computer (ProjectsPanel) and as the phone's 프로젝트 tab (pages/Projects.tsx shows
-// ProjectsList at /projects on a phone). "+ 새 프로젝트" on top (today's new-project form), then two sections: 팀
+// ProjectsList at /projects on a phone). "+ 새 프로젝트" on top (the name-only dialog, NewProjectDialog.tsx), then two sections: 팀
 // 프로젝트 (in the team folder, with members) and 내 프로젝트 (personal, in my own folder: onlyMine below). Each project
 // is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
 // was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
@@ -9,14 +9,15 @@
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
 import clsx from 'clsx'
 import { Lock, Plus, SquareKanban, Users } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
-import { Link, matchPath, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
 import { useChats } from '../../store/chats'
 import { readProjectList, useProjects } from '../../store/projects'
+import { NewProjectDialog } from '../NewProjectDialog'
 import { SetupRow } from '../onboarding/SetupRow'
 import { whoSeesProject } from '../projectWho'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
@@ -31,13 +32,18 @@ export function ProjectsPanel() {
   )
 }
 
-/** "+ 새 프로젝트": the projects page's new-project form (/projects?new=1) */
+/** "+ 새 프로젝트": the name-only dialog (NewProjectDialog.tsx); made, the new project's page opens */
 export function NewProjectRow({ phone = false }: { phone?: boolean }) {
   const t = useT()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
   return (
-    <Link to="/projects?new=1" className={clsx(panelRow, 'font-medium', phone && 'h-11')} data-testid="projects-panel-new">
-      <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
-    </Link>
+    <>
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'h-11')} data-testid="projects-panel-new">
+        <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
+      </button>
+      {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
+    </>
   )
 }
 
