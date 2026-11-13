@@ -10,7 +10,7 @@ import { PRODUCT } from '@mycel/shared'
 import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, panelGuarded, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, usePanelRefusals, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
 import { newChatPath } from '../lib/newChat'
 import { useT } from '../i18n'
@@ -88,7 +88,8 @@ export default function Layout() {
   useEffect(() => {
     if (!autoOpen) return
     if (location.pathname === `/c/${autoOpen.chatId}`) {
-      if (!typingOnPhone()) openArtifact(autoOpen.chatId, autoOpen.key)
+      // not over a file being edited with changes not saved (it would ask the person to discard them unasked)
+      if (!typingOnPhone() && !panelGuarded()) openArtifact(autoOpen.chatId, autoOpen.key)
       useChats.setState({ autoOpen: null })
     } else if (location.pathname.startsWith('/c/')) useChats.setState({ autoOpen: null })
   }, [autoOpen, location.pathname])
@@ -132,7 +133,9 @@ export default function Layout() {
     const back = lastFocus.current
     if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
   }, [covered])
-  useOverlayEntry(!!panel, closeSidePanel, { at: location.key })
+  // `refusals`: after a Back that was answered No the entry was used up, so a new one is held
+  const refusals = usePanelRefusals()
+  useOverlayEntry(!!panel, closeSidePanel, { at: `${location.key}:${refusals}` })
   // any move (the rail's 파일, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])

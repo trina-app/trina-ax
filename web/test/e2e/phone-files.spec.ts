@@ -263,3 +263,31 @@ test.describe('tablet', () => {
     await expect(page.getByTestId('upload-button')).toBeVisible()
   })
 })
+
+test('edits not saved on a phone: ✕ asks first, No stays in the editor with the text, Yes closes it', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await row(page, 'plan.md').getByRole('button').first().click()
+  const panel = page.getByTestId('file-panel')
+  await panel.getByTestId('file-panel-more').click()
+  await page.getByRole('menuitem', { name: t['preview.edit'] }).click()
+  const editor = panel.getByTestId('file-editor')
+  await editor.fill('# Plan\n\nnot saved yet\n')
+  const question = page.getByRole('dialog', { name: t['preview.discardTitle'] })
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await expect(question).toBeVisible()
+  await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  // Back asks too, and after No the next Back asks again (the panel holds a new Back entry) instead of leaving the page
+  for (let i = 0; i < 2; i++) {
+    await page.goBack()
+    await expect(question).toBeVisible()
+    await question.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+    await expect(editor).toHaveValue('# Plan\n\nnot saved yet\n')
+  }
+  await expect(page).toHaveURL(/\/files\?path=marketing/)
+  await panel.getByRole('button', { name: t['common.close'], exact: true }).click()
+  await question.getByRole('button', { name: t['preview.discard'], exact: true }).click()
+  await expect(panel).toHaveCount(0)
+})
