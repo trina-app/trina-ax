@@ -12,7 +12,7 @@
 //   P5: a dev server with a second background port, started 3 times;
 //   P6: a run writes a file in the person's own folder (users/<id>); the Files API lists it and the server reads it;
 //   P7 (A23): a job writes past the disk floor; the tracker stops it with "disk" and its unit ends. The free space comes
-//       from a stand-in statfs (a 2 GiB disk minus the job's real file), so the VM's own disk never fills.
+//       from a stand-in statfs (a 1 GiB disk minus the job's real file), so the VM's own disk never fills.
 // Results: <base>/data/preview-results.json and one "preview <id> ..." line per check.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -198,11 +198,11 @@ for (let i = 1; i <= 3; i++) {
   const { pollRuns } = await import('../../server/src/devenv/srt/runner')
   const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
   const file = path.join(chatWork(BASE, chat), 'a23.bin')
-  const TOTAL = 2 * 1024 ** 3
+  const TOTAL = 1024 ** 3
   const size = () => { try { return fs.statSync(file).size } catch { return 0 } }
-  // the reserve of a 2 GiB disk is 512 MiB: past about 1.5 GiB written, writes are refused and runs stop
+  // the reserve of a 1 GiB disk is 512 MiB: past 512 MiB written, writes are refused and runs stop
   configureStorageGuard({ root: h.team, enforce: () => true, statfs: () => { const free = Math.max(0, TOTAL - size()); return { type: 0, bsize: 4096, blocks: TOTAL / 4096, bfree: Math.floor(free / 4096), bavail: Math.floor(free / 4096), files: 1e6, ffree: 1e6 } as unknown as fs.StatsFs } })
-  const t = await shell('alice', chat, { command: 'for i in $(seq 1 40); do dd if=/dev/zero of=a23.bin bs=1M count=$((i*64)) conv=notrunc status=none; sleep 1; done; sleep 300', job: true, log_name: 'a23' })
+  const t = await shell('alice', chat, { command: 'for i in $(seq 1 16); do dd if=/dev/zero of=a23.bin bs=1M count=64 oflag=append conv=notrunc status=none; sleep 1; done; sleep 300', job: true, log_name: 'a23' })
   const row = () => h.ctx.db.query("SELECT id, unit, state, end_reason FROM dev_env_runs WHERE user_id = 'alice' AND name = 'a23' ORDER BY started_at DESC LIMIT 1").get() as Row | null
   let r = row()
   for (let i = 0; i < 90 && r?.state !== 'ended'; i++) { await Bun.sleep(1000); await pollRuns(h.ctx); r = row() }

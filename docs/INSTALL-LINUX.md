@@ -249,15 +249,18 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
     폴더에 있는 `admin.js`가 팀의 업데이트 시간과 시간대를 읽는다(읽기만). 그것도 안 되면 root가 마지막으로 받아 둔 시간,
     그다음은 `/etc/default/<id>`의 `MYCEL_TEAM_TZ`(없으면 서버 시계)로 03:00–05:00이다.
 - **The dev environment on srt is turned on by the installer** (`docs/DECISIONS.md` "Dev environment: the installer
-  turns srt on"). On Debian 13 with the default groups and systemd, `install-linux.sh` runs
+  turns srt on"). On Debian 13 and Ubuntu 24.04 with the default groups and systemd, `install-linux.sh` runs
   `<base>/root/dev-env-srt/install-srt.sh` after the server answers. `--no-dev-env` keeps it off; `--dev-env` stops the
-  install when the system cannot have it (Ubuntu 24.04, Debian 12, `--minimal`, `--no-systemd`). `mycel-ctl update`
+  install when the system cannot have it (Debian 12, `--minimal`, `--no-systemd`). `mycel-ctl update`
   brings new srt files in; `uninstall` removes them.
-- **Ubuntu 24.04: no dev environment yet** (`docs/DECISIONS.md` "Dev environment on srt: Ubuntu 24.04 stays off"). The
-  reason is not AppArmor: srt's `apply-seccomp` inherits the installer's `<id>-bwrap` profile, and the sysctl
-  `kernel.apparmor_restrict_unprivileged_userns` stays on. The reason is polkit: systemd 255 gives polkit no unit name
-  when the server starts a transient scope, so the rule cannot limit the server account to its run scopes. The installer
-  and `install-srt.sh` say so.
+- **Each dev environment run is a systemd unit `trina-dev@<run id>.service`** (`docs/DECISIONS.md` "Dev environment on
+  srt: runs as template units"). `install-srt.sh` writes the template `/etc/systemd/system/trina-dev@.service` (the
+  server account, the `<id>-devenv.slice`, the server unit's sandbox lines) and a polkit rule that lets the server
+  account start, stop, reset-failed and set-property of these units only. This works on Ubuntu 24.04 too: its systemd
+  255 gives polkit the unit name for such a unit (not for a transient scope, which the runner used before). AppArmor
+  needs no profile of its own: srt's `apply-seccomp` inherits the installer's `<id>-bwrap` profile, and the sysctl
+  `kernel.apparmor_restrict_unprivileged_userns` stays on. One dev environment per machine. `systemctl list-units
+  'trina-dev@*'` lists the runs while they run.
 - **Removed: the box runner** (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"). The dev
   environment runs only in srt (`scripts/dev-env/srt/install-srt.sh`). Up to v0.5.0-beta.1 every kit had
   `root/mycel-boxd`, and `scripts/dev-env/install-trial.sh` could add the box runner to a server. On a server where it

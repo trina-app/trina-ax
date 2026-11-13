@@ -71,7 +71,9 @@ SUBNET=()
 if [ -n "${SPIKE_SG:-}" ]; then
   SG=$SPIKE_SG OWN_SG=0
   VPC=$(aws_ ec2 describe-security-groups --group-ids "$SG" --query 'SecurityGroups[0].VpcId' --output text)
-  SUBNET=(--subnet-id "$(aws_ ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" Name=map-public-ip-on-launch,Values=true --query 'Subnets[0].SubnetId' --output text)")
+  # an availability zone that has the instance type
+  AZ=$(aws_ ec2 describe-instance-type-offerings --location-type availability-zone --filters "Name=instance-type,Values=$TYPE" --query 'InstanceTypeOfferings[].Location' --output text | tr '\t' '\n' | sort | head -1)
+  SUBNET=(--subnet-id "$(aws_ ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" Name=map-public-ip-on-launch,Values=true "Name=availability-zone,Values=$AZ" --query 'Subnets[0].SubnetId' --output text)")
   if [ -z "$(aws_ ec2 describe-security-groups --group-ids "$SG" --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\`].IpRanges[] | [?CidrIp=='$MYIP/32'].CidrIp" --output text)" ]; then
     aws_ ec2 authorize-security-group-ingress --group-id "$SG" --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$MYIP/32,Description=srt-spike-vm}]" >/dev/null
     OPENED=$MYIP/32

@@ -24170,6 +24170,7 @@ stays off with the real reason; route A is the follow-up.
   narrow rule works: the server account may start and stop `trina-dev@<16>.service` only. It changes the runner
   (`server/src/devenv/srt/system.ts`), so it starts after the preview PR. Route B (the server account's user manager
   with linger, `systemd-run --user --scope`) also worked on the VM, but moves the root ceiling to `user-<uid>.slice`.
+- **Done (2026-11-13):** route A, see "Dev environment on srt: runs as template units". Ubuntu 24.04 is on.
 
 ## Move picker: suggested and recent folders — 옮기기 창의 추천·최근 (feat/move-picker-suggestions, 2026-11-12, product owner)
 
@@ -24930,3 +24931,63 @@ default.
   audited (`ai.always_allow`). The team switch is the existing `roomAlwaysAllow` (on by default), now titled
   "'Always allow' on confirmation cards": off, no card offers it and the rows are ignored, not deleted. Room folder
   grants made before keep working until they lapse; new ones are no longer made.
+
+## Dev environment on srt: runs as template units (feat/srt-ubuntu-route-a, 2026-11-13, owner)
+
+Owner (pras), 2026-11-12/13: srt is the only dev environment runner, and Ubuntu 24.04 is the most common customer
+server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is now the one path on Debian 13 and Ubuntu
+24.04. Where: `server/src/devenv/srt/{system,config,runner}.ts`, `scripts/dev-env/srt/`, `native/cmd/mycel-sandbox`
+(port-forward). Plan: `docs/AGENTS/plan/20261113-0444-srt-ubuntu-route-a.md`.
+
+- **A run is an instance of a root-installed template.** `install-srt.sh` writes `devenv-run.service.in` as
+  `/etc/systemd/system/trina-dev@.service`: `User=` and `Group=` the server account, `Slice=<ID>-devenv.slice`,
+  `Type=exec`, `ExecStart=-/opt/trina/devenv/run-wrap --unit <base>/devenv/run %i`, `OOMPolicy=kill`,
+  `MemorySwapMax=0`, `KillMode=control-group`, `TimeoutStopSec=20`, `RuntimeMaxSec=29400`. The runner starts
+  `trina-dev@<runId>.service` with `systemctl start --wait` (StartUnit). The `systemctl` process lives as long as the
+  run, so the runner knows the end without a poll. The server cannot change `User=`, `Slice=` or `ExecStart=`.
+- **The polkit rule names the unit and the verb.** StartUnit, StopUnit, ResetFailedUnit and SetUnitProperties send
+  `unit` and `verb` on systemd 255 (Ubuntu 24.04) and 257 (Debian 13). `devenv.rules.in` allows the server account only
+  `^trina-dev@[a-z0-9]{16}\.service$` with the verbs start, stop, reset-failed and set-property. No transient unit, no
+  restart, no other unit. A unit test runs the rendered rule with a stand-in of polkit's JavaScript API.
+- **Per-run limits with `set-property --runtime`.** Before the start the runner sets `MemoryMax`, `MemorySwapMax=0`,
+  `CPUQuota` and `TasksMax` of the instance. On a unit that is not transient, SetUnitProperties accepts only cgroup
+  values (and `Description`); `User=`, `ExecStart=`, `Slice=` and `RuntimeMaxSec` are refused ("Cannot set property",
+  VM check). The devenv slice stays the root-set ceiling of all runs. A scope let the server set any property, so this
+  is not wider than before. The rule cannot tell `--runtime` from a persistent set-property; the runner uses only
+  `--runtime`. The drop-ins go to `/run/systemd/system.control/`; the template's `ExecStopPost=+` (root) removes the
+  instance's drop-ins in `/run` and `/etc` when the run ends, so they do not pile up.
+- **Time limits.** systemd 255 cannot change `RuntimeMaxSec` of a service at runtime. The template has the longest kind
+  (a dev server, 8 hours) plus 10 minutes as the root-set ceiling. The runner stops a command at its timeout (as
+  before) and the tracker stops a job after 6 hours and a dev server after 8 hours (end reason `timeout`).
+- **The arguments come from a file, not the instance name.** The runner writes `<base>/devenv/run/<runId>.args` (0600,
+  the folder the sandbox cannot read): NUL-separated folder, stdout file, stderr file, exit file, the environment and
+  the argv of srt. `run-wrap --unit` checks the run id (`[a-z0-9]{16}`), that the file is a regular file of its own
+  account and not a link, that the output files are not links (the runner makes them first with `O_NOFOLLOW`), removes
+  the file, opens the output with `>>` (so the tracker can cut a log) and runs srt with `env -i` and only the listed
+  environment. Root never opens a file in a folder the server owns: no `StandardOutput=append:`.
+- **The server unit's sandbox is copied.** A scope was a child of the server process and inherited its mount namespace,
+  `NoNewPrivileges`, empty capability set and seccomp lines. A service started by PID 1 inherits none of them, so the
+  template has the same `[Service]` sandbox lines as `scripts/linux/systemd/server.service.in` (`ProtectSystem=strict`,
+  the same `ReadWritePaths` plus `<base>/devenv`, `PrivateTmp`, `ProtectHome`, `RestrictAddressFamilies`, ...). A unit
+  test compares the two files, so a new line in the server unit fails the test until the template has it.
+  `ProtectClock=yes` adds a device filter to the run unit that the scope did not have (bwrap makes its own `/dev` with
+  the standard devices).
+- **A failed command does not leave a failed unit.** `ExecStart=-`: run-wrap writes the exit code to the exit file,
+  and the unit ends `inactive`. An OOM kill still ends it `failed` with `Result=oom-kill`, and the ceiling with
+  `Result=timeout` (VM check); the runner reads the result and runs reset-failed.
+- **Install.** `install-srt.sh` accepts Debian 13 and Ubuntu 24.04. It writes the rule, the slice and the template,
+  stops runs of the older scope runner as root (the new rule does not let the server stop them), then checks: a whole
+  run of `/bin/true` through set-property, StartUnit and run-wrap, and a refusal for a transient `.service` and for a
+  restart. Only then does it write the server drop-in, so a failed check leaves the dev environment off (before, the
+  drop-in came first and a server could be "on but cannot run"). The template names one install (`# install=<ID>`): one
+  dev environment per machine. `install-linux.sh` turns the dev environment on for Ubuntu 24.04 too.
+  `uninstall-srt.sh` stops the run units and removes the template and leftover drop-ins.
+- **An older install in between.** A new server bundle can start before `mycel-ctl update` runs the new
+  `install-srt.sh`. While `/etc/systemd/system/trina-dev@.service` is missing, the runner starts scopes as before (the
+  old rule still allows them). A failed self check is tried again after one minute, not ten. Remove the scope path
+  when every server has the template.
+- **Preview.** `mycel-sandbox port-forward --cgroup` accepts `trina-dev@<16>.service` (and the older scope name). The
+  run's processes are in the unit's cgroup, which only systemd can fill, so attack A26 holds.
+- **VM checks (2026-11-13).** See the PR: `scripts/dev-env/srt/spike-vm.sh` with `SPIKE_OS=ubuntu2404` and
+  `debian13`.
+
