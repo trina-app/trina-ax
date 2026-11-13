@@ -15,7 +15,9 @@ import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
+import { api, API } from '../../lib/api'
 import { useChats } from '../../store/chats'
+import { isAdmin, useMe } from '../../store/session'
 import { readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { SetupRow } from '../onboarding/SetupRow'
@@ -55,12 +57,24 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
+  // the owner and admins also find the team projects they manage without being members (as on the Projects page,
+  // GET /api/projects?manage=1: their name and members only), under 팀 프로젝트
+  const admin = isAdmin(useMe())
+  const [managed, setManaged] = useState<Project[]>([])
+  useEffect(() => {
+    if (!admin) return setManaged([])
+    let live = true
+    api.call(API.listProjects, { query: { manage: '1' } }).then((r) => live && setManaged(r.items.filter((p) => p.member === false)), () => {})
+    return () => {
+      live = false
+    }
+  }, [admin])
   const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
   const projects = useMemo(() => {
-    const seen = Object.values(byId).filter((p) => listed?.has(p.id))
+    const seen = [...Object.values(byId).filter((p) => listed?.has(p.id)), ...managed.filter((p) => !listed?.has(p.id))]
     const at = (p: Project) => activity.get(p.id)?.lastActivityAt ?? ''
     return seen.sort((a, b) => at(b).localeCompare(at(a)) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
-  }, [byId, listed, activity])
+  }, [byId, listed, activity, managed])
 
   // the project on screen: its page (and its files), or the chat of it opened from here (프로젝트 still lit)
   const { pathname } = useLocation()
@@ -79,7 +93,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
         const a = activity.get(p.id)
         // "나만" for mine; "멤버 N명" (its page's words) for a team one
         // (a team project nobody else sees by its rules says "나만" too, the same word)
-        const who = onlyMine(p) || (p.audience !== undefined && (p.audience <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
+        const who = onlyMine(p) || (p.member !== false && p.audience !== undefined && (p.audience <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
         return (

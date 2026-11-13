@@ -64,6 +64,14 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   useEffect(() => {
     if (!loaded) void loadChats(true).catch(() => {})
   }, [loaded, loadChats])
+  // a chat that joined my list on another screen (a shared project chat I just wrote in, its event telling only its
+  // maker's view) is in the server's heads: put it in the list, so 최근 기록 has it without a reload
+  useEffect(() => {
+    if (!groups) return
+    const st = useChats.getState()
+    const have = new Set(st.chats.map((c) => c.id))
+    for (const c of [...groups.other.items, ...groups.projects.flatMap((p) => p.top)]) if (!have.has(c.id) && !c.deletedAt) st.upsertChat(c)
+  }, [groups])
   // the projects' names for 최근 기록's tags
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
   const byId = useMemo(() => new Map([...Object.values(others), ...chats].map((c) => [c.id, c])), [chats, others])
