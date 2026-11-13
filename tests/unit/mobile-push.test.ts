@@ -193,6 +193,33 @@ test('leaving a team removes the device there; an unreachable team is retried at
   expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_2', 'dev_3', 'dev_4', 'dev_5'])
 })
 
+test('a new registration with the same team removes the device this phone had there before (QA TC-835: one phone, one push)', async () => {
+  const calls: string[] = []; let online = true
+  const m = memory(async d => { calls.push(`${d.origin} ${d.deviceId}`); return online })
+  // app 1.0.2 registered; 1.0.3 asked to sign in again and the team gave a new device id: the old one is removed there
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_old'))
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_new'))
+  expect((await currentDevice(m.deps, 'https://a.example'))?.deviceId).toBe('dev_new')
+  expect(calls).toEqual([])
+  // the next app start (same team saved) removes it
+  await startRemovals(m.deps, 'https://a.example')
+  expect(calls).toEqual(['https://a.example dev_old']); expect(m.store.has('pending')).toBe(false)
+  // the same device again (the page registered once more in the same session): nothing is owed
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_new')); await startRemovals(m.deps, 'https://a.example')
+  expect(calls).toHaveLength(1)
+  // the team cannot be reached: the old device stays owed for the next start; the new one is never owed
+  online = false
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_3')); await startRemovals(m.deps, 'https://a.example')
+  expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_new'])
+  expect((await currentDevice(m.deps, 'https://a.example'))?.deviceId).toBe('dev_3')
+  online = true; await startRemovals(m.deps, 'https://a.example')
+  expect(m.store.has('pending')).toBe(false)
+  // a registration with another team before the app left the first: the first team's device is owed, not lost
+  await rememberDevice(m.deps, dev('https://b.example', 'dev_b')); await leaveTeam(m.deps, 'https://a.example')
+  expect(calls.slice(-1)).toEqual(['https://a.example dev_3'])
+  expect((await currentDevice(m.deps, 'https://b.example'))?.deviceId).toBe('dev_b')
+})
+
 test('Android release signing comes from the environment only: no key, path or password is written into the build file', async () => {
   const { applyReleaseSigning } = await import('../../mobile/plugins/release-signing-gradle.js')
   const template = `android {\n    signingConfigs {\n        debug {\n            storeFile file('debug.keystore')\n        }\n    }\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.debug\n        }\n        release {\n            // Caution!\n            signingConfig signingConfigs.debug\n            minifyEnabled false\n        }\n    }\n}\n`

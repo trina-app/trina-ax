@@ -15,8 +15,19 @@ export async function currentDevice(deps: Pick<DeviceDeps, 'current'>, origin: s
   const d = await read<unknown>(deps.current, null)
   return valid(d) && d.origin === origin ? d : null
 }
-export function rememberDevice(deps: Pick<DeviceDeps, 'current' | 'pending'>, device: TeamDevice): Promise<void> {
-  return locked(deps, () => deps.current.set(JSON.stringify(device)))
+/** Keeps the device a team just registered. The device kept before it (an earlier sign-in or app build on this phone,
+ * which the team still sends to while that session lasts: QA TC-835) becomes an owed removal, so a team keeps one
+ * device for this phone; the removal is tried at the next app start (startRemovals), the one run beside nothing else.
+ * Storage only. */
+export function rememberDevice(deps: Pick<DeviceDeps, 'current' | 'pending' | 'now'>, device: TeamDevice): Promise<void> {
+  return locked(deps, async () => {
+    const d = await read<unknown>(deps.current, null)
+    if (valid(d) && !same(d, device)) {
+      const owed = (await read<unknown[]>(deps.pending, [])).filter(valid).filter(p => deps.now() - p.at < KEEP_MS && !same(p, d) && !same(p, device))
+      await deps.pending.set(JSON.stringify([...owed, { ...d, at: deps.now() }].slice(-MAX_PENDING)))
+    }
+    await deps.current.set(JSON.stringify(device))
+  })
 }
 /** The stored devices change one step at a time, per store: each step reads and writes them with no network in
  * between, so a slow removal never holds back a leave or a registration, and two runs (the start's and a team
