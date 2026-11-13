@@ -1,5 +1,5 @@
 // Signing out of this window: the session, this browser's own data, then the sign-in page. Used by the account menu
-// (Sidebar.tsx) and, on a phone, the 나 tab's list (components/settings/SettingsDialog.tsx).
+// (components/nav/AccountMenu.tsx) and, on a phone, the 나 tab's list (components/settings/SettingsDialog.tsx).
 import { useNavigate } from 'react-router-dom'
 import { api, API } from './api'
 import { clearLocalData } from './localData'

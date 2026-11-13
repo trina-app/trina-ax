@@ -8,7 +8,7 @@ The AI can use services outside the team server with a person's or the team's ow
   tool, `api_request`, that can only call addresses under that connection's address. An API that signs in with OAuth
   (NAVER WORKS …) signs in with your own app instead of a key ("Your own app" below).
 
-Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Connectors (the main sidebar) as a
+Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › Connectors as a
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
 `/settings/drive` leads there), and so does asking the AI from Slack ([SLACK.md](SLACK.md)). App connectors are the
 apps this server's AI uses with a person's own account (`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each).
@@ -106,7 +106,7 @@ member's key, so a key there would reach every member and the service would log 
 name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
 characters (and the note no hidden characters).
 
-- The members it is for see it under Connectors (the main sidebar) in **Your connectors**, with a Team label and **Connect**, which opens the same
+- The members it is for see it under Settings › Connectors in **Your connectors**, with a Team label and **Connect**, which opens the same
   dialog as an admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and
   the write rule (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
   refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
@@ -129,7 +129,7 @@ characters (and the note no hidden characters).
   Its maker is not told about their own template, someone who connected it already is not told, and
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
-  (`integration.template_reconnect`, one per change). Both open Connectors with the template's Connect
+  (`integration.template_reconnect`, one per change). Both open Settings › Connectors with the template's Connect
   (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
@@ -188,7 +188,7 @@ their own".
 The other direction: a member who opens an app the team has not set up (Google Drive, Gmail, Google Calendar, Google
 Docs, Google Sheets: the apps an admin sets up once for everyone; since QA TC-133 also every listed service) taps **Ask admin to add it** on its page, like an app
 request in Slack. It takes the place of the Connect button that could not work and of the "not set up" line; afterwards
-the page says "Request sent", opened again "Already asked", and the app's card says "Asked".
+the page says "Request sent" (also when opened again while the request is open), and the app's card says so too.
 
 - Only those five ids, only while the app is not set up (`POST /api/integrations/service-requests {service}`). The
   server refuses any other name (400 `unknown_service`: no free text from a member reaches an admin), an app the member
@@ -642,7 +642,8 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Discover
 
-Connectors (an item of the main sidebar, `/connectors`; no longer a Settings section) and Admin › Connected apps are one
+Settings › Connectors (`/settings/connectors`, a section of Settings since 2026-11-12; the old `/connectors` addresses
+lead there) and Admin › Connected apps are one
 page each: first the connections, one line per connection with its details a click away (in Admin with who may use it
 in a chip after the name; on Connectors **Your connectors**: the built-in apps connected, the person's own connections and
 what the team provides, with a Team label, each with one status and its page a click away, read-only for a team one),

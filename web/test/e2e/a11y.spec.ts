@@ -2,7 +2,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn, adv } from './helpers'
+import { navRail, openRail, reset, signIn, adv, choose } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -36,9 +36,12 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await reset(page)
   await signIn(page)
   await page.goto('/files')
-  const newChat = page.getByTestId('new-chat')
+  // the app is up (its keys are listened to once the page is drawn)
+  await expect(page.getByTestId('file-table')).toBeVisible()
   const input = page.getByTestId('composer-input')
-  await newChat.click()
+  // ⇧⌘O from another page: a new entry, the box takes the focus (the rail's 트리나 already opens Home itself, so its
+  // 트리나에게 묻기 replaces Home in place and the focus stays on that button: as dev shows it, until the redesign)
+  await page.keyboard.press('ControlOrMeta+Shift+o')
   await expect(input).toBeFocused()
   await input.fill('Keep this draft')
   await page.goto('/files')
@@ -87,6 +90,7 @@ test.describe('home focus on touch devices', () => {
   test('loading home, choosing a preset and starting a chat do not force input focus', async ({ page }) => {
     await reset(page)
     await signIn(page, { username: 'bob', password: 'bob password 1' })
+    // the phone's new-chat box is Home (`/`, the 트리나 tab's root)
     await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
@@ -97,8 +101,12 @@ test.describe('home focus on touch devices', () => {
     await example.tap()
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
-    // a phone starts a new chat from the 트리나 tab (the top bar has no new-chat icon)
+    // a phone starts a new chat from the 트리나 tab, Home itself again (#683: the tab as before the redesign), here from
+    // another tab
+    await page.getByTestId('tab-chats').tap()
+    await expect(page).toHaveURL(/\/rooms$/)
     await page.getByTestId('tab-ai').tap()
+    await expect(input).toBeVisible()
     await expect(input).not.toBeFocused()
   })
 })
@@ -153,6 +161,25 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
+// The new navigation (lib/navRail.ts): the rail and each of its four lists, with marks on the places, light and dark.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the rail and its four lists have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page)
+    await navRail(page)
+    await page.route('**/api/notifications?*', (route) => route.fulfill({ json: { items: [], nextCursor: null, unreadCount: 4, roomUnreadCount: 1 } }))
+    await signIn(page)
+    await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: '주간 보고 초안' } })
+    await page.reload()
+    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      await openRail(page, item)
+      await expect(page.locator('#rail-panel')).toBeVisible()
+      await audit(page, `rail: ${item}`)
+    }
+  })
+}
+
 // Chat continuity: an answer paused at the per-answer limit with the long-conversation note, a step the time limit
 // paused, and a message waiting to send (paused after Stop, with its edit / don't-send / "Send now" controls).
 for (const scheme of ['light', 'dark'] as const) {
@@ -198,7 +225,10 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await audit(page, 'home (phone)')
+  // 파일's places, then the team folder's own top (a phone's /files is the places)
   await page.goto('/files')
+  await audit(page, 'files places (phone)')
+  await page.goto('/files?team=1')
   await expect(page.getByTestId('file-table')).toBeVisible()
   await audit(page, 'files (phone)')
   await longPress(page, page.getByTestId('file-row').first())
@@ -262,16 +292,20 @@ async function seedIntegrations(page: Page) {
 }
 
 async function auditIntegrations(page: Page, where: string) {
+  // Settings › Connectors (its old address leads there)
   await page.goto('/connectors')
   await expect(page.getByTestId('connected-apps')).toBeVisible()
   await audit(page, `connectors${where}`)
-  // a connection's own page, its row open with its tools
+  // a connection's own page, then its tools with their switches
   await page.locator('[data-testid="connected-app"]').filter({ hasText: 'Linear' }).click()
-  await expect(page.getByTestId('integrations-mine')).toBeVisible()
-  await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
-  await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
   await audit(page, `connectors, a connection${where}`)
-  await page.getByTestId('connector-back').click()
+  await page.getByTestId('connector-detail').getByTestId('integration-tools-toggle').click()
+  await expect(page.getByTestId('integration-tools')).toBeVisible()
+  await audit(page, `connectors, a connection's tools${where}`)
+  await page.getByTestId('integration-tools-done').click()
+  // the page's way back on a computer, the phone bar's ‹ on a phone
+  await page.locator('[data-testid="app-breadcrumb-connectors"]:visible, [data-testid="settings-back"]:visible').first().click()
   // Popular is on the same page, under the connected apps
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)
@@ -279,16 +313,16 @@ async function auditIntegrations(page: Page, where: string) {
   await audit(page, `add from discover${where}`)
   await page.keyboard.press('Escape')
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-write-deny')).check()
+  await choose(page, 'integration-write-deny')
   await page.getByTestId('integration-save').click() // shows the field errors
   await audit(page, `integration add (MCP)${where}`)
-  await (await adv(page, 'integration-kind-http')).check()
-  await page.getByTestId('integration-header-custom').check()
+  await choose(page, 'integration-kind-http')
+  await choose(page, 'integration-header-custom')
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
   await page.locator('[data-testid="connected-app"]').filter({ hasText: 'AI PM' }).click()
-  await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-toggle').click()
-  await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-edit').click()
+  await page.getByTestId('connector-detail').getByTestId('connection-menu').click()
+  await page.getByTestId('connector-detail').getByTestId('integration-edit').click()
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   await audit(page, `integration edit${where}`)
   await page.keyboard.press('Escape')
@@ -298,12 +332,20 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-access-warning').first()).toBeVisible()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
-  // a team connection's page, with its audience chip
+  // a team connection's page, with who may use it
   await page.getByTestId('team-connection').filter({ hasText: 'Company PM' }).getByTestId('connector-row-open').click()
-  await expect(page.getByTestId('integration-audience').first()).toBeVisible()
+  await expect(page.getByTestId('team-who')).toBeVisible()
   await audit(page, `admin/integrations, a team connection${where}`)
   await page.goto('/admin/connectors')
+  // a phone has no Add: adding a service by its address is a computer's job (Discover's line says so)
+  if (where.includes('phone')) {
+    await expect(page.getByTestId('connector-custom-note')).toBeVisible()
+    await expect(page.getByTestId('integration-add')).toHaveCount(0)
+    return
+  }
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toBeVisible()
@@ -340,8 +382,12 @@ async function auditTeamIcon(page: Page, where: string, path = '/admin/settings'
   await audit(page, `team logo (refused)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
-  await page.getByTestId('team-icon-previews').click()
-  await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  // the sidebar previews are a computer's (a phone has no button for them, TC-269)
+  if (where.includes('phone')) await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  else {
+    await page.getByTestId('team-icon-previews').click()
+    await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  }
   await audit(page, `team logo (set)${where}`)
 }
 

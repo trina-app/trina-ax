@@ -18,7 +18,8 @@
 // - TC-269 step 2: a plugin's page is the plugin alone: no plugin search and no upload button above it.
 import { expect, test, type Page } from '@playwright/test'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
-import { reset, signIn } from './helpers'
+import { backLabelHasRoom, reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.en
@@ -38,7 +39,7 @@ const backLabel = (page: Page) => page.getByTestId('admin-back-label')
 
 /** 나 › Admin › System, as a person taps it */
 async function openSystem(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId('admin-row-system').click()
@@ -259,8 +260,10 @@ const TEAM_SETTINGS_IDS = ['general', 'data', 'members', 'voice', 'ai', 'limits'
 async function expectBackNamed(page: Page, name: string, where: string) {
   const label = backLabel(page)
   await expect(label, where).toHaveText(name)
-  await expect(label, where).toBeVisible()
   await expect(page.getByTestId('admin-back')).toHaveAccessibleName(t['tabs.backTo'].replace('{page}', name))
+  // no room in this font for ‹ with its name beside the whole title (Linux's wider DejaVu Sans): ‹ alone, still named
+  if (!(await backLabelHasRoom(label))) return await expect(label, where).toBeHidden()
+  await expect(label, where).toBeVisible()
   const l = (await label.boundingBox())!
   // the title's text (its box is the bar's middle column)
   const title = await bar(page).evaluate((el) => {
@@ -316,7 +319,7 @@ export function systemFollowUps() {
   test('TC-270 step 3: AI apps with the connector off: the Off status and "Set this up on a computer", no setup commands; the app rows stay', async ({ page }) => {
     await page.route('**/api/connectors/remote', (route) => route.fulfill({ json: remoteOff }))
     await signIn(page)
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-ai-apps').click()
     await expect(page).toHaveURL(/\/admin\/ai-apps$/)
@@ -340,7 +343,7 @@ export function systemFollowUps() {
   test('every item\'s page and group names the page ‹ returns to, whole: an engine\'s page under "‹ Team AI accounts" (TC-381)', async ({ page }) => {
     await signIn(page)
     // the row's steps: Team AI accounts › Claude Code
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-providers').click()
     await page.locator('[data-testid="engine-row"][data-engine="claude-code"]').click()
@@ -355,6 +358,8 @@ export function systemFollowUps() {
       ['/admin/providers/codex', t['admin.team.providers']],
       ['/admin/connectors/google-drive', t['admin.team.integrations']],
       ['/admin/connectors/calendar', t['admin.team.integrations']],
+      // Slack, one of the connected apps (the owner's), not a row of Admin's own
+      ['/admin/connectors/slack', t['admin.team.integrations']],
       [`/admin/plugins/${HWP_PLUGIN_ID}`, t['admin.plugins']],
       ['/admin/members/bob', t['admin.members']],
       // every group of Team settings ("Members and AI" and "Company profile" showed ‹ alone: QA TC-381) and of System

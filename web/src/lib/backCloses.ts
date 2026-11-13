@@ -1,6 +1,6 @@
 // Back closes the open layer first (QA TC-080, TC-141, TC-245). On a phone the iOS edge swipe and Android's Back walk
 // the browser's history (the phone app is one WebView of this app), so every layer over a page holds one history entry
-// while it is open: a sheet or menu (components/rooms/MenuButton.tsx), a dialog (ui.tsx Modal), search, the drawer, the
+// while it is open: a sheet or menu (components/rooms/MenuButton.tsx), a dialog (ui.tsx Modal), search, the
 // side panel, a room's side chat and its 🕘 list, the @ list, the image viewer and its sheet. Phones only (below 768 px),
 // except the image viewer, which held one on computers too and still does.
 //
@@ -32,6 +32,8 @@
 //   past, not ours to skip, and an app's history.go is its own count (not stretched over the overlays).
 // - A step back that the app takes from inside an overlay (React Router's navigate(-1): a page's ‹ while the @ list is
 //   open) is a step back from the page: it goes past the overlays' entries too, and they close.
+// - holdHistory: while the phone app's own photo picker is up and its bytes come over, no back-off of ours starts (the
+//   attach sheet's waits until the pick is over); Back still goes.
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
 /** The history-state field of an overlay's entry: its overlay's number. */
@@ -95,8 +97,11 @@ function onSteps(e: Event) {
   screenStepping = on
   if (!on) afterTraversal()
 }
-/** no back of ours may start now: one of ours, another's or a screen-history step is on its way */
-const busy = () => inFlight || othersGoing() || historyStepping()
+/** holds on the history (holdHistory): while one is on, no back of ours starts */
+let holds = 0
+/** no back of ours may start now: one of ours, another's or a screen-history step is on its way, or the history is
+ * held (holdHistory) */
+const busy = () => inFlight || othersGoing() || historyStepping() || holds > 0
 /** what the router did while it was: done again on the entry it lands on */
 let owed: { push: boolean; state: State; url: string } | null = null
 let waiting: (() => void)[] = []
@@ -325,8 +330,9 @@ function schedule() {
 function flush() {
   flushQueued = false
   if (typeof window === 'undefined') return
-  // one traversal at a time: after the one on its way (its end calls afterTraversal, which schedules this again)
-  if (historyStepping() || inFlight || othersGoing()) return
+  // one traversal at a time: after the one on its way (its end calls afterTraversal, which schedules this again), and
+  // none while the history is held (holdHistory: its release does the same)
+  if (busy()) return
   // closed ones without an entry go at once
   held = held.filter((h) => !(h.closing && h.entry !== 'on'))
   const on = held.filter((h) => h.entry === 'on')
@@ -358,6 +364,24 @@ function settle() {
 export function whenOverlaysSettled(fn: () => void) {
   if (!flushQueued && !busy()) fn()
   else waiting.push(fn)
+}
+
+/**
+ * Holds the history where it is until the function returned is called (once is enough; again does nothing): the
+ * entries of overlays closed meanwhile are backed off then, and overlays opened meanwhile push theirs then. Back and
+ * the router's own steps still go. For the phone app's own photo picker (AttachSheet, QA TC-251): the attach sheet
+ * closes as the picker opens, and its back-off, a step of the history within the same page, read as a new page to the
+ * Android app, which then dropped the pick (its bridge is fenced at every new page).
+ */
+export function holdHistory(): () => void {
+  holds++
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    holds--
+    if (typeof window !== 'undefined') afterTraversal()
+  }
 }
 
 /** the windows listened to, by their addEventListener (a test's window is a new one each time) */
@@ -446,6 +470,7 @@ export function resetOverlaysForTest() {
   if (othersTimer !== null) clearTimeout(othersTimer)
   othersTimer = null
   screenStepping = false
+  holds = 0
   held = []
   leftBehind.clear()
   fixes.clear()

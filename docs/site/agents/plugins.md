@@ -5,6 +5,10 @@ description: Packages admins install for the whole company: skill bundles and is
 
 Plugins add features a company needs. In this stage, only the owner and admins install them, for the whole company, in **Admin › Plugins**.
 
+:::tip
+Want to make one? Read [Build a plugin](../develop/plugins.md): what the community can build today, an example to copy, and how to try and share it.
+:::
+
 ## Two kinds
 
 | Kind | Contains | Runs code? |

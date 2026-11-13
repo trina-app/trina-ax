@@ -75,3 +75,8 @@ export function teamBody(r: Pick<DevEnvTeamResponse, 'warningVersion' | 'setting
   if (accept && needsWarning(r, d)) body.acceptWarning = r.warningVersion
   return body
 }
+
+/** The draft after a refused save: when the server cannot run the dev environment (reason dev_env_unavailable) the
+ * switch goes back to the saved state, so it does not stay on until the page is loaded again. Other edits stay. */
+export const afterRefusedSave = (d: DevEnvTeamDraft, s: Pick<DevEnvTeamSetting, 'enabled'>, reason: unknown): DevEnvTeamDraft =>
+  reason === 'dev_env_unavailable' && d.enabled !== s.enabled ? { ...d, enabled: s.enabled } : d

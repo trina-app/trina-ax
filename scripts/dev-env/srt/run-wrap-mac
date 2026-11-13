@@ -1,0 +1,129 @@
+#!/bin/bash
+# Trina dev environment on a Mac team server: the first program of each run (docs/DECISIONS.md "Dev environment on a
+# Mac team server"). macOS has no cgroups and no systemd scopes, so this script does their work. It runs as ONE dev
+# account of the pool (a "slot": _axdev1, _axdev2, ...), never as the server account: the server starts it with
+#   sudo -n -u <slot> [VAR=value ...] /opt/trina/devenv/run-wrap-mac <command> ...
+# and the sudoers rule allows only this file and only the slot accounts. Root owns this file (0755).
+#
+# Commands:
+#   run <exit-file> <memory-MiB> <pids> <max-seconds> <pool-MiB> -- <program> [args...]
+#       1. refuses to start when the slot has other processes (the server gives a slot to one run at a time);
+#       2. limits: processes of the slot (ulimit -u; the kernel counts per uid, so this is the run's own limit), open
+#          files 4096, file size 4 GiB, no core files, nice 10 (no CPU quota on macOS);
+#       3. a watchdog in the background: each second it adds up the RSS of every process of the slot. Over the memory
+#          limit it writes <exit-file>.oom and kills every process of the slot; past max-seconds it writes
+#          <exit-file>.timeout and does the same. pool-MiB is the limit of all slots together (the Linux devenv slice;
+#          the installer sets half of the Mac's memory): over it, the slot that uses the most memory ends (oom);
+#       4. runs the program (srt), writes its exit code to <exit-file>, then kills what is left in the slot (a
+#          `setsid nohup ... &` of the command, for example).
+#   stop   SIGTERM to every process of the slot, SIGKILL after 3 s.
+#   check  prints "ok <user>" (the server's self test of the sudoers rule).
+#
+# "Every process of the slot" is every process whose real uid is the slot account's (ps -U): a run's process that leaves
+# the process group or the session (setsid) is still one of them. The srt sandbox allows signals only within the same
+# sandbox, so a run cannot kill this script or its watchdog.
+#
+# Rule for every script of the dev environment: root never signals -1 or a list of pids (as root, kill -1 stops every
+# process of the Mac). A run ends only by its own uid: this file's stop as the slot account, or pkill -u <slot uid>.
+set -u
+# the run's own PATH (runEnv: node, Python, the Command Line Tools) goes back for the command; this script uses the
+# system's only
+RUN_PATH=${PATH:-/usr/bin:/bin}
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+die() { echo "run-wrap-mac: $*" >&2; exit 2; }
+ME=$(id -un)
+[ "$(id -u)" != 0 ] || die "never as root"
+# the slot accounts are role accounts with a number: _<name>dev<n>. Anything else is refused, because the clean-up would end
+# every process of a person's own account
+[[ "$ME" =~ ^_[a-z][a-z0-9]{0,30}dev[0-9]{1,2}$ ]] || die "not a dev slot account: $ME"
+
+# The slot: every process of this uid; the pool: every process of the slots' group (the slot accounts' primary group).
+# tests/unit/dev-env-srt-mac.test.ts replaces these two lines to use a process group of the test's own account, so
+# keep each one a single line.
+slot_ps() { ps -x -U "$(id -u)" -o pid=,ppid=,stat=,rss=,uid=,command=; }
+pool_ps() { ps -x -G "$(id -g)" -o uid=,rss=; }
+# Signals go to the pids that ps lists by real uid, never to -1: kill -1 as the slot account also hits the sudo that
+# started this file (it keeps the slot's uid as its saved uid), and sudo then stops or ends itself and the run with it
+# (Mac mini check, 2026-11-12).
+# SIGSTOP never goes to the run's top process (this file as "run", whose parent is sudo, not a process of the slot): sudo
+# sees its command stop and stops itself, and then never ends (Mac mini check, 2026-11-12). It gets SIGKILL only.
+slot_pids() { slot_ps | awk -v me="$$" '$1 != me && $3 !~ /^Z/ { print $1 }'; }
+stop_pids() { slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3 } END { for (p in pp) if (p != me && st[p] !~ /^Z/ && (pp[p] in pp || pp[p] == 1)) print p }'; }
+slot_kill() { local s k; s=$(stop_pids); [ -n "$s" ] && kill -STOP $s 2>/dev/null; k=$(slot_pids); [ -n "$k" ] && kill -KILL $k 2>/dev/null; return 0; }
+slot_term() { local p; p=$(slot_pids); [ -n "$p" ] && kill -TERM $p 2>/dev/null; }
+
+# Is there a process of this slot other than this shell ($$; bash 3.2 has no BASHPID, so the watchdog is its own
+# invocation of this file), zombies and the helpers of this check (below this shell, and only ps,
+# awk or a subshell of this file, up to four levels: the command's own processes count, also when they are this close; a fork bomb is)?
+others() {
+  slot_ps | awk -v me="$$" '{ pp[$1] = $2; st[$1] = $3; h[$1] = ($6 ~ /(^|\/)(ps|awk)$/ || index($0, "run-wrap-mac") > 0) }
+    END { for (p in pp) { if (p == me || st[p] ~ /^Z/) continue; q = pp[p]; if (h[p] && (q == me || pp[q] == me || pp[pp[q]] == me || pp[pp[pp[q]]] == me)) continue; found = 1 } exit !found }'
+}
+# "none" when others finds nothing. At the process limit (a fork bomb) the check itself cannot fork and prints nothing,
+# which is not "none": the caller goes on killing
+others_state() { if others; then echo some; else echo none; fi; }
+# SIGSTOP, then SIGKILL, to every process of the slot except the caller (a stopped process cannot fork, so a fork bomb
+# cannot make new ones between the two); again until the slot is empty. kill is a builtin: it works at the limit too
+kill_slot() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    slot_kill
+    [ "$(others_state 2>/dev/null)" = none ] && return 0
+    sleep 0.2 2>/dev/null
+  done
+}
+
+case "${1:-}" in
+  check) echo "ok $ME"; exit 0 ;;
+  stop)
+    slot_term
+    for i in 1 2 3 4 5 6; do [ "$(others_state 2>/dev/null)" = none ] && exit 0; sleep 0.5 2>/dev/null; done
+    kill_slot; exit 0 ;;
+  run) shift ;;
+  _watch)
+    # the watchdog of a run (started by run below): <exit-file> <limit-KiB> <max-seconds> <start-epoch> <pool-KiB>
+    [ $# -eq 6 ] || die "usage: _watch"
+    EXIT_FILE=$2 LIMIT_KB=$3 MAXSEC=$4 START=$5 POOL_KB=$6
+    while :; do
+      sleep 1
+      kb=$(slot_ps | awk '{ s += $4 } END { print s + 0 }')
+      now=$(date +%s)
+      if [ "$kb" -gt "$LIMIT_KB" ]; then echo "$kb" > "$EXIT_FILE.oom"; kill_slot; exit 0; fi
+      # the pool: the total of every slot, and whether this slot uses the most (a tie: each of them ends)
+      if [ "$(pool_ps | awk -v me="$(id -u)" -v pool="$POOL_KB" '{ t += $2; u[$1] += $2 } END { m = 0; for (k in u) if (u[k] > m) m = u[k]; print (t > pool && u[me] >= m) ? 1 : 0 }')" = 1 ]; then
+        echo "pool $kb" > "$EXIT_FILE.oom"; kill_slot; exit 0
+      fi
+      if [ $((now - START)) -gt "$MAXSEC" ]; then echo "$((now - START))" > "$EXIT_FILE.timeout"; kill_slot; exit 0; fi
+    done ;;
+  *) die "usage: run-wrap-mac run|stop|check" ;;
+esac
+
+[ $# -ge 7 ] || die "usage: run-wrap-mac run <exit-file> <memory-MiB> <pids> <max-seconds> <pool-MiB> -- <program> [args...]"
+EXIT_FILE=$1 MEM=$2 PIDS=$3 MAXSEC=$4 POOL=$5
+shift 5
+[ "${1:-}" = "--" ] || die "missing --"
+shift
+case "$EXIT_FILE" in /*) ;; *) die "the exit file must be an absolute path" ;; esac
+[[ "$MEM" =~ ^[0-9]{2,6}$ ]] && [[ "$PIDS" =~ ^[0-9]{2,5}$ ]] && [[ "$MAXSEC" =~ ^[0-9]{1,6}$ ]] && [[ "$POOL" =~ ^[0-9]{2,7}$ ]] || die "bad limits"
+! others || die "the slot $ME is busy (it has processes)"
+rm -f "$EXIT_FILE.oom" "$EXIT_FILE.timeout"
+
+# the watchdog starts before the process limit: at that limit (a fork bomb) the run cannot fork, the watchdog still can
+"$0" _watch "$EXIT_FILE" $((MEM * 1024)) "$MAXSEC" "$(date +%s)" $((POOL * 1024)) &
+# no "Killed: 9" line of bash in the run's output when the watchdog ends below
+disown $!
+ulimit -n 4096
+ulimit -f 4194304   # bash counts 1024-byte blocks: 4 GiB
+ulimit -c 0
+renice -n 10 -p $$ >/dev/null 2>&1
+
+# the process limit only for the command (the kernel counts processes per real uid, and this slot's account runs
+# nothing else: the run's own limit). This script keeps the account's limit, so at the run's limit (a fork bomb) it can
+# still run ps for the clean-up below
+( ulimit -u "$PIDS" || { echo "run-wrap-mac: cannot set the process limit to $PIDS" >&2; exit 126; }; PATH=$RUN_PATH exec "$@" )
+code=$?
+# the watchdog and everything the command left behind, first
+kill_slot
+# the server reads this file; the sandbox can read that folder but not write it
+printf '%s\n' "$code" > "$EXIT_FILE.tmp" && mv -f "$EXIT_FILE.tmp" "$EXIT_FILE" || printf '%s\n' "$code" > "$EXIT_FILE"
+exit "$code"

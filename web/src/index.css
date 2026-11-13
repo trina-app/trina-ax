@@ -69,20 +69,53 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* Computers read at the phone's sizes too (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, meta, times and
+     hints 13px, badges 12px, nothing else under 13px. Tailwind's text-xs and text-sm are raised here, at the root, so
+     every screen follows without a class change; text-base stays 16px. */
+  --text-xs: 0.8125rem; /* 13/18 */
+  --text-xs--line-height: calc(1.125 / 0.8125);
+  --text-sm: 0.9375rem; /* 15/22 */
+  --text-sm--line-height: calc(1.375 / 0.9375);
   /* The app's own type sizes next to Tailwind's text-xs / text-sm / text-base: reading (answers, messages, the message
      boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
      blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
      --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
-     step up (the @media block below); leading-reading is the line of room messages and the message boxes. In rem, as
+     step up in reading, label, base and code, and keep xs, sm and micro (the @media block below); leading-reading is the line
+     of room messages and the message boxes. In rem, as
      Tailwind's own, so the person's text size (lib/textSize.ts: the root font size) scales them; the px are at 기본. */
-  --text-reading: 0.9375rem; /* 15px */
+  --text-reading: 1rem; /* 16px */
   --text-label: 0.8125rem; /* 13px */
-  --text-micro: 0.6875rem; /* 11px */
-  --text-nano: 0.625rem; /* 10px */
+  --text-micro: 0.8125rem; /* 13px */
+  --text-nano: 0.75rem; /* 12px */
   --text-code: 0.8125rem; /* 13px */
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
-  --leading-reading: 1.5rem;
+  --leading-reading: 1.625rem; /* 26px */
+  /* The list panels' type (the rail's panels: 트리나, 대화, 프로젝트, 파일, 활동; the phone lists and drawer that share
+     their rows; docs/DESIGN-SYSTEM.md "Typography": row, list-heading, meta): `text-row` 15px for every row, a section's header and the fixed rows
+     on top; `text-meta` 13px for a row's second line and tags (a project's "나만 · 3시간 전", a chat's project); `h-row`
+     30px, a row's height on a computer (taller on phones and touch screens: 40–44px); `pl-row-indent` 30px, a section's rows indented
+     so their icon starts under the header's words (the header's ▸ box 24px + its 6px gap). Text colour ladder for rows:
+     `text-ink` (unread, the open row, headers and the fixed rows) › `text-muted` (a read row) › `text-faint` (meta).
+     Same on phones: 15px is already the phone floor for rows. */
+  --text-row: 0.9375rem; /* 15px */
+  --text-row--line-height: 1.25rem;
+  --text-meta: 0.8125rem; /* 13px */
+  --text-meta--line-height: 1.125rem;
+  --spacing-row: 1.875rem; /* 30px */
+  --spacing-row-indent: 1.875rem; /* 30px */
+  /* the shared list pieces (components/list/List.tsx: ListRow, ListIcon, ListSection, ListHeading), on a computer; a
+     phone's values are in the block after the phone sizes below, so every list (the panels, the phone tabs 대화 · 프로젝트
+     · 파일 · 나 and the drawer) changes in one place */
+  --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
+  --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
+  --spacing-list-glyph: 1rem; /* the icon inside it */
+  --color-list-icon-bg: transparent;
+  --color-row-read: var(--c-muted); /* a read row's name */
+  --font-weight-row-read: 400;
+  --text-list-head: 0.9375rem; /* a section's header: the rows' 15px */
+  --text-list-head--line-height: 1.25rem;
+  --color-list-head-ink: var(--c-ink);
   /* A message box's slot for a control beside the text (the clip, "+", the mic, send) and the recording bar: one text
      line's box, the reading line with 8px (py-2) above and below. The row is bottom-aligned and each control sits
      centred in its slot, so with one line the buttons and the text share one centre, and with more lines the buttons
@@ -150,6 +183,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
    token's background shows under it), an IME's background, spell check and placeholder are in between. */
 textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: transparent; }
+/* an empty box's hint stays on one line, cut at the end, so the box does not grow from it (the largest text size on a
+   phone, a wide system font); a transcription job's label (aria-busy) still wraps and grows the box (RoomComposer) */
+textarea[data-token-input]:placeholder-shown:not([aria-busy]) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
 [data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
 [data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
@@ -180,7 +216,8 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   .presence-dot[data-presence-dot='away'] { background: Canvas; box-shadow: inset 0 0 0 2px CanvasText, 0 0 0 2px Canvas; }
 }
 
-/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
+/* Phones (below 768px, where the phone top bar and the tabs show): the text sizes at the phone floor (xs, sm and micro as
+   on computers, the others one step up; badges stay 11px)
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
    reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it
@@ -200,6 +237,26 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --text-nano: 0.6875rem; /* 11px */
     --text-code-sm: 0.8125rem; /* 13px */
     --text-code-file: 0.8125rem; /* 13px */
+  }
+}
+
+/* The shared lists on phones (components/list/List.tsx), as the 대화 tab has always drawn them: names 17px, read ones in
+   ink at 500 (the second line carries what is new), an icon in a 40px round tile, rows at least 56px, a section's header
+   small and grey above its rows (iOS style), rows not indented under it. Only the list tokens, not the type scale. */
+@media (max-width: 767.98px) {
+  :root {
+    --text-row: 1.0625rem; /* 17px */
+    --text-row--line-height: 1.5rem;
+    --spacing-row-indent: 0.75rem; /* the rows' own 12px: no extra indent */
+    --spacing-row-min: 3.5rem; /* 56px */
+    --spacing-list-icon: 2.5rem; /* 40px */
+    --spacing-list-glyph: 1.25rem; /* 20px */
+    --color-list-icon-bg: var(--c-hover);
+    --color-row-read: var(--c-ink);
+    --font-weight-row-read: 500;
+    --text-list-head: 0.8125rem; /* 13px */
+    --text-list-head--line-height: 1.125rem;
+    --color-list-head-ink: var(--c-faint);
   }
 }
 

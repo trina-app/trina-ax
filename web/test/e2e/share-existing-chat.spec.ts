@@ -10,6 +10,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { chatList } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -123,7 +124,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
       await expect(ask).toBeVisible()
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveText('개인 메모리를 참고한 답이 있을 수 있어요')
       // 공유하기 is the default; the note comes first, before anything else in the dialog's body
       await expect(ask.getByTestId('share-chat-confirm')).toBeFocused()
@@ -143,28 +144,26 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
     test('from a chat row\'s "…" in the sidebar: moved with the switch on, the confirm, shared; the row moves to its project and keeps the dialog', async ({ page, browser }) => {
       await reset(page)
-      // the history grouped by project: the moved chat's row goes to another group (and is made again)
-      await page.addInitScript(() => localStorage.setItem('mycel.sidebar.recentsView', JSON.stringify({ status: 'all', activity: 'all', group: 'project', sort: 'updated' })))
       await signIn(page)
       await project(page)
       const chatId = await privateChat(page, 'mine-source 경쟁사 메모 정리해 줘')
       await page.goto('/')
-      if (vp.phone) await page.getByTestId('menu-open').click()
-      const list = page.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list')
+      const list = await chatList(page)
       const row = list.getByRole('listitem').filter({ hasText: '경쟁사 메모' })
       await row.hover()
       await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
       await row.getByTestId('chat-row-move').click()
-      const dialog = page.getByRole('dialog', { name: '이 기록의 프로젝트' })
+      const dialog = page.getByRole('dialog', { name: '프로젝트로 옮기기' })
       await dialog.getByText('Launch', { exact: true }).click()
       await expect(dialog.getByTestId('chat-project-share-toggle')).not.toBeChecked()
       await audit(page, 'move dialog from the row menu')
       await dialog.getByText('프로젝트 멤버와 공유', { exact: true }).click()
       await dialog.getByTestId('chat-project-save').click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
-      // the row went under its project meanwhile; the question is still there
-      await expect(list.getByRole('heading', { name: 'Launch' })).toBeVisible()
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
+      // a computer's 최근 기록 (one flat list since #683) names the row's project meanwhile (a phone's drawer lists by date,
+      // no tag); the question is still there
+      if (!vp.phone) await expect(row.getByTestId('chat-row-project')).toHaveText('Launch')
       await expect(ask).toBeVisible()
       await audit(page, 'share confirm from the row menu')
       await ask.getByTestId('share-chat-confirm').click()
@@ -218,7 +217,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'chat menu with share')
       await item.click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
       // asked again when something changed meanwhile, said so on top
       expect((await post(page, '/__test/share-changed', {})).ok()).toBeTruthy()

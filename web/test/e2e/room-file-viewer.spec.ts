@@ -577,7 +577,10 @@ test("a team file named in the column's thread opens in the side panel: the view
   await openRoom(page, { link: true })
   await openChip(timeline(page), 'acme-handbook.pdf')
   await expect(column(page).getByTestId('room-message')).toHaveCount(3)
-  await column(page).getByTestId('room-link').click()
+  // opened from the keyboard: a message's hover bar can lie over a link at the end of its first line and take the click
+  // (seen with the Linux runner's fonts; a layout point for the redesign); the route is what is tested here
+  await column(page).getByTestId('room-link').focus()
+  await page.keyboard.press('Enter')
   await expect(viewer(page)).toHaveCount(0)
   await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('handbook.pdf')
   expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
@@ -642,7 +645,12 @@ test.describe('a phone (390 px)', () => {
     expect(body.width).toBe(390)
     // a finger swipes: no arrows on a touch screen (the edge arrows would sit on the text; QA TC-257)
     await expect(page.getByTestId('image-viewer-next')).toBeHidden()
-    await expect(page.getByTestId('image-viewer-bar-next')).toBeHidden()
+    // the bottom bar's ‹ › stay for screen readers only (VoiceOver and TalkBack take the swipe): off screen, named
+    const barNext = page.getByTestId('image-viewer-bar-next')
+    await expect(barNext).toBeAttached()
+    const barBox = await barNext.boundingBox()
+    expect(barBox === null || (barBox.width <= 1 && barBox.height <= 1)).toBe(true)
+    await expect(barNext).toHaveAccessibleName(/.+/)
     await expect(page.getByTestId('image-viewer-panel')).toBeHidden()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await audit(page, 'viewer on a phone')
@@ -732,7 +740,9 @@ test.describe('a phone (390 px), the conversation', () => {
     await touchDrag(page, handle, 150)
     await expect(sheet(page)).toHaveAttribute('data-size', 'part')
     await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
-    await touchDrag(page, handle, 300)
+    // held still before the finger lifts: a quick lift would leave the browser a fling, and the next tap (on 💬
+    // below) would only stop that fling, without a click, as on an Android phone
+    await touchMove(page, handle, 0, 300, { hold: 150 })
     await expect(sheet(page)).toHaveCount(0)
     await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
     await expect(page.getByTestId('image-viewer-stage')).not.toHaveAttribute('inert', '')

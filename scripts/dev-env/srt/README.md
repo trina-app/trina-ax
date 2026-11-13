@@ -1,7 +1,8 @@
 # Dev environment on srt: install
 
 The srt runner of the dev environment (design: `docs/research/srt-dev-env.md`). The AI's `box_shell` commands run on
-the team server as the server account, inside srt, in a `systemd-run --scope` unit. srt is the only runner.
+the team server as the server account, inside srt, in a unit of its own: an instance `trina-dev@<runId>.service` of a
+root-installed template (docs/DECISIONS.md "Dev environment on srt: runs as template units"). srt is the only runner.
 `install-srt.sh` writes the drop-in file `dev-env.conf` of the server unit. The server does not read
 `MYCEL_DEV_ENV_RUNNER=srt` any more, but the file keeps the line: `uninstall-srt.sh` and `mycel-ctl update` know the file
 of srt by it.
@@ -10,17 +11,18 @@ of srt by it.
 
 | File | Goes to | What |
 |---|---|---|
-| `install-srt.sh` | (run as root) | packages, node, srt, the files below, the server drop-in, a scope check |
+| `install-srt.sh` | (run as root) | packages, node, srt, the files below, a run check, then the server drop-in |
 | `uninstall-srt.sh` | (run as root) | removes all of it; `--purge` also deletes `<base>/devenv` |
 | `package.json`, `package-lock.json` | `/opt/trina/srt/<version>/` | the pinned srt and its dependencies, with integrity hashes |
-| `run-wrap` | `/opt/trina/devenv/run-wrap` | rlimits, `oom_score_adj`, the exit file |
+| `run-wrap` | `/opt/trina/devenv/run-wrap` | the run's arguments file (`--unit`), rlimits, `oom_score_adj`, the exit file |
 | `srt-full.mjs` | `/opt/trina/srt/<version>/full.mjs` | srt's CLI for a person's Full internet: allows host names only, never an IP address or a local name |
-| `devenv.rules.in` | `/etc/polkit-1/rules.d/60-<ID>-devenv.rules` | the server account may start, stop and reset-failed `trina-dev-<16>.scope` only |
+| `devenv-run.service.in` | `/etc/systemd/system/trina-dev@.service` | the run template: the server account, the devenv slice, the server unit's sandbox lines, `OOMPolicy=kill`, an 8 h 10 min ceiling |
+| `devenv.rules.in` | `/etc/polkit-1/rules.d/60-<ID>-devenv.rules` | the server account may start, stop, reset-failed and set-property `trina-dev@<16>.service` only |
 | `devenv.slice.in` | `/etc/systemd/system/<ID>-devenv.slice` | the ceiling of all runs, from `<base>/root/dev-env.json` |
 
 ## Install
 
-On a Debian 13 Trina server, as root:
+On a Debian 13 or Ubuntu 24.04 Trina server, as root:
 
 ```
 scripts/dev-env/srt/install-srt.sh --id mycel
@@ -28,6 +30,13 @@ scripts/dev-env/srt/install-srt.sh --id mycel
 
 On a hosted team VM the plan file `<base>/root/dev-env.json` must be there (root-owned, format 1). Self-hosted servers
 without the file get half of the memory and of the CPUs for all runs together. The first run restarts the team server.
+
+Ubuntu 24.04 needs no AppArmor profile of its own: srt runs `/usr/bin/bwrap`, which the installer's `<ID>-bwrap`
+profile covers, and srt's `apply-seccomp` inherits that profile. Where the kernel restricts user namespaces, the script
+checks bwrap as the server account and runs one command in srt with `no_new_privs` (as the server unit runs). Runs are
+template units and not transient scopes because systemd 255 sends polkit no unit name for `StartTransientUnit`.
+
+The template names one install's account, base folder and slice: one dev environment per machine.
 
 Then, in the app, an owner or admin turns on the dev environment for the team in Team settings › Dev environment and
 accepts the warning (version 2).
@@ -37,7 +46,7 @@ accepts the warning (version 2).
 - `systemctl show -p Environment <ID>-server.service` names `MYCEL_DEV_ENV_RUNNER=srt`.
 - Team settings › Dev environment shows no "cannot run" note. If it does, `GET /api/admin/dev-env` says why in
   `availability.detail` (a missing file, polkit).
-- `systemctl list-units 'trina-dev-*'` lists the runs while they run.
+- `systemctl list-units 'trina-dev@*'` lists the runs while they run.
 
 ## A new srt version
 
@@ -49,5 +58,5 @@ accepts the warning (version 2).
 3. Read srt's release notes: it is a "beta research preview".
 4. Run `bun tests/linux/srt-run.ts` (the Docker attack suite).
 
-A new version goes into a new folder. Running scopes keep the old one; the install removes an old folder only when no
+A new version goes into a new folder. Running runs keep the old one; the install removes an old folder only when no
 process uses it.

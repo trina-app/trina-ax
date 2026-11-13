@@ -124,11 +124,10 @@ test('an admin who is not the owner reads the roles; the other pages keep their 
 })
 
 test('Connectors and AI apps say their name once on a phone (the bar), in Admin and in Settings', async ({ page }) => {
-  // the person's Connectors is its own page of the sidebar (/connectors), of its own design; Admin's keeps its name
-  // (Connected apps)
-  for (const [path, bar] of [['/admin/connectors', 'admin-bar-title'], ['/settings/ai-apps', 'settings-section-title']] as const) {
+  // the person's Connectors is a section of Settings (QA TC-400); Admin's keeps its name (Connected apps)
+  for (const [path, bar] of [['/admin/connectors', 'admin-bar-title'], ['/settings/connectors', 'settings-section-title'], ['/settings/ai-apps', 'settings-section-title']] as const) {
     await page.goto(path)
-    const name = path.endsWith('ai-apps') ? t['aiApps.title'] : t['admin.integrations']
+    const name = path.endsWith('ai-apps') ? t['aiApps.title'] : path.startsWith('/settings') ? t['integrations.title'] : t['admin.integrations']
     // Admin's list names the team's own "Team connected apps" (TC-269), so the person's and the team's never look the same
     await expect(page.getByTestId(bar)).toHaveText(path.startsWith('/admin') ? t['admin.team.integrations'] : name)
     const h2 = page.getByRole('heading', { level: 2, name, exact: true })

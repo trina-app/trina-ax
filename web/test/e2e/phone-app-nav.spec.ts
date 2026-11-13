@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab, tabButton } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
@@ -50,24 +51,26 @@ test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, 
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  // the start tab's root: no swipe; Android's Back leaves the app
+  // the start tab's root (the 트리나 list; signIn leaves a phone on the new-chat box, /new, above it): no swipe;
+  // Android's Back leaves the app
+  await openTab(page, 'ai')
   await expect(page).toHaveURL(/\/$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
 
   // (1) the 대화 tab's root: iOS no swipe; Android's Back goes to the start tab…
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
   const before = await loads(page)
   await page.evaluate(START_TAB_SCRIPT)
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(await tabButton(page, 'ai')).toHaveAttribute('aria-current', 'page')
   // …then leaves the app (nothing under the start tab's root)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
   expect(await loads(page)).toBe(before)
 
   // a room above the 대화 list: Back goes to the list
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await page.getByTestId('rooms-row').filter({ hasText: '마케팅팀' }).click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM}$`))
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
@@ -92,12 +95,12 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  // the team folder (프로젝트 › 팀 폴더, QA TC-255): a step above the 프로젝트 tab's root
-  await page.getByTestId('tab-projects').click()
-  await expect(page).toHaveURL(/\/projects$/)
-  await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
-  await page.getByTestId('projects-team-folder-row').click()
+  // the team folder's top (파일 › 팀 폴더, /files?team=1): a step above the 파일 tab's root (its places)
+  await openTab(page, 'files')
   await expect(page).toHaveURL(/\/files$/)
+  await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
+  await page.getByTestId('files-panel-root').click()
+  await expect(page).toHaveURL(/\/files\?team=1$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
   const before = await loads(page)
   // (2) the script the app injects for a tapped notification (src/nav.ts openScript)
@@ -108,7 +111,7 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await expect.poll(() => heard(page)).toMatchObject({ canGoBack: true })
   // Back (the app's goBack): the folder the person was in
   await page.goBack()
-  await expect(page).toHaveURL(/\/files$/)
+  await expect(page).toHaveURL(/\/files\?team=1$/)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   expect(await loads(page)).toBe(before)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
@@ -124,7 +127,7 @@ test('an app without nav-v1 hears no nav (an older store build never answers it)
   await app(page, false)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   const before = await loads(page)
   await page.evaluate(openScript(`/rooms/${ROOM}`))

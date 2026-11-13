@@ -19,12 +19,12 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { legacyProject, oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
-import { sharedChatAudienceCovers, sharedTranscriptText, unshareUncheckedChats } from '../../server/src/chat/shared'
+import { sharedTranscriptText, unshareUncheckedChats } from '../../server/src/chat/shared'
 import { markConfidentialTurn } from '../../server/src/safe-ops/confidential'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { setLauncherForgetForTests } from '../../server/src/chat/forget'
-import { ROOM_OWN_TOOLS, ROOM_PROJECT_CHAT_TOOLS, ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, SHARED_PROMPT_SECTIONS, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
+import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, SHARED_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { runExport } from '../../server/src/system/export'
 
@@ -321,7 +321,7 @@ describe('the read card', () => {
     const q = (r.card as { question: string }).question
     expect(q).toContain('Groups › marketing')
     expect(q).toContain('Of the 2 members who see this chat, 1 cannot see this place')
-    expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', "Don't read"])
+    expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', 'Always allow', "Don't read"])
     expect(r.done.content).toContain(CANARY)
     expect(ws.bob!.frames.slice(bobFrames).some((f) => f.type === 'turn.request')).toBe(false)
     const a = audits('chat.shared_read', chat.id).map((x) => JSON.parse(x.detail!))
@@ -331,6 +331,25 @@ describe('the read card', () => {
     const again = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'read', args: { file_path: 'groups/marketing/campaigns/instagram-plan.md' } }, { say: 'twice' }), 'share')
     expect(again.done.content).toBe('twice')
     expect(audits('chat.shared_read', chat.id)).toHaveLength(2)
+  })
+
+  // docs/DECISIONS.md "Always allow on every card" (review of #678): the runner's own choice; another member who runs a
+  // turn in the same chat is still asked on their own card
+  test('"Always allow": the runner picks it, their next read has no card; another member running a turn is still asked', async () => {
+    try {
+      const chat = await newShared()
+      const started = await send('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
+      const card = await cardOf('alice', started.turnId)
+      await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: '__always' } })
+      expect((await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)).data.message.content).toContain(CANARY)
+      const next = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
+      expect(next.done.content).toContain(CANARY)
+      expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === next.started.turnId)).toBe(false)
+      // bob's turn in the same chat: a file alice cannot read (finance) asks bob, on his own card
+      const bob = await askWithCard('bob', chat.id, fake({ tool: 'read', args: { file_path: 'groups/finance/budget.md' }, sayResult: true }), 'skip')
+      expect((bob.card as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['share', '__always', 'skip'])
+      expect(bob.done.content).not.toContain('CANARY-FIN')
+    } finally { db().query('DELETE FROM card_always_allow').run() }
   })
 
   test('no: a refusal that names no path, a neutral step, nothing read; a timeout reads the same but says it timed out', async () => {
@@ -439,10 +458,8 @@ describe('the read card', () => {
 
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
-  test('SHARED_TOOLS is ROOM_TOOLS without the room tools; a turn offers nothing else', async () => {
-    // (nor the room's reading of shared project chats: docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다")
-    expect([...SHARED_TOOLS].sort()).toEqual([...ROOM_TOOLS].filter((t) => !ROOM_OWN_TOOLS.has(t) && !ROOM_PROJECT_CHAT_TOOLS.has(t)).sort())
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create', 'box_shell', 'project_chats', 'project_chat']) expect(SHARED_TOOLS.has(t)).toBe(false)
+  test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
+    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create', 'box_shell']) expect(SHARED_TOOLS.has(t)).toBe(false)
     const chat = await newShared()
     const r = await ask('alice', chat.id, fake({ echo: 'tools' }))
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
@@ -452,8 +469,7 @@ describe('what a shared turn has', () => {
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.keys(SHARED_PROMPT_SECTIONS).sort()).toEqual(Object.keys(ROOM_PROMPT_SECTIONS).sort())
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'room', 'sideRoom'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'sideRoom'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
@@ -674,18 +690,11 @@ describe('review fixes', () => {
   })
 })
 
-describe('reusable pieces (a room\'s AI may use a shared chat later only when every member sees it)', () => {
-  test('sharedChatAudienceCovers takes a set of people; sharedTranscriptText gives the labelled, capped transcript', async () => {
+describe('reusable pieces', () => {
+  test('sharedTranscriptText gives the labelled, capped transcript', async () => {
     const chat = await newShared()
     await ask('alice', chat.id, 'ALICE-ASKS\n' + fake({ say: 'answer A' }))
     await ask('bob', chat.id, 'BOB-ASKS\n' + fake({ say: 'answer B' }))
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'bob'])).toBe(true)
-    // the owner and admins are not members: a set with them is not covered
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'bob', 'carol', 'dana'])).toBe(false)
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, ['alice', 'erin'])).toBe(false)
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, chat.id, [])).toBe(false)
-    const own = await h.api('alice').call(API.createChat, { body: {} })
-    expect(sharedChatAudienceCovers(db(), h.ctx.files, own.id, ['alice'])).toBe(false)
     const leaf = (db().query('SELECT active_leaf_id FROM chats WHERE id = ?').get(chat.id) as { active_leaf_id: string }).active_leaf_id
     const text = sharedTranscriptText(h.rt().store, leaf, 'carol', new Set())
     expect(text).toContain('<previous_conversation>')

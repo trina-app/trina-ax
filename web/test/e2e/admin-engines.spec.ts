@@ -26,7 +26,11 @@ test('Providers: one row per engine with its state, what is missing, check again
   const claude = page.locator('[data-engine="claude-code"]')
   const codex = page.locator('[data-engine="codex"]')
   await expect(claude).toContainText(t['engines.status.ok'])
-  await expect(claude).toContainText('Sonnet, Opus')
+  // each engine shows its provider's mark; the models, sign-in and check time wait in the opened row
+  await expect(claude.getByTestId('provider-logo').first()).toHaveAttribute('data-mark', 'claude')
+  await expect(codex.getByTestId('provider-logo').first()).toHaveAttribute('data-mark', 'openai')
+  await expect(page.locator('[data-engine="api"]').getByTestId('provider-logo').first()).toHaveAttribute('data-mark', 'api')
+  await expect(claude).not.toContainText('Sonnet, Opus')
   // what is missing stays on the row, in one line
   await expect(codex).toContainText(t['engines.status.not_logged_in'])
   await expect(codex.getByTestId('engine-detail')).toContainText('codex login --device-auth')
@@ -37,11 +41,13 @@ test('Providers: one row per engine with its state, what is missing, check again
   await open.click()
   await expect(open).toHaveAttribute('aria-expanded', 'true')
   await expect(claude.getByTestId('engine-details')).toContainText('v2.1.305')
+  await expect(claude.getByTestId('engine-details')).toContainText('Sonnet, Opus')
   await expect(claude.getByTestId('engine-details')).toContainText(t['engines.localHelp'].slice(0, 30))
   await open.click()
   await expect(claude.getByTestId('engine-details')).toHaveCount(0)
 
-  // check again asks the server about this engine only
+  // check again (in the opened row) asks the server about this engine only
+  await codex.getByTestId('engine-open').click()
   const checked = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/admin\/engines\/codex\/check$/.test(r.url()))
   await codex.getByRole('button', { name: t['engines.check'], exact: true }).click()
   await checked

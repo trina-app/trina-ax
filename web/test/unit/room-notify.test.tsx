@@ -271,6 +271,24 @@ test('a save that fails puts back what the server has: a change saved just befor
   } finally { holdPatch = null; failPatch = null; await m.unmount() }
 })
 
+test('"AI answers" (QA TC-442): first in 작업·연결 알림 with its line, on by default; turning it off sends chatAnswers: false', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  prefs = { ...defaults(), chatAnswers: true }
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notification-pref-chatAnswers'), 'the AI answers switch')
+    const work = m.get('notifications-work')
+    expect(work.textContent).toContain(ko('notifications.chatAnswers'))
+    expect(work.textContent).toContain(ko('notifications.chatAnswersDesc'))
+    expect(work.textContent!.indexOf(ko('notifications.chatAnswers'))).toBeLessThan(work.textContent!.indexOf(ko('notifications.scheduleSuccess')))
+    expect((m.get('notification-pref-chatAnswers') as unknown as { checked: boolean }).checked).toBe(true)
+    await press(m, 'notification-pref-chatAnswers')
+    await m.until(() => sent.some((s) => s.key === 'PATCH /api/notification-preferences'), 'the PATCH')
+    expect(sent.find((s) => s.key === 'PATCH /api/notification-preferences')!.body).toEqual({ chatAnswers: false })
+  } finally { await m.unmount() }
+})
+
 test('an older server (one switch for rooms): one row, the old switch', async () => {
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
   prefs = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
@@ -279,6 +297,8 @@ test('an older server (one switch for rooms): one row, the old switch', async ()
   try {
     await m.until(() => m.find('notification-pref-roomMessages'), 'the room switch')
     expect(m.find('notification-room-level')).toBeNull()
+    // a server from before "AI answers" leaves it out: no row
+    expect(m.find('notification-pref-chatAnswers')).toBeNull()
     expect(m.find('notification-quiet')).toBeNull()
   } finally { await m.unmount() }
 })
@@ -310,3 +330,26 @@ async function act(select: ReturnType<Awaited<ReturnType<typeof mount>>['get']>,
   })
 }
 void BEN
+
+test('폰 알림 (phoneWhen): its own section between 작업·연결 알림 and 이 기기, on by default; off sends "always"; an older server shows none', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  prefs = { ...defaults(), phoneWhen: 'away' }
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notifications-phone'), 'the 폰 section')
+    const body = m.container.ownerDocument!.body
+    const ids = body.querySelectorAll('[data-testid]').map((e) => e.getAttribute('data-testid')).filter((x) => ['notifications-work', 'notifications-phone', 'notifications-device'].includes(x!))
+    expect(ids).toEqual(['notifications-work', 'notifications-phone', 'notifications-device'])
+    expect(m.get('notifications-phone').textContent).toContain(ko('notifications.phoneAwayDesc'))
+    await press(m, 'notification-phone-away')
+    await m.until(() => sent.some((s) => s.key === 'PATCH /api/notification-preferences'), 'the PATCH')
+    expect(sent.filter((s) => s.key === 'PATCH /api/notification-preferences').map((s) => s.body)).toEqual([{ phoneWhen: 'always' }])
+  } finally { await m.unmount() }
+  prefs = defaults()
+  const old = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await old.until(() => old.find('notifications-work'), 'the work section')
+    expect(old.find('notifications-phone')).toBeFalsy()
+  } finally { await old.unmount() }
+})

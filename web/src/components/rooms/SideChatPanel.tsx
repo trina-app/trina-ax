@@ -622,7 +622,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           />
           <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
             {phone ? (
-              <AttachSheet onFiles={(all) => void files.addFiles(all)} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
+              <AttachSheet key={filesDraft(roomId)} onFiles={(all) => void files.addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - files.live.length} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={15} aria-hidden />} testId="side-chat-attach" filesTestId="side-chat-file-input" />
             ) : (
               <>
                 <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="side-chat-attach">
@@ -661,7 +661,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             }}
           />
         )}
-        <p className="pt-1.5 text-center text-[11px] text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        <p className="pt-1.5 text-center text-micro text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
     </FileDropZone>
   )

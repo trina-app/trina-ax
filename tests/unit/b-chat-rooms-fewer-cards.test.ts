@@ -5,9 +5,9 @@
 // or a copy of such a file counts as outside content when a later chat reads it (remember asks), one I or a clean chat
 // wrote does not, and one this same chat wrote adds nothing; in a team folder one [이번만 허용] covers the new files of
 // that folder for the rest of the answer (a second folder, an existing file, the web or a connection: a card each);
-// the side chat's [이 방에서는 항상 허용] is the room's own grant (Settings lists it, the next answer uses it, a grant made
-// in the room works there too), never offered when a member cannot write the folder, and it lapses (a member joins, 30
-// days); a chat that read two rooms gets [이번만] only. Review fixes: an edit_hwp output that lands on its own document
+// the card's "Always allow" is the person's own for every change after a room read (docs/DECISIONS.md "Always allow on
+// every card": Settings lists it, later answers use it, deleting it asks again); a grant made earlier in a room still
+// works in its side chat and lapses (30 days). Review fixes: an edit_hwp output that lands on its own document
 // ("x.hwp/") is that document, a file in a project's folder still asks, a byte copy made without the AI (the Files
 // screen, a folder copy, a restore) keeps the mark, listing rooms counts as outside, and migration 281's backfill marks an
 // older own chat by the tools its answers used.
@@ -163,7 +163,7 @@ describe('my own folder after a room read', () => {
     expect(r.cards).toHaveLength(5)
     // the team folder's card is the room card's (every member may write there): it offers the room's grant
     expect(r.cards[0]!.question).toContain(`${W(dir)}: planted-${tag}.md`)
-    expect(values(r.cards[0]!)).toEqual(['allow', 'always', 'skip'])
+    expect(values(r.cards[0]!)).toEqual(['allow', '__always', 'skip'])
     expect(r.cards[1]!.question).toContain(mine)
     targets.forEach((t, i) => expect(r.cards[i + 2]!.question).toContain(t))
     expect(read(mine)).toBe('mine\n')
@@ -284,7 +284,7 @@ describe('one yes per team folder in my own chat', () => {
     const r = await run('alice', chat, fake(roomRead(roomId), ...files.map((f) => write(f)), write(`${two}/a.md`), { tool: 'read', args: { file_path: `${one}/old.md` } }, write(`${one}/old.md`, 'changed\n'), { say: 'done' }), () => 'allow')
     expect(r.cards).toHaveLength(3)
     // the first: the room card's words after why it asks; an ordinary chat gets no "always" (two buttons)
-    expect(values(r.cards[0]!)).toEqual(['allow', 'skip'])
+    expect(values(r.cards[0]!)).toEqual(['allow', '__always', 'skip'])
     expect(r.cards[0]!.question).toStartWith(WHY)
     expect(r.cards[0]!.question).toMatch(new RegExp(`(Trina|The AI) wants to save a new file in ${W(one)}: quote-1\\.md\\.`))
     expect(r.cards[1]!.question).toContain(`${W(two)}: a.md`)
@@ -306,7 +306,7 @@ describe('one yes per team folder in my own chat', () => {
     const chat = await newChat('alice')
     const r = await run('alice', chat, fake(roomRead(roomId), WEB, write(`${dir}/w1.md`), write(`${dir}/w2.md`), write(`${dir}/w3.md`), { say: 'done' }), () => 'allow')
     expect(r.cards).toHaveLength(3)
-    for (const c of r.cards) expect(values(c)).toEqual(['allow', 'skip'])
+    for (const c of r.cards) expect(values(c)).toEqual(['allow', '__always', 'skip'])
     expect(chatRow(chat).room_outside).toBe(1)
     const next = await run('alice', chat, fake(write(`${dir}/w4.md`), write(`${dir}/w5.md`), { say: 'done' }), () => 'allow')
     expect(next.cards).toHaveLength(2)
@@ -334,7 +334,7 @@ describe('one yes per team folder in my own chat', () => {
     const chat = await sideChat('alice', a)
     const r = await run('alice', chat, fake(roomRead(a), roomRead(b), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), () => 'allow')
     expect(r.cards).toHaveLength(1)
-    expect(values(r.cards[0]!)).toEqual(['allow', 'skip'])
+    expect(values(r.cards[0]!)).toEqual(['allow', '__always', 'skip'])
     expect(exists(`${dir}/2.md`)).toBe(true)
     const used = audits('room.ai_grant_use').find((x) => x.detail.turnId === r.turnId)!
     expect((used.detail.rooms as { roomId: string }[]).map((x) => x.roomId).sort()).toEqual([a, b].sort())
@@ -349,7 +349,7 @@ describe('what counts as outside', () => {
     const chat = await sideChat('alice', roomId)
     const r = await run('alice', chat, fake({ tool: 'rooms', args: {} }, roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), () => 'allow')
     expect(r.cards).toHaveLength(2)
-    for (const c of r.cards) expect(values(c)).toEqual(['allow', 'skip'])
+    for (const c of r.cards) expect(values(c)).toEqual(['allow', '__always', 'skip'])
     expect(chatRow(chat).room_outside).toBe(1)
   })
 
@@ -454,7 +454,7 @@ describe('review fixes (security review of 1af88ea6)', () => {
     // erin may read the folder and no longer the room: the first file takes the wider-audience card (yes); the second, which
     // the grant covered before this fix, takes the room card: the grant is not used and no "always" is offered
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), (c) => (values(c)?.includes('save') ? 'save' : 'allow'))
-    expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', 'skip']])
+    expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', '__always', 'skip']])
     expect(labels(r.done, 'write').some((l) => l.endsWith(ALWAYS) || l.endsWith(ONCE))).toBe(false)
     expect(audits('room.ai_grant_use').some((a) => a.detail.turnId === r.turnId)).toBe(false)
     expect(exists(`${dir}/2.md`)).toBe(true)
@@ -618,45 +618,47 @@ describe('outside names, round 2 (review of #290)', () => {
 })
 
 describe('"이 방에서는 항상 허용" in the side chat', () => {
-  test('the room card\'s three buttons; [항상] is the room\'s own grant: Settings lists it, the next answer uses it, a member joining lapses it', async () => {
-    // carol (an admin, who may write there) is not in the room yet: she joins at the end
+  test('the room card\'s three buttons; "Always allow" is the person\'s own for every change after a room read (docs/DECISIONS.md "Always allow on every card"): Settings lists it, later answers use it, deleting it asks again', async () => {
+    // carol (an admin, who may write there) is not in the room yet: she joins later
     const THREE = ['alice', 'erin', 'dana']
     const { roomId, groupId } = await teamRoomOf(THREE)
     const dir = folder()
     const chat = await sideChat('alice', roomId)
-    const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/견적서_A사.md`, 'quote\n'), write(`${dir}/견적서_B사.md`), { say: 'done' }), (c) => (values(c)?.includes('always') ? 'always' : 'skip'))
+    const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/견적서_A사.md`, 'quote\n'), write(`${dir}/견적서_B사.md`), { say: 'done' }), (c) => (values(c)?.includes('__always') ? '__always' : 'skip'))
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
-    expect(c).toMatchObject({ origin: 'server', buttons: true, note: 'Applies only when you call it, to new files in this folder.' })
-    expect(c.options).toEqual([{ label: 'Allow once', value: 'allow' }, { label: 'Always allow in this room', value: 'always' }, { label: "Don't allow", value: 'skip' }])
+    expect(c).toMatchObject({ origin: 'server', buttons: true })
+    expect(c.note).toContain('Always allow')
+    expect(c.options).toEqual([{ label: 'Allow once', value: 'allow' }, { label: 'Always allow', value: '__always' }, { label: "Don't allow", value: 'skip' }])
     expect(c.question).toMatch(new RegExp(`^${WHY.replace(/[()]/g, '\\$&')}(Trina|The AI) wants to save a new file in ${W(dir)}: 견적서_A사\\.md\\. Changed files can be restored from their history\\.$`))
-    expect(c.details?.[0]?.text).toBe('quote\n')
     expect(read(`${dir}/견적서_B사.md`)).toBe('made by the AI\n')
-    expect(labels(r.done, 'write')[1]).toEndWith(ONCE)
-    // the room's own grant (asker × room × folder, new files, 30 days), made when the card was raised
-    const [g] = grantsOf('alice', roomId)
-    expect(g).toMatchObject({ folder: dir, scope: 'new_files', turn_id: r.turnId })
-    expect(Date.parse(g!.expires_at) - Date.parse(g!.created_at)).toBe(30 * 86_400_000)
-    expect(Date.parse(g!.members_since)).toBeLessThanOrEqual(Date.parse(g!.created_at))
-    // listed in Settings › 트리나에게 허용한 것, as the same row a room makes
-    const row = (await h.api('alice').call(API.listAiAllowances)).items.find((x) => x.id === g!.id)
-    expect(row).toMatchObject({ kind: 'room_files', folder: dir, room: { id: roomId, kind: 'team' } })
-    // the next answer: a new file there goes on with the grant
+    // the person's own choice (no room grant), audited, listed in Settings › 트리나에게 허용한 것
+    expect(grantsOf('alice', roomId)).toEqual([])
+    expect(h.ctx.db.query("SELECT kind FROM card_always_allow WHERE user_id = 'alice'").all()).toEqual([{ kind: 'room_change' }])
+    expect(audits('ai.always_allow').some((a) => a.detail.kind === 'room_change' && a.detail.turnId === r.turnId)).toBe(true)
+    const row = (await h.api('alice').call(API.listAiAllowances)).items.find((x) => x.id === 'card:room_change')
+    expect(row).toMatchObject({ kind: 'card', card: 'room_change' })
+    // later answers: no card, also after a member joined
     const next = await run('alice', chat, fake(write(`${dir}/견적서_C사.md`), { say: 'done' }))
     expect(next.cards).toHaveLength(0)
-    expect(labels(next.done, 'write')[0]).toEndWith(ALWAYS)
-    expect(audits('room.ai_grant_use').some((a) => a.target === g!.id && a.detail.turnId === next.turnId)).toBe(true)
-    // carol joins the room: the grant lapses (her words were never weighed); the card is back, "always" with it
+    expect(exists(`${dir}/견적서_C사.md`)).toBe(true)
     await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...THREE, 'carol'] } })
     const after = await run('alice', chat, fake(write(`${dir}/견적서_D사.md`), { say: 'done' }))
-    expect(after.cards).toHaveLength(1)
-    expect(values(after.cards[0]!)).toEqual(['allow', 'always', 'skip'])
-    expect(exists(`${dir}/견적서_D사.md`)).toBe(false)
-    expect(grantsOf('alice', roomId)).toEqual([])
-    expect(audits('room.ai_grant_revoke').find((a) => a.target === g!.id)?.detail.reason).toBe('member_joined')
+    expect(after.cards).toHaveLength(0)
+    // erin did not choose it: she is still asked
+    const erinChat = await sideChat('erin', roomId)
+    const erin = await run('erin', erinChat, fake(roomRead(roomId), write(`${dir}/erin.md`), { say: 'done' }))
+    expect(erin.cards).toHaveLength(1)
+    // deleted in Settings: asked again (the cleanup of this test too: later tests expect alice to be asked)
+    await h.api('alice').call(API.deleteAiAllowance, { params: { id: 'card:room_change' } })
+    const again = await run('alice', chat, fake(write(`${dir}/견적서_E사.md`), { say: 'done' }))
+    expect(again.cards).toHaveLength(1)
+    expect(exists(`${dir}/견적서_E사.md`)).toBe(false)
   })
 
+
   test('a grant made in the room works in its side chat; 30 days on it lapses and the card comes back', async () => {
+    h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
     const roomId = await teamRoom()
     const dir = folder()
     const g = createGrant(h.ctx.db, h.ctx.files.fx, h.ctx.files.rules(), { userId: 'alice', roomId, folder: dir, turnId: null, since: new Date().toISOString() })
@@ -667,12 +669,12 @@ describe('"이 방에서는 항상 허용" in the side chat', () => {
     h.ctx.db.query("UPDATE room_ai_grants SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(g.id)
     const later = await run('alice', chat, fake(write(`${dir}/two.md`), { say: 'done' }))
     expect(later.cards).toHaveLength(1)
-    expect(values(later.cards[0]!)).toEqual(['allow', 'always', 'skip'])
+    expect(values(later.cards[0]!)).toEqual(['allow', '__always', 'skip'])
     expect(exists(`${dir}/two.md`)).toBe(false)
     expect(audits('room.ai_grant_revoke').find((a) => a.target === g.id)?.detail.reason).toBe('expired')
   })
 
-  test('a member who cannot write the folder: no "always", and [이번만] covers that one file only', async () => {
+  test('a member who cannot write the folder: [이번만] covers that one file only ("Always allow" is offered: it is the person\'s own)', async () => {
     const roomId = await teamRoom()
     const dir = folder()
     const undo = rule(dir, 'user', 'erin', 'read')
@@ -680,7 +682,7 @@ describe('"이 방에서는 항상 허용" in the side chat', () => {
       const chat = await sideChat('alice', roomId)
       const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), () => 'allow')
       expect(r.cards).toHaveLength(2)
-      for (const c of r.cards) expect(values(c)).toEqual(['allow', 'skip'])
+      for (const c of r.cards) expect(values(c)).toEqual(['allow', '__always', 'skip'])
       expect(grantsOf('alice', roomId)).toEqual([])
     } finally { undo() }
   })

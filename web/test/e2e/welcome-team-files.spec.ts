@@ -6,6 +6,7 @@
 // recommendation, no AI. A phone uploads hand-picked files only. The Files screen offers the same steps in a dialog.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openPlace } from './nav'
 
 type Node = { size?: number; at?: string } | { [name: string]: Node }
 /** a company folder: forms, an intro, minutes, a payroll file (personal), a big video folder, things never listed */
@@ -119,16 +120,17 @@ test('F1 → F2 → F3 (the AI\'s picks ticked, personal apart, nothing of it se
   await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files-list')).toBeVisible()
   expect(await (await page.request.get('/__test/file-rank')).json()).toHaveLength(1)
-  // one confirm: up as a run of the file screen, each folder's own name first; F5 says where
+  // one confirm: up as a run of the file screen, each folder's own name first; then the folder plan (welcome-organize.spec.ts)
   await page.getByTestId('welcome-team-files-upload').click()
-  await expect(page.getByTestId('welcome-team-files-run-title')).toHaveText('전사 공유 폴더에 4개를 올렸어요')
+  await expect(page.getByTestId('organize-proposal')).toBeVisible()
   expect((await tree(page, 'shared/회사 자료')).map((e) => e.name).sort()).toEqual(['2026 견적서 양식.xlsx', '규정', '회사 소개서_2026.pdf', '회의'].sort())
   expect((await tree(page, 'shared/회사 자료/회의')).map((e) => e.name)).toEqual(['10월 주간 회의록.docx'])
   // the run recorded 팀 파일 done on the server (not the page's PATCH)
   expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.files).toBe('done')
-  await expect(page.getByTestId('welcome-team-files-next')).toHaveText('다음: 도구 연결')
-  await page.getByTestId('welcome-team-files-next').click()
+  // "나중에" on the plan: on to the next step, the files where they went up
+  await page.getByTestId('organize-later').click()
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  expect((await tree(page, 'shared/회사 자료')).map((e) => e.name)).toContain('2026 견적서 양식.xlsx')
   // back from 도구 연결: F5 from the run in this tab; 폴더 더 고르기 with the same folder: what went up is "이미 있어요"
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('welcome-team-files-run-title')).toHaveText('전사 공유 폴더에 4개를 올렸어요')
@@ -150,7 +152,7 @@ test('leaving during F4 and coming back shows the run, never F1; the same files 
   await expect(page.getByTestId('welcome-team-files-run-title')).toContainText('올리는 중 ·')
   await expect(page.getByTestId('welcome-team-files-stop-upload')).toHaveText('그만 올리기')
   // another page while it runs: the run goes on there
-  await page.getByTestId('nav-files').click()
+  await openPlace(page, 'files')
   await expect(page).toHaveURL(/\/files/)
   await page.getByTestId('setup-row-link').click()
   await expect(page).toHaveURL(/\/welcome$/)
@@ -216,7 +218,7 @@ test('the Files screen on a computer offers the steps in a dialog while the team
   await expect(page.getByTestId('welcome-team-files-pick-files')).toHaveText('파일 직접 올리기')
   // nothing wider than the phone
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-  await page.getByTestId('welcome-team-files-input').setInputFiles([doc('견적 양식.md')])
+  await page.getByTestId('welcome-team-files-input').setInputFiles([doc('견적 메모.md')])
   await expect(page.getByTestId('welcome-team-files-run-title')).toHaveText('전사 공유 폴더에 1개를 올렸어요')
   await page.getByTestId('welcome-team-files-next').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()

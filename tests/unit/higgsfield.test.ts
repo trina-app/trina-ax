@@ -81,7 +81,8 @@ describe('generate_video refusals say the real reason', () => {
   const person = (o: { unattended?: boolean; end?: 'declined' | 'timeout' }) => ({
     locale: 'ko' as const, unattended: o.unattended, asked: 0,
     async confirm() { this.asked++; return false },
-    async confirmWhy() { this.asked++; return o.end ?? 'declined' },
+    kinds: [] as (string | undefined)[],
+    async confirmWhy(_q: string, _a: string, _d: string, e?: { always?: string }) { this.asked++; this.kinds.push(e?.always); return o.end ?? 'declined' },
     *turnUrls() {},
   })
   const run = (p: ReturnType<typeof person>) => reg.call('generate_video', args, { user: { id: 'alice', name: 'Alice', role: 'member', groups: [] }, turnId: 't1', files: {} as never, person: p })
@@ -94,6 +95,14 @@ describe('generate_video refusals say the real reason', () => {
     expect(r.text).toContain('No video was made and no credits were spent. Why: nobody could be asked: this is a scheduled run')
     expect(r.text).not.toContain('did not allow')
     expect(r.text).toContain('Next step: the user can ask for the video in a chat, where they confirm it.')
+  })
+
+  // docs/DECISIONS.md "Always allow on every card": the card is the "video" kind (turnPerson offers Always allow, and
+  // once picked answers yes without a card)
+  test('the card is of the "video" kind for Always allow', async () => {
+    const p = person({})
+    await run(p)
+    expect(p.kinds).toEqual(['video'])
   })
 
   test('a card that timed out is not a no; a no says so', async () => {

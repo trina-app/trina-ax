@@ -116,6 +116,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
+  'server/src/team-files/move-suggest.ts': { why: 'Korean filler words (최종, 사본, 임시 …) the Move picker\'s folder scoring ignores in file names (not screen text)', also: /^\s*'[가-힣]+',/ },
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
   'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
@@ -133,6 +134,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
   'server/src/admin/handover.ts': { why: '팀장 넘기기 refusals and the role-refresh lines (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
+  'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
   'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
@@ -146,7 +148,6 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/office/cli.ts': { why: 'office-mode terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/update-cli.ts': { why: 'teamax update terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/helper.ts': { why: 'the office certificate page, Korean then English on one page (no session, no language picker; docs/OFFICE.md)', also: /./ },
-  'server/src/rooms/ai.ts': { why: 'the words that point at what was just said (이거, 위에, ㄱㄱ), matched in a room question to fold the asker\'s messages before it into it (not screen text)', also: /^const DEICTIC = / },
   'server/src/rooms/reader.ts': { why: 'the words people add after a room\'s or a person\'s name (방, 대화방, 님), and the words for the everyone room, matched when the AI names a room (not screen text)', also: /^const (NAME_EXTRAS|EVERYONE_WORDS) = / },
   'server/src/policy/names.ts': { why: 'invisible Hangul filler characters refused in names', also: /const INVISIBLE/ },
   'server/src/routes/office-update.ts': { why: 'automatic update messages (ko next to en/id/ja/es)' },
@@ -183,8 +184,12 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
+  'server/src/onboarding/form-skill.ts': { why: 'a form skill: the fixed procedure and rules written into its SKILL.md in the team\'s language, and the examples the model gets (ko next to en/id/ja/es; multi-line ko blocks)', also: /./ },
+  'shared/src/api/onboarding-skill.ts': { why: 'a form\'s name: the Korean date, version and form words left out of it (not screen text)', also: /^const (DATE_WORDS|VERSION_WORDS|FORM_WORDS) = / },
   'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
   'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
+  'server/src/onboarding/files-organize.ts': { why: 'the setup folder plan\'s chat title and request (ko next to en/id/ja/es)' },
+  'shared/src/api/files-organize.ts': { why: 'the folder plan\'s name rules (Korean words that tell a document\'s kind from its file name, not screen text) and its folder names (ko next to en/id/ja/es)', also: /^\s*\['(form|minutes|proposal|report|intro|policy|training|brand)', \// },
   'server/src/onboarding/file-rank.ts': { why: '팀 파일\'s AI picks: the pick chat\'s title and request (ko next to en/id/ja/es)' },
   'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
@@ -331,4 +336,11 @@ test('storage diagnostics use Spanish decimal separators on Mac and Linux', () =
     expect(messages.ja).toContain('1.5 GB')
     expect(messages.en).toContain('1.5 GB')
   }
+})
+
+describe('address card "Allow all websites" (QA TC-512)', () => {
+  test('names no Browser row: a phone has none (its switch is under Allowed for Trina), and the server cannot tell a phone', () => {
+    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador' } as const
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
+  })
 })

@@ -13,6 +13,7 @@ import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
 import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
+import { dismissMoveSuggestion, moveSuggestions } from '../team-files/move-suggest'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
 import { HwpError } from '../files/hwp-engine'
@@ -29,6 +30,9 @@ import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
 import { registerFileListRoutes } from './file-list'
 import { fileListOf } from '../file-list/service'
+import { getChatRuntime } from '../chat/runtime'
+import { openableTurnChats } from '../chat/version-chats'
+import type { HistoryResponse } from '@mycel/shared/api'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -57,6 +61,24 @@ export const filesRoutes: RouteModule = {
     // Admin › Team settings › File list (file-list/service.ts)
     registerFileListRoutes(kit, ctx)
     const C = componentC(ctx)
+    /** The history with the chat of each AI save the caller may open now (FileVersion.savedChatId, current.chatId).
+     * No chat runtime (a server without chats), or a check that fails: no links, the history as before (never a 500). */
+    const withChatLinks = (userId: string, h: HistoryResponse): HistoryResponse => {
+      let chats: Map<string, string>
+      try {
+        chats = openableTurnChats(getChatRuntime(ctx), userId, [...h.items.map((v) => (v.savedBy ? v.savedTurnId : null)), h.current?.turnId])
+      } catch (e) {
+        ctx.log.warn('file history: the chats of AI saves could not be checked; no links', { err: e })
+        return h
+      }
+      if (!chats.size) return h
+      const chatOf = (turnId: string | null | undefined) => (turnId ? chats.get(turnId) : undefined)
+      return {
+        ...h,
+        items: h.items.map((v) => { const id = v.savedBy ? chatOf(v.savedTurnId) : undefined; return id ? { ...v, savedChatId: id } : v }),
+        current: h.current && chatOf(h.current.turnId) ? { ...h.current, chatId: chatOf(h.current.turnId)! } : h.current,
+      }
+    }
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
     /** a small upload (multipart, ≤ 50 MB, already in memory) -> server temp file + sha256 */
@@ -168,7 +190,8 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm, skillsOk: body.skillsOk, askWiden: body.askWiden }), 'to'))
     kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
-    kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
+    // an AI-saved version names its chat only when the caller may open that chat now (chat/version-chats.ts)
+    kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => withChatLinks(auth.user.id, await svc.history(auth.user.id, query.path))))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
@@ -206,6 +229,9 @@ export const filesRoutes: RouteModule = {
     // ---------------- team files in chats (picker + reference attachments) ----------------
     kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit, { folders: query.folders === '1' })))
     kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit, c.req.raw.signal)))
+    // the Move picker's "추천" and "최근" (team-files/move-suggest.ts): no AI call, only folders the caller can write
+    kit.handle(API.moveSuggestions, ({ c, body, auth }) => mapErrors(c.get('locale'), () => moveSuggestions(svc, auth.user.id, body.paths)))
+    kit.handle(API.dismissMoveSuggestion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => dismissMoveSuggestion(svc, auth.user.id, body.paths, body.folder)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
     // a chip taken out before sending: a computer upload into a shared chat goes to the trash (uploads/team-refs.ts discard)

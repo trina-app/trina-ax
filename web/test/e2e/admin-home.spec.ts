@@ -6,13 +6,14 @@ import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, type MessageKey } from '../../src/i18n'
 import { turnWhen } from '../../src/lib/updateTurn'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openAdmin } from './nav'
 
 const t = DICTS.en
 
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
+  // Slack is not a menu item (owner 2026-11-12): the owner finds it in Connected apps (Integrations.tsx)
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
@@ -32,8 +33,7 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   // a team service still waiting for its sign-in
   const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', access: { everyone: true, groups: [], users: [] } } })
   expect(made.status()).toBe(201)
-  await page.getByTestId('team-menu').click()
-  await page.getByRole('menuitem', { name: t['sidebar.admin'], exact: true }).click()
+  await openAdmin(page)
   await expect(page).toHaveURL(/\/admin$/)
   // the menu's title is the team's ("Acme admin", with its logo)
   await expect(page.getByRole('heading', { level: 1, name: t['admin.teamTitle'].replace('{team}', 'Acme') })).toBeVisible()

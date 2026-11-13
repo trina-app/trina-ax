@@ -16,7 +16,8 @@
 // runs in WebKit (the iPhone app's engine: phone-member-pages.webkit.spec.ts) and Chromium (Android's).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { backLabelHasRoom, reset, signIn } from './helpers'
+import { openProjectsTab, openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const en = DICTS.en
@@ -37,16 +38,6 @@ async function call(page: Page, method: 'POST' | 'PATCH', path: string, data: un
 /** SHOTS=1: screenshots of each screen into $SHOTS_DIR (default test-results/phone-member-pages) */
 export const shot = (page: Page, name: string) => (process.env.SHOTS ? page.screenshot({ path: `${process.env.SHOTS_DIR ?? 'test-results/phone-member-pages'}/${name}.png` }).then(() => {}) : Promise.resolve())
 
-/** A long press with a finger (MenuButton useLongPress): the row's sheet. */
-async function longPress(page: Page, target: Locator) {
-  const b = await box(target)
-  const at = { button: 0, pointerType: 'touch', isPrimary: true, clientX: b.x + 60, clientY: b.y + b.height / 2 }
-  await target.dispatchEvent('pointerdown', at)
-  await page.waitForTimeout(650)
-  await target.dispatchEvent('pointerup', at)
-  await expect(page.getByRole('menu')).toBeVisible()
-  await page.waitForTimeout(450)
-}
 
 /** Two projects: "QA 프로젝트" (no instructions, a chat in it) and "Launch" (instructions, no chat). */
 export async function twoProjects(page: Page) {
@@ -63,7 +54,7 @@ async function security(page: Page) {
   const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
   const items = Array.from({ length: 3 }, (_, i) => ({ id: `0192f0a0-0000-7000-8000-${String(i).padStart(12, '0')}`, client: 'web', userAgent: ua, createdAt: at, lastSeenAt: at, expiresAt: at, current: i === 0 }))
   await page.route('**/api/me/sessions', (r) => r.fulfill({ json: { items } }))
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-security').click()
   await expect(page).toHaveURL(/\/settings\/security$/)
 }
@@ -75,6 +66,8 @@ async function backNamed(page: Page, name: string, fits: boolean) {
   await expect(label).toHaveText(name)
   const movable = (await page.getByTestId('settings-dialog').getByTestId('phone-page-bar').getAttribute('data-fit')) !== null
   if (!fits && !movable) return
+  // no room in this font for ‹ with its name beside the whole title (Linux's wider DejaVu Sans): ‹ alone, still named
+  if (!fits && !(await backLabelHasRoom(label))) return await expect(label).toBeHidden()
   await expect(label).toBeVisible()
   await expect(label).toHaveAttribute('data-fits', '')
   // the whole label is in sight, inside the bar and clear of the title
@@ -88,15 +81,16 @@ async function backNamed(page: Page, name: string, fits: boolean) {
 export function memberPageCases() {
   test.use(PHONE)
 
-  test('TC-380: ☰ › Projects is one row per project (name, who sees it, ···, ›), no card or "No instructions."; ··· and a long press open its menu', async ({ page }) => {
+  test('TC-380: the 프로젝트 tab is one plain row per project (name, who sees it), no card, no "No instructions.", no "···"; a tap opens it', async ({ page }) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
     await signIn(page)
     const { qa, launch } = await twoProjects(page)
     await page.goto('/')
     // 1. Projects: the 프로젝트 tab since QA TC-255 (it was Trina ☰ › Projects)
-    await page.getByTestId('tab-projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
-    const rows = page.getByTestId('project-row')
+    await openProjectsTab(page)
+    // the 프로젝트 tab's list (panels/ProjectsPanel.tsx ProjectsList): rename, members and delete are on the project's
+    // page, so a row has no "···" or long-press menu
+    const rows = page.getByTestId('phone-projects-list').getByTestId('projects-panel-row')
     await expect(rows).toHaveCount(2)
     await shot(page, 'projects')
     // no cards, no "No instructions.", no instructions at all on the list
@@ -104,46 +98,17 @@ export function memberPageCases() {
     await expect(page.getByText(en['projects.noInstructions'])).toHaveCount(0)
     await expect(page.getByText('Answer in short bullet points.')).toHaveCount(0)
     const row = rows.filter({ hasText: 'QA 프로젝트' })
-    // its name, who sees it on the line under it (no folder path, no time), and a chevron
-    await expect(row.getByTestId('project-card-who')).not.toHaveText('')
-    await expect(row.getByTestId('project-row-sub')).not.toContainText('projects/')
-    const chevron = row.locator('svg.lucide-chevron-right')
-    await expect(chevron).toBeVisible()
-    // the card's "···": shown on a touch screen, 44 px, just before the chevron, named after the project
-    const more = row.getByTestId('project-card-menu')
-    await expect(more).toBeVisible()
-    await expect(more).toHaveCSS('opacity', '1')
-    expect(await box(more)).toMatchObject({ width: 44, height: 44 })
-    expect((await box(more)).x + 44).toBeLessThanOrEqual((await box(chevron)).x)
-    await expect(more).toHaveAccessibleName(en['rooms.menu.rowLabel'].replace('{name}', 'QA 프로젝트'))
-    // a row from edge to edge, at least 48 px tall, with no frame of its own (the list's hairlines)
+    // its name, who sees it on the line under it (no folder path)
+    await expect(row.getByTestId('projects-panel-name')).toHaveText('QA 프로젝트')
+    await expect(row.getByTestId('projects-panel-meta')).not.toHaveText('')
+    await expect(row.getByTestId('projects-panel-meta')).not.toContainText('projects/')
+    await expect(row.getByTestId('project-card-menu')).toHaveCount(0)
+    // a thumb's row: at least 44 px tall, inside the screen
     const b = await box(row)
-    expect(b.x).toBeLessThanOrEqual(1)
-    expect(b.x + b.width).toBeGreaterThanOrEqual(389)
-    expect(Math.round(b.height)).toBeGreaterThanOrEqual(48)
-    expect(await row.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('0px')
-    // a tap on "···" opens its sheet; Back closes it, still on the list
-    await more.click()
-    const sheet = page.getByRole('menu')
-    await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('QA 프로젝트')
-    await page.goBack()
-    await expect(sheet).toHaveCount(0)
-    await expect(page).toHaveURL(/\/projects$/)
-    // a long press opens the same menu as a sheet
-    await page.waitForTimeout(400)
-    await longPress(page, row)
-    await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('QA 프로젝트')
-    await expect(sheet.getByTestId('project-card-rename')).toBeVisible()
-    await expect(sheet.getByTestId('project-card-copy-link')).toBeVisible()
-    await expect(sheet.getByTestId('project-card-delete')).toBeVisible()
-    await shot(page, 'projects-sheet')
-    // the finger lifting opened no page; the sheet closes with Back, still on the list
-    await expect(page).toHaveURL(/\/projects$/)
-    await page.goBack()
-    await expect(sheet).toHaveCount(0)
-    await expect(page).toHaveURL(/\/projects$/)
-    // a tap opens the project (a moment later: the finger that just held the row opens nothing for 0.8 s)
-    await page.waitForTimeout(800)
+    expect(b.x).toBeGreaterThanOrEqual(0)
+    expect(b.x + b.width).toBeLessThanOrEqual(390)
+    expect(Math.round(b.height)).toBeGreaterThanOrEqual(44)
+    // a tap opens the project
     await row.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${qa.id}$`))
 
@@ -199,7 +164,7 @@ export function memberPageCases() {
       await r.fulfill({ json: { avatarVersion: 1 } })
     })
     // Me › Profile
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-me').click()
     await expect(page).toHaveURL(/\/settings\/profile$/)
     await expect(page.getByTestId('profile-form')).toBeVisible()

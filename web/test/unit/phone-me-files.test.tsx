@@ -20,6 +20,7 @@ import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import SettingsPane from '../../src/pages/Settings'
 import { DialogHost } from '../../src/components/ui'
 import Files from '../../src/pages/Files'
+import { useFileLists } from '../../src/store/fileLists'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 
 const me = (title?: string): Me =>
@@ -65,6 +66,8 @@ afterAll(() => {
 })
 beforeEach(() => {
   calls.length = 0
+  // 파일's lists are kept between visits (store/fileLists.ts): each test starts from a first visit
+  useFileLists.getState().reset()
   useSession.setState({ status: { kind: 'signed-in', me: me('재무 매니저') } } as never)
 })
 
@@ -238,7 +241,8 @@ describe('보안·기기: signing another device out', () => {
 })
 
 describe('Files rows on a phone', () => {
-  const page = () => mount(<MemoryRouter initialEntries={['/files']}><Files /></MemoryRouter>)
+  // the team folder's own top (/files on a phone is 파일's places: components/panels/FilesPanel.tsx)
+  const page = () => mount(<MemoryRouter initialEntries={['/files?team=1']}><Files /></MemoryRouter>)
   // a top folder's row shows its word (docs/DECISIONS.md "Team folder basics"): found by it, opened by its path
   const WORD: Record<string, string> = { shared: '전사 공유', skills: '팀 스킬', groups: '부서' }
   const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(WORD[name] ?? name))!

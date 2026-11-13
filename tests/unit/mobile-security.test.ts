@@ -167,7 +167,11 @@ test('nav-v1: only the current team document can set where Back goes, and only o
 
 test('nav-v1 in the app: the swipe and Back follow the page, a tapped notification opens through the page, no pull-to-refresh', () => {
   const app = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, '../../mobile/App.tsx'), 'utf8') as string
-  expect(app).toContain('allowsBackForwardNavigationGestures={backGestures(pageNav)}')
+  // the swipe follows the page (src/nav.ts swipeGate): on iOS through the EdgeSwipe module with the property kept on,
+  // which then sets it again whenever the page says, else through the property
+  expect(app).toContain('const gate = swipeGate(pageNav, nativeGate)')
+  expect(app).toContain('allowsBackForwardNavigationGestures={gate.prop}')
+  expect(app).toContain('edgeSwipe.setEnabled(gate.swipe)')
   expect(app).not.toMatch(/allowsBackForwardNavigationGestures[\s}]|pullToRefreshEnabled/)
   expect(app).toContain('const action = backAction(pageNav, canBack)')
   expect(app).toContain('web.current?.injectJavaScript(openScript(opened.path))')

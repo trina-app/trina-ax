@@ -9,7 +9,6 @@ import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { migrate, newId, readMigrations } from '../../server/src/db'
-import { roomAiOf } from '../../server/src/rooms/ai'
 import { noticeWanted } from '../../server/src/rooms/alerts'
 import { listRooms } from '../../server/src/rooms/reader'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -325,55 +324,6 @@ test('my own message brings my hidden room back (the timeline or a thread), room
     await send(mia.client, room.id, 'my reply', { threadRootId: m.id })
     expect(await hidden(mia.client, room.id)).toBe(false)
   }
-})
-
-test('a posted AI answer brings the room back for the person who asked; notify() leaves a private one alone (RoomAi.ended shows it to the asker: b-rooms-ai)', async () => {
-  const { nora, otto, hide, hidden, hiddenAt, team } = await setup()
-  const put = (visibility: 'room' | 'private') => {
-    const id = newId()
-    h.ctx.db.transaction(() => {
-      const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(team.id) as { last_seq: number }).last_seq
-      h.ctx.db.query("INSERT INTO room_messages (id, room_id, seq, author_kind, asked_by, visibility, visible_to, body, mentions, created_at) VALUES (?, ?, ?, 'ai', ?, ?, ?, 'THE ANSWER', '[]', ?)")
-        .run(id, team.id, seq, nora.id, visibility, visibility === 'private' ? nora.id : null, new Date().toISOString())
-    })()
-    // what the AI does once its answer is stored (rooms/ai.ts): notify, then room.message
-    roomsOf(h.ctx).notify(messageRow(h.ctx.db, team.id, id)!)
-  }
-  await hide(nora.client, team.id)
-  await hide(otto.client, team.id)
-  put('private')
-  expect(await hidden(nora.client, team.id)).toBe(true)
-  put('room')
-  expect(await hidden(nora.client, team.id)).toBe(false)
-  expect(hiddenAt(team.id, otto.id)).toBeTruthy()
-})
-
-test('a card of my question to the AI opening brings the room back (rooms/ai.ts waiting); a card closing does not', async () => {
-  const { nora, hub, hide, hidden, team } = await setup()
-  // the card's state is the chat runtime's (tests/unit/b-rooms-ai.test.ts drives a real one); here it is given
-  const ai = roomAiOf(h.ctx)
-  const waitsFor = ai.waitsFor
-  try {
-    await hide(nora.client, team.id)
-    ai.waitsFor = () => false
-    hub.clear()
-    ai.waiting({ roomId: team.id, userId: nora.id, opened: true })
-    expect(await hidden(nora.client, team.id)).toBe(true)
-    expect(hub.events.map((e) => [e.target, (e.data as any).type])).toEqual([[nora.id, 'room.updated']])
-    // a card closing while another of hers still waits brings nothing
-    ai.waitsFor = () => true
-    hub.clear()
-    ai.waiting({ roomId: team.id, userId: nora.id, opened: false })
-    expect(await hidden(nora.client, team.id)).toBe(true)
-    hub.clear()
-    ai.waiting({ roomId: team.id, userId: nora.id, opened: true })
-    expect(await hidden(nora.client, team.id)).toBe(false)
-    // one room.updated, to her only, with the room shown and waiting
-    expect(hub.events.map((e) => [e.target, (e.data as any).type])).toEqual([[nora.id, 'room.updated']])
-    const room = hub.of(nora.id)[0]!.data.room
-    expect(room.hidden).toBeUndefined()
-    expect(room.aiWaits).toBe(true)
-  } finally { ai.waitsFor = waitsFor }
 })
 
 test('a push that waits is not sent once I hide the room; shown again, it may go', async () => {

@@ -168,7 +168,7 @@ export default function Skills() {
                 {(overview.managedFolders.length > 0 || !shares?.length) && <SuggestionList items={review ?? (overview.managedFolders.length ? null : [])} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
               </>
             )}
-            {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
+            {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMineFiles')} testId="mine-list" />}
             {current === 'changes' && <ChangeList items={changes} />}
           </TabPanel>
         )}

@@ -1,8 +1,9 @@
 // Dev environment on srt: the checks that need systemd and polkit (docs/research/srt-dev-env.md 10.3 and 11: S1, S4,
-// S5, A17, A20-A22, A24, A25, the restart). It runs on a Debian 13 VM INSIDE a stand-in of the team server unit
+// S5, A17, A20-A22, A24, A25, the restart). It runs on a Debian 13 or Ubuntu 24.04 VM INSIDE a stand-in of the team server unit
 // (<ID>-server.service made from scripts/linux/systemd/server.service.in), as the server account, after
 // install-srt.sh. scripts/dev-env/srt/vm-check.sh makes that unit and reads the results. Each run goes through the real
-// pieces of the runner: srtSettings, runEnv, scopeArgv and systemdSystem (systemd-run --scope, polkit, run-wrap, srt).
+// pieces of the runner: srtSettings, runEnv and systemdSystem (run units trina-dev@<runId>.service, polkit, run-wrap,
+// srt).
 //   MYCEL_VM_PHASE=checks (default): run the checks, write <base>/data/vm-results.json, start one long run, then serve
 //   /health on 127.0.0.1:8099. MYCEL_VM_PHASE=serve: only serve /health (after a restart of the unit).
 import fs from 'node:fs'
@@ -21,7 +22,7 @@ const DIR1 = `${TEAM}/projects/one`
 const CANARY = 'CANARY-7f3a'
 const RESULTS = `${BASE}/data/vm-results.json`
 const STARTER: ScopeLimits = { cpus: 1.5, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 }
-const sys = systemdSystem(ID)
+const sys = systemdSystem(ID, BASE)
 
 const health = () => Bun.serve({ hostname: '127.0.0.1', port: 8099, fetch: () => new Response('ok') })
 if (process.env.MYCEL_VM_PHASE === 'serve') { health(); await new Promise(() => {}) }
@@ -57,7 +58,7 @@ async function run(command: string, o: { limits?: Partial<ScopeLimits>; network?
   const settingsFile = path.join(dp.run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 })
   const exitFile = path.join(dp.logs, `${runId}.exit`), outFile = path.join(dp.logs, `cmd-${runId}.out`)
-  const s = sys.spawn({ runId, id: ID, cwd: DIR1, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work: null }), limits: { ...STARTER, ...o.limits }, exitFile, settingsFile, command, stdoutFile: outFile, stderrFile: outFile })
+  const s = await sys.spawn({ runId, id: ID, cwd: DIR1, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work: null }), limits: { ...STARTER, ...o.limits }, exitFile, settingsFile, command, stdoutFile: outFile, stderrFile: outFile })
   if (o.wait === false) return { runId, code: null, out: '', info: {}, peakMiB: 0, minAvailMiB: 0 }
   let peak = 0, minAvail = memAvailableMiB(), done = false
   const watch = (async () => {
@@ -86,24 +87,26 @@ const check = (id: string, what: string, pass: boolean | null, note: string) => 
 }
 const leak = (s: string) => s.includes(CANARY)
 
-// S1: the server account starts a scope through polkit, from the delegated cgroup of its unit
-check('S1a', 'self test: the server account can start a scope', (await sys.selfTest(ID)) === '', await sys.selfTest(ID) || 'ok')
+// S1: the server account starts a run unit through polkit
+const selfTest = await sys.selfTest(ID)
+check('S1a', 'self test: the server account can start a run unit', selfTest === '', selfTest || 'ok')
 {
   const r = await run('cat /proc/self/cgroup; echo hello > made.txt; cat readme.md')
   const inScope = r.out.includes(`${ID}-devenv.slice/${unitName(r.runId)}`)
-  check('S1b', 'a run is in its scope in the devenv slice; project folder read and write', r.code === 0 && inScope && fs.existsSync(`${DIR1}/made.txt`), `code=${r.code} inScope=${inScope} ${r.out.slice(0, 160)}`)
+  check('S1b', 'a run is in its unit in the devenv slice; project folder read and write', r.code === 0 && inScope && fs.existsSync(`${DIR1}/made.txt`), `code=${r.code} inScope=${inScope} ${r.out.slice(0, 160)}`)
 }
 {
   let props: Record<string, string> = {}
   await run('sleep 3', { during: async (id) => { props = await show(id, 'MemoryMax,TasksMax,CPUQuotaPerSecUSec,RuntimeMaxUSec,OOMPolicy,Slice') } })
   const okLimits = props.MemoryMax === String(1536 * 2 ** 20) && props.TasksMax === '512' && props.CPUQuotaPerSecUSec === '1.500000s' && props.OOMPolicy === 'kill' && props.Slice === `${ID}-devenv.slice`
-  check('S1d', 'scope limits: MemoryMax 1536M, TasksMax 512, CPUQuota 150%, OOMPolicy kill, the devenv slice', okLimits, JSON.stringify(props))
+  check('S1d', 'run limits: MemoryMax 1536M, TasksMax 512, CPUQuota 150%, OOMPolicy kill, the devenv slice', okLimits, JSON.stringify(props))
+  // the sandbox the template copies from the server unit (a scope inherited it from the server process)
+  const sb = await show('a'.repeat(16), 'User,NoNewPrivileges,ProtectSystem,PrivateTmp,ProtectHome,CapabilityBoundingSet,RuntimeMaxUSec,Type')
+  check('S1e', 'the run template: the server account, NoNewPrivileges, ProtectSystem strict, PrivateTmp, no capabilities, RuntimeMaxSec 8h 10min', sb.User === ID && sb.NoNewPrivileges === 'yes' && sb.ProtectSystem === 'strict' && sb.PrivateTmp === 'yes' && sb.CapabilityBoundingSet === '' && sb.RuntimeMaxUSec === '8h 10min', JSON.stringify(sb))
+  const left = fs.existsSync('/run/systemd/system.control') ? fs.readdirSync('/run/systemd/system.control').filter((n) => n.startsWith('trina-dev@')) : []
+  check('S1f', 'no runtime drop-ins of ended runs are left', left.length === 0, JSON.stringify(left.slice(0, 5)))
 }
-// RuntimeMaxSec
-{
-  const r = await run('sleep 60', { limits: { runtimeMaxSec: 4 } })
-  check('RT', 'RuntimeMaxSec stops a run: Result=timeout', r.info.Result === 'timeout' && r.code === null, JSON.stringify(r.info) + ` code=${r.code}`)
-}
+// the root-set time ceiling (RuntimeMaxSec of the template): a stand-in unit would take 8 hours, so S1e reads it
 // A21: a memory bomb. The kernel kills the run, not the server.
 {
   const before = process.pid
@@ -114,15 +117,17 @@ check('S1a', 'self test: the server account can start a scope', (await sys.selfT
 // A22: a fork bomb stops at TasksMax
 {
   let pids = ''
-  const r = await run(':(){ :|:& };: ; sleep 30', { limits: { runtimeMaxSec: 12 }, during: async (id) => { await Bun.sleep(3000); try { pids = fs.readFileSync(`${cgroupDir(ID, id)}/pids.current`, 'utf8').trim() + ' events=' + fs.readFileSync(`${cgroupDir(ID, id)}/pids.events`, 'utf8').trim() } catch (e) { pids = String(e) } } })
+  // the runner stops a command at its timeout: here after the count
+  const r = await run(':(){ :|:& };: ; sleep 30', { limits: { runtimeMaxSec: 12 }, during: async (id) => { await Bun.sleep(3000); try { pids = fs.readFileSync(`${cgroupDir(ID, id)}/pids.current`, 'utf8').trim() + ' events=' + fs.readFileSync(`${cgroupDir(ID, id)}/pids.events`, 'utf8').trim() } catch (e) { pids = String(e) }; await sys.stop(id) } })
   const n = Number(pids.split(' ')[0])
   check('A22', 'fork bomb: at most TasksMax tasks; the run ends; the server lives', n > 0 && n <= 512 && r.info.ActiveState !== 'active', `pids.current=${pids} ${JSON.stringify(r.info)}`)
 }
 // A17: systemd from the sandbox
 {
-  const r = await run('systemd-run --scope --quiet true 2>&1; systemctl stop ' + ID + '-server.service 2>&1; busctl list 2>&1 | head -3; systemctl --user status 2>&1 | head -2; echo END')
+  const other = randomId()
+  const r = await run(`systemd-run --scope --quiet true 2>&1; systemctl stop ${ID}-server.service 2>&1; systemctl start --no-ask-password trina-dev@${other}.service 2>&1; echo start=$?; busctl list 2>&1 | head -3; systemctl --user status 2>&1 | head -2; echo END`)
   const alive = (await sh(['systemctl', 'is-active', `${ID}-server.service`])).out.trim()
-  check('A17', 'systemd-run, systemctl stop and the bus from the sandbox fail', alive === 'active' && !/^Running scope/m.test(r.out), `server=${alive} ${r.out.slice(0, 300)}`)
+  check('A17', 'systemd-run, systemctl stop, a start of a run unit and the bus from the sandbox fail', alive === 'active' && !/^Running scope/m.test(r.out) && /start=[1-9]/.test(r.out), `server=${alive} ${r.out.slice(0, 300)}`)
 }
 // A20: a process left behind ends with the run
 {
@@ -138,27 +143,38 @@ check('S1a', 'self test: the server account can start a scope', (await sys.selfT
   const s4 = await run('chromium --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --proxy-server="$HTTPS_PROXY" --dump-dom https://registry.npmjs.org/ 2>/dev/null | head -c 200; echo; chromium --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --proxy-server="$HTTPS_PROXY" --dump-dom https://example.com/ 2>/dev/null | head -c 200', { limits: { runtimeMaxSec: 90 } })
   check('S4', 'chromium headless through the proxy (an allowed site; example.com is not allowed)', null, `code=${s4.code} peak=${s4.peakMiB}MiB ${s4.out.slice(0, 300)}`)
 }
-// A1 in a scope (the Docker suite has the rest): the base folder stays hidden
+// A1 in a run unit (the Docker suite has the rest): the base folder stays hidden
 {
   const r = await run(`cat ${BASE}/secrets/master.key; grep -r ${CANARY} ${BASE} 2>/dev/null; cat /etc/default/${ID}`)
-  check('A1', 'base folder and /etc/default/<ID> hidden in a scope', !leak(r.out), r.out.slice(0, 200))
+  check('A1', 'base folder and /etc/default/<ID> hidden in a run unit', !leak(r.out), r.out.slice(0, 200))
 }
-// A25: the server account, outside the sandbox: only trina-dev-<16>.scope
+// A25: the server account, outside the sandbox: only start, stop, reset-failed and set-property of trina-dev@<16>.service
 {
   const id16 = randomId()
   const tries: [string, string[]][] = [
-    ['a .service with the run name', ['systemd-run', '--quiet', '--no-ask-password', `--unit=trina-dev-${id16}.service`, '/bin/true']],
-    ['a .service as root', ['systemd-run', '--quiet', '--no-ask-password', '-p', 'User=root', '/bin/true']],
+    ['a transient .service with the run name', ['systemd-run', '--quiet', '--no-ask-password', `--unit=trina-dev-${id16}.service`, '/bin/true']],
+    ['a transient .service as root', ['systemd-run', '--quiet', '--no-ask-password', '-p', 'User=root', '/bin/true']],
+    ['a scope with the old run name', ['systemd-run', '--scope', '--quiet', '--no-ask-password', `--unit=trina-dev-${id16}.scope`, '/bin/true']],
     ['another scope name', ['systemd-run', '--scope', '--quiet', '--no-ask-password', '--unit=other.scope', '/bin/true']],
-    ['a short run name', ['systemd-run', '--scope', '--quiet', '--no-ask-password', '--unit=trina-dev-x.scope', '/bin/true']],
+    ['a short run name', ['systemctl', 'start', '--no-ask-password', 'trina-dev@x.service']],
+    ['a run name with capitals', ['systemctl', 'start', '--no-ask-password', `trina-dev@${id16.toUpperCase()}.service`]],
+    ['another template', ['systemctl', 'start', '--no-ask-password', 'getty@tty9.service']],
+    ['restart of a run unit', ['systemctl', 'restart', '--no-ask-password', `trina-dev@${id16}.service`]],
     ['stop another unit', ['systemctl', 'stop', '--no-ask-password', 'ssh.service']],
+    ['set-property of another unit', ['systemctl', 'set-property', '--runtime', '--no-ask-password', 'ssh.service', 'MemoryMax=1M']],
+    ['a run unit as root (User= at runtime)', ['systemctl', 'set-property', '--runtime', '--no-ask-password', `trina-dev@${id16}.service`, 'User=root']],
+    ['a run unit outside the devenv slice', ['systemctl', 'set-property', '--runtime', '--no-ask-password', `trina-dev@${id16}.service`, 'Slice=-.slice']],
+    ['a run unit with another program', ['systemctl', 'set-property', '--runtime', '--no-ask-password', `trina-dev@${id16}.service`, 'ExecStart=/bin/sh']],
   ]
   for (const [what, argv] of tries) {
     const r = await sh(argv)
-    check('A25', `polkit says no: ${what}`, r.code !== 0, `code=${r.code} ${r.out.slice(0, 160)}`)
+    check('A25', `refused: ${what}`, r.code !== 0, `code=${r.code} ${r.out.slice(0, 160)}`)
   }
-  const slice = await sh(['systemd-run', '--scope', '--quiet', '--no-ask-password', `--unit=trina-dev-${randomId()}.scope`, '--slice=-.slice', '/bin/true'])
-  check('A25b', 'a run scope outside the devenv slice (the rule does not check the slice)', null, `code=${slice.code} ${slice.out.slice(0, 160)}`)
+  // a run unit's limits may change (cgroup values only); the slice ceiling stays
+  const ok = await sh(['systemctl', 'set-property', '--runtime', '--no-ask-password', `trina-dev@${id16}.service`, 'MemoryMax=64M'])
+  check('A25b', 'allowed: set-property of cgroup values of a run unit (the devenv slice is the ceiling)', ok.code === 0, `code=${ok.code} ${ok.out.slice(0, 160)}`)
+  // root removes its runtime drop-in when a run of it ends; this one never runs, so it stays until a reboot (a
+  // throwaway VM; uninstall-srt.sh removes such leftovers)
 }
 // S5: memory of a real build (npm install and a Next.js build) on the Starter limits
 {

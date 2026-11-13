@@ -59,6 +59,20 @@ export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
+/** Where the person's own connections are: Settings › Connectors (pages/Connectors.tsx; docs/DECISIONS.md "Connectors
+ * in Settings"). Its pages: a built-in or listed service's (`connectorHref`), one of the person's connections or a team
+ * connection they may use (`connectionHref`). The old /connectors addresses lead to the same places (App.tsx). */
+export const CONNECTORS_HOME = '/settings/connectors'
+export const connectorHref = (id: string) => `${CONNECTORS_HOME}/${encodeURIComponent(id)}`
+export const connectionHref = (id: string) => `${CONNECTORS_HOME}/mcp/${encodeURIComponent(id)}`
+
+/** Connectors' old addresses (/connectors, /connectors/<id>, /connectors/mcp/<id>, until 2026-11-12 a page of its
+ * own), which App.tsx opens as Settings over the page they came from. Not an outside app's consent page
+ * (/connectors/authorize). */
+export const isOldConnectorsPath = (path: string) => (path === '/connectors' || path.startsWith('/connectors/')) && !/^\/connectors\/authorize(\/|$)/.test(path)
+/** Where an old address leads: the same place in Settings, its query and hash kept. */
+export const oldConnectorsTarget = (pathname: string, search = '', hash = '') => `/settings${pathname}${search}${hash}`
+
 /** What a listed service's page shows before it is connected (QA TC-132): its privacy policy, terms and MCP help page,
  * and, where the service itself lists them, the tools it offers (their names as the service writes them, the same
  * names its page shows once connected) with the page that lists them. Only values checked on the service's own pages
@@ -177,6 +191,12 @@ export const appConnectorLogo = (a: AppConnector) => `/icons/connectors/${a.logo
 /** the earlier name of APP_CONNECTORS (the logo checks in test/unit/connectors.test.ts) */
 export const BUILT_IN = APP_CONNECTORS
 export const builtInLogo = (id: AppConnector['id']) => appConnectorLogo(APP_CONNECTORS.find((b) => b.id === id)!)
+
+/** Slack (docs/SLACK.md): not an app the AI uses for a person but the team's way to ask the AI in Slack, set up by the
+ * owner or an admin. One row of Admin › Connected apps, its page at /admin/connectors/slack. */
+export const SLACK_APP = { id: 'slack', name: 'Slack', logo: 'slack.svg' } as const
+export const slackLogo = `/icons/connectors/${SLACK_APP.logo}`
+export const SLACK_ADMIN_PATH = `/admin/connectors/${SLACK_APP.id}`
 
 /** Outside AI apps that can use this server's MCP connector (Settings › AI apps, components/integrations/
  * AiAppConnect.tsx). Only apps whose sign-in the server accepts are named: the connector's OAuth takes claude.ai's

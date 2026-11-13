@@ -8,6 +8,7 @@
 // end screen offers 홈으로 only (no kept skill in the team); a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { phoneHome } from './nav'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
 
@@ -64,9 +65,9 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
   expect(progress.resultChatId).toBeNull()
   expect(progress.steps.profile).toBe('done')
-  // the way back: the setup row, at 1/5, to 내 스킬
+  // the way back: the setup row at the step it opens, "2/5" as the steps' bar says 내 스킬
   await page.goto('/')
-  await expect(page.getByTestId('setup-row-count')).toHaveText('· 1/5')
+  await expect(page.getByTestId('setup-row-count')).toHaveText('· 2/5')
   await page.getByTestId('setup-row-link').click()
   await expect(page).toHaveURL(/\/welcome$/)
   await expect(page.locator('[data-step="skills"]')).toBeVisible()
@@ -167,7 +168,10 @@ test('a phone: 회사 소개 saves; the skills step is put off; 도구 연결 is
   expect(progress.skillsLater).toBeFalsy()
   expect(progress.doneShownAt).toBeTruthy()
   // Home on a phone: nothing left to resume, and no line that 내 스킬 waits for a computer
+  // (a phone's Home is the 트리나 tab with the new chat's box, where those lines would be)
   await page.getByTestId('welcome-done-home').click()
+  await expect(phoneHome(page)).toBeVisible()
+  await expect(page.getByTestId('setup-row')).toHaveCount(0)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
   await expect(page.getByTestId('welcome-skills-computer')).toHaveCount(0)

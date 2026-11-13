@@ -105,8 +105,16 @@ export const SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH = '/api/integrations/slack/oau
 export const SLACK_INSTALL_AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize'
 export const SLACK_SIGNIN_AUTHORIZE_URL = 'https://slack.com/openid/connect/authorize'
 
-/** The bot scopes of the official app (its manifest); an install must grant every one. */
-export const SLACK_BROKER_BOT_SCOPES = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
+/** The bot scopes of the official app (its manifest); an install must grant every one. `channels:history` and
+ * `groups:history` (2026-11-13): the bot reads the thread it was asked in and, for a person, threads and channels the
+ * bot was invited to and the person is in (the team server's docs/SLACK.md "Marketplace-safe reading"). A team server
+ * treats those two as optional (SLACK_BROKER_READ_BOT_SCOPES): an install from before them answers, without reading. */
+export const SLACK_BROKER_BOT_SCOPES = ['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
+/** The bot scopes only reading needs: an install without them works, with reading off until Add to Slack again. */
+export const SLACK_BROKER_READ_BOT_SCOPES = ['channels:history', 'groups:history'] as const
+/** User token scopes of the official app: none (Slack Marketplace: user scopes only when the app acts as the person;
+ * "Sign in with Slack" asks for openid and profile in its own OpenID Connect flow and keeps no token). */
+export const SLACK_BROKER_USER_SCOPES = [] as const
 
 export const SLACK_BROKER_MAX_BODY_BYTES = 16_384
 export const SLACK_BROKER_MAX_SKEW_MS = 60_000

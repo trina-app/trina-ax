@@ -1,0 +1,384 @@
+// The new navigation on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1), with the server's
+// `navRail` switch on: the rail (team logo, 트리나 · 대화 · 파일 · 활동, my photo) in place of the 280 px sidebar, one list
+// panel per place (288 px at 1440, 256 px at 1280, 240 px at 1024; 파일's and 활동's since P3), what each place remembers, the marks on the
+// places, the panel folding beside a thread below 1052 px, its hide button, Admin with one menu, the logo and photo
+// menus per role, the keyboard, and ⌘K's new words. With the switch off nothing here shows (nav-rail-flag.spec.ts).
+// With SHOTS=1 it also takes the screenshots of the phase into $SHOTS_DIR (default test-results/rail): each place at 1440
+// light and dark, 1280 light and 1024 with a room's thread open, as the owner and as a member.
+import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
+import { navRail, openRail, OWNER, reset, signIn } from './helpers'
+import { ROOM_ID, routeRoom } from './rooms-mock'
+import { DICTS } from '../../src/i18n'
+
+const t = DICTS.ko
+const MEMBER = { username: 'bob', password: 'bob password 1' }
+const MINJUN = { id: 'minjun', name: '민준' }, SEOYEON = { id: 'seoyeon', name: '서연' }
+const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
+const ROOT = id(300)
+
+async function start(page: Page, width: number, who?: typeof MEMBER) {
+  await page.setViewportSize({ width, height: 860 })
+  await reset(page)
+  await navRail(page)
+  await signIn(page, who)
+  await expect(page.getByTestId('rail')).toBeVisible()
+}
+
+/** a room with a thread (rooms-mock.ts), and the room list around it: the room has three unread, another one more */
+async function roomWithThread(page: Page) {
+  await routeRoom(page, {
+    kind: 'team', members: [MINJUN, SEOYEON],
+    messages: [{ id: ROOT, author: MINJUN, body: '다음 주 발표 시안, 어떻게 나눌까요?' }, { id: id(301), author: SEOYEON, body: '제가 표지를 맡을게요', threadRootId: ROOT }, { id: id(302), author: MINJUN, body: '좋아요, 금요일까지 부탁해요', threadRootId: ROOT }],
+    room: { unreadCount: 3 },
+  })
+}
+
+/** GET /api/notifications answered with these counts: `rooms` of the `unread` are conversation rows */
+const routeNotices = (page: Page, unread: number, rooms: number) =>
+  page.route('**/api/notifications?*', (route) => route.fulfill({ json: { items: [], nextCursor: null, unreadCount: unread, roomUnreadCount: rooms } }))
+
+const width = async (page: Page, testId: string) => Math.round((await page.getByTestId(testId).boundingBox())!.width)
+
+test('the rail replaces the sidebar; five places in order; each has its list panel', async ({ page }) => {
+  await start(page, 1440)
+  const rail = page.getByRole('navigation', { name: t['rail.label'] })
+  expect(await rail.getByRole('link').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['rail-ai', 'rail-chats', 'rail-projects', 'rail-files', 'rail-activity'])
+  await expect(page.getByTestId('rail-chats')).toContainText(t['tabs.chats'])
+  await expect(page.getByTestId('rail-projects')).toContainText(t['projects.title'])
+  await expect(page.getByTestId('rail-files')).toContainText(t['sidebar.files'])
+  await expect(page.getByTestId('rail-activity')).toContainText(t['inbox.title'])
+  await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('trina-panel')).toBeVisible()
+  // the old sidebar's rows: ask, search, scheduled and team skills on top of 트리나's list (삭제한 기록 in 최근 기록's "⋯");
+  // Projects, Files and Activity are places
+  await expect(page.getByTestId('trina-panel').getByTestId('new-chat')).toContainText('트리나에게 묻기')
+  await expect(page.getByTestId('trina-panel').getByTestId('nav-search')).toBeVisible()
+  for (const row of ['nav-scheduled', 'nav-skills']) await expect(page.getByTestId('trina-panel').getByTestId(row)).toBeVisible()
+  await expect(page.getByTestId('trina-panel').getByTestId('trina-all-projects')).toHaveCount(0)
+  await expect(page.getByTestId('nav-files')).toHaveCount(0)
+  await expect(page.getByTestId('nav-inbox')).toHaveCount(0)
+  expect(await width(page, 'rail')).toBe(72)
+  expect(await width(page, 'trina-panel')).toBe(288)
+
+  await openRail(page, 'chats')
+  await expect(page).toHaveURL(/\/rooms$/)
+  await expect(page.getByTestId('chats-panel')).toBeVisible()
+  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity')).toContainText(t['feed.chats'])
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  // the panel is the list: the page beside it does not repeat it (no rooms, no AI row, no second 새 대화)
+  await expect(page.getByTestId('rooms-pick')).toHaveText(t['rail.pickConversation'])
+  for (const x of ['rooms-ai', 'rooms-page-new-dm', 'rooms-row']) await expect(page.getByTestId('rooms-page').getByTestId(x)).toHaveCount(0)
+
+  // 프로젝트: its list beside the rail (projects-panel.spec.ts)
+  await openRail(page, 'projects')
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page.getByTestId('projects-panel')).toBeVisible()
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+  expect(await width(page, 'projects-panel')).toBe(288)
+
+  // since phase P3, 파일 and 활동 have their lists too (files-panel.spec.ts, activity-panel.spec.ts)
+  await openRail(page, 'files')
+  await expect(page).toHaveURL(/\/files\?view=recent$/)
+  await expect(page.getByTestId('files-panel')).toBeVisible()
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  expect(await width(page, 'files-panel')).toBe(288)
+
+  await openRail(page, 'activity')
+  await expect(page.getByTestId('activity-panel')).toBeVisible()
+  await expect(page.getByTestId('activity-pick')).toBeVisible()
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+})
+
+test('each place opens what was open in it; the lit place again goes to its start', async ({ page }) => {
+  await start(page, 1440)
+  await page.getByTestId('trina-panel').getByTestId('nav-scheduled').click()
+  await expect(page).toHaveURL(/\/scheduled$/)
+  await openRail(page, 'chats')
+  await page.goto('/activity?in=chats')
+  // 멘션·스레드 belongs to 대화
+  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('rooms-activity')).toHaveAttribute('aria-current', 'page')
+  await openRail(page, 'ai')
+  await expect(page).toHaveURL(/\/scheduled$/)
+  await openRail(page, 'chats')
+  await expect(page).toHaveURL(/\/activity\?in=chats$/)
+  // pressed again: its start
+  await page.getByTestId('rail-chats').click()
+  await expect(page).toHaveURL(/\/rooms$/)
+  await openRail(page, 'ai')
+  await page.getByTestId('rail-ai').click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  // Settings is a dialog over the page: the place under it stays lit
+  await page.goto('/scheduled')
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('account-settings').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+})
+
+test('marks: 대화 counts conversations, 활동 the notices that are not conversations, 멘션·스레드 its own; "?" on 대화 while a room\'s AI waits', async ({ page }) => {
+  await routeNotices(page, 5, 2)
+  await start(page, 1280)
+  const now = new Date().toISOString()
+  const base = { canRename: false, managerId: null, memberCount: 2, lastReadSeq: 0, lastSeq: 9, lastMessage: null, muted: false, createdAt: now, activityAt: now, mentioned: false, unreadCount: 0, threadsUnread: 0, nextThreadId: null, peers: [MINJUN] }
+  const rooms = [
+    { ...base, id: id(1), kind: 'dm', name: null, groupId: null, unreadCount: 3 },
+    { ...base, id: id(2), kind: 'team', name: '마케팅팀', groupId: id(20), unreadCount: 12 },
+    { ...base, id: id(3), kind: 'team', name: '영업팀', groupId: id(21), threadsUnread: 2, mentioned: true },
+    { ...base, id: id(4), kind: 'team', name: '조용한 방', groupId: id(22), unreadCount: 7, muted: true },
+  ]
+  expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
+  await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-n', '3')
+  await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '3')
+  await expect(page.getByTestId('rail-files-mark')).toHaveCount(0)
+  // a screen reader hears the place first, then its mark in words (the number itself is hidden from it)
+  const named = (first: string, then: string) => new RegExp(`^${first}\\s*, ${then}$`)
+  await expect(page.getByTestId('rail-chats')).toHaveAccessibleName(named(t['tabs.chats'], t['rail.unreadRooms'].replace('{n}', '3')))
+  await expect(page.getByTestId('rail-activity')).toHaveAccessibleName(named(t['inbox.title'], t['notifications.unread'].replace('{count}', '3')))
+  await openRail(page, 'chats')
+  await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity-unread')).toContainText('2')
+})
+
+for (const w of [1024, 1100] as const)
+  test(`${w} px with a thread open: the list ${w < 1052 ? 'folds away and comes back when it closes' : 'stays'}; the rail stays`, async ({ page }) => {
+    await roomWithThread(page)
+    await start(page, w)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    await expect(page.getByTestId('chats-panel')).toBeVisible()
+    expect(await width(page, 'chats-panel')).toBe(240)
+    await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
+    await expect(page.getByTestId('room-thread')).toBeVisible()
+    await expect(page.getByTestId('rail')).toBeVisible()
+    if (w < 1052) {
+      await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+      // the room and its thread keep their minimums (420 + 320)
+      expect(await width(page, 'room')).toBeGreaterThanOrEqual(420)
+      await page.goto(`/rooms/${ROOM_ID}`)
+      await expect(page.getByTestId('chats-panel')).toBeVisible()
+      // the room's ✦ side chat folds it too
+      await page.getByTestId('room-side-chat-button').click()
+      await expect(page.getByTestId('room-side-chat')).toBeVisible()
+      await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+      await page.getByTestId('room-side-chat-button').click()
+      await expect(page.getByTestId('chats-panel')).toBeVisible()
+    } else {
+      await expect(page.getByTestId('chats-panel')).toBeVisible()
+      await expect(page.getByTestId('panel-hide')).toHaveCount(0)
+    }
+  })
+
+test('below 1052 px the list can be hidden and shown again; remembered in this browser', async ({ page }) => {
+  await start(page, 1024)
+  await expect(page.getByTestId('trina-panel')).toBeVisible()
+  await page.getByTestId('panel-hide').click()
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('rail')).toBeVisible()
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  await page.getByTestId('rail-show-list').click()
+  await expect(page.getByTestId('trina-panel')).toBeVisible()
+  await expect(page.getByTestId('rail-show-list')).toHaveCount(0)
+  // wide again: always there, no hide button
+  await page.setViewportSize({ width: 1280, height: 860 })
+  await expect(page.getByTestId('panel-hide')).toHaveCount(0)
+})
+
+test('owner: the logo opens the team menu (Invite, Admin); the photo menu has status, away, Settings, Sign out, no Usage, Deleted history or Admin', async ({ page }) => {
+  await start(page, 1280)
+  await page.getByTestId('team-menu').click()
+  await expect(page.getByTestId('team-menu-invite')).toBeVisible()
+  await expect(page.getByTestId('team-menu-admin')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('team-dropdown')).toHaveCount(0)
+  await expect(page.getByTestId('team-menu')).toBeFocused()
+  await page.getByTestId('account-menu').click()
+  const menu = page.getByTestId('account-dropdown')
+  await expect(menu.getByTestId('account-who')).toContainText('Olga')
+  await expect(menu.getByTestId('account-role')).toHaveText(t['role.owner'])
+  for (const item of ['account-away', 'account-status', 'account-settings', 'logout']) await expect(menu.getByTestId(item)).toBeVisible()
+  for (const item of ['account-usage', 'account-trash']) await expect(menu.getByTestId(item)).toHaveCount(0)
+  await expect(menu).not.toContainText(t['sidebar.admin'])
+})
+
+test('member: the logo and team name are not a button; no Admin anywhere on the rail; same places', async ({ page }) => {
+  await start(page, 1280, MEMBER)
+  await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  await expect(page.getByTestId('team-header')).toContainText('Acme')
+  await expect(page.getByTestId('rail')).not.toContainText(t['sidebar.admin'])
+  await page.getByTestId('account-menu').click()
+  await expect(page.getByTestId('account-role')).toHaveText(t['role.member'])
+  await page.keyboard.press('Escape')
+  for (const item of ['chats', 'projects', 'files', 'activity', 'ai'] as const) await openRail(page, item)
+})
+
+test('Admin: no place lit, one 240 px menu beside the rail at every computer width (its icon rail gone)', async ({ page }) => {
+  await start(page, 1024)
+  await page.goto('/admin/members')
+  await expect(page.getByTestId('admin-sidebar')).toBeVisible()
+  await expect(page.getByTestId('admin-sidebar')).not.toHaveAttribute('data-rail', '')
+  expect(await width(page, 'admin-sidebar')).toBe(240)
+  await expect(page.getByTestId('rail').locator('[aria-current="page"]')).toHaveCount(0)
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  await expect(page.getByTestId('chats-panel')).toHaveCount(0)
+})
+
+test('keyboard: skip links to the page and to the list; Tab goes logo → places → photo; arrows move between them', async ({ page }) => {
+  await start(page, 1440)
+  await page.keyboard.press('Tab')
+  await expect(page.getByText(t['a11y.skip'])).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('skip-list')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('trina-panel')).toBeFocused()
+  await page.getByTestId('team-menu').focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('rail-ai')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('rail-chats')).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(page.getByTestId('account-menu')).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(page.getByTestId('team-menu')).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByTestId('account-menu')).toBeFocused()
+  // after the rail, the list, then the page
+  await page.keyboard.press('Tab')
+  await expect(page.locator('#rail-panel :focus')).toHaveCount(1)
+  // the list's last control (삭제한 기록 is in a menu now)
+  await page.locator('#rail-panel').locator('a:visible, button:visible').last().focus()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('#main :focus')).toHaveCount(1)
+  // ⇧⌘O: a new AI chat, 트리나 lit
+  await openRail(page, 'files')
+  await page.keyboard.press('Control+Shift+O')
+  await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+})
+
+test('widths: nothing cut or sideways at 1024–1920, at 150 % browser zoom and at the largest text; the list stays 240–300 px', async ({ page }) => {
+  test.setTimeout(90_000)
+  await start(page, 1440)
+  // [window width, browser zoom (simulated: the page sees the window divided by it), Settings › text size]
+  const cases = [[1024, 1, 'default'], [1100, 1, 'default'], [1280, 1, 'default'], [1440, 1, 'default'], [1920, 1, 'default'], [1440, 1.5, 'default'], [1280, 1.5, 'default'], [1440, 1, 'largest'], [1024, 1, 'largest']] as const
+  for (const [w, zoom, text] of cases) {
+    if (text !== 'default') {
+      await page.evaluate((v) => localStorage.setItem('mycel.textSize', v), text)
+      await page.reload()
+    }
+    await page.setViewportSize({ width: Math.round(w / zoom), height: Math.round(860 / zoom) })
+    for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
+      await openRail(page, item)
+      const m = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: innerWidth, rail: document.querySelector('[data-testid="rail"]')!.getBoundingClientRect().width, panel: document.getElementById('rail-panel')!.getBoundingClientRect().width }))
+      const at = `${w} px × ${zoom}, ${text} text, ${item}`
+      expect(m.doc, at).toBeLessThanOrEqual(m.win)
+      expect(m.rail, at).toBeLessThanOrEqual(88)
+      expect(m.panel, at).toBeGreaterThanOrEqual(240)
+      expect(m.panel, at).toBeLessThanOrEqual(300)
+    }
+  }
+})
+
+test.describe('a touch screen at 1024 px (a tablet across, a touch laptop)', () => {
+  test.use({ hasTouch: true })
+  test('every rail and list target is at least 44 px to tap', async ({ page }) => {
+    await roomWithThread(page)
+    await start(page, 1024)
+    for (const title of ['주간 보고 초안', '회의록 정리']) await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })
+    await page.reload()
+    for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
+      await page.getByTestId(`rail-${item}`).click()
+      await expect(page.getByTestId(`rail-${item}`)).toHaveAttribute('aria-current', 'page')
+      // a control drawn smaller takes taps from a 44 px box around it (its ::after); a chat row's "···" is 28 px on
+      // purpose (it sits on the row's own link; long press opens the same menu)
+      const small = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('[data-testid="rail"] :is(a,button), #rail-panel :is(a,button)')]
+          .filter((e) => e.getAttribute('data-testid') !== 'chat-row-menu')
+          .map((e) => {
+            const r = e.getBoundingClientRect(), after = getComputedStyle(e, '::after')
+            const h = after.content !== 'none' && after.position === 'absolute' ? Math.max(r.height, parseFloat(after.height)) : r.height
+            return { id: e.getAttribute('data-testid') ?? e.textContent?.trim(), w: Math.round(r.width), h: Math.round(h) }
+          })
+          .filter((b) => b.w > 0 && (b.w < 44 || b.h < 44)),
+      )
+      expect(small, item).toEqual([])
+    }
+  })
+})
+
+test('⌘K: 대화 🔍 searches conversations; "프로젝트", "사용량" and "팀 폴더" are found', async ({ page }) => {
+  await start(page, 1440)
+  await openRail(page, 'chats')
+  await page.getByTestId('chats-panel-search').click()
+  await expect(page.getByTestId('search-tab-rooms')).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+K')
+  const input = page.getByRole('dialog').getByRole('combobox').or(page.getByRole('dialog').getByRole('textbox')).first()
+  await input.fill(t['sidebar.projects'])
+  await expect(page.getByRole('dialog').getByText(t['sidebar.projects'], { exact: true }).first()).toBeVisible()
+  await input.fill(t['sidebar.usage'])
+  await expect(page.getByRole('dialog').getByText(t['sidebar.usage'], { exact: true }).first()).toBeVisible()
+  await input.fill(t['files.root'])
+  await expect(page.getByRole('dialog').getByText(t['search.openFiles'], { exact: true })).toBeVisible()
+})
+
+test('Screenshots of the rail: each place at 1440 light and dark, 1280 light, 1024 with a thread open; owner and member', async ({ browser }) => {
+  test.skip(!process.env.SHOTS, 'only with SHOTS=1')
+  test.setTimeout(240_000)
+  const dir = process.env.SHOTS_DIR ?? 'test-results/rail'
+  for (const [role, who] of [['owner', undefined], ['member', MEMBER]] as const) {
+    for (const [name, w, scheme] of [['1440-light', 1440, 'light'], ['1440-dark', 1440, 'dark'], ['1280-light', 1280, 'light']] as const) {
+      const ctx = await browser.newContext({ viewport: { width: w, height: 860 }, colorScheme: scheme, locale: 'ko-KR' })
+      const page = await ctx.newPage()
+      await roomWithThread(page)
+      await routeNotices(page, 4, 1)
+      await start(page, w, who)
+      for (const title of ['주간 보고 초안', '회의록 정리', '고객 문의 답장']) await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })
+      await page.reload()
+      await expect(page.getByTestId('rail')).toBeVisible()
+      for (const item of ['ai', 'chats', 'projects', 'files', 'activity'] as const) {
+        if (name === '1280-light' && item !== 'ai') continue
+        await openRail(page, item)
+        await page.waitForTimeout(400)
+        await page.screenshot({ path: `${dir}/${role}-${item}-${name}.png` })
+      }
+      if (name === '1440-light') {
+        await page.getByTestId('account-menu').click()
+        await page.screenshot({ path: `${dir}/${role}-me-menu-${name}.png` })
+        await page.keyboard.press('Escape')
+        if (role === 'owner') {
+          await page.getByTestId('team-menu').click()
+          await page.screenshot({ path: `${dir}/${role}-team-menu-${name}.png` })
+          await page.keyboard.press('Escape')
+        }
+      }
+      await ctx.close()
+    }
+    const ctx = await browser.newContext({ viewport: { width: 1024, height: 768 }, colorScheme: 'light', locale: 'ko-KR' })
+    const page = await ctx.newPage()
+    await roomWithThread(page)
+    await start(page, 1024, who)
+    await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
+    await expect(page.getByTestId('room-thread')).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `${dir}/${role}-thread-1024-light.png` })
+    await ctx.close()
+  }
+})
+
+test('a phone gets no rail with the switch on: its own tabs instead (phone-tabs-v2.spec.ts)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await navRail(page)
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill(OWNER.username)
+  await page.getByTestId('login-password').fill(OWNER.password)
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+  await expect(page.getByTestId('rail')).toHaveCount(0)
+  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
+  await page.goto('/rooms')
+  await expect(page.getByTestId('rooms-pick')).toHaveCount(0)
+})

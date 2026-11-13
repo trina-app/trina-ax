@@ -388,16 +388,22 @@ describe('site access "all", the team policy and Settings > Browser', () => {
     expect(restarted.siteAccess).toBe('all')
   })
 
-  test('the person\'s "Allow all websites" on the team server (Me.user.webAllowAll): followed from on to off, never widens', () => {
-    // on from the server never widens this browser: that takes the click in the app's own window
+  test('the person\'s "Allow all websites" on the team server (Me.user.webAllowAll): followed both ways', () => {
+    // on from the server opens every public site in this browser too, while the team allows it (docs/DECISIONS.md
+    // "Always allow on every card")
     const p = new SitePermissions()
-    expect(p.setPersonPolicy(true)).toBe(true) // the value is remembered (saved), the browser still asks
-    expect(p.siteAccess).toBe('ask')
-    expect(p.isAllowed('site', 'shop.test')).toBe(false)
+    expect(p.setPersonPolicy(true)).toBe(true)
+    expect(p.siteAccess).toBe('all')
+    expect(p.isAllowed('site', 'shop.test')).toBe(true)
+    expect(p.isAllowed('private', 'nas.local')).toBe(false) // office-network addresses still ask
     expect(p.setPersonPolicy(true)).toBe(false) // the same value again: nothing to save
-    expect(p.toJSON()).toEqual({ always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true, personAllowsAll: true })
-    // the person turned "all" on here too, then off elsewhere (Settings on the web, the team): back to ask
-    expect(p.setSiteAccess('all')).toBe(true)
+    expect(p.toJSON()).toEqual({ always: [], privateAlways: [], siteAccess: 'all', teamAllowsAll: true, personAllowsAll: true })
+    // the team does not allow "all": on from the server leaves it asking
+    const off = new SitePermissions()
+    off.setTeamPolicy(false)
+    expect(off.setPersonPolicy(true)).toBe(true)
+    expect(off.siteAccess).toBe('ask')
+    // turned off elsewhere (Settings on the web, the team): back to ask
     expect(p.setPersonPolicy(false)).toBe(true)
     expect(p.siteAccess).toBe('ask')
     expect(p.toJSON()).toEqual({ always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true })
@@ -419,7 +425,7 @@ describe('site access "all", the team policy and Settings > Browser', () => {
     expect(other.toJSON()).not.toHaveProperty('personAllowsAll')
   })
 
-  test('the window applies GET /api/me (common/me-policy.ts, AppWindow.fetchTeamInfo): an off narrows, an on never widens, an older server changes nothing', () => {
+  test('the window applies GET /api/me (common/me-policy.ts, AppWindow.fetchTeamInfo): an off narrows, an on widens, an older server changes nothing', () => {
     const p = new SitePermissions({ always: [], privateAlways: [] })
     const pane = { setTeamPolicy: (v: boolean) => { p.setTeamPolicy(v) }, setPersonPolicy: (v: boolean) => { p.setPersonPolicy(v) } }
     // the person turned it on here (the app's window) and on the server
@@ -429,9 +435,9 @@ describe('site access "all", the team policy and Settings > Browser', () => {
     // switched off elsewhere: this browser asks again
     applyMePolicy(pane, { team: { browserAllowAll: true }, user: {} })
     expect(p.siteAccess).toBe('ask')
-    // on again on the server: not widened here
+    // on again on the server: this browser opens every site again
     applyMePolicy(pane, { team: { browserAllowAll: true }, user: { webAllowAll: true } })
-    expect(p.siteAccess).toBe('ask')
+    expect(p.siteAccess).toBe('all')
     // a browser set to "all" here with the server value never on (older server, or before this release): left as it is
     const q = new SitePermissions({ always: [], privateAlways: [], siteAccess: 'all' })
     applyMePolicy({ setTeamPolicy: (v) => { q.setTeamPolicy(v) }, setPersonPolicy: (v) => { q.setPersonPolicy(v) } }, { team: {}, user: {} })

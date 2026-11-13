@@ -9,6 +9,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { accountButton, navRoomRow, navRoomsList, openAccountMenu, roomRowLink, showRooms } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -35,8 +36,9 @@ async function start(page: Page) {
   await reset(page)
   await routeRooms(page, ROOMS)
   await signIn(page)
+  await showRooms(page)
 }
-const sidebarRow = (page: Page, name: string) => page.getByTestId('sidebar-room-row').filter({ hasText: name })
+const sidebarRow = (page: Page, name: string) => navRoomRow(page, name)
 const faceIn = (l: Locator) => l.getByTestId('presence-face')
 
 test('a second member\'s dot: online, away, offline in the sidebar and the DM header; group rows have none', async ({ page }) => {
@@ -49,17 +51,17 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'online')
   await expect(row.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'online')
   // the row reads "Bob, 접속 중"
-  await expect(row.getByTestId('sidebar-room')).toHaveAccessibleName(/Bob ?, 접속 중/)
+  await expect(roomRowLink(row)).toHaveAccessibleName(/Bob ?, 접속 중/)
   // a group chat and a team room show no dot, even with Bob online
   for (const name of ['디자인 리뷰', '개발팀']) await expect(sidebarRow(page, name).getByTestId('presence-dot')).toHaveCount(0)
 
   // the DM's header: the dot on the picture, the words after the name
-  await row.getByTestId('sidebar-room').click()
+  await roomRowLink(row).click()
   await expect(page.getByTestId('room-message')).toHaveCount(1)
   const header = page.getByTestId('room-members-button')
   const headerFace = faceIn(page.getByTestId('room'))
   await expect(headerFace).toHaveAttribute('data-presence', 'online')
-  await expect(header).toHaveAccessibleName(/Bob ?, 접속 중/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 접속 중$/)
   // on a computer the phone's dot before the name is not shown
   await expect(header.getByTestId('presence-dot')).toBeHidden()
 
@@ -67,7 +69,7 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'away')
   await expect(headerFace).toHaveAttribute('data-presence', 'away')
   await expect(headerFace.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'away')
-  await expect(header).toHaveAccessibleName(/Bob ?, 자리 비움/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 자리 비움$/)
   // hollow: the background inside a ring
   const away = await headerFace.getByTestId('presence-dot').evaluate((e) => getComputedStyle(e).boxShadow)
   expect(away).toContain('inset')
@@ -81,9 +83,9 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'offline')
   await expect(headerFace).toHaveAttribute('data-presence', 'offline')
   await expect(page.getByTestId('room').getByTestId('presence-dot')).toHaveCount(0)
-  await expect(page.getByTestId('sidebar-rooms-list').getByTestId('presence-dot')).toHaveCount(0)
+  await expect(navRoomsList(page).getByTestId('presence-dot')).toHaveCount(0)
   // the header still says it, for a screen reader
-  await expect(header).toHaveAccessibleName(/Bob ?, 오프라인/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 오프라인$/)
 })
 
 test('a reload brings the list back with the new connection (it is a state, sent after each hello)', async ({ page }) => {
@@ -91,6 +93,7 @@ test('a reload brings the list back with the new connection (it is a state, sent
   await tell(page, [{ id: 'bob', state: 'online' }, { id: 'sora', state: 'away' }])
   await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
   await page.reload()
+  await showRooms(page)
   await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
   await expect(faceIn(sidebarRow(page, '김소라'))).toHaveAttribute('data-presence', 'away')
   await expect(faceIn(sidebarRow(page, '이민수'))).toHaveAttribute('data-presence', 'offline')
@@ -98,7 +101,10 @@ test('a reload brings the list back with the new connection (it is a state, sent
   const sent = (await (await page.request.get('/__test/presence')).json()).sent as { user: string; state: string }[]
   const mine = sent.filter((s) => s.user === 'olga').map((s) => s.state)
   expect(mine.length).toBeGreaterThanOrEqual(2)
-  expect(new Set(mine)).toEqual(new Set(['active']))
+  // the page going away for the reload is a hidden tab, idle at once (dff6b2adc, #672); the new page says active
+  expect(mine.filter((s) => s === 'active').length).toBeGreaterThanOrEqual(2)
+  expect(mine.at(-1)).toBe('active')
+  expect(mine.every((s) => s === 'active' || s === 'idle')).toBe(true)
 })
 
 test('the member list: each person\'s dot, mine too; no serious accessibility problem', async ({ page }) => {
@@ -123,7 +129,7 @@ test('the member list: each person\'s dot, mine too; no serious accessibility pr
 
 test('자리 비움으로 표시: one item in the account menu, kept in my account, and back', async ({ page }) => {
   await start(page)
-  await page.getByTestId('account-menu').click()
+  await openAccountMenu(page)
   const item = page.getByTestId('account-away')
   await expect(item).toHaveText('자리 비움으로 표시')
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/me/away'))
@@ -131,10 +137,10 @@ test('자리 비움으로 표시: one item in the account menu, kept in my accou
   expect((await put).postDataJSON()).toEqual({ away: true })
   // the menu closed, the keyboard back on its button
   await expect(page.getByTestId('account-dropdown')).toHaveCount(0)
-  await expect(page.getByTestId('account-menu')).toBeFocused()
+  await expect(accountButton(page)).toBeFocused()
   expect((await (await page.request.get('/api/me')).json()).user.prefs.away).toBe(true)
   await page.reload()
-  await page.getByTestId('account-menu').click()
+  await openAccountMenu(page)
   await expect(page.getByTestId('account-away')).toHaveText('접속 중으로 표시')
   await page.getByTestId('account-away').click()
   await expect.poll(async () => (await (await page.request.get('/api/me')).json()).user.prefs.away).toBeUndefined()
@@ -158,7 +164,7 @@ test.describe('phone', () => {
     await expect(header.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'away')
     await tell(page, [{ id: 'bob', state: 'offline' }])
     await expect(header.getByTestId('presence-dot')).toHaveCount(0)
-    await expect(header).toHaveAccessibleName(/Bob ?, 오프라인/)
+    await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 오프라인$/)
   })
 })
 
@@ -195,17 +201,18 @@ test('screenshots at 1440: the sidebar with all three states, the DM header, the
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
     await page.goto('/')
+    await showRooms(page)
     await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
     await expect(faceIn(sidebarRow(page, '김소라'))).toHaveAttribute('data-presence', 'away')
     await shot(`after-sidebar-1440-${scheme}`)
     await sidebarRow(page, '김소라').hover()
     await shot(`after-sidebar-hover-1440-${scheme}`)
     if (scheme === 'light') {
-      sizes['sidebar-online'] = await measure(sidebarRow(page, 'Bob'), sidebarRow(page, 'Bob').getByTestId('sidebar-room'))
-      sizes['sidebar-away'] = await measure(sidebarRow(page, '김소라'), sidebarRow(page, '김소라').getByTestId('sidebar-room'))
-      sizes['account-row'] = await measure(page.getByTestId('account-menu'), page.getByTestId('account-menu').locator('span.truncate'))
+      sizes['sidebar-online'] = await measure(sidebarRow(page, 'Bob'), roomRowLink(sidebarRow(page, 'Bob')))
+      sizes['sidebar-away'] = await measure(sidebarRow(page, '김소라'), roomRowLink(sidebarRow(page, '김소라')))
+      sizes['account-row'] = await measure(accountButton(page), accountButton(page).locator('span.truncate'))
     }
-    await page.getByTestId('account-menu').click()
+    await openAccountMenu(page)
     await shot(`after-account-menu-1440-${scheme}`)
     await page.keyboard.press('Escape')
     await page.goto(`/rooms/${DM}`)

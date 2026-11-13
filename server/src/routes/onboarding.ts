@@ -9,7 +9,7 @@ import { getChatRuntime } from '../chat/runtime'
 import { mapErrors } from '../team-files/errors'
 import { readCompanyProfile, saveCompanyProfile } from '../onboarding/profile'
 import { profileDraftState, startProfileDraft } from '../onboarding/draft'
-import { saveSkillDraft, skillDraftState, startSkillDraft } from '../onboarding/skill-draft'
+import { saveSkillDraft, skillDraftState, startFormSkillDraft, startSkillDraft } from '../onboarding/skill-draft'
 import { fail } from '../http/errors'
 
 export const onboardingRoutes: RouteModule = {
@@ -25,6 +25,8 @@ export const onboardingRoutes: RouteModule = {
     kit.handle(API.getProfileDraft, ({ params, auth }) => profileDraftState(ctx, getChatRuntime(ctx), auth.user.id, params.chatId))
     // a team skill from one of the caller's answers (docs/DECISIONS.md "S"): a draft turn of theirs, then their own save
     kit.handle(API.startSkillDraft, ({ c, body, auth }) => startSkillDraft(ctx, getChatRuntime(ctx), auth, c.get('locale'), body))
+    // a team skill from a form in the team folder (docs/DECISIONS.md "Setup 팀 파일: forms become skills"): the same draft
+    kit.handle(API.startFormSkillDraft, ({ c, body, auth }) => startFormSkillDraft(ctx, getChatRuntime(ctx), auth, c.get('locale'), body))
     kit.handle(API.getSkillDraft, ({ params, auth }) => skillDraftState(ctx, getChatRuntime(ctx), auth.user.id, params.chatId))
     kit.handle(API.saveSkillDraft, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => saveSkillDraft(ctx, getChatRuntime(ctx), auth, c.get('locale'), params.chatId, body)))
   },

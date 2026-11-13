@@ -42,6 +42,8 @@ import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
+import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
+import { chatGroups, otherChats } from '../chat/chat-groups'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
@@ -198,18 +200,32 @@ export const chatsRoutes: RouteModule = {
     }
 
     // ---------------- chats ----------------
+    // the Trina list's groups in one read (chat/chat-groups.ts); registered before GET /api/chats/:id
+    kit.handle(API.listChatGroups, ({ auth }) => chatGroups(rt, auth.user.id))
+
     kit.handle(API.listChats, ({ query, auth }) => {
       const me = auth.user.id
       const limit = query.limit ?? 50
+      // the Trina list's other chats, their next pages (chat/chat-groups.ts: the same set as the groups' `other`)
+      if (query.other) {
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
+        return otherChats(rt, me, query.cursor, limit)
+      }
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
       const args: (string | number)[] = []
+      if (query.trash && query.folderId) fail('validation', undefined, { fields: { 'query.folderId': 'not with trash' } })
       if (query.trash) {
         // the trash holds my own chats (a deleted shared chat goes to its creator's) and the shared chats I deleted (an
         // editor of the project finds someone else's there too), each once and only while I may restore it (below)
         where.push('deleted_at IS NOT NULL', '(user_id = ? OR (deleted_by = ? AND shared_at IS NOT NULL AND project_id IS NOT NULL))'); args.push(me, me)
         if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
+      } else if (query.folderId) {
+        // one of my list folders (chat/nav-folders.ts): my own chats in it with no project; another person's folder 404
+        if (query.projectId) fail('validation', undefined, { fields: { 'query.folderId': 'not with projectId' } })
+        const f = folderChatFilter(ctx.db, me, query.folderId)
+        where.push('deleted_at IS NULL', f.where); args.push(...f.args)
       } else if (query.projectId) {
         // a project's page: my chats there and every shared chat of it (each only while I see the project, below)
         where.push('deleted_at IS NULL', 'project_id = ?', '(user_id = ? OR shared_at IS NOT NULL)'); args.push(query.projectId, me)
@@ -220,8 +236,7 @@ export const chatsRoutes: RouteModule = {
       }
       // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
-      // a search: every word of the text, in any order, each in the title or in one of the chat's messages (the AI's
-      // project_chats tool matches the same way, chat/room-project-chats.ts); "견적서 보내" finds "견적서를 보내드렸어요".
+      // a search: every word of the text, in any order, each in the title or in one of the chat's messages; "견적서 보내" finds "견적서를 보내드렸어요".
       // The chats that hold the words are found once per request, before the pages below: a pass per word (the longest
       // first) over the chats this list may hold, after the first word only over those that held the words before, each
       // chat's finished messages (status <> 'streaming': what messages_fts holds) read by the chat's index until the
@@ -390,7 +405,7 @@ export const chatsRoutes: RouteModule = {
       rt.store.markSeen(chat.id)
       const after = rt.store.chatRow(chat.id)!
       // only a change is told (an answer the mark cannot reach, one dated after the server's clock, is no change: the
-      // windows would ask again and again); a chat in the trash is not in any sidebar (an 'updated' would put it back
+      // windows would ask again and again); a chat in the trash is not in any list (an 'updated' would put it back
       // there). Session markers: docs/DECISIONS.md.
       if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, after)
@@ -426,10 +441,17 @@ export const chatsRoutes: RouteModule = {
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
+      let unfiled = new Set<string>()
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
-        ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
+        ctx.db.transaction(() => {
+          ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
+          // into a project: out of every list folder (chat/nav-folders.ts), so a project chat (perhaps shared later) is
+          // never kept in a folder; the only way a chat gets a project
+          if (body.projectId) unfiled = dropChatFolderItems(ctx.db, [chat.id])
+        })()
         rt.publishChat(auth.user.id, chat.id, 'updated')
+        chatFoldersChanged(ctx, unfiled)
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
@@ -441,12 +463,16 @@ export const chatsRoutes: RouteModule = {
       const chat = a.row
       rt.stopChat(chat.id)
       const now = new Date()
+      let unfiled = new Set<string>()
       // who deleted it: a shared chat is in their trash too while they may restore it (listChats)
       ctx.db.transaction(() => {
         ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
-        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned)
+        // in the trash it is in nobody's list: everyone's pin of it goes (restored, it comes back unpinned), and so does
+        // its list folder's row (chat/nav-folders.ts; restored, it comes back in no folder)
         dropChatPins(ctx.db, [chat.id])
+        unfiled = dropChatFolderItems(ctx.db, [chat.id])
       })()
+      chatFoldersChanged(ctx, unfiled)
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -857,7 +883,8 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a personal project becomes a team project: a new projects/<name> with the participants chosen (as createProject
-    // makes one), the personal folder's files copied into it, the project pointed at it; the personal folder stays
+    // makes one), the personal folder's files copied into it, the project pointed at it; then the personal folder goes
+    // to my trash, so the files have moved
     kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
@@ -894,6 +921,20 @@ export const chatsRoutes: RouteModule = {
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
+      // the files moved, not copied (docs/DECISIONS.md "Making a project", review M6): two copies that do not stay in step
+      // confuse. The personal folder goes to my trash as I would put it there myself (restorable for the trash's days),
+      // but only when it is nothing more than this project's own folder and every file of it was copied: exactly
+      // users/<me>/projects/<name> (an older project elsewhere in my folder may sit on a folder that holds more), no other
+      // project's folder inside it, no skills in it, and as many files copied as it holds. Else, or when the trash
+      // refuses it, the folder stays where it is and the share stands
+      if (mayTrashSharedOriginal(ctx, p.id, r!, out.files)) {
+        try {
+          // (the trash's own file event records it)
+          await componentC(ctx).files.remove(p.id, r!.folder_path)
+        } catch (e) {
+          ctx.log.warn('project share: the personal folder stayed', { projectId: r!.id, err: String((e as Error)?.message ?? e) })
+        }
+      }
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
@@ -947,8 +988,10 @@ export const chatsRoutes: RouteModule = {
         for (const x of purged) rt.purgeChat(x.id)
         // one already in the trash keeps its time there (and who put it there)
         for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
-        // in the trash: nobody's pin of them stays (chat/pins.ts)
+        // in the trash: nobody's pin of them stays (chat/pins.ts), nor a list folder's row (none should be there: a
+        // project chat is never filed)
         dropChatPins(ctx.db, kept.map((x) => x.id))
+        dropChatFolderItems(ctx.db, kept.map((x) => x.id))
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
@@ -967,4 +1010,30 @@ export const chatsRoutes: RouteModule = {
       if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
     })
   },
+}
+
+/** Sharing a personal project may put its old folder in the trash (routes above, shareProject) only when that folder is
+ * the project's alone and was copied whole: exactly users/<me>/projects/<one name>, no other project on it or inside
+ * it, no skills folder anywhere in it, and as many regular files on disk as the copy took (the copy leaves out links,
+ * hidden entries and files it cannot read, which would otherwise be lost with the trash). */
+function mayTrashSharedOriginal(ctx: AppContext, me: string, r: ProjectRowT, copied: number): boolean {
+  const segs = r.folder_path.split('/')
+  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
+  const inside = ctx.db.query("SELECT 1 FROM projects WHERE id != ? AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\') LIMIT 1").get(r.id, r.folder_path, `${r.folder_path.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`)
+  if (inside) return false
+  let files = 0
+  let ok = true
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!ok) return
+      if (e.name.startsWith('.') || e.isSymbolicLink()) { ok = false; return }
+      if (e.isDirectory()) {
+        if (e.name.toLowerCase() === 'skills') { ok = false; return }
+        walk(path.join(dir, e.name))
+      } else if (e.isFile()) files++
+      else ok = false
+    }
+  }
+  try { walk(path.join(ctx.files.fx.root, ...segs)) } catch { return false }
+  return ok && files === copied
 }

@@ -12,6 +12,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { makePng } from '../../../tests/lib/images'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openTab } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.en
@@ -31,7 +32,7 @@ async function makeLinks(page: Page) {
 
 /** 나 › Admin › a section, as a person taps it */
 async function openAdmin(page: Page, id: string) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId(`admin-row-${id}`).click()

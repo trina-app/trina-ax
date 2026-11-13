@@ -19,7 +19,7 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, signIn: true, emailSetByOther: false }
+  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, signIn: true, emailSetByOther: false, read: false }
   preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example', signIn: true }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
@@ -69,7 +69,7 @@ describe('the Slack link page', () => {
     preview = { ...preview, emailCheck: 'mismatch', signIn: false }
     const m = await page(`?t=${TOKEN}`)
     await m.until(() => m.find('slack-link-email'), 'the reason')
-    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. "Sign in with Slack" cannot be used now. Ask your team owner to check Admin › Slack.')
+    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. "Sign in with Slack" cannot be used now. Ask your team owner to check Admin › Connected apps › Slack.')
     expect(m.find('slack-link-confirm')).toBeNull()
     expect(m.find('slack-signin')).toBeNull()
     await m.unmount()

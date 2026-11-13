@@ -14,6 +14,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 import { DICTS, translate, type MessageKey } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 
 const t = DICTS.en
 const tr = (key: MessageKey, params: Record<string, string | number>) => translate('en', key, params)
@@ -53,12 +54,14 @@ async function fakeDrive(page: Page, start: object) {
   return state
 }
 
-/** 연결한 서비스 as a person reaches it on a phone: the ☰ drawer (since #534 it is there, not a row of Me) */
+/** Connectors as a person reaches it on a phone: Me (the 나 tab), its Connectors row (Settings › Connectors since
+ * 2026-11-12; the ☰ drawer has no Connectors) */
 async function openConnectors(page: Page) {
   await page.goto('/')
-  await page.getByTestId('menu-open').tap()
-  await page.locator('[data-testid="nav-connectors"]:visible').tap()
-  await expect(page).toHaveURL(/\/connectors$/)
+  await expect(page.locator('[data-testid="nav-connectors"]')).toHaveCount(0)
+  await openTab(page, 'me')
+  await page.getByTestId('settings-row-connectors').tap()
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
 }
 
@@ -87,7 +90,8 @@ export function connectorsCases() {
     })
 
     test('the line, the search and Add custom connector scroll away with the list; one scrolling page', async ({ page }) => {
-      const scroller = page.getByTestId('integrations')
+      // Settings' column scrolls the section
+      const scroller = page.getByTestId('settings-content')
       const header = page.getByTestId('connectors-header')
       const top = (await box(scroller)).y
       await expect(header).toContainText(t['connectorsPage.desc'])
@@ -132,7 +136,8 @@ export function connectorsCases() {
       expect(b.height).toBeGreaterThanOrEqual(44)
       expect(b.width).toBeGreaterThanOrEqual(44)
       await add.tap()
-      const sheet = page.getByRole('dialog')
+      // the sheet over Settings (Settings itself is a dialog too)
+      const sheet = page.getByRole('dialog').filter({ has: page.getByTestId('integration-on-computer-done') })
       await expect(sheet.getByTestId('integration-on-computer')).toContainText(tr('integrations.onComputer', { name: 'Notion' }))
       await expect(sheet.locator('input, textarea, select')).toHaveCount(0)
       await sheet.getByTestId('integration-on-computer-done').tap()
@@ -246,19 +251,17 @@ export function connectorsCases() {
   for (const width of [820, 1440]) {
     test.describe(`a ${width} px screen`, () => {
       test.use({ viewport: { width, height: 900 }, isMobile: false, hasTouch: false })
-      test('keeps the sticky title bar', async ({ page }) => {
+      test('Settings › Connectors: the section in Settings\' column, its name as a heading, the list beside it', async ({ page }) => {
         await signIn(page)
-        await page.goto('/connectors')
+        await page.goto('/settings/connectors')
         await expect(page.getByTestId('connector-discover')).toBeVisible()
         const header = page.getByTestId('connectors-header')
-        const scroller = page.getByTestId('integrations')
-        expect(await header.evaluate((e) => getComputedStyle(e).position)).toBe('sticky')
-        const top = (await box(header)).y
-        await page.getByTestId('connector-show-all').click()
-        await scroller.evaluate((e) => e.scrollTo(0, 600))
-        await expect.poll(async () => scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(100)
-        expect(Math.round((await box(header)).y)).toBe(Math.round(top))
+        await expect(page.getByTestId('settings-content').getByTestId('connectors-header')).toBeVisible()
+        await expect(header.getByRole('heading', { name: t['integrations.title'], exact: true })).toBeVisible()
         await expect(header.getByTestId('connector-search')).toBeInViewport()
+        await expect(page.getByTestId('settings-menu')).toBeVisible()
+        // nothing scrolls sideways
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0)
       })
     })
   }

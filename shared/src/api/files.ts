@@ -127,6 +127,8 @@ export const HistoryResponse = z.object({
     author: UserRef.nullable(),
     turnId: Uuid7.nullable(),
     at: IsoTime.nullable(),
+    /** the AI chat of `turnId`, only when the caller may open that chat now (as FileVersion.savedChatId) */
+    chatId: Uuid7.optional(),
   }).nullable().optional(),
   /** created / edited / moved / renamed / copied / restored, by whom and in which AI turn (newest first) */
   events: z.array(FileHistoryEvent).optional(),
@@ -257,6 +259,28 @@ export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1)
 export const FileList = z.object({ items: z.array(FileEntry), truncated: z.boolean() })
 export type FileList = z.infer<typeof FileList>
 
+/** The Move picker's "추천" and "최근" (docs/DECISIONS.md "Move picker: suggested and recent folders"). `paths`: the
+ * files being moved (at most MOVE_SUGGEST_FILES are looked at). No AI call: the files' names (and their file-list lines)
+ * against each folder the caller can write. */
+export const MOVE_SUGGEST_FILES = 50
+export const MoveSuggestBody = z.object({ paths: z.array(RelPath.refine((p) => p !== '', 'a file')).min(1).max(MOVE_SUGGEST_FILES) })
+export const MoveSuggestion = z.object({
+  /** a folder the caller can write */
+  path: RelPath,
+  /** 0..1, how well the files' names fit the folder; only at or above the server's threshold */
+  confidence: z.number().min(0).max(1),
+})
+export const MoveSuggestions = z.object({
+  /** at most 3, best first; empty rather than a weak guess */
+  suggested: z.array(MoveSuggestion),
+  /** folders the caller recently moved or saved files into and can still write, newest first, at most 3 (none of
+   * `suggested`) */
+  recent: z.array(z.object({ path: RelPath })),
+})
+export type MoveSuggestions = z.infer<typeof MoveSuggestions>
+/** ✕ on a suggestion: that folder is not suggested again to this person for files named like these. */
+export const DismissMoveSuggestionBody = MoveSuggestBody.extend({ folder: RelPath })
+
 /** The file preview's "PDF로 저장" of an .html file (server/src/team-files/html-pdf-save.ts): the page printed by the
  * server's headless browser, saved next to it. `blocked`: references it did not load (web addresses, files not
  * everyone who can read the page can read); `scripts`: the page has scripts, which do not run when printing. */
@@ -312,6 +336,8 @@ export const FILES = {
   discardAttachment: endpoint({ method: 'DELETE', path: '/api/attachments/:id', auth: 'user', owner: 'C', response: DiscardAttachmentResult, summary: 'Take an unsent team-file attachment of the caller out of its chat. A file they uploaded from their computer into a shared project chat, never sent and unchanged in its place, goes to the team trash (trashed: true); anything else stays where it is.' }),
   findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name holds every word of q (in any order and any case), among the files the caller can read (newest first); with folders=1 also such folders the caller can see, first.' }),
   searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
+  moveSuggestions: endpoint({ method: 'POST', path: '/api/files/move-suggestions', auth: 'user', owner: 'C', body: MoveSuggestBody, response: MoveSuggestions, summary: 'Where files being moved could go (the Move picker): up to 3 folders the caller can write whose names, files and file-list lines fit the files\' names, with a confidence; and up to 3 folders the caller recently moved or saved into. No AI call. Paths the caller cannot read: 404.' }),
+  dismissMoveSuggestion: endpoint({ method: 'POST', path: '/api/files/move-suggestions/dismiss', auth: 'user', owner: 'C', body: DismissMoveSuggestionBody, response: empty, status: 204, summary: 'Stop suggesting this folder to the caller for files named like these (per person, kept on the server).' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),

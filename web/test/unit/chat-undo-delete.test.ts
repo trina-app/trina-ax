@@ -1,9 +1,11 @@
-// "Undo" on the "Chat deleted." toast (components/chat/chatActions.ts): the chat comes back into the list, and a failed
-// restore says so in an error toast instead of failing silently (it used to be an unhandled rejection).
+// "Undo" on the "Chat deleted." toast (components/chat/chatActions.ts): the chat comes back into the list (at once,
+// lib/optimistic.ts), and a failed restore takes it out again and says so in an error toast instead of failing silently
+// (it used to be an unhandled rejection).
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { Chat } from '@mycel/shared/api'
 import { undoDelete } from '../../src/components/chat/chatActions'
 import { translate } from '../../src/i18n'
+import { resetOptimistic } from '../../src/lib/optimistic'
 import { useChats } from '../../src/store/chats'
 import { useUi } from '../../src/store/ui'
 import { CHAT } from './fixtures'
@@ -14,6 +16,7 @@ const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { sta
 let reply: () => Response | Promise<Response>
 
 beforeEach(() => {
+  resetOptimistic()
   useChats.getState().reset()
   useUi.setState({ toasts: [] })
   globalThis.fetch = (async () => reply()) as unknown as typeof fetch
@@ -26,14 +29,14 @@ const failText = translate('en', 'chat.restoreFailed', { trash: translate('en', 
 
 test('undo brings the chat back into the list', async () => {
   reply = () => json(chat)
-  await undoDelete(CHAT, failText)
+  await undoDelete({ ...chat, deletedAt: new Date().toISOString() }, failText)
   expect(useChats.getState().chats.map((c) => c.id)).toEqual([CHAT])
   expect(useUi.getState().toasts).toEqual([])
 })
 
 test('a failed undo says so in an error toast (no unhandled rejection), and the chat stays out of the list', async () => {
   reply = () => json({ error: { code: 'not_found', message: 'Not found' } }, 404)
-  await undoDelete(CHAT, failText)
+  await undoDelete({ ...chat, deletedAt: new Date().toISOString() }, failText)
   expect(useChats.getState().chats).toEqual([])
   expect(useUi.getState().toasts.map((t) => [t.level, t.text])).toEqual([['error', failText]])
   expect(failText).toBe("Couldn't bring the chat back. It is still in Deleted history.")
@@ -41,6 +44,6 @@ test('a failed undo says so in an error toast (no unhandled rejection), and the 
 
 test('no connection: the same error toast', async () => {
   reply = () => Promise.reject(new TypeError('Failed to fetch'))
-  await undoDelete(CHAT, failText)
+  await undoDelete({ ...chat, deletedAt: new Date().toISOString() }, failText)
   expect(useUi.getState().toasts.map((t) => t.level)).toEqual(['error'])
 })

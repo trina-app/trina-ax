@@ -1,5 +1,6 @@
 #!/bin/bash
-# Dev environment on srt (docs/research/srt-dev-env.md section 9) for an EXISTING Trina server (Debian 13). Run as root.
+# Dev environment on srt (docs/research/srt-dev-env.md section 9) for an EXISTING Trina server (Debian 13 or Ubuntu
+# 24.04). Run as root.
 # It adds:
 #   - the packages that the AI's commands use (python3, ffmpeg, chromium, build tools ...) and that srt needs
 #     (bubblewrap, socat, ripgrep), and polkitd: the groups core, media, fonts and devenv of the one list
@@ -8,7 +9,9 @@
 #     tarball the list pins (version, sha256);
 #   - srt in /opt/trina/srt/<version> (the list's version) from the pinned package-lock.json (npm ci --ignore-scripts),
 #     root-owned;
-#   - /opt/trina/devenv/run-wrap, the polkit rule for the job scopes, the <ID>-devenv.slice with the plan caps;
+#   - /opt/trina/devenv/run-wrap, the run template /etc/systemd/system/trina-dev@.service (each run is one instance;
+#     docs/DECISIONS.md "Dev environment on srt: runs as template units"), the polkit rule for the run units, the
+#     <ID>-devenv.slice with the plan caps;
 #   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt (the server does not read it: it marks the
 #     file as srt's for uninstall-srt.sh and mycel-ctl update), ReadWritePaths=-<base>/devenv, and an
 #     ExecStartPre=+ that makes <base>/devenv, so a new data disk never stops the server.
@@ -61,6 +64,7 @@ SERVER_UNIT=$ID-server.service
 OPT=/opt/trina
 SRT_DIR=$OPT/srt/$SRT_VERSION
 RULE=/etc/polkit-1/rules.d/60-$ID-devenv.rules
+TEMPLATE=/etc/systemd/system/trina-dev@.service
 SLICE=/etc/systemd/system/$ID-devenv.slice
 DROPIN=/etc/systemd/system/$SERVER_UNIT.d/dev-env.conf
 ENT=$BASE/root/dev-env.json
@@ -81,17 +85,20 @@ put_changed() {
 [ "$(id -u)" = 0 ] || die "run as root"
 OS=$(. /etc/os-release; echo "$ID $VERSION_ID")
 case "$OS" in
-  "debian 13") ;;
-  # Ubuntu restricts user namespaces with AppArmor: srt's apply-seccomp needs a profile like apparmor-bwrap.in (spike S6)
-  "ubuntu 24.04") die "Ubuntu 24.04 needs an AppArmor profile for srt's apply-seccomp; not done yet (design spike S6)" ;;
-  *) die "this script is for Debian 13 (found $OS)" ;;
+  # Ubuntu 24.04: AppArmor needs no profile of its own (srt's apply-seccomp inherits the installer's <ID>-bwrap profile,
+  # VM check 2026-11-12). Its systemd 255 gives polkit no unit name for a transient scope; runs are instances of the
+  # root-installed template, and StartUnit sends the unit name and the verb on systemd 255 and 257.
+  "debian 13"|"ubuntu 24.04") ;;
+  *) die "this script is for Debian 13 or Ubuntu 24.04 (found $OS)" ;;
 esac
+# 1 where AppArmor restricts unprivileged user namespaces (install-linux.sh reads the same file)
+RESTRICT_USERNS=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; *) die "unknown machine $(uname -m)" ;; esac
 DISTRO=$(pk_distro) || die "$OS is not in the list of packages"
 PLATFORM=$(pk_platform) || die "unknown machine $(uname -m)"
 NODE_VERSION=$(pk_art node "$PLATFORM" version) || die "the list has no node for $PLATFORM"
 [[ "$NODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the list's node version $NODE_VERSION is not a version"
-for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/srt-full.mjs" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
+for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/srt-full.mjs" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in" "$HERE/devenv-run.service.in"; do
   [ -f "$f" ] || die "$f is missing"
 done
 grep -q "\"@anthropic-ai/sandbox-runtime\": \"$SRT_VERSION\"" "$HERE/package.json" || die "package.json does not pin srt $SRT_VERSION"
@@ -100,6 +107,10 @@ systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this 
 SRV_USER=$(systemctl show -p User --value "$SERVER_UNIT")
 [ -n "$SRV_USER" ] && [ "$SRV_USER" != root ] || die "cannot read the server account of $SERVER_UNIT"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
+# one dev environment per machine: the run template names one install's account, base and slice
+if [ -f "$TEMPLATE" ] && ! grep -qx "# install=$ID" "$TEMPLATE"; then
+  die "$TEMPLATE belongs to another install ($(grep -m1 '^# install=' "$TEMPLATE" || echo unknown)): one dev environment per machine"
+fi
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
 
 # The plan caps. A hosted team VM must have root/dev-env.json (one team per VM); the server reads the same file.
@@ -177,21 +188,77 @@ for old in "$OPT"/srt/*/; do
   if ! grep -qs "$old/" /proc/[0-9]*/cmdline 2>/dev/null; then rm -rf "$old"; else say "kept $old: a run still uses it"; fi
 done
 
-# ---- run-wrap, polkit rule, slice ----
+# ---- run-wrap, then (not in image mode) the polkit rule, the slice and the run template ----
 install -d -o root -g root -m 755 "$OPT/devenv"
 T=$(mktemp); cp "$HERE/run-wrap" "$T"; put_changed "$T" 755 "$OPT/devenv/run-wrap" || true
 if [ "$IMAGE_MODE" = 1 ]; then
   say "image mode done: srt $SRT_VERSION, node $NODE_VERSION, run-wrap. The dev environment is not turned on"
   exit 0
 fi
+
+# ---- where AppArmor restricts user namespaces: bwrap must work as the server account ----
+# srt runs /usr/bin/bwrap, which install-linux.sh step 4 gives the <ID>-bwrap profile; srt's apply-seccomp inherits it.
+# This script adds no profile (a second profile on one path cancels the first). The srt probe below checks the rest.
+if [ "$RESTRICT_USERNS" = 1 ]; then
+  runuser -u "$SRV_USER" -- bwrap --unshare-user --ro-bind / / true >/dev/null 2>&1 \
+    || die "bwrap cannot make a user namespace as $SRV_USER: AppArmor needs a profile for /usr/bin/bwrap (install-linux.sh writes /etc/apparmor.d/$ID-bwrap)"
+fi
+
 install -d -o root -g root -m 755 /etc/polkit-1/rules.d
 T=$(mktemp); sed "s/@SRV_USER@/$SRV_USER/g" "$HERE/devenv.rules.in" > "$T"
-put_changed "$T" 644 "$RULE" && systemctl try-restart polkit.service || true
+RULE_CHANGED=0; put_changed "$T" 644 "$RULE" && RULE_CHANGED=1
 T=$(mktemp); sed -e "s/@ID@/$ID/g" -e "s/@MEMORY_MAX@/${MEM}M/" -e "s/@CPU_QUOTA@/$CPU_QUOTA/" -e "s/@TASKS_MAX@/$TASKS_MAX/" "$HERE/devenv.slice.in" > "$T"
 SLICE_CHANGED=0; put_changed "$T" 644 "$SLICE" && SLICE_CHANGED=1
+T=$(mktemp); sed -e "s#@ID@#$ID#g" -e "s#@SRV@#$SRV_USER#g" -e "s#@BASE@#$BASE#g" "$HERE/devenv-run.service.in" > "$T"
+put_changed "$T" 644 "$TEMPLATE" || true
+install -d -o "$SRV_USER" -g "$SRV_USER" -m 700 "$BASE/devenv" "$BASE/devenv/run"
+systemctl daemon-reload
+[ "$RULE_CHANGED" = 0 ] || systemctl try-restart polkit.service || true
+[ "$SLICE_CHANGED" = 0 ] || say "devenv slice: MemoryMax=${MEM}M CPUQuota=$CPU_QUOTA TasksMax=$TASKS_MAX"
+# the runs of an older install were scopes; the new rule does not let the server stop them, so root stops them here
+for u in $(systemctl list-units --all --plain --no-legend 'trina-dev-*.scope' | awk '{print $1}'); do
+  say "stopping $u (a run of the older scope runner)"; systemctl stop "$u" || true; systemctl reset-failed "$u" 2>/dev/null || true
+done
+
+# ---- check: the server account can run an instance of the template, and nothing else. This comes before the server
+# drop-in, so a failed check leaves the dev environment off ----
+PROBE=$(head -c 4096 /dev/urandom | tr -dc 'a-z0-9' | head -c 16)
+[ ${#PROBE} = 16 ] || PROBE=0000000000000000
+PU=trina-dev@$PROBE.service
+PARGS=$BASE/devenv/run/$PROBE.args
+PEXIT=$BASE/devenv/run/$PROBE.exit
+# the arguments file as the server writes it (run-wrap --unit): folder /, no output, no environment, /bin/true
+printf '%s\0' trina-run-1 / /dev/null /dev/null "$PEXIT" 0 /bin/true > "$PARGS"
+chown "$SRV_USER:$SRV_USER" "$PARGS"; chmod 600 "$PARGS"
+probe_fail() { rm -f "$PARGS" "$PEXIT"; die "$*"; }
+runuser -u "$SRV_USER" -- systemctl set-property --runtime --no-ask-password "$PU" MemoryMax=64M TasksMax=16 \
+  || probe_fail "the server account cannot set the limits of a run unit: check $RULE and polkitd"
+runuser -u "$SRV_USER" -- timeout 60 systemctl start --wait --no-ask-password "$PU" \
+  || probe_fail "the server account cannot start a run unit ($PU): check $RULE, $TEMPLATE and polkitd"
+[ "$(cat "$PEXIT" 2>/dev/null)" = 0 ] || probe_fail "a run unit did not run run-wrap: journalctl -u $PU"
+rm -f "$PARGS" "$PEXIT"
+if runuser -u "$SRV_USER" -- systemd-run --quiet --no-ask-password --unit="trina-dev-$PROBE.service" -- /bin/true 2>/dev/null; then
+  die "the server account can start a transient .service: the polkit rule is too wide"
+fi
+if runuser -u "$SRV_USER" -- systemctl restart --no-ask-password "$PU" 2>/dev/null; then
+  die "the server account can restart a run unit: the polkit rule is too wide"
+fi
+# where AppArmor restricts user namespaces: one command through srt as the server account, with no_new_privs as in the
+# server unit (NoNewPrivileges=yes). It fails when apply-seccomp cannot make its nested user namespace.
+if [ "$RESTRICT_USERNS" = 1 ]; then
+  PD=$(mktemp -d); chmod 755 "$PD"; install -d -o "$SRV_USER" -g "$SRV_USER" -m 700 "$PD/tmp"
+  printf '%s\n' '{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":[],"allowWrite":[],"denyWrite":[]}}' > "$PD/settings.json"
+  chmod 644 "$PD/settings.json"
+  if ! OUT=$(cd "$PD/tmp" && setpriv --no-new-privs runuser -u "$SRV_USER" -- env -i PATH=/usr/bin:/bin HOME="$PD/tmp" TMPDIR="$PD/tmp" \
+      "$OPT/node/bin/node" "$SRT_DIR/cli.js" -s "$PD/settings.json" -c 'echo srt-ok' 2>&1) || ! grep -qx srt-ok <<< "$OUT"; then
+    rm -rf "$PD"
+    die "a command in srt failed as $SRV_USER (AppArmor: check aa-status for $ID-bwrap): ${OUT//$'\n'/ | }"
+  fi
+  rm -rf "$PD"
+  say "a command in srt ran as $SRV_USER (user namespaces restricted by AppArmor)"
+fi
 
 # ---- the server unit: flags and the writable devenv folder ----
-install -d -o "$SRV_USER" -g "$SRV_USER" -m 700 "$BASE/devenv"
 IMDS=
 if grep -qs 'Amazon EC2' /sys/class/dmi/id/board_vendor /sys/class/dmi/id/sys_vendor; then IMDS=" MYCEL_DEV_ENV_IMDS=1"; fi
 install -d -o root -g root -m 755 "$(dirname "$DROPIN")"
@@ -204,17 +271,7 @@ ReadWritePaths=-$BASE/devenv
 ExecStartPre=+/usr/bin/install -d -o $SRV_USER -g $SRV_USER -m 700 $BASE/devenv
 EOF
 DROPIN_CHANGED=0; put_changed "$T" 644 "$DROPIN" && DROPIN_CHANGED=1
-systemctl daemon-reload
-[ "$SLICE_CHANGED" = 0 ] || say "devenv slice: MemoryMax=${MEM}M CPUQuota=$CPU_QUOTA TasksMax=$TASKS_MAX"
-
-# ---- check: the server account can start a scope in the slice, and nothing else ----
-PROBE=$(head -c 64 /dev/urandom | tr -dc 'a-z0-9' | head -c 16)
-[ ${#PROBE} = 16 ] || PROBE=0000000000000000
-runuser -u "$SRV_USER" -- systemd-run --scope --quiet --no-ask-password --unit="trina-dev-$PROBE.scope" --slice="$ID-devenv.slice" -- /bin/true \
-  || die "the server account cannot start a scope: check $RULE and polkitd"
-if runuser -u "$SRV_USER" -- systemd-run --quiet --no-ask-password --unit="trina-dev-$PROBE.service" -- /bin/true 2>/dev/null; then
-  die "the server account can start a .service: the polkit rule is too wide"
-fi
+[ "$DROPIN_CHANGED" = 0 ] || systemctl daemon-reload
 
 if [ "$DROPIN_CHANGED" = 1 ]; then
   if [ "$BOOT" = 0 ]; then

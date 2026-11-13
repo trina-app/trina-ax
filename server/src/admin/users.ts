@@ -336,6 +336,10 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // same reason
     ctx.db.query('DELETE FROM chat_pins WHERE user_id = ?').run(id)
     ctx.db.query('DELETE FROM room_pins WHERE user_id = ?').run(id)
+    // their list folders and what they filed in them (chat/nav-folders.ts): the names are theirs, and the users row is a
+    // tombstone, so the cascade never runs (items first: they point at the folders)
+    ctx.db.query('DELETE FROM nav_folder_items WHERE user_id = ?').run(id)
+    ctx.db.query('DELETE FROM nav_folders WHERE user_id = ?').run(id)
     // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()

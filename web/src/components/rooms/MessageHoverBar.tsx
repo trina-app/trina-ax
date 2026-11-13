@@ -2,7 +2,8 @@
 // is on (or that has the keyboard's focus), with ✅ 👀 👍 (one click puts mine on or takes it off), 반응 추가 (six more
 // emoji and "More emoji", the picker: Reactions.tsx), 스레드에서 답장 (opens the thread; not on a reply, which has no thread of its own) and ⋮ 더 보기 (복사, and
 // for my own message 수정 and 삭제). Every button has a tooltip (components/Tooltip.tsx) and a name. It floats: nothing
-// moves when it shows; it sits under the first message of a list so the header above does not cut it. Never on phones or
+// moves when it shows; it sits over the message's top edge, never over its words (a link at a line's end stays
+// clickable), and under the first message of a list so the header above does not cut it. Never on phones or
 // touch screens (they have the long-press sheet), on event lines or on deleted messages (RoomMessages decides).
 import clsx from 'clsx'
 import { EllipsisVertical, MessageSquareText } from 'lucide-react'
@@ -28,13 +29,17 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
       role="toolbar"
       aria-label={t('rooms.messageActions')}
       className={clsx(
-        'absolute right-2 z-20 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 shadow-md transition-opacity',
+        'absolute right-2 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 shadow-md transition-opacity',
         // hidden (and not in the pointer's way) until the message is hovered, has the keyboard's focus (not a click's: a
         // clicked button keeps the focus after the mouse has gone), or a menu of it is open
         'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 motion-reduce:transition-none',
         // computers only: phones and touch screens have the long-press sheet
         'max-md:hidden pointer-coarse:hidden',
-        below ? '-bottom-5' : '-top-5',
+        // over the message's edge, not its words: the bar ends inside its 2 px padding, so a link at the end of the first
+        // (or, below, the last) line stays under the pointer (it once took 14 px of the first line)
+        // the first message's bar hangs where the next message's own bar shows (over that message's top edge): it lies
+        // above that one, so while it shows (the keyboard's focus, a menu open) nothing of the next message takes it
+        below ? 'top-[calc(100%-2px)] z-30' : 'bottom-[calc(100%-2px)] z-20',
       )}
       data-testid="message-hover-bar"
       data-below={below ? '' : undefined}
@@ -66,7 +71,8 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
           </button>
         </Tooltip>
       )}
-      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} buttonClassName={clsx(BTN, 'max-sm:p-0')} testId="message-more" items={more} />}
+      {/* flex: no line box around the button (with a taller system font, Linux's, one would make the bar 1 px taller) */}
+      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} className="flex" buttonClassName={clsx(BTN, 'max-sm:p-0')} testId="message-more" items={more} />}
     </div>
   )
 }

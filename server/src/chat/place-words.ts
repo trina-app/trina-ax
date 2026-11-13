@@ -6,7 +6,7 @@
 // are told apart by their user name, and a folder at the top whose name is one of these words is said after the team
 // folder's top ("팀 폴더 맨 위 › 내 폴더"). The disk path stays in what the AI reads and in the activity log.
 import type { Database } from 'bun:sqlite'
-import { labeledPath, OWN_FOLDER_LABEL, placeName, STEP_PLACE, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
+import { labeledPath, OWN_FILES_LABEL, OWN_FOLDER_LABEL, ownFolderWord, placeName, STEP_PLACE, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { TEXT, tr } from './i18n'
 
@@ -19,6 +19,9 @@ const PLACE_WORDS = new Set([
   ...Object.values(STEP_PLACE).flatMap((x) => Object.values(x)).filter((w) => !w.includes('{')),
   ...Object.values(TEXT.placeTop),
 ].map(norm))
+/** the own folder's name in 파일 ("내 파일"): a place word only while it is the name in use */
+const FILES_WORDS = new Set(Object.values(OWN_FILES_LABEL).map(norm))
+const isPlaceWord = (w: string) => PLACE_WORDS.has(norm(w)) || (ownFolderWord() === 'files' && FILES_WORDS.has(norm(w)))
 /** "<name>님의 폴더" and its other languages, as a pattern (from placeOther itself) */
 const otherFolder = new RegExp(Object.values(TEXT.placeOther).map((w) => `^${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{name\\}', '.+')}$`).join('|'))
 
@@ -37,6 +40,6 @@ export function placeWords(db: Database, path: string, L: Locale, me: string): s
     }
   }
   // a folder at the top named like a place ("내 폴더", "전사 공유", "Bob님의 폴더"): after the top, so it reads as itself
-  if (!(TOP_FOLDERS as readonly string[]).includes(top!) && (PLACE_WORDS.has(norm(top!)) || otherFolder.test(top!.normalize('NFC')))) return [tr('placeTop', L), ...segs].join(SEP)
+  if (!(TOP_FOLDERS as readonly string[]).includes(top!) && (isPlaceWord(top!) || otherFolder.test(top!.normalize('NFC')))) return [tr('placeTop', L), ...segs].join(SEP)
   return labeledPath(segs.join('/'), L, me, SEP)
 }

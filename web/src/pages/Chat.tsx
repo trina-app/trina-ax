@@ -31,10 +31,10 @@ import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { CHAT_ROW, holdPlace, useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
-import { useChats } from '../store/chats'
+import { chatEnd, chatPlace, keepChatPlace, useChats } from '../store/chats'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
@@ -42,7 +42,7 @@ import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '.
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
-import { useChatActions } from '../components/chat/chatActions'
+import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
@@ -76,7 +76,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
-  // visible and the list says an answer came since: Chat.unseen; the sidebar's dot and "?" go, in every window and on
+  // visible and the list says an answer came since: Chat.unseen; the history row's dot and "?" go, in every window and on
   // every device)
   useEffect(() => {
     useSessionMarkers.getState().setOnScreen(chatId)
@@ -205,6 +205,24 @@ function ChatView({ chatId }: { chatId: string }) {
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, last?.content.length, last?.steps.length])
+  // back in a chat whose messages are still in memory, left with the reader part way up and nothing new since: the same
+  // message in the same place, before the first frame shows (at the bottom, or when its end changed: the newest, as on
+  // any open)
+  const [place] = useState(() => {
+    const kept = chatPlace(chatId), th = useChats.getState().threads[chatId]
+    return kept && th && kept.last === chatEnd(th.messages) ? kept : null
+  })
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (place && el?.clientHeight && restorePlace(el, el.querySelector(`[data-message-id="${place.messageId}"]`), place.offset)) stick.current = false
+    // leaving: where the reader is now, for the next time
+    return () => {
+      const at = scroller.current
+      const left = at ? listPlace(at, CHAT_ROW, (row) => row.getAttribute('data-message-id'), stick.current) : null
+      keepChatPlace(chatId, left && { ...left, last: chatEnd(useChats.getState().threads[chatId]?.messages ?? []) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onScroll = async () => {
     const el = scroller.current
@@ -318,21 +336,27 @@ function ChatView({ chatId }: { chatId: string }) {
     onSend(t('chat.limit.message'), []).catch(fail)
   }
 
+  /** the picker shows the new engine / model at once; a refusal puts it back with one toast (lib/optimistic.ts) */
   const onEngine = async (e: EngineChoice) => {
-    try {
-      const c = await api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } })
-      setChat(c)
-      upsertChat(c)
-    } catch (err) {
-      fail(err)
-    }
+    if (!chat) return
+    type Pick = { engine: EngineId; model: string | null; updatedAt: string }
+    await changeChat<Pick>({
+      chat,
+      field: 'engine',
+      from: { engine: chat.engine, model: chat.model, updatedAt: chat.updatedAt },
+      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, updatedAt: new Date().toISOString() },
+      apply: (c, v) => ({ ...c, ...v }),
+      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } }),
+      confirmed: (c) => ({ engine: c.engine, model: c.model, updatedAt: c.updatedAt }),
+      onShown: setChat,
+    })
   }
 
   // the person's own words: the place in words (전사 공유 › 영업 › 보고서.md) and "my folder", which the AI is told is
   // users/<their id> (server/src/chat/prompt.ts); no raw path or id in their message
   const askOwnFolder = (path: string) => {
     if (busy) return
-    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPrompt'))
+    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
   if (loadError && isApiError(loadError, 'not_found'))
@@ -381,7 +405,9 @@ function ChatView({ chatId }: { chatId: string }) {
             <ChatTitleMenu
               chat={chat}
               title={title}
-              onRename={rights.creator ? () => void actions.rename(chat).then((c) => c && setChat(c)) : undefined}
+              // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
+              onPin={() => void actions.togglePin(chat, setChat)}
+              onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
             />
@@ -394,7 +420,7 @@ function ChatView({ chatId }: { chatId: string }) {
         </div>
         {isDesktop() && <BrowserToggle />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id)} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
           <AiMark />
         </IconButton>
       </div>
@@ -430,7 +456,7 @@ function ChatView({ chatId }: { chatId: string }) {
       </div>
       <div className="mx-auto w-full max-w-[780px] px-4 pb-[var(--box-bottom)]" data-bottom-bar>
         {chat?.deletedAt ? (
-          <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
+          <TrashedBanner chat={chat} onShown={setChat} />
         ) : readOnly ? (
           <SharedReadOnly />
         ) : (
@@ -490,29 +516,16 @@ function ChatView({ chatId }: { chatId: string }) {
   )
 }
 
-function TrashedBanner({ chat, onRestored }: { chat: Chat; onRestored: (c: Chat) => void }) {
+/** "복원": the chat is back at once (the banner goes, the box comes); a refusal puts it back in the trash with a toast */
+function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
-  const [busy, setBusy] = useState(false)
   const purge = chatPurgeAt(chat.deletedAt!, chatTrashDays(useMeStrict()))
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn">
       <Trash2 size={16} className="shrink-0" aria-hidden />
       <span className="flex-1">{t('chat.inTrash', { date: formatDate(purge, locale) })}</span>
-      <Button
-        size="sm"
-        busy={busy}
-        onClick={async () => {
-          setBusy(true)
-          try {
-            onRestored(await api.call(API.restoreChat, { params: { id: chat.id } }))
-          } catch (e) {
-            toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
+      <Button size="sm" onClick={() => void trashChat(chat, false, { onShown })} data-testid="chat-trash-restore">
         <RotateCcw size={14} aria-hidden /> {t('common.restore')}
       </Button>
     </div>

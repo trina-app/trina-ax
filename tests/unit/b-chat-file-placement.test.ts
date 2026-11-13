@@ -42,8 +42,6 @@ describe('the rule in the instructions', () => {
       const rule = filePlacementRule(true, t ? ARCHIVE_FOLDER[t.locale] : null)
       expect(buildTurnPrompt(h.ctx.files, input(locale))).toContain(rule)
       expect(buildTurnContext(h.ctx.files, input(locale))).toContain(rule)
-      const room = input(locale, { room: { name: 'sales', kind: 'team', members: 3, asker: 'Alice Kim' }, roomReadable: () => true })
-      expect(buildTurnPrompt(h.ctx.files, room)).toContain(rule)
       const sub = buildSubagentPrompt(h.ctx.files, input(locale), ['read', 'write', 'move_files'])
       expect(sub).not.toContain('Where files go:')
       expect(sub).toContain(SUBAGENT_PLACEMENT_RULE)
@@ -257,19 +255,4 @@ describe('the note in a chat turn', () => {
     expect(r.done.content).not.toContain(NOTE)
   })
 
-  test('a room session names only folders everyone in the room may read', async () => {
-    // bob is not in marketing: the note names none of its subfolders in a room with him
-    const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'dana'] } })).id
-    const q = await h.api('alice').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: `@트리나 save\n${fake(write('groups/marketing/room-loose.md'))}`, clientMessageId: 'cm-' + crypto.randomUUID(), mentions: [], fileIds: [] } })
-    const turnId = (await socks.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id, 15_000)).data.run.turnId
-    const card = await socks.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
-    await socks.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
-    const answer = (await h.api('alice').call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items.find((m) => m.authorKind === 'ai' && m.replyTo?.id === q.id)!
-    expect(answer.body).toContain(`${NOTE} "groups/marketing/room-loose.md" was saved directly in "groups/marketing/"`)
-    expect(answer.body).toContain('none to name here: list the folder first')
-    expect(answer.body).not.toContain('"campaigns"')
-    // the same file in a chat names them
-    expect(placementNote(h.ctx.files, h.ctx.files.principal('alice'), ['groups/marketing/room-loose.md'])).toContain('"campaigns"')
-  })
 })

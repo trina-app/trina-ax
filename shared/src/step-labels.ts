@@ -5,7 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
-import { TOP_FOLDER_LABELS } from './folder-labels'
+import { ownFolderLabel, ownFolderWord, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
@@ -61,6 +61,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
   rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat"),
   room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
+  // reading Slack with the bot token (server/src/integrations/slack/read.ts)
+  slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack"),
+  slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack"),
   room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
@@ -69,12 +72,6 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto'),
-  // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
-  room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
-  // a room's own AI session finds and reads the shared project chats the asker may view (server/src/chat/room-project-chats.ts):
-  // a chat is named ("프로젝트 채팅 읽기 · 견적 회의") only when everyone in the room sees its project, else the words alone
-  project_chats: t('프로젝트 채팅 찾기', 'Find project chats', 'Cari obrolan proyek', "プロジェクトのチャットを探す", "Buscar chats del proyecto"),
-  project_chat: t('프로젝트 채팅 읽기', 'Read project chat', 'Baca obrolan proyek', "プロジェクトのチャットを読む", "Leer chat del proyecto"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -358,7 +355,8 @@ export function placeName(path: string, locale: Locale): string | null {
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
     return say('team', 2, { team: a })
   }
-  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
+  // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
+  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
   if (top === 'shared') {
     // the team's start puts the brand and meeting notes folders here since docs/DECISIONS.md "Team folder basics"
     if (a && BRAND_NAMES.has(a)) return b && IMAGES_NAMES.has(b) ? say('brandImages', 3) : say('brand', 2)

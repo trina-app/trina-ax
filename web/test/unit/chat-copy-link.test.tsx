@@ -1,5 +1,5 @@
 // "링크 복사" for an AI chat (docs/AGENTS/plan: chat-copy-link), in the chat header's "⋯" and on a project page's chat row
-// (the sidebar's row is in sidebar.test.tsx): the item is there, it copies the chat's address alone (`<origin>/c/<id>`),
+// (the Trina list's row has the same item): the item is there, it copies the chat's address alone (`<origin>/c/<id>`),
 // and the toast says who can open it: a shared project chat the project's N people, a private chat only me. The words in
 // all five languages say the same and the address is the only text on the clipboard.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
@@ -105,7 +105,7 @@ for (const shared of [true, false]) {
       expect(m.get('project-chat').getAttribute('href')).toBe(`/c/${ID}`)
       await m.click(more)
       const items = (m.container.querySelectorAll('[role="menuitem"]') as unknown as FakeElement[]).map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
-      // with the sidebar row's other items (test/unit/project-chat-row-menu.test.tsx)
+      // with the Trina list row's other items (test/unit/project-chat-row-menu.test.tsx)
       expect(items).toContainEqual(['project-chat-copy-link', ko('rooms.menu.copyLink')])
       await m.click('project-chat-copy-link')
       await m.until(() => copied.length, 'the copy')

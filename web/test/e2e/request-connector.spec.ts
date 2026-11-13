@@ -3,7 +3,8 @@
 // the usual "Connect for the team", and the member is told it is ready; another request is dismissed.
 import { expect, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { adv, realErrors, reset, signIn, watchConsole } from './helpers'
+import { activityRows, openNotice } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -31,8 +32,8 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   // the admin: the notice opens Notion's page in Admin; the list shows who asked, with Add
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/activity')
-  const notice = page.getByTestId('notification-service-request-link')
+  // (a computer: its row in the 활동 panel opens it beside the list, as itself while it has its button)
+  const notice = (await openNotice(page, 'Notion')).getByTestId('notification-service-request-link')
   await expect(notice.getByTestId('notification-text')).toContainText('Notion')
   await notice.click()
   await expect(page).toHaveURL(/\/admin\/connectors\/notion$/)
@@ -42,9 +43,12 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   await asked.getByTestId('member-ask-add').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
-  // who may use it: everyone (a team connection Bob may not use would leave his request open)
-  await dialog.getByTestId('integration-advanced').click()
-  await dialog.getByTestId('integration-access-everyone').check()
+  // who may use it: everyone (a team connection Bob may not use would leave his request open); the chooser opens from
+  // the "For: … · Change" line (QA TC-187), and the whole team is already chosen
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
+  const everyone = await adv(dialog, 'integration-access-everyone')
+  await expect(everyone).toBeChecked()
+  await everyone.check()
   const popup = page.waitForEvent('popup')
   await dialog.getByTestId('integration-save').click()
   // saved, it still needs its sign-in: the request waits (a broken connection never says "ready")
@@ -59,9 +63,10 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   // the member: it is ready, and the page offers no ask any more
   await page.context().clearCookies()
   await signIn(page, BOB)
+  // (its row in the 활동 panel opens its page)
   await page.goto('/activity')
-  const ready = page.getByTestId('notification-service-ready-link')
-  await expect(ready.getByTestId('notification-text')).toContainText('Notion')
+  const ready = (await activityRows(page)).filter({ hasText: 'Notion' })
+  await expect(ready).toHaveCount(1)
   await ready.click()
   await expect(page).toHaveURL(/\/connectors\/notion$/)
   await expect(page.getByTestId('service-ask')).toHaveCount(0)
@@ -91,4 +96,27 @@ test('members may not add their own: the ask is the page\'s action; the admin di
   await signIn(page, BOB)
   await page.goto('/connectors/linear')
   await expect(page.getByTestId('service-ask')).toBeVisible()
+})
+
+// QA final: the member's open request stays on their page while the team's connection to the service is not connected
+// yet (or is not for them), and it reads the same "Request sent" after a reload
+test('an open request stays on the page while the team\'s Notion still needs its sign-in; one word for it', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await page.goto('/connectors/notion')
+  const detail = page.getByTestId('connector-detail')
+  await detail.getByTestId('service-ask').click()
+  await expect(detail.getByTestId('service-asked')).toHaveText('요청을 보냈어요')
+  // the admin adds it for the team, not signed in yet
+  await page.context().clearCookies()
+  await signIn(page)
+  const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', access: { everyone: true, groups: [], users: [] } } })
+  expect(made.status()).toBe(201)
+  expect((await made.json()).status).not.toBe('connected')
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/connectors/notion')
+  await expect(detail.getByTestId('service-asked')).toHaveText('요청을 보냈어요')
+  await expect(detail.getByTestId('service-withdraw')).toBeVisible()
+  await expect(detail.getByTestId('service-asked-note')).toBeVisible()
 })

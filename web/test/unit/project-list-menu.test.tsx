@@ -16,7 +16,8 @@
 //   projects/ moves it to the trash (its own confirm, the card stays and says so), and deleting one in the trash is
 //   for good.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { MemoryRouter } from 'react-router-dom'
+import { useEffect } from 'react'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ProjectList } from '../../src/pages/Projects'
@@ -28,6 +29,7 @@ import { installDom, mount, removeDom, type FakeElement, type Mounted } from './
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
 const MINE = '01900000-0000-7000-8000-000000000011', SHARED = '01900000-0000-7000-8000-000000000012', READ_ONLY = '01900000-0000-7000-8000-000000000013'
+const NEW = '01900000-0000-7000-8000-000000000014'
 const ORIGIN = 'https://team.acme.example'
 const project = (id: string, name: string, o: Partial<Project> = {}): Project =>
   ({ id, name, folderPath: `shared/${name.toLowerCase().replace(/ /g, '-')}`, instructions: '', createdBy: null, createdAt: '2026-11-03T00:00:00.000Z', canEdit: true, ...o })
@@ -51,6 +53,8 @@ beforeAll(() => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     calls.push({ key, url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (key === 'GET /api/projects') return json(200, { items: list })
+    // a new project from the form (?new=1): the server's answer
+    if (key === 'POST /api/projects') return json(201, project(NEW, 'Acme beta', { folderPath: 'projects/acme-beta' }))
     // the members dialog (project-members.test.tsx has the rest)
     if (key === 'GET /api/people') return json(200, { people: [{ id: 'mia', name: 'Mia' }, { id: 'sora', name: 'Sora' }] })
     if (key.endsWith('/access')) return json(200, { editable: true, rulesHash: 'h1', people: 3, otherRules: [], participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }, { subjectType: 'user', subjectId: 'sora', name: 'Sora' }] })
@@ -86,6 +90,8 @@ beforeEach(() => {
   now = {}
   calls.length = 0
   copied.length = 0
+  // the list is kept between visits (store/projects.ts managed): each test starts from a first visit
+  useProjects.getState().reset()
 })
 
 const page = () => mount(<MemoryRouter><ProjectList /><DialogHost /></MemoryRouter>)
@@ -224,7 +230,7 @@ describe('the Projects list', () => {
       await open(m, 'Acme sales')
       await m.click(within(card(m, 'Acme sales'), 'project-card-delete')!)
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
-      // the trash by the sidebar's name for it (no copy of it in the sentence), the team's days (the default here)
+      // the trash by the Trina list's name for it (no copy of it in the sentence), the team's days (the default here)
       expect(dialog.textContent).toContain(ko('projects.deleteBodyShared', { days: 7, trash: ko('sidebar.trash') }))
       expect(dialog.textContent).toContain(`"${ko('sidebar.trash')}"`)
       // no red line that says they are deleted for good
@@ -385,6 +391,58 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       await m.click('dialog-confirm')
       await m.until(() => cards(m).length === 3, 'the card to go')
       expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`)).toHaveLength(2)
+    } finally {
+      await m.unmount()
+    }
+  })
+})
+
+// ?new=1 (Search's "New project", the 트리나 list's + and "새 프로젝트"): the form opens, also over the list already on
+// screen, and a save opens the new project's page. QA (TC-008, 2026-11-13): from the 트리나 list the save landed back on
+// the list without the new card, because closing the form dropped ?new=1 with a replace that undid the navigation
+describe('a new project asked for in the address', () => {
+  let at = ''
+  const Where = () => {
+    const l = useLocation()
+    const go = useNavigate()
+    useEffect(() => void (at = l.pathname + l.search), [l])
+    return <button type="button" onClick={() => go('/projects?new=1')} data-testid="ask-new">new</button>
+  }
+  const routed = (start: string) =>
+    mount(
+      <MemoryRouter initialEntries={[start]}>
+        <Where />
+        <Routes>
+          <Route path="/projects" element={<ProjectList />} />
+          <Route path="/projects/:id" element={<p data-testid="project-page-stub">project</p>} />
+        </Routes>
+        <DialogHost />
+      </MemoryRouter>,
+    )
+
+  test('opened with ?new=1: the address drops it at once, and a save opens the new project, not the list', async () => {
+    const m = await routed('/projects?new=1')
+    try {
+      await m.until(() => m.find('project-name'), 'the form', 2000)
+      await m.until(() => at === '/projects', 'the address without ?new=1', 2000)
+      await m.type('project-name', 'Acme beta')
+      // the name-only dialog (components/NewProjectDialog.tsx)
+      await m.click('project-create')
+      await m.until(() => m.find('project-page-stub'), 'the new project page', 2000)
+      expect(at).toBe(`/projects/${NEW}`)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the list already on screen: a link to ?new=1 opens the form there too', async () => {
+    const m = await routed('/projects')
+    try {
+      await loaded(m)
+      expect(m.find('project-name')).toBeNull()
+      await m.click('ask-new')
+      await m.until(() => m.find('project-name'), 'the form', 2000)
+      await m.until(() => at === '/projects', 'the address without ?new=1', 2000)
     } finally {
       await m.unmount()
     }

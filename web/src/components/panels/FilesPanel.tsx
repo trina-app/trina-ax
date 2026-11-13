@@ -1,0 +1,161 @@
+// 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
+// Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
+// 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
+// shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
+// own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
+// place on screen is marked: the deepest place the open folder is in.
+// The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
+// "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
+import clsx from 'clsx'
+import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { SKILLS_DIR } from '@mycel/shared/skill-roots'
+import type { FileEntry } from '@mycel/shared/api'
+import { useLocale, useT } from '../../i18n'
+import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
+import { isInside } from '../../lib/paths'
+import { useFileLists, readTeamTop } from '../../store/fileLists'
+import { accessChanged, filesChanged, reloadAsked } from '../../store/live'
+import { readProjectList, useProjects } from '../../store/projects'
+import { useMe } from '../../store/session'
+import { useUi } from '../../store/ui'
+import { TEAM_TOP_ON_PHONE } from '../../lib/newChat'
+import { SetupRow } from '../onboarding/SetupRow'
+import { PhonePageBar } from '../phone/PhonePageBar'
+import { IconButton } from '../ui'
+import { ListRow } from '../list/List'
+import { PanelFrame, PanelSection } from './PanelFrame'
+
+/** the team folder's top on a phone with the new tabs, where /files is these places (pages/Files.tsx, lib/screens.ts) */
+export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
+
+/** the top folders not among 팀 폴더: shown in their own sections instead (프로젝트 폴더, 내 파일), or a place of their
+ * own elsewhere (팀 스킬: 트리나's 팀 스킬 page, so the skills are in one place; the folder still opens from the team
+ * folder's top, the 팀 폴더 label, for whoever may read it) */
+const APART = new Set(['projects', 'users', SKILLS_DIR])
+
+type Place = { key: string; to: string; label: string; icon: typeof Folder; path?: string; testId: string }
+
+export function FilesPanel() {
+  const t = useT()
+  return (
+    <PanelFrame title={t('sidebar.files')} testId="files-panel" top={<SetupRow />}>
+      <FilesPlaces />
+    </PanelFrame>
+  )
+}
+
+/** A phone's 파일 tab at its root (pages/Files.tsx at /files). */
+export function PhoneFilesHome() {
+  const t = useT()
+  const setSearchOpen = useUi((s) => s.setSearchOpen)
+  return (
+    <div className="flex h-full flex-col" data-testid="phone-files-home">
+      <PhonePageBar
+        title={t('sidebar.files')}
+        heading
+        backTestId="files-back"
+        titleTestId="files-title"
+        action={
+          <IconButton label={t('sidebar.search')} onClick={() => setSearchOpen(true)} className="size-11 shrink-0" data-testid="topbar-search">
+            <Search size={20} />
+          </IconButton>
+        }
+      />
+      <nav aria-label={t('sidebar.files')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-2 pb-6" data-testid="files-panel">
+        <SetupRow />
+        <FilesPlaces phone />
+      </nav>
+    </div>
+  )
+}
+
+/** 파일's places (see the top of this file); `phone`: rows a thumb can hit (44 px). */
+function FilesPlaces({ phone = false }: { phone?: boolean }) {
+  const t = useT()
+  const locale = useLocale()
+  const words = useFolderWords()
+  const me = useMe()?.user.id ?? null
+  // the team folder's top as last read (store/fileLists.ts): shown at once on a visit after the first, read again behind it
+  const read = useFileLists((s) => s.top)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let live = true
+    const load = (fresh = false) =>
+      void readTeamTop({ fresh }).then(
+        () => live && setFailed(false),
+        // not read (offline, a server hiccup): the rows it had stay; none yet, the label still opens the team folder
+        () => live && setFailed(true),
+      )
+    load()
+    const again = () => load(true)
+    const offs = [filesChanged.on(again), accessChanged.on(again), reloadAsked.on(again)]
+    return () => {
+      live = false
+      offs.forEach((off) => off())
+    }
+  }, [])
+  const top = useMemo<FileEntry[] | null>(
+    () => (read ? [...topFoldersFirst(read, '')].filter((e) => e.type === 'folder' && !APART.has(e.path)) : failed ? [] : null),
+    [read, failed],
+  )
+  const byId = useProjects((s) => s.byId)
+  const listed = useProjects((s) => s.listed)
+  useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
+  const projects = useMemo(() => {
+    const collator = new Intl.Collator(locale, { numeric: true })
+    return Object.values(byId)
+      .filter((p) => !listed || listed.has(p.id))
+      .sort((a, b) => collator.compare(a.name, b.name))
+  }, [byId, listed, locale])
+
+  const own = me ? `users/${me}` : null
+  const team: Place[] = (top ?? []).map((e) => ({ key: e.path, to: `/files?path=${encodeURIComponent(e.path)}`, label: words.name(e.path, e.name), icon: Folder, path: e.path, testId: 'files-panel-team' }))
+  const projectRows: Place[] = projects.map((p) => ({ key: p.id, to: `/files?path=${encodeURIComponent(p.folderPath)}`, label: p.name, icon: SquareKanban, path: p.folderPath, testId: 'files-panel-project' }))
+  const mine: Place | null = own ? { key: 'mine', to: `/files?path=${encodeURIComponent(own)}`, label: words.name(own, own), icon: User, path: own, testId: 'files-panel-mine' } : null
+
+  // which row is the place on screen: 최근 파일, 휴지통, or the deepest folder row the open folder (or file) is in
+  const { pathname, search } = useLocation()
+  const q = new URLSearchParams(search)
+  const view = pathname === '/files' ? q.get('view') : null
+  const at = view ? null : (q.get('path') ?? '')
+  const folderRows = [...team, ...projectRows, ...(mine ? [mine] : [])]
+  const lit =
+    view === 'recent' ? 'recent' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
+
+  const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
+  return (
+    <>
+      <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
+      {top !== null && (
+        // the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to show
+        // it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row
+        <PanelSection
+          id="files-panel-team"
+          foldKey="files:team"
+          label={t('filesPanel.team')}
+          count={team.length}
+          labelTestId="files-panel-label"
+          link={
+            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className={clsx('rounded hover:text-ink', phone ? 'flex min-h-11 w-full items-center gap-0.5' : 'hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center')} data-testid="files-panel-root">
+              {t('filesPanel.team')}
+              {phone && <ChevronRight size={14} aria-hidden />}
+            </Link>
+          }
+        >
+          <ul>{team.map(row)}</ul>
+        </PanelSection>
+      )}
+      {projectRows.length > 0 && (
+        <PanelSection id="files-panel-projects" foldKey="files:projects" label={t('filesPanel.projects')} count={projectRows.length} labelTestId="files-panel-label">
+          <ul>{projectRows.map(row)}</ul>
+        </PanelSection>
+      )}
+      <ul className="mt-3 border-t border-line pt-2">
+        {mine && row(mine)}
+        {row({ key: 'trash', to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
+      </ul>
+    </>
+  )
+}

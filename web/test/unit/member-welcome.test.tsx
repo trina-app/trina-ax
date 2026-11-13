@@ -126,6 +126,26 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
+  test('an admin\'s "Sort the team\'s files" row (not counted) only while the server says so; it opens the 팀 파일 step', async () => {
+    signIn()
+    welcome = card({ organizeFiles: true })
+    routes['GET /api/onboarding/welcome'] = () => json(200, { progress: null })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome-organize'), 'the row')
+      expect(text(m, 'member-welcome-organize')).toContain("Sort the team's files")
+      expect(text(m, 'member-welcome-organize')).toContain('Company-wide')
+      expect(m.get('member-welcome-organize').getAttribute('data-optional')).toBe('true')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount(); delete routes['GET /api/onboarding/welcome'] }
+    welcome = card({ organizeFiles: false })
+    const n = await home()
+    try {
+      await n.until(() => n.find('member-welcome'), 'the card')
+      expect(n.find('member-welcome-organize')).toBeNull()
+    } finally { await n.unmount() }
+  })
+
   test('no inviter ("Add directly"): the line without "invited you"', async () => {
     signIn()
     welcome = card({ inviter: null, people: 1 })
@@ -214,15 +234,14 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone: the same card at the top (the box docked at the bottom), without a frame, 44 px targets', async () => {
+  test('a phone: the same card at the top of Home (the 트리나 tab), without a frame, 44 px targets', async () => {
     signIn()
     phoneWidth()
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
+      // on a phone / is Home, the 트리나 tab: the card is the one thing on its top
       expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
-      expect(m.get('home-dock').querySelector('[data-testid="member-welcome"]')).toBeNull()
-      expect(m.get('home-tail').querySelector('[data-testid="member-welcome"]')).toBeNull()
       expect(m.get('member-welcome').getAttribute('class')).toContain('md:border')
       expect(m.get('member-welcome').getAttribute('class')).not.toMatch(/(^| )border( |$)/)
       for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])

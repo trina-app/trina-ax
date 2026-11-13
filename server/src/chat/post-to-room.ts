@@ -29,7 +29,8 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { isUuid7, PostToRoomInput, uuidv7 } from '@mycel/shared'
+import { withAlways } from './always-allow'
+import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { opaqueParts } from '../tools/url-gate'
 import { answerNote, nearestThreadOf, plainRoomRefs, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
@@ -58,11 +59,10 @@ const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').tri
 export const POST_TEXT_FOLD = 600
 
 /** Why post_to_room is not offered in this turn (and refused when reached anyway), or null: it is. */
-export function postToRoomOff(exec: Pick<TurnExec, 'room' | 'shared' | 'restricted' | 'templateRun' | 'spec' | 'rt'>): { text: string; summary: string } | null {
+export function postToRoomOff(exec: Pick<TurnExec, 'shared' | 'restricted' | 'templateRun' | 'spec' | 'rt'>): { text: string; summary: string } | null {
   const button = `"${SIDE_CHAT_SEND.room[exec.spec.locale] ?? SIDE_CHAT_SEND.room.en}"`
   if (exec.spec.clientKind === 'schedule') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
-  if (exec.room) return { text: 'Nothing was posted: this is a room\'s own AI session (someone asked you in the room), and your answer already goes to that room by the room\'s own rule. Answer here instead.', summary: 'post_to_room -> refused: room session' }
   if (exec.shared) return { text: `Nothing was posted: this is a shared project chat that its project's people see, and posting to a room is done from the user's own chat only. Tell the user to ask in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: shared chat' }
   if (exec.spec.clientKind === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
   if (exec.restricted || exec.templateRun) return { text: 'Nothing was posted: this run is limited to one task and cannot post to rooms. Tell the user to ask in one of their own chats.', summary: 'post_to_room -> refused: not here' }
@@ -87,7 +87,7 @@ const memberCount = (db: import('bun:sqlite').Database, roomId: string) => (db.q
 function placeName(p: AnswerSharePlace, L: Locale): string {
   switch (p.kind) {
     case 'folder': return p.path ? `${p.path.replace(/\/+$/, '')}/` : tr('postRoomTeamFolder', L)
-    case 'mine': return tr('postRoomMine', L)
+    case 'mine': return ownFolderWord() === 'files' ? ownFolderLabel(L) : tr('postRoomMine', L)
     case 'service': return p.name
     case 'room': return tr('postRoomPlaceRoom', L, { name: p.name || tr('postRoomEveryone', L) })
     case 'conversation': return tr('postRoomConversation', L)
@@ -223,8 +223,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
           ...(all ? [{ label: tr('postRoomSendFiles', L), value: 'send_files' }] : []),
           { label: tr('postRoomDont', L), value: 'no' },
         ]
-        const reply = await exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options, multiple: false, allowText: false,
+        // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
+        // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
+        const reply = await withAlways(all ? null : exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
             ...(first.at > 0 ? [{ label: tr('postRoomNote', L), text: first.body.slice(0, first.at).trim() }] : []),
@@ -233,9 +235,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
             // what [파일도 함께 보내기] attaches, by name (a link far down a folded text is not missed)
             ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].join('\n'), noSize: true }] : []),
           ],
-          ...(options.length === 3 ? { buttons: true as const } : {}),
+          ...(opts.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)

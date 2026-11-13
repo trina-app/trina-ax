@@ -23,7 +23,7 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { levelsOf, moveOptions, planMove, runMove, skillAt } from '../../server/src/skills/move'
 import { checkSkill } from '../../server/src/chat/skills'
-import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 
 setDefaultTimeout(60_000)
@@ -310,7 +310,7 @@ describe('in the app: the Skills page and the AI', () => {
   test('a copy with a new name: one card with SKILL.md as it will be; every file byte for byte; the original stays; audited as skills.copy', async () => {
     const r = await turn('dana', moveCall({ skill: 'sales-docs', to: 'project', keep: true, name: 'sales-docs-quotation' }), { project: QUOTE, answer: 'copy' })
     expect(r.card!.question).toContain('"sales-docs" 스킬을 복사할까요? 원본은 그대로 있어요. 사본 이름: sales-docs-quotation\n\nLeads 부서 → 견적서 제작 프로젝트 채팅\n2명이 새로 쓰게 돼요 (3명 → 5명).')
-    expect(r.card!.options!.map((o) => o.value)).toEqual(['copy', 'skip'])
+    expect(r.card!.options!.map((o) => o.value)).toEqual(['copy', '__always', 'skip'])
     // the SKILL.md the copy will have: its name line changed, nothing else
     const shown = skillMd(r.card)!.text
     expect(shown).toContain('name: sales-docs-quotation')
@@ -518,7 +518,6 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('refused in a scheduled run, saying what to do; not offered in rooms, shared chats or sub-agents', async () => {
-    expect(ROOM_TOOLS.has('move_skill')).toBe(false)
     expect(SHARED_TOOLS.has('move_skill')).toBe(false)
     expect(PARENT_ONLY_TOOLS.has('move_skill')).toBe(true)
     const rt = h.rt()

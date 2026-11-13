@@ -1,19 +1,31 @@
 #!/bin/bash
 # Dev environment on srt: run vm-check.sh on a throwaway EC2 VM (docs/research/srt-dev-env.md 10.3), then delete
-# everything and show that nothing is left. One t3a.medium (the Starter size), Debian 13, in the Trina test account.
+# everything and show that nothing is left. One t3a.medium (the Starter size), Debian 13 or Ubuntu 24.04, in the Trina
+# test account.
 #   - AWS profile "trina" only (account 896568317806, ap-northeast-2). The script stops on any other account.
 #   - No key pair and no IAM: a new SSH key goes to the VM in its user data.
 #   - The VM, its volume and its security group carry the tag trina-test=srt-spike. The teardown runs on every exit.
 # Usage, from the repo root (commit or keep the files you want to test; untracked files are sent too):
-#   scripts/dev-env/srt/spike-vm.sh [log-file] [checks|bench]
+#   [SPIKE_OS=debian13|ubuntu2404] [SPIKE_SG=sg-...] scripts/dev-env/srt/spike-vm.sh [log-file] [checks|bench|preview]
+# SPIKE_SG: use this existing security group (and a subnet of its VPC) in place of a new one. The script adds this
+# computer's /32 for SSH only when the group does not have it, and removes only that rule again.
+# The preview needs a static mycel-sandbox for the VM: with go on this computer the script builds it (CGO_ENABLED=0)
+# and sends it to native/bin/linux-amd64/ on the VM.
 set -euo pipefail
 PROFILE=trina
 REGION=ap-northeast-2
 ACCOUNT=896568317806
 TAG_KEY=trina-test
-TAG_VAL=srt-spike
+TAG_VAL=${SPIKE_TAG:-srt-spike}   # another tag keeps two sessions' VMs apart
 TYPE=t3a.medium
 DEBIAN_OWNER=136693071363
+UBUNTU_OWNER=099720109477   # Canonical
+OS=${SPIKE_OS:-debian13}
+case "$OS" in
+  debian13) AMI_OWNER=$DEBIAN_OWNER AMI_NAME='debian-13-amd64-*' VM_USER=admin ROOT_DEV=/dev/xvda ;;
+  ubuntu2404) AMI_OWNER=$UBUNTU_OWNER AMI_NAME='ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*' VM_USER=ubuntu ROOT_DEV=/dev/sda1 ;;
+  *) echo "spike-vm: SPIKE_OS is debian13 or ubuntu2404" >&2; exit 2 ;;
+esac
 BUN_VERSION=1.3.12
 LOG=${1:-srt-spike-vm.log}
 MODE=${2:-checks}
@@ -25,7 +37,7 @@ LIVE=$(aws_ ec2 describe-instances --filters "Name=tag:$TAG_KEY,Values=$TAG_VAL"
 [ -z "$LIVE" ] || { say "STOP: a spike VM already exists: $LIVE (one at a time)"; exit 1; }
 
 WORK=$(mktemp -d)
-IID= SG=
+IID= SG= OWN_SG=1 OPENED=
 cleanup() {
   set +e
   if [ -n "$IID" ]; then
@@ -33,8 +45,12 @@ cleanup() {
     aws_ ec2 terminate-instances --instance-ids "$IID" >/dev/null
     aws_ ec2 wait instance-terminated --instance-ids "$IID"
   fi
-  if [ -n "$SG" ]; then
+  if [ -n "$SG" ] && [ "$OWN_SG" = 1 ]; then
     for _ in 1 2 3 4 5 6; do aws_ ec2 delete-security-group --group-id "$SG" 2>/dev/null && break; sleep 10; done
+  fi
+  if [ -n "$OPENED" ]; then
+    say "removing $OPENED from $SG"
+    aws_ ec2 revoke-security-group-ingress --group-id "$SG" --protocol tcp --port 22 --cidr "$OPENED" >/dev/null
   fi
   # left volumes with the tag (DeleteOnTermination should leave none)
   for v in $(aws_ ec2 describe-volumes --filters "Name=tag:$TAG_KEY,Values=$TAG_VAL" --query 'Volumes[].VolumeId' --output text); do aws_ ec2 delete-volume --volume-id "$v"; done
@@ -48,31 +64,48 @@ cleanup() {
 trap cleanup EXIT
 
 ssh-keygen -q -t ed25519 -N '' -C srt-spike -f "$WORK/key"
-AMI=$(aws_ ec2 describe-images --owners "$DEBIAN_OWNER" --filters 'Name=name,Values=debian-13-amd64-*' 'Name=architecture,Values=x86_64' 'Name=state,Values=available' --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)
-VPC=$(aws_ ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
+AMI=$(aws_ ec2 describe-images --owners "$AMI_OWNER" --filters "Name=name,Values=$AMI_NAME" 'Name=architecture,Values=x86_64' 'Name=state,Values=available' --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)
 MYIP=$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')
-say "AMI $AMI, VPC $VPC, SSH from $MYIP/32"
-TAGS="{Key=$TAG_KEY,Value=$TAG_VAL},{Key=Name,Value=trina-srt-spike}"
-SG=$(aws_ ec2 create-security-group --group-name "trina-srt-spike-$(date +%s)" --description 'srt spike: ssh from one address' --vpc-id "$VPC" \
-  --tag-specifications "ResourceType=security-group,Tags=[$TAGS]" --query GroupId --output text)
-aws_ ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port 22 --cidr "$MYIP/32" >/dev/null
+TAGS="{Key=$TAG_KEY,Value=$TAG_VAL},{Key=Name,Value=trina-$TAG_VAL}"
+SUBNET=()
+if [ -n "${SPIKE_SG:-}" ]; then
+  SG=$SPIKE_SG OWN_SG=0
+  VPC=$(aws_ ec2 describe-security-groups --group-ids "$SG" --query 'SecurityGroups[0].VpcId' --output text)
+  # an availability zone that has the instance type
+  AZ=$(aws_ ec2 describe-instance-type-offerings --location-type availability-zone --filters "Name=instance-type,Values=$TYPE" --query 'InstanceTypeOfferings[].Location' --output text | tr '\t' '\n' | sort | head -1)
+  SUBNET=(--subnet-id "$(aws_ ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" Name=map-public-ip-on-launch,Values=true "Name=availability-zone,Values=$AZ" --query 'Subnets[0].SubnetId' --output text)")
+  if [ -z "$(aws_ ec2 describe-security-groups --group-ids "$SG" --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\`].IpRanges[] | [?CidrIp=='$MYIP/32'].CidrIp" --output text)" ]; then
+    aws_ ec2 authorize-security-group-ingress --group-id "$SG" --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$MYIP/32,Description=srt-spike-vm}]" >/dev/null
+    OPENED=$MYIP/32
+  fi
+else
+  VPC=$(aws_ ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
+  SG=$(aws_ ec2 create-security-group --group-name "trina-srt-spike-$(date +%s)" --description 'srt spike: ssh from one address' --vpc-id "$VPC" \
+    --tag-specifications "ResourceType=security-group,Tags=[$TAGS]" --query GroupId --output text)
+  aws_ ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port 22 --cidr "$MYIP/32" >/dev/null
+fi
+say "$OS AMI $AMI, VPC $VPC, security group $SG, SSH from $MYIP/32"
 printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$WORK/key.pub")" > "$WORK/user-data"
-IID=$(aws_ ec2 run-instances --image-id "$AMI" --instance-type "$TYPE" --security-group-ids "$SG" --count 1 \
+IID=$(aws_ ec2 run-instances --image-id "$AMI" --instance-type "$TYPE" --security-group-ids "$SG" "${SUBNET[@]}" --count 1 \
   --user-data "file://$WORK/user-data" --metadata-options HttpTokens=required,HttpEndpoint=enabled \
-  --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=20,VolumeType=gp3,DeleteOnTermination=true}' \
+  --block-device-mappings "DeviceName=$ROOT_DEV,Ebs={VolumeSize=20,VolumeType=gp3,DeleteOnTermination=true}" \
   --tag-specifications "ResourceType=instance,Tags=[$TAGS]" "ResourceType=volume,Tags=[$TAGS]" \
   --query 'Instances[0].InstanceId' --output text)
 say "instance $IID"
 aws_ ec2 wait instance-running --instance-ids "$IID"
 IP=$(aws_ ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
-SSH=(ssh -i "$WORK/key" -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "admin@$IP")
+SSH=(ssh -i "$WORK/key" -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "$VM_USER@$IP")
 for _ in $(seq 1 40); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; done
+if command -v go >/dev/null; then
+  (cd native && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o "$WORK/mycel-sandbox" ./cmd/mycel-sandbox)
+elif [ "$MODE" = preview ]; then say "STOP: the preview needs go here to build mycel-sandbox"; exit 1; fi
 say "ssh to $IP is up; sending the repo"
 
 # the repo as it is in this folder (tracked and untracked files, no ignored ones)
 git ls-files -co --exclude-standard -z | tar --null -T - -czf "$WORK/repo.tgz"
 "${SSH[@]}" 'sudo install -d -m 755 /opt/mycel'
 "${SSH[@]}" 'sudo tar -xzf - -C /opt/mycel --no-same-owner' < "$WORK/repo.tgz"
+[ ! -f "$WORK/mycel-sandbox" ] || "${SSH[@]}" 'sudo install -d -m 755 /opt/mycel/native/bin/linux-amd64 && sudo tee /opt/mycel/native/bin/linux-amd64/mycel-sandbox >/dev/null && sudo chmod 755 /opt/mycel/native/bin/linux-amd64/mycel-sandbox' < "$WORK/mycel-sandbox"
 "${SSH[@]}" bash -s "$BUN_VERSION" <<'EOF' 2>&1 | tail -5
 set -euo pipefail
 V=$1
@@ -87,7 +120,7 @@ sudo chown -R root:root /opt/mycel && sudo chmod -R go-w /opt/mycel
 echo "bun $(/usr/local/bin/bun --version), repo ready"
 EOF
 say "CPU credits: $(aws_ ec2 describe-instance-credit-specifications --instance-ids "$IID" --query 'InstanceCreditSpecifications[0].CpuCredits' --output text)"
-say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minutes); log: $LOG"
+say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minutes; preview: about 5 minutes); log: $LOG"
 set +e
 "${SSH[@]}" "sudo /opt/mycel/scripts/dev-env/srt/vm-check.sh /opt/mycel $MODE" 2>&1 | tee "$LOG"
 CODE=${PIPESTATUS[0]}

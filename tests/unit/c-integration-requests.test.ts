@@ -51,7 +51,7 @@ describe('asking', () => {
     const r = await ask(ada, mcpKey())
     expect(r.status).toBe(201)
     expect(r.body).toMatchObject({ kind: 'mcp', name: 'Tasks', url: `${fake.base}/mcp-key`, auth: 'bearer', state: 'waiting', endedAt: null, user: { id: ids.bob, name: 'BOB' }, requestedBy: { id: ids.ada, name: 'ADA' } })
-    expect(r.body.link).toBe(`http://team.localhost/settings/integrations?request=${r.body.id}`)
+    expect(r.body.link).toBe(`http://team.localhost/settings/connectors?request=${r.body.id}`)
     const days = (Date.parse(r.body.expiresAt) - Date.parse(r.body.createdAt)) / 86_400_000
     expect(days).toBe(7)
     expect(Date.parse(r.body.createdAt)).toBeGreaterThanOrEqual(before - 1000)
@@ -62,7 +62,7 @@ describe('asking', () => {
     expect(inbox.items).toContainEqual(expect.objectContaining({ eventType: 'integration.request', sourceId: r.body.id, link: 'integrations', chatId: null, readAt: null, request: { name: 'Tasks', host } }))
     expect((await cara.call('GET', '/api/notifications')).items.some((n: any) => n.sourceId === r.body.id)).toBe(false)
     const banner = h.hub.events.find((e) => e.kind === 'publish' && e.target === ids.bob && (e.data as any).data?.code === 'integration_request') as any
-    expect(banner.data.data.link).toBe(`/settings/integrations?request=${r.body.id}`)
+    expect(banner.data.data.link).toBe(`/settings/connectors?request=${r.body.id}`)
     expect(banner.data.data.message).toContain('Tasks')
     expect(banner.data.data.message).toContain(host)
     expect(h.hub.events.some((e) => e.kind === 'publish' && e.target !== ids.bob && (e.data as any).data?.code === 'integration_request')).toBe(false)

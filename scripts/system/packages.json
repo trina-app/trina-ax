@@ -70,7 +70,7 @@
     },
     "devenv": {
       "install": "default",
-      "for": "the dev environment's commands and srt (socat, ripgrep). Installing them turns nothing on: install-srt.sh does",
+      "for": "the dev environment's commands and srt (socat, ripgrep); python3-openpyxl and python3-docx fill a team's Excel and Word forms (a form skill, server/src/onboarding/form-skill.ts). Installing them turns nothing on: install-srt.sh does",
       "packages": {
         "socat": "",
         "ripgrep": "",
@@ -81,6 +81,8 @@
         "python3": "",
         "python3-venv": "",
         "python3-pip": "",
+        "python3-openpyxl": "",
+        "python3-docx": "",
         "build-essential": "",
         "chromium": { "on": ["debian-12", "debian-13"] }
       }
@@ -155,6 +157,11 @@
       "for": "the dev environment on srt (install-srt.sh, the image with --srt): node in /opt/trina/node, srt in /opt/trina/srt/<version>",
       "artifacts": ["node", "srt"]
     },
+    "srt-mac": {
+      "install": "on-request",
+      "for": "the dev environment on a Mac team server (install-srt-mac.sh): node, srt and Python 3 in /opt/trina; git comes from the Command Line Tools",
+      "artifacts": ["node", "srt", "cpython"]
+    },
     "docker": {
       "install": "on-request",
       "for": "the Docker image (docker/Dockerfile, with the always groups): ps for mycel-ctl supervise, useradd, python3",
@@ -198,7 +205,7 @@
     },
     "node": {
       "version": "22.23.4",
-      "for": "srt's runtime (srt needs 22.12 or later, NODE_USE_ENV_PROXY 22.21; Debian 13 has 20). sha256 from the release's SHASUMS256.txt",
+      "for": "srt's runtime (srt needs 22.12 or later, NODE_USE_ENV_PROXY 22.21; Debian 13 has 20), on Linux and on a Mac team server (install-macos.sh). sha256 from the release's SHASUMS256.txt",
       "platforms": {
         "linux-amd64": {
           "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
@@ -211,6 +218,36 @@
           "sha256": "6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b",
           "size": 30201396,
           "dir": "node-v22.23.4-linux-arm64"
+        },
+        "darwin-arm64": {
+          "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-arm64.tar.xz",
+          "sha256": "037650d0839f457747396f052073fb48333d31bf5abd3c98b74da20d89ebb1ad",
+          "size": 25898024,
+          "dir": "node-v22.23.4-darwin-arm64"
+        },
+        "darwin-amd64": {
+          "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-x64.tar.xz",
+          "sha256": "f42abca7aaac61efc57d49fb42ea84fc53bbeba9a749cb03a291ce6e4e7a69c1",
+          "size": 27483128,
+          "dir": "node-v22.23.4-darwin-x64"
+        }
+      }
+    },
+    "cpython": {
+      "version": "3.13.17",
+      "for": "Python 3 of a dev run on a Mac team server (install-srt-mac.sh puts it in /opt/trina/python3; Linux runs use the distribution's python3). python-build-standalone release 20261021, install_only build; sha256 from the release's SHA256SUMS",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.13.17%2B20261021-aarch64-apple-darwin-install_only.tar.gz",
+          "sha256": "9c985cbf327425873469896ce748c7134b6deca8edb81e93c589ad2fc5aff445",
+          "size": 25404044,
+          "dir": "python"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.13.17%2B20261021-x86_64-apple-darwin-install_only.tar.gz",
+          "sha256": "b7d7c2dd63545cabe996191b6f20f0b652c7de123d9ca451dda7e5f1ebbcbbbc",
+          "size": 25115691,
+          "dir": "python"
         }
       }
     },

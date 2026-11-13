@@ -36,7 +36,7 @@ cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$
 # the dev environment on srt, image part (the same files build-ami.sh stages). --no-srt skips it (faster)
 if [[ $SRT == 1 ]]; then
   mkdir -p "$WORK/src/dev-env-srt"
-  for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md; do
+  for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in devenv-run.service.in README.md; do
     cp -p "$REPO/scripts/dev-env/srt/$f" "$WORK/src/dev-env-srt/"
   done
   mkdir -p "$WORK/src/dev-env-srt/system"

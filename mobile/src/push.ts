@@ -13,10 +13,13 @@ import * as Crypto from 'expo-crypto'
 import { LABEL_ITEM, LABEL_SERVICE, LabelStore } from './labels'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 import { permissionFrom } from './permission'
+import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber } from './badge'
 
 export const CHANNEL_ID = 'default'
 // set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
 const ASKED = 'team-ax.push-asked'
+// set once this app has asked iOS for the icon number after notifications were already on (src/badge.ts askBadgeAgain)
+const ASKED_BADGE = 'team-ax.push-badge-asked'
 let asking: Promise<PushToken> | null = null
 
 /** Built with push: iOS always (aps-environment entitlement); Android only when the build has an FCM config file. */
@@ -66,8 +69,15 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
     await SecureStore.setItemAsync(ASKED, '1').catch(() => {})
     // Not 'undetermined' only: Android 13+ reports 'denied' (canAskAgain) before the first question, because
     // notifications are off until the person allows them. iOS says canAskAgain=false once the person has answered.
-    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
+    // The icon number is asked for with the rest (QA TC-408: it was not, so iOS never showed one).
+    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync(PERMISSION_REQUEST)
     if (status.status !== 'granted') throw new PushRefused('push_denied')
+    // An iPhone that said yes before this app asked for the number: asked once more; iOS shows no second dialog and
+    // keeps the person's answer (Settings › Notifications › Badges turns it on there)
+    if (askBadgeAgain({ ios: Platform.OS === 'ios', status: status.status, allowsBadge: status.ios?.allowsBadge, askedBadge: await SecureStore.getItemAsync(ASKED_BADGE).catch(() => null) === '1' })) {
+      await SecureStore.setItemAsync(ASKED_BADGE, '1').catch(() => {})
+      await Notifications.requestPermissionsAsync(PERMISSION_REQUEST).catch(() => null)
+    }
     let token: Notifications.DevicePushToken
     try { token = await Notifications.getDevicePushTokenAsync() } catch {
       console.log('push: the OS gave no device token; push stays off')
@@ -80,7 +90,8 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
 }
 
 /** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound.
- * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one. */
+ * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one, and
+ * sets the icon's number itself (badge-v1: its own count, the newest), so a push's number does not replace it. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
   try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
@@ -107,8 +118,14 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
   return () => sub.remove()
 }
 
-/** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen. */
-export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}) }
+/** The app icon's number (badge-v1, src/badge.ts). Never throws: a build or launcher without badges changes nothing.
+ * iPhone only (setsIconNumber): on Android setBadgeCountAsync is never called, not even with 0, and the launcher counts
+ * the notifications in the tray. */
+export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNumber(Platform.OS)) await Notifications.setBadgeCountAsync(n) })
+
+/** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
+ * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */
+export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}); void appBadge.clear() }
 
 /** The keychain item the notification extension reads (src/labels.ts): only on an iPhone build with the extension (the
  * edition's shared keychain group in extra.pushLabels), readable after the phone's first unlock (the extension runs

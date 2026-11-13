@@ -82,11 +82,14 @@ test('Admin › Connectors: "applies to everyone in the team" above the title; n
   const s = await box(scope)
   expect(s.y + s.height).toBeLessThanOrEqual(header.y + 0.5)
   // the title is the same noun as Settings', with nothing beside it; no line and no card for requests under it (asking a
-  // member is in Add connection's menu): Discover starts right under the title
+  // member is in Add connection's menu): the list starts right under the title (Connected, here with the mock's Slack,
+  // the owner's; else Discover)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['admin.integrations'], exact: true })).toBeVisible()
   await expect(page.getByTestId('page-scope')).toHaveCount(1)
   await expect(page.getByTestId('team-integrations-note')).toHaveCount(0)
-  expect((await box(page.getByTestId('connector-discover'))).y - (header.y + header.height)).toBeLessThan(40)
+  await expect(page.getByTestId('team-connected')).toBeVisible()
+  expect((await box(page.getByTestId('team-connected'))).y - (header.y + header.height)).toBeLessThan(40)
+  expect((await box(page.getByTestId('connector-discover'))).y).toBeGreaterThan((await box(page.getByTestId('team-connected'))).y)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {
@@ -105,25 +108,31 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await expect(page.getByTestId('plugin-license-list').first()).toContainText('LicenseRef-HWP-Notices')
 })
 
-test('a phone: a cut row of tabs fades at that edge', async ({ page }) => {
+test('a phone: a cut row fades at that edge', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await phone(page)
-  // (Admin's menu was such a row; on a phone it is a list now, docs/DECISIONS.md "Admin and Settings on phones")
-  // the search palette's type tabs
-  await page.keyboard.press('ControlOrMeta+k')
-  const tabs = page.getByTestId('search-palette').getByRole('tablist')
-  await expect(tabs).toBeVisible()
-  await expect.poll(() => fade(tabs)).toEqual([false, true])
-  await tabs.evaluate((el) => { el.scrollLeft = el.scrollWidth })
-  await expect.poll(() => fade(tabs)).toEqual([true, false])
+  // (Admin's menu was such a row, then the search palette's type tabs; on a phone both are a list or a picker now,
+  // docs/DECISIONS.md "Admin and Settings on phones", 079271860) an answer's table wider than the phone, asked from the
+  // phone's new-chat page
+  await page.goto('/new')
+  await page.getByTestId('composer-input').fill('big numbers')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+  const row = page.getByTestId('md-table-scroll').last()
+  await expect(row).toBeVisible()
+  expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  await expect.poll(() => fade(row)).toEqual([false, true])
+  await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
+  await expect.poll(() => fade(row)).toEqual([true, false])
 })
 
 test('Files on a phone: the search box takes the width the buttons leave, its placeholder whole', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await phone(page)
-  await page.goto('/files')
+  // a phone's /files is 파일's places; the team folder's top is ?team=1 (nav rail #673, lib/newChat.ts)
+  await page.goto('/files?team=1')
   const input = page.getByTestId('content-search-input')
   await expect(input).toBeVisible()
   const field = await box(input.locator('xpath=..'))

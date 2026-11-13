@@ -91,7 +91,11 @@ test('a link to this team app moves inside the app, without a reload; the keyboa
   await link.focus()
   expect(await link.evaluate((e) => [e.matches(':focus-visible'), getComputedStyle(e).outlineStyle])).toEqual([true, 'solid'])
   await page.evaluate(() => ((window as unknown as { stayed: boolean }).stayed = true))
-  await link.click()
+  // the focused message shows its hover bar, over the message's edge and not over this link at the end of the first
+  // line: the pointer on the link's end is on the link (the bar once took it there with the Linux runner's fonts)
+  await expect.poll(() => page.getByTestId('room-message').nth(1).getByTestId('message-hover-bar').evaluate((e) => getComputedStyle(e).opacity)).toBe('1')
+  expect(await link.evaluate((e) => { const r = e.getClientRects()[0]!; return document.elementFromPoint(r.right - 2, r.top + 2)?.closest('[data-testid="room-link"]') === e })).toBe(true)
+  await page.keyboard.press('Enter')
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${id(1)}$`))
   await expect(page.getByTestId('room-thread')).toBeVisible()
   // the thread's messages have their links too

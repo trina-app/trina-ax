@@ -9,12 +9,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
-import { startHarness, type Harness } from '../lib/b-harness'
+import { addTestPerson, startHarness, type Harness } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -25,6 +25,7 @@ import { boxShellTool } from '../../server/src/devenv/tool'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
+import { componentC } from '../../server/src/team-files/component'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
@@ -340,7 +341,7 @@ describe('a project run reads only what everyone in the project may read (QA TC-
 })
 
 const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' })
-const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
+const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'], platform: 'linux' as const }
 
 describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
@@ -516,13 +517,14 @@ describe('the srt settings file', () => {
 })
 
 describe('the argv of a run', () => {
-  test('systemd-run makes a scope that the polkit rule allows, with the limits; srt gets the command as one argument', () => {
+  test('an older install (no run template): systemd-run makes a scope with the limits; srt gets the command as one argument', () => {
     const runId = newRunId()
     expect(runId).toMatch(RUN_ID_RE)
     const a = scopeArgv({ runId, id: 'mycel', limits: { cpus: 1.5, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 }, exitFile: '/x.exit', settingsFile: '/s.json', command: 'npm test; rm -rf /' })
     expect(a.slice(0, 4)).toEqual(['/usr/bin/systemd-run', '--scope', '--quiet', '--no-ask-password'])
-    expect(a).toContain(`--unit=${unitName(runId)}`)
-    expect(unitName(runId)).toMatch(UNIT_RE)
+    expect(a).toContain(`--unit=trina-dev-${runId}.scope`)
+    expect(unitName(runId, false)).toBe(`trina-dev-${runId}.scope`)
+    expect(unitName(runId, false)).toMatch(UNIT_RE)
     expect(a).toContain('--slice=mycel-devenv.slice')
     for (const p of ['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
     expect(a.some((x) => x.startsWith('MemoryHigh'))).toBe(false)
@@ -531,13 +533,135 @@ describe('the argv of a run', () => {
     expect(f).toContain(SRT_PATHS.cliFull)
     expect(f).not.toContain(SRT_PATHS.cli)
   })
-  test('the polkit rule allows the same unit names as the runner, and no .service', () => {
-    const rule = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8')
-    const re = /\/(\^trina-dev-\[a-z0-9\]\{16\}\\\.scope\$)\//.exec(rule)
-    expect(re).not.toBeNull()
-    expect(new RegExp(re![1]!).source).toBe(UNIT_RE.source)
-    expect(rule.split('\n').filter((l) => !l.startsWith('//')).join('\n')).not.toContain('.service')
-    expect(rule).toContain('manage-units')
+  test('a run unit: an instance of the template; its limits for set-property; its name gives back the run id', () => {
+    const runId = newRunId()
+    expect(unitName(runId, true)).toBe(`trina-dev@${runId}.service`)
+    for (const u of [unitName(runId, true), unitName(runId, false)]) { expect(u).toMatch(UNIT_RE); expect(runIdOfUnit(u)).toBe(runId) }
+    expect(unitName(runId, true)).toMatch(TEMPLATE_UNIT_RE)
+    for (const u of ['trina-dev@x.service', `trina-dev@${runId}.scope`, `trina-dev-${runId}.service`, `trina-dev@${runId.toUpperCase()}.service`, `other@${runId}.service`, `trina-dev@${runId}.service.d`]) {
+      expect(UNIT_RE.test(u)).toBe(false)
+      expect(runIdOfUnit(u)).toBe('')
+    }
+    expect(unitLimits({ cpus: 1.5, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 })).toEqual(['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512'])
+    expect(srtArgv({ settingsFile: '/s.json', command: 'npm test; rm -rf /' })).toEqual([SRT_PATHS.node, SRT_PATHS.cli, '--settings', '/s.json', '-c', 'npm test; rm -rf /'])
+    expect(srtArgv({ settingsFile: '/s.json', command: 'x', full: true })[1]).toBe(SRT_PATHS.cliFull)
+  })
+  test('the arguments file of a run unit: NUL-separated, checked names, no NUL in a field', () => {
+    const t = unitArgs({ cwd: '/w', stdoutFile: '/o', stderrFile: '/e', exitFile: '/x.exit', env: { HOME: '/h', A_B: 'a b\nc' }, argv: ['/usr/bin/node', 'cli.js', '-c', 'echo "$HOME"; rm -rf /'] })
+    expect(t.endsWith('\0')).toBe(true)
+    expect(t.slice(0, -1).split('\0')).toEqual(['trina-run-1', '/w', '/o', '/e', '/x.exit', '2', 'HOME=/h', 'A_B=a b\nc', '/usr/bin/node', 'cli.js', '-c', 'echo "$HOME"; rm -rf /'])
+    const ok = { cwd: '/w', stdoutFile: '/o', stderrFile: '/e', exitFile: '/x', env: {}, argv: ['/bin/true'] }
+    expect(() => unitArgs({ ...ok, env: { 'A=B': 'x' } })).toThrow()
+    expect(() => unitArgs({ ...ok, env: { '1A': 'x' } })).toThrow()
+    expect(() => unitArgs({ ...ok, env: { A: 'x\0y' } })).toThrow()
+    expect(() => unitArgs({ ...ok, argv: ['true'] })).toThrow()
+    expect(() => unitArgs({ ...ok, argv: [] })).toThrow()
+    expect(() => unitArgs({ ...ok, cwd: '/w\0/x' })).toThrow()
+  })
+  // the rendered rule, run with a stand-in of polkit's JavaScript API (not a text match)
+  const ruleFor = (user: string) => {
+    const src = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8').replaceAll('@SRV_USER@', user)
+    const rules: ((a: unknown, s: unknown) => unknown)[] = []
+    const polkit = { Result: { YES: 'yes', NO: 'no' }, addRule: (f: (a: unknown, s: unknown) => unknown) => rules.push(f), log: () => {} }
+    new Function('polkit', src)(polkit)
+    expect(rules.length).toBe(1)
+    return (o: { id?: string; user?: string; unit?: string; verb?: string }) =>
+      rules[0]!({ id: o.id ?? 'org.freedesktop.systemd1.manage-units', lookup: (k: string) => (k === 'unit' ? o.unit : k === 'verb' ? o.verb : undefined) }, { user: o.user ?? user }) === 'yes'
+  }
+  test('the polkit rule: only start, stop, reset-failed and set-property of trina-dev@<16>.service, only for the server account', () => {
+    const allow = ruleFor('mycel')
+    const id = newRunId()
+    for (const verb of ['start', 'stop', 'reset-failed', 'set-property']) expect(allow({ unit: `trina-dev@${id}.service`, verb })).toBe(true)
+    // systemd 255 sends no unit and no verb for StartTransientUnit: never allowed
+    expect(allow({})).toBe(false)
+    expect(allow({ verb: 'start' })).toBe(false)
+    for (const verb of ['restart', 'reload', 'kill', 'enable', 'try-restart', 'reload-or-restart', 'freeze', 'clean', '']) expect(allow({ unit: `trina-dev@${id}.service`, verb })).toBe(false)
+    for (const unit of [`trina-dev-${id}.scope`, `trina-dev-${id}.service`, 'trina-dev@x.service', `trina-dev@${id.toUpperCase()}.service`, `trina-dev@${id}x.service`, `xtrina-dev@${id}.service`,
+      `trina-dev@${id}.service.d`, `getty@${id}.service`, 'ssh.service', 'mycel-server.service', 'mycel-devenv.slice', `trina-dev@${id}.socket`]) expect(allow({ unit, verb: 'start' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', user: 'bob' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', id: 'org.freedesktop.systemd1.manage-unit-files' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', id: 'org.freedesktop.login1.power-off' })).toBe(false)
+    // the rule's pattern is the runner's
+    const re = /\/(\^trina-dev@[^/]+)\//.exec(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8'))
+    expect(new RegExp(re![1]!).source).toBe(TEMPLATE_UNIT_RE.source)
+  })
+  test('the run template: the server account and slice fixed by root, and the server unit\'s sandbox lines', () => {
+    const tpl = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv-run.service.in'), 'utf8')
+    const srv = fs.readFileSync(path.join(REPO, 'scripts/linux/systemd/server.service.in'), 'utf8')
+    const keys = (t: string) => {
+      const m = new Map<string, string>()
+      let sect = ''
+      for (const l of t.split('\n')) {
+        if (/^\[.*\]$/.test(l)) { sect = l; continue }
+        if (sect !== '[Service]' || l.startsWith('#') || !l.includes('=') || /^\s/.test(l)) continue
+        m.set(l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1))
+      }
+      return m
+    }
+    const t = keys(tpl), sv = keys(srv)
+    for (const [k, v] of Object.entries({ Type: 'exec', User: '@SRV@', Group: '@SRV@', Slice: '@ID@-devenv.slice', OOMPolicy: 'kill', MemorySwapMax: '0', KillMode: 'control-group', RuntimeMaxSec: String(8 * 3600 + 600) })) expect([k, t.get(k)]).toEqual([k, v])
+    expect(t.get('ExecStart')).toBe('-/opt/trina/devenv/run-wrap --unit @BASE@/devenv/run %i')
+    expect(t.get('ExecStart')!.split(' ')[0]!.slice(1)).toBe(SRT_PATHS.runWrap)
+    expect(t.get('ExecStopPost')).toBe('+/usr/bin/rm -rf /run/systemd/system.control/trina-dev@%i.service.d /etc/systemd/system.control/trina-dev@%i.service.d')
+    expect(tpl).toContain('# install=@ID@')
+    // no environment or extra rights of the server's own
+    for (const k of ['Environment', 'EnvironmentFile', 'Delegate']) expect(t.has(k)).toBe(false)
+    // every other line of the server unit's [Service] is its sandbox: the template has the same value
+    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE'])
+    for (const [k, v] of sv) {
+      if (notSandbox.has(k)) continue
+      if (k === 'ReadWritePaths') {
+        const tp = t.get(k)!.split(' ').map((p) => p.replace(/^-/, ''))
+        expect(tp.sort()).toEqual([...v.split(' '), '@BASE@/devenv'].sort())
+        continue
+      }
+      expect([k, t.get(k)]).toEqual([k, v])
+    }
+  })
+  test('the install writes the template and checks a run before the server drop-in; the kits carry the template', () => {
+    const sh = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(sh).toContain('"debian 13"|"ubuntu 24.04") ;;')
+    expect(sh).toContain('TEMPLATE=/etc/systemd/system/trina-dev@.service')
+    expect(sh.indexOf('systemctl start --wait --no-ask-password "$PU"')).toBeGreaterThan(0)
+    expect(sh.indexOf('systemctl start --wait --no-ask-password "$PU"')).toBeLessThan(sh.indexOf('put_changed "$T" 644 "$DROPIN"'))
+    expect(sh).toContain(`printf '%s\\0' trina-run-1 / /dev/null /dev/null "$PEXIT" 0 /bin/true`)
+    expect(fs.readFileSync(path.join(REPO, 'scripts/build-bundle.ts'), 'utf8')).toContain("'devenv-run.service.in'")
+    expect(fs.readFileSync(path.join(REPO, 'scripts/image/build-ami.sh'), 'utf8')).toContain(' devenv-run.service.in ')
+    const un = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/uninstall-srt.sh'), 'utf8')
+    expect(un).toContain("'trina-dev@*.service' 'trina-dev-*.scope'")
+    expect(un).toContain('grep -qsx "# install=$ID" "$TEMPLATE"')
+  })
+  // run-wrap --unit needs bash 4.4 or later (mapfile -d); macOS has 3.2
+  const bash44 = (() => { const r = Bun.spawnSync(['bash', '-c', 'mapfile -d "" -t A < /dev/null && echo ok']); return r.stdout.toString().trim() === 'ok' })()
+  test.skipIf(!bash44)('run-wrap --unit: reads the arguments file, runs the program with only its environment, writes the exit code', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'rw-'))
+    const id = newRunId()
+    const out = path.join(d, 'out'), exit = path.join(d, 'x.exit')
+    fs.writeFileSync(out, '')
+    fs.writeFileSync(path.join(d, `${id}.args`), unitArgs({ cwd: d, stdoutFile: out, stderrFile: out, exitFile: exit, env: { HOME: '/h', X: 'a b\nc' }, argv: ['/bin/sh', '-c', 'pwd; env | sort; echo err >&2; exit 7'] }), { mode: 0o600 })
+    const wrap = path.join(REPO, 'scripts/dev-env/srt/run-wrap')
+    const r = Bun.spawnSync(['bash', wrap, '--unit', d, id], { env: { PATH: '/usr/bin:/bin', SECRET: 'no' } })
+    expect(r.exitCode).toBe(7)
+    expect(fs.readFileSync(exit, 'utf8')).toBe('7\n')
+    const o = fs.readFileSync(out, 'utf8')
+    expect(o).toContain(fs.realpathSync(d))
+    expect(o).toContain('HOME=/h\n')
+    expect(o).toContain('X=a b\nc\n')
+    expect(o).toContain('err\n')
+    expect(o).not.toContain('SECRET')
+    expect(fs.existsSync(path.join(d, `${id}.args`))).toBe(false)
+    // a bad run id, a missing file or a link is refused before anything runs
+    for (const a of [['--unit', d, '../x'], ['--unit', d, 'abc'], ['--unit', d, newRunId()]]) expect(Bun.spawnSync(['bash', wrap, ...a]).exitCode).toBe(2)
+    const id2 = newRunId()
+    fs.writeFileSync(path.join(d, 'real.args'), unitArgs({ cwd: d, stdoutFile: out, stderrFile: out, exitFile: exit, env: {}, argv: ['/bin/true'] }))
+    fs.symlinkSync(path.join(d, 'real.args'), path.join(d, `${id2}.args`))
+    expect(Bun.spawnSync(['bash', wrap, '--unit', d, id2]).exitCode).toBe(2)
+    // an output file that is a link is refused
+    const id3 = newRunId()
+    fs.symlinkSync('/etc/hostname', path.join(d, 'lnk'))
+    fs.writeFileSync(path.join(d, `${id3}.args`), unitArgs({ cwd: d, stdoutFile: path.join(d, 'lnk'), stderrFile: out, exitFile: exit, env: {}, argv: ['/bin/true'] }), { mode: 0o600 })
+    expect(Bun.spawnSync(['bash', wrap, '--unit', d, id3]).exitCode).toBe(2)
+    fs.rmSync(d, { recursive: true, force: true })
   })
   test('the install pins the same srt version, and hides the same server files outside the base', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/package.json'), 'utf8'))
@@ -657,7 +781,8 @@ describe('the host names of this server', () => {
   test('the cgroup path follows systemd\'s slice nesting, also for an id with a dash', () => {
     expect(slicePath('mycel-devenv.slice')).toBe('mycel.slice/mycel-devenv.slice')
     expect(slicePath('trina-ax-devenv.slice')).toBe('trina.slice/trina-ax.slice/trina-ax-devenv.slice')
-    expect(cgroupDir('mycel', 'abc')).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abc.scope')
+    expect(cgroupDir('mycel', 'abc', false)).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abc.scope')
+    expect(cgroupDir('mycel', 'abc', true)).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev@abc.service')
   })
 })
 
@@ -822,6 +947,35 @@ describe('the team setting', () => {
   })
 })
 
+describe('macOS: the person\'s own folder in a run (Mac mini, 2026-11-12)', () => {
+  test('an admin\'s run writes her own folder (users/ is not hidden as a whole), other people\'s folders stay hidden, and Files lists what the run wrote', async () => {
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER, platform: 'darwin' })
+    try {
+      turnOnTeam()
+      const chat = (await h.api('carol').call(API.createChat, { body: {} })).id
+      for (const u of ['alice', 'bob', 'carol']) fs.mkdirSync(path.join(h.team, 'users', u), { recursive: true })
+      const r = await shell('carol', null, chat).call({ command: 'echo ok' })
+      expect(out(r)).toContain('Exit code 0.')
+      const s = lastSettings()
+      const users = path.join(h.team, 'users')
+      // srt's Seatbelt profile writes a deny inside an allowed folder after the allows: users/ as a whole would hide her own
+      expect(s.filesystem.denyRead).not.toContain(users)
+      expect(s.filesystem.denyRead).not.toContain(path.join(users, 'carol'))
+      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([path.join(users, 'alice'), path.join(users, 'bob')]))
+      expect(s.filesystem.allowWrite).toContain(path.join(users, 'carol'))
+      // nothing else in the team folder is writable in a chat with no project: not another person's folder, not shared
+      for (const w of s.filesystem.allowWrite) if (w.startsWith(h.team + '/')) expect(w).toBe(path.join(users, 'carol'))
+      // what the run writes there (as a dev account) is a team file of hers
+      fs.writeFileSync(path.join(users, 'carol', 'chart.png'), 'png')
+      const tree = componentC(h.ctx).files.tree('carol', 'users/carol', undefined)
+      expect(JSON.stringify(tree)).toContain('chart.png')
+    } finally {
+      setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
+      turnOnTeam()
+    }
+  })
+})
+
 describe('a command follows the person, not the project', () => {
   test('a project chat: starts in the project folder; reads only what everyone who sees the project may read (QA TC-095)', async () => {
     const r = await alice().call({ command: 'echo hello' })
@@ -915,7 +1069,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux' }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
@@ -1215,6 +1369,7 @@ describe('the tracker', () => {
 })
 
 describe('the team\'s sites (admins)', () => {
+  beforeAll(() => addTestPerson('carolen', { id: 'carol', name: 'Carol Park', role: 'admin', locale: 'en' }))
   test('read and change; bad domains refused; the next run gets them', async () => {
     const r = await h.api('carol').call(API.devEnvTeam, {})
     expect(r).toMatchObject({ setting: { extraDomains: [] }, plan: { plan: 'starter', maxRunning: 1 } })
@@ -1225,6 +1380,44 @@ describe('the team\'s sites (admins)', () => {
     expect(teamSetting(h.ctx.db)).toMatchObject({ enabled: true, extraDomains: ['api.example.net'] })
     await alice().call({ command: 'echo x' })
     expect(lastSettings().network.allowedDomains).toContain('api.example.net')
+  })
+  test('the refusals answer in the admin\'s language (ko / en), the English detail stays', async () => {
+    const put = async (who: string, body: unknown) => {
+      const r = await h.req(who, '/api/admin/dev-env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      return { status: r.status, error: (await r.json()).error }
+    }
+    const koBad = await put('carol', { extraDomains: ['localhost'] })
+    expect(koBad.status).toBe(400)
+    expect(koBad.error.message).toBe("'localhost' 사이트를 추가할 수 없어요. 주소는 example.com처럼 점으로 나뉜 두 부분 이상이어야 해요.")
+    expect(koBad.error.fields['body.extraDomains']).toBe('localhost: a domain needs at least two parts, for example example.com')
+    const enBad = await put('carolen', { extraDomains: ['localhost'] })
+    expect(enBad.error.message).toBe("'localhost' cannot be added. An address needs at least two parts, for example example.com.")
+    expect(enBad.error.fields['body.extraDomains']).toBe(koBad.error.fields['body.extraDomains'])
+    expect((await put('carol', { extraDomains: ['*.com'] })).error.message).toBe("'*.com' 사이트를 추가할 수 없어요. .com 같은 끝부분 전체는 범위가 너무 넓어서 허용할 수 없어요.")
+    expect((await put('carol', { scope: { mode: 'selected', groupIds: ['nope'], userIds: [] } })).error.message).toBe('없는 부서가 들어 있어요.')
+    expect((await put('carolen', { scope: { mode: 'selected', groupIds: [], userIds: ['nobody'] } })).error.message).toBe('Unknown person.')
+    // every reason of extraDomainProblem has a sentence in each language (none falls back to English words)
+    const { SITE_REASON_KEYS, siteProblemMessage } = await import('../../server/src/devenv/messages')
+    for (const d of ['UPPER.com', 'a'.repeat(260) + '.com', 'a*b.example.com', 'com', 'x', '-a.example.com', '10.0.0.1', '0x7f.1', 'x.example.net']) {
+      const why = extraDomainProblem(d, ['x.example.net'])
+      if (why) expect(SITE_REASON_KEYS).toContain(why)
+    }
+    for (const l of ['ko', 'id', 'ja', 'es'] as const) for (const k of SITE_REASON_KEYS) expect(siteProblemMessage('a', k, l)).not.toContain(k)
+  })
+  test('turning on where srt cannot run: Korean for ko, English for en', async () => {
+    turnOnTeam({ enabled: false, consent: null })
+    selfTestProblem = 'cannot start a scope (polkit rule or slice missing)'
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
+    const put = async (who: string) => {
+      const r = await h.req(who, '/api/admin/dev-env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, acceptWarning: DEV_ENV_SRT_WARNING_VERSION }) })
+      return { status: r.status, error: (await r.json()).error }
+    }
+    const ko = await put('carol')
+    expect(ko.status).toBe(409)
+    expect(ko.error.message).toBe('이 서버는 개발 환경을 실행할 수 없어요.')
+    expect(ko.error.params).toMatchObject({ reason: 'dev_env_unavailable', why: 'platform' })
+    expect((await put('carolen')).error.message).toBe('This server cannot run the dev environment.')
+    selfTestProblem = ''
   })
 })
 

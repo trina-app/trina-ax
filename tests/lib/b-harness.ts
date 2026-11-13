@@ -193,7 +193,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',
     engine: o.realCore?.engine ? { modelUpstreams: upstreams, ...o.realCore.engine } : { authMode: 'local-login', modelUpstreams: upstreams },
-    relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null, roomAiMentions: true,
+    relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
     ...(o.realCore?.office ? { office: true } : {}),
   }
   const db = openDb(path.join(dataDir, 'app.db'))
@@ -233,7 +233,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const ownRunDir = !o.engineConfig?.runDir
   if (ownRunDir && !o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
   if (o.engineConfig) Object.assign(ctx.engineConfig, o.engineConfig)
-  configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
+  configureChat(ctx, { presence: { warmupMs: 0 }, ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
   // web_fetch with the test's network options: registered just before the files module, which would register it without
   // (the first registration wins; the tools need the chat runtime, installed earlier)

@@ -9,17 +9,20 @@
 // those, GET /api/notifications?only=rooms), named "멘션·스레드". "Nothing here" is never said while older pages are left:
 // a tab, "Unreads" or a search that shows nothing of what is loaded reads the next pages by itself (AUTO_PAGES of them,
 // once for that choice), then says "not in the latest N" with "Load more". A read again (a new notice, the rooms
-// changing) is one request: the newest rows, with the older ones already loaded kept after them.
+// changing) is one request: the newest rows, with the older ones already loaded kept after them. "Mark all as read" (at
+// the end of the tools, while the tab has something unread) reads the whole tab on the server in one call, the rows not
+// loaded yet too (POST /api/notifications/read, the same tab rule: activityTabHas).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { AtSign, Bell, BellRing, Check, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
-import type { InboxNotification } from '@mycel/shared/api'
+import { AtSign, Bell, BellRing, Check, CheckCheck, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
-import { activityInChats } from '../lib/screens'
+import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
+import { useActivityUnread } from '../store/inbox'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
@@ -33,7 +36,7 @@ import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
 
 type T = ReturnType<typeof useT>
-type Filter = 'all' | 'dms' | 'mentions' | 'threads'
+type Filter = ActivityTab
 /** `short`: the word on a phone, where the four share the width */
 const FILTERS: { id: Filter; label: MessageKey; short?: MessageKey; icon?: typeof Bell }[] = [
   { id: 'all', label: 'feed.tab.all' },
@@ -51,16 +54,8 @@ const AUTO_PAGES = 9
 /** the conversations' tabs (opened from 대화): DMs are that tab's own list */
 const CHATS_FILTERS = FILTERS.filter((f) => f.id !== 'dms')
 
-/** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
- * Mentions, a reply in a thread under Threads. A notice of the app's own is under All only. */
-export function inFilter(item: InboxNotification, filter: Filter): boolean {
-  if (filter === 'all') return true
-  const room = item.room
-  if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
-  if (filter === 'dms') return room.kind === 'dm' || room.kind === 'group'
-  if (filter === 'mentions') return item.code === 'room.mention' || room.reason === 'mention' || room.reason === 'everyone'
-  return !!room.thread
-}
+/** Which tabs a notice shows under (shared: the server marks a tab read by the same rule) */
+export const inFilter = activityTabHas
 
 const at = (item: InboxNotification) => item.room?.at ?? item.createdAt
 
@@ -78,11 +73,69 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
 /** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
- * to the other (a tab of the phone's bar) starts afresh. */
+ * to the other (a tab of the phone's bar) starts afresh. On a computer 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx): this page is then the notice opened
+ * from it (`?n=<id>`) or, with none, where to look; an old link to the Mentions or Threads tab goes to 대화's
+ * 멘션·스레드, where those are now. */
 export default function Activity() {
   const [params] = useSearchParams()
   const chats = activityInChats(params.toString())
+  const computer = useMediaQuery('(min-width: 768px)')
+  if (computer && !chats) {
+    const tab = params.get('tab')
+    if (tab === 'mentions' || tab === 'threads') return <Navigate to={`${CHATS_ACTIVITY}&tab=${tab}`} replace />
+    // the DMs tab (back on dev with #666): direct and group chats are 대화's own list, its 멘션·스레드 has no DMs tab
+    if (tab === 'dms') return <Navigate to={CHATS_ACTIVITY} replace />
+    return <ActivityOpened key={params.get('n') ?? ''} id={params.get('n')} />
+  }
   return <ActivityPage key={chats ? 'chats' : 'all'} chats={chats} />
+}
+
+/** The main area beside 활동's list: the notice opened from it (read as it opens), or what the list is for. */
+function ActivityOpened({ id }: { id: string | null }) {
+  const t = useT(), locale = useLocale()
+  const unread = useActivityUnread()
+  const [item, setItem] = useState<InboxNotification | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const life = useRef(0)
+  const load = useCallback(async () => {
+    if (!id) return
+    const generation = ++life.current
+    try {
+      let got = await api.call(API.getNotification, { params: { id } })
+      if (!got.readAt) got = await api.call(API.markNotificationRead, { params: { id } })
+      if (generation === life.current) (setItem(got), setError(null))
+    } catch (e) {
+      if (generation === life.current) setError(errorText(e, locale, t('error.network')))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, locale])
+  useEffect(() => {
+    void load()
+    const off = notificationsChanged.on(() => void load())
+    return () => (off(), void life.current++)
+  }, [load])
+  if (!id)
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center" data-testid="activity-pick">
+        <Bell size={28} className="text-faint" aria-hidden />
+        <p className="text-sm font-semibold text-ink">{unread > 0 ? t('notifications.unread', { count: unread }) : t('notifications.empty')}</p>
+        <p className="max-w-sm text-sm text-muted">{t('activity.pick')}</p>
+      </div>
+    )
+  return (
+    <div className="h-full overflow-y-auto" data-testid="activity-opened">
+      <div className={clsx(pageColumn, 'px-4 pt-5 pb-6 sm:px-6')}>
+        <h1 className="sr-only">{t('inbox.title')}</h1>
+        {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
+        {!item && !error && <Skeleton lines={3} />}
+        {item && (
+          <ul data-testid="notifications-inbox">
+            <NoticeRow item={item} onRead={() => void load()} onChanged={() => void load()} />
+          </ul>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
@@ -101,6 +154,8 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // the server's unread count with the last read (this page's part of it: the conversation rows on 대화's page)
+  const [serverUnread, setServerUnread] = useState(0)
   // the older page on its way (its cursor), and how many reads have ended: the reading of older pages looks again
   // after each, so a read that lands meanwhile never leaves it waiting
   const [paging, setPaging] = useState<string | null>(null)
@@ -130,6 +185,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         if (generation !== life.current || cursorRef.current !== after) return
         setList([...new Map([...(itemsRef.current ?? []), ...inbox.items].map((item) => [item.id, item])).values()])
         setEnd(inbox.nextCursor)
+        setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
         setError(null)
       } catch (e) { if (generation === life.current && cursorRef.current === after) setError(errorText(e, locale, t('error.network'))) }
       finally {
@@ -150,6 +206,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
       const older = from >= 0 ? previous.slice(from + 1).filter((x) => !ids.has(x.id)) : []
       setList([...fresh, ...older])
       setEnd(older.length ? cursorRef.current : inbox.nextCursor)
+      setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
       setError(null)
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     finally { if (generation === life.current) setEnded((n) => n + 1) }
@@ -194,6 +251,26 @@ function ActivityPage({ chats }: { chats: boolean }) {
   }
 
   const unreadIn = (f: Filter) => !!items?.some((x) => !x.readAt && shows(x, f))
+  // the server's unread count: All has something unread beyond the loaded rows too
+  const canMarkAll = unreadIn(filter) || (filter === 'all' && serverUnread > 0)
+  const [marking, setMarking] = useState(false)
+  /** every unread notice of the tab, on the server (the rows not loaded yet too): shown read at once, then read again
+   * with the counts (the rail's, the tab dots; the rooms' badges follow their room.read events) */
+  const markAll = async () => {
+    if (marking) return
+    const generation = life.current, tab = filter, at = new Date().toISOString()
+    setMarking(true)
+    setList(itemsRef.current?.map((x) => (!x.readAt && shows(x, tab) ? { ...x, readAt: at } : x)) ?? null)
+    try {
+      await api.call(API.markAllNotificationsRead, { body: { tab, ...(chats ? { only: 'rooms' as const } : {}) } })
+      if (generation === life.current) setError(null)
+    } catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
+    finally {
+      // the server says so to every window too; this one reads again now
+      notificationsChanged.emit()
+      if (generation === life.current) setMarking(false)
+    }
+  }
   const q = query.trim().toLocaleLowerCase()
   const visible = useMemo(() => (items ?? [])
     .filter((x) => shows(x, filter) && (!unreadOnly || !x.readAt) && (!q || wordsOf(x).toLocaleLowerCase().includes(q)))
@@ -291,9 +368,17 @@ function ActivityPage({ chats }: { chats: boolean }) {
               </IconButton>
             </PhoneBarAction>
           )}
+          {/* quiet, at the end of the row: only while the tab has something unread */}
+          {canMarkAll && (
+            <button type="button" onClick={() => void markAll()} disabled={marking} aria-busy={marking || undefined}
+              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-muted hover:bg-hover hover:text-ink disabled:opacity-50 max-md:h-11"
+              data-testid="activity-mark-all-read">
+              <CheckCheck size={15} aria-hidden /> {t('feed.markAllRead')}
+            </button>
+          )}
           {/* phones: the gear sits here (the title row is the top bar there) */}
           <Tooltip label={t('feed.settings')}>
-            <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden max-md:size-11" aria-label={t('feed.settings')} data-testid="activity-settings-phone">
+            <Link to="/settings/notifications" className={clsx(!canMarkAll && 'ml-auto', 'inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink md:hidden max-md:size-11')} aria-label={t('feed.settings')} data-testid="activity-settings-phone">
               <Settings size={18} aria-hidden />
             </Link>
           </Tooltip>

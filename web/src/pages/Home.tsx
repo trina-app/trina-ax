@@ -6,7 +6,7 @@
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
 // admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
-// time"); on a computer the sidebar's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
+// time"); on a computer the list panel's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
 // docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
 // AI answers the person (GET /api/me/ai-access), everyone gets ONE card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
@@ -28,11 +28,14 @@
 // no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6").
+// On a phone this page is the 트리나 tab itself, as the AI apps have it, with the history behind ☰ (components/phone/
+// TrinaDrawer.tsx; docs/DECISIONS.md "Phones: Home like the AI apps, the history behind ☰"). `/new` (an old link) comes
+// back to `/` with its question (lib/newChat.ts homeRoute).
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
 import { Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
 import { PRODUCT_NAMED_AFTER_AI, type Project } from '@mycel/shared/api'
@@ -45,6 +48,7 @@ import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
+import { homeRoute } from '../lib/newChat'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -56,8 +60,23 @@ import { TeamPrepared } from '../components/onboarding/TeamPrepared'
 import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
 import { TrinaStar } from '../components/TrinaStar'
+import { FileDropZone } from '../components/FileDropZone'
 
+// Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
+// chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).
 export default function Home() {
+  const location = useLocation()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const route = homeRoute(location.pathname, location.search, phone)
+  if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
+  return (
+    <FileDropZone className="h-full" data-testid="home-drop">
+      <HomePage />
+    </FileDropZone>
+  )
+}
+
+function HomePage() {
   const t = useT()
   const me = useMeStrict()
   const navigationType = useRealNavigationType()
@@ -68,12 +87,17 @@ export default function Home() {
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   const [project, setProject] = useState<Project | null>(null)
   const location = useLocation()
+  // asked for again while Home is on show (트리나에게 묻기, ⇧⌘O): the same address is a REPLACE, not a PUSH, and Home stays
+  // mounted; a new entry of it (not Back) takes the focus too
+  const firstKey = useRef(location.key).current
+  const again = location.key !== firstKey && navigationType !== 'POP'
   const notes = readNotesHint(location.state)
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone opened on Home while the app opens on another tab (lib/tabs.ts START_TAB): that tab's list instead
   const elsewhere = phone && isLanding(location) && landingPath(true) !== '/'
-  // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
-  const resuming = useResumeOnLanding(isLanding(location) && !elsewhere)
+  // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere); not
+  // while the lead link's card waits here (QA TC-477): that comes first
+  const resuming = useResumeOnLanding(isLanding(location) && !elsewhere, true)
   // `waits`: the line under the box while it holds only `text` (a request that needs the person's own text after it)
   const [preset, setPreset] = useState<{ text: string; n: number; waits?: string } | null>(() => (prompt ? { text: prompt, n: 0 } : null))
 
@@ -130,7 +154,8 @@ export default function Home() {
         resetKey={preset?.n ?? 0}
         // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. A
         // touch screen never takes it (Composer: a fine pointer only), so a phone's keyboard does not come up by itself
-        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0 || again}
+        focusKey={location.key}
         card
         aiLine={!noAi}
         waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
@@ -211,7 +236,7 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 /**
  * The one thing at the top of Home for owners and admins while AI answers them: on a phone the owner's quiet "설정
  * 이어서 하기 · 2/4" while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card;
- * on a computer always the goal card, since the sidebar's setup row stands for the steps there (docs/DECISIONS.md
+ * on a computer always the goal card, since the list panel's setup row stands for the steps there (docs/DECISIONS.md
  * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
  * read counts as "nothing to continue". Exported for its test.
  */

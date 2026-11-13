@@ -12,6 +12,7 @@
 //   shared/src/relay-protocol/*.ts     the wire protocol
 //   shared/src/cloud-protocol/relay-ops.ts (+ LICENSE, README.md)   the operator API types (MIT)
 //   shared/src/service-hosts.ts        the hosted service's addresses (default account / status links)
+//   shared/src/sentry-report.ts        error reports to Sentry (off unless RELAY_SENTRY_DSN is set)
 //   node_modules/ws/                   the only dependency (ws 8.18.0, versions.json)
 //   deploy/                            relay/deploy (systemd units, a/b deploy, nftables, Litestream, Node install)
 //   MANIFEST.json                      sha256 and size of every file
@@ -45,6 +46,8 @@ export function bundleFiles(): [string, string][] {
   for (const f of ['relay-ops.ts', 'LICENSE', 'README.md']) add(`shared/src/cloud-protocol/${f}`, path.join(REPO, 'shared/src/cloud-protocol', f))
   // the hosted service's addresses (relay/src/pages.ts default links), an edition sets them
   add('shared/src/service-hosts.ts', path.join(REPO, 'shared/src/service-hosts.ts'))
+  // error reports and check-ins to Sentry, off unless RELAY_SENTRY_DSN is set (relay/src/report.ts)
+  add('shared/src/sentry-report.ts', path.join(REPO, 'shared/src/sentry-report.ts'))
   const ws = fs.realpathSync(path.join(REPO, 'relay/node_modules/ws'))
   dir(ws, 'node_modules/ws', (n) => !n.endsWith('.md') || n === 'README.md')
   dir(path.join(REPO, 'relay/deploy'), 'deploy')
@@ -65,6 +68,7 @@ export function bundlePackageJson(version: string): string {
       './relay-protocol': './shared/src/relay-protocol/index.ts',
       './cloud-protocol/relay-ops': './shared/src/cloud-protocol/relay-ops.ts',
       './service-hosts': './shared/src/service-hosts.ts',
+      './sentry-report': './shared/src/sentry-report.ts',
     },
   }, null, 2) + '\n'
 }

@@ -4,6 +4,9 @@
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
+// The pencil shows only where the person may write the file: the panel asks /api/files/content once (its `access`, the
+// same answer the edit itself checks) and leaves the pencil out of a read-only folder, as "PDF로 저장" turns into a
+// download there (QA TC-502).
 // An .html file has "PDF로 저장" where the server can print HTML (Me.server.htmlPdf): the server's headless browser
 // prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
 // cannot write gets the same PDF as a download (GET /api/files/html-pdf).
@@ -18,6 +21,7 @@ import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePan
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
+import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
@@ -44,6 +48,27 @@ export function chatActionsFor(file: { source: PreviewFile['source'] }, error: {
   return file.source === 'team' && error?.kind !== 'missing' && !downloadOnly
 }
 
+/** May the person write this team file? The `access` of /api/files/content (what the edit checks before it opens the
+ * editor), asked once per file. False until it answers, so a read-only file never flashes a pencil; true when the
+ * question itself fails (the edit then says why, as before). */
+export function useWritable(file: PreviewFile, editable: boolean): boolean {
+  // the answer is kept with its path, so a file opened next never shows the last file's pencil for a frame
+  const [answer, setAnswer] = useState<{ path: string; ok: boolean } | null>(null)
+  const path = file.source === 'team' ? file.path : null
+  useEffect(() => {
+    if (!path || !editable) return
+    let live = true
+    api.call(API.content, { query: { path, maxBytes: 1 } }).then(
+      (c) => live && setAnswer({ path, ok: c.access === 'write' }),
+      () => live && setAnswer({ path, ok: true }),
+    )
+    return () => {
+      live = false
+    }
+  }, [path, editable])
+  return !!path && editable && answer?.path === path && answer.ok
+}
+
 export default function FilePanel({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
@@ -65,6 +90,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const phone = useMediaQuery(PAGE_FIT_QUERY)
   const me = useMe()
   const [pdfBusy, setPdfBusy] = useState(false)
+  const writable = useWritable(file, canEdit && !error && !downloadOnly)
+  const showEdit = canEdit && writable
 
   useEffect(() => setEditing(null), [file])
 
@@ -194,7 +221,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
   const more: MenuItem[] = [
-    ...(canEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
+    ...(showEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
@@ -222,10 +249,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
-            <Tooltip label={t('files.askAi')}>
+            <Tooltip label={t('files.askAi', { name: aiName(t) })}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort')}</span>
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
               </button>
             </Tooltip>
           )}
@@ -247,7 +274,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               {pdfBusy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <FileDown size={14} aria-hidden />} {pdfBusy ? t('preview.savingPdf') : t('preview.savePdf')}
             </button>
           )}
-          {canEdit && !editing && !error && (
+          {showEdit && !editing && !error && (
             // computers (a narrow mouse window too); phones (narrow and touch) edit from the ⋯ sheet, and only prose
             // (PHONE_EDITABLE)
             <IconButton label={t('preview.edit')} className="max-md:pointer-coarse:hidden" onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">

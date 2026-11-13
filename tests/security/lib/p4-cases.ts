@@ -13,6 +13,7 @@ export const P4_SPECS: Record<string, Spec> = {
   },
   listNotifications: { build: c => c.get('/api/notifications?userId=alice'), scope: 'self' },
   getNotification: { build: c => c.get('/api/notifications/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  markAllNotificationsRead: { build: c => c.post('/api/notifications/read', { tab: 'all' }), scope: 'self' },
   markNotificationRead: { build: c => c.post('/api/notifications/00000000-0000-7000-8000-000000000000/read'), scope: 'nobody' },
   getNotificationPreferences: { build: c => c.get('/api/notification-preferences?userId=alice'), scope: 'self' },
   updateNotificationPreferences: { build: c => c.patch('/api/notification-preferences', { scheduleSuccess: false, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }), scope: 'self' },
@@ -48,6 +49,13 @@ export const P4_SPECS: Record<string, Spec> = {
   googleAppsAdminStatus: { build: c => c.get('/api/admin/google-apps'), scope: 'byLevel' },
   setGoogleAppClient: { build: c => c.put('/api/admin/google-apps/gmail/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
   setGoogleAppMembers: { build: c => c.put('/api/admin/google-apps/gmail/members', { on: true }), scope: 'byLevel' },
+  // the account shared with the team (QA TC-198): owners and admins only; its sign-in is bound to the admin's session
+  authorizeGoogleAppTeam: { build: c => c.post('/api/admin/google-apps/gmail/team/authorize', {}), scope: 'byLevel' },
+  googleAppTeamFlow: { build: c => c.get('/api/admin/google-apps/gmail/team/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  cancelGoogleAppTeamFlow: { build: c => c.del('/api/admin/google-apps/gmail/team/flows/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
+  completeGoogleAppTeamFlow: { build: c => c.post('/api/admin/google-apps/gmail/team/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },
+  setGoogleAppTeam: { build: c => c.put('/api/admin/google-apps/gmail/team', { access: { everyone: false, groups: [], users: [] } }), scope: 'byLevel' },
+  removeGoogleAppTeam: { build: c => c.del('/api/admin/google-apps/gmail/team?id=00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   // a member's ask to add an app (routes/google-apps.ts): one's own only; owners and admins set it up themselves (403)
   myServiceRequests: { build: c => c.get('/api/integrations/service-requests?userId=alice'), scope: 'self' },
   askService: { build: c => c.post('/api/integrations/service-requests?userId=alice', { service: 'google-drive' }), scope: 'members' },

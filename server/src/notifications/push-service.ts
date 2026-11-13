@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
+import type { Database } from 'bun:sqlite'
 import { plainLabel, PUSH_KEY_REASON, type PushDeviceInput, type PushDeviceLabel, type PushDeviceLabelInput, type PushDeviceRemoveInput, type PushSubscriptionInput, type PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -15,11 +16,17 @@ import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
 import { handoverPushWanted } from '../admin/handover-notices'
 import { roomNoticeOut } from '../rooms/inbox'
+import { chatAnswerWanted } from './chat-answers'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
+import { pushBadge } from './push-badge'
+import { phoneDecision, type PhoneDecision } from './away'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
-/** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue. */
-export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number}
+/** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
+ * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
+export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
+/** away.ts: a push to this person's phone app now goes, is cancelled (they are at Trina) or waits for the warm-up */
+phoneDecision:(userId:string)=>PhoneDecision}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
@@ -36,13 +43,16 @@ const services=new WeakMap<AppContext,PushService>()
  * notices (a DM message or an @mention, migration 241: notification_inbox has a fixed event_type list), checked and sent
  * the same way. `only`: what else a notice of that table needs to be pushed (a room notice made inside the person's
  * quiet hours never is, migration 255); `wanted`: asked before and after each send (a room's level may have changed). */
+/** `due`: when a new delivery may first go (SQL; the bound `?` is now): an AI chat's answer waits until its push_at */
 /** `unread`: which notices count as still to tell (a read one is not pushed), as a condition on the inbox row: the
  * owner's locked password check is pushed even once read, since whoever holds the session could mark it read to stop it */
 const SOURCES=[
-  {inbox:'notification_inbox',deliveries:'push_deliveries',only:'',unread:'read_at IS NULL',wanted:null},
-  {inbox:'room_notices',deliveries:'room_push_deliveries',only:'AND quiet=0',unread:'read_at IS NULL',wanted:noticeWanted},
+  {inbox:'notification_inbox',deliveries:'push_deliveries',only:'',unread:'read_at IS NULL',wanted:null,due:'?'},
+  {inbox:'room_notices',deliveries:'room_push_deliveries',only:'AND quiet=0',unread:'read_at IS NULL',wanted:noticeWanted,due:'?'},
   // 팀장 넘기기 (migration 270): the lead join (only while its card still holds) and the owner's locked password check
-  {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type IN ('owner.lead_joined','owner.reauth_locked')",unread:"(read_at IS NULL OR event_type='owner.reauth_locked')",wanted:handoverPushWanted},
+  {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type IN ('owner.lead_joined','owner.reauth_locked')",unread:"(read_at IS NULL OR event_type='owner.reauth_locked')",wanted:handoverPushWanted,due:'?'},
+  // an answer in my own AI chat (migration 347): after its wait, only while it is still unseen or its card still open
+  {inbox:'chat_answer_notices',deliveries:'chat_answer_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,_now:number,ctx:AppContext)=>chatAnswerWanted(ctx,id),due:'MAX(?,n.push_at)'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {
@@ -57,7 +67,7 @@ export class PushService {
   /** label requests with the right key per device this minute (in memory: a restart forgets it) */
   private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
-    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,...options}
+    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>phoneDecision(ctx,userId),...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
@@ -218,7 +228,7 @@ export class PushService {
     const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND ${src.unread} ${src.only}`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
-    if(src.wanted&&!src.wanted(this.ctx.db,notificationId,this.o.now()))return null
+    if(src.wanted&&!src.wanted(this.ctx.db,notificationId,this.o.now(),this.ctx))return null
     return{sub,event:row.event_type}
   }
   private enqueue(keys:string[]){
@@ -229,7 +239,7 @@ export class PushService {
     db.query(`UPDATE ${src.deliveries} SET state='pending',lease_until=NULL WHERE state='sending' AND lease_until<=?`).run(now)
     db.query(`UPDATE ${src.deliveries} SET state='failed',lease_until=NULL WHERE state='pending' AND (expires_at<=? OR attempts>=?)`).run(now,MAX_ATTEMPTS)
     db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
-      SELECT n.id,s.id,?,strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
+      SELECT n.id,s.id,${src.due},strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
       WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace('quiet','n.quiet')} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
       AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
@@ -248,14 +258,25 @@ export class PushService {
     // One in-flight transport, at most ten per tick and 30 s total; interval calls never overlap.
     for(let i=0;i<10&&!this.stopped&&performance.now()-started<29_000;i++){
       // the delivery due first, of either source, with the config key of its device row
-      let src:Source|null=null,row:(Delivery&{next_at:string})|null=null
+      let src:Source|null=null,row:(Delivery&{next_at:string;kind:'web'|'native';user_id:string})|null=null
       for(const s of SOURCES){
-        const r=this.ctx.db.query(`SELECT d.notification_id,d.subscription_id,d.attempts,d.expires_at,d.next_at,s.config_key FROM ${s.deliveries} d JOIN push_subscriptions s ON s.id=d.subscription_id WHERE d.state='pending' AND d.next_at<=? ORDER BY d.next_at,d.notification_id,d.subscription_id LIMIT 1`).get(this.iso()) as (Delivery&{next_at:string})|null
+        const r=this.ctx.db.query(`SELECT d.notification_id,d.subscription_id,d.attempts,d.expires_at,d.next_at,s.config_key,s.kind,s.user_id FROM ${s.deliveries} d JOIN push_subscriptions s ON s.id=d.subscription_id WHERE d.state='pending' AND d.next_at<=? ORDER BY d.next_at,d.notification_id,d.subscription_id LIMIT 1`).get(this.iso()) as (Delivery&{next_at:string;kind:'web'|'native';user_id:string})|null
         if(r&&(!row||r.next_at<row.next_at)){src=s;row=r}
       }
       if(!row||!src)return
       const key=row.config_key,allowed=this.eligible(src,row.subscription_id,row.notification_id,key)
       if(!allowed){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled' WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(row.notification_id,row.subscription_id);continue}
+      // the phone app, on its first try: the person at Trina now (away.ts) saw it on the computer, so no phone push; right
+      // after a start it waits once for the windows to reconnect. Never the owner's locked password check.
+      if(row.kind==='native'&&row.attempts===0&&allowed.event!=='owner.reauth_locked'){
+        const d=this.o.phoneDecision(row.user_id)
+        if(d.kind==='wait'){this.ctx.db.query(`UPDATE ${src.deliveries} SET next_at=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(d.until),row.notification_id,row.subscription_id);continue}
+        if(d.kind==='cancel'){
+          this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(row.notification_id,row.subscription_id)
+          this.ctx.log.debug('push delivery cancelled',{kind:'native',reason:'at_trina'})
+          continue
+        }
+      }
       const changed=this.ctx.db.query(`UPDATE ${src.deliveries} SET state='sending',attempts=attempts+1,lease_until=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(this.o.now()+35_000),row.notification_id,row.subscription_id)
       if(!changed.changes)continue
       const abort=new AbortController(),r=row,from=src;this.flight={abort,src,userId:allowed.sub.user_id,sessionId:allowed.sub.session_id,subscriptionId:row.subscription_id,notificationId:row.notification_id,configKey:key}
@@ -272,8 +293,11 @@ export class PushService {
             const device=this.vault.decrypt(aad,'native-push',allowed.sub.secret_enc,allowed.sub.key_version) as NativeDevice
             // The gateway gets ids, the event code and the recipient's language; it picks generic words itself.
             const locale=getUser(this.ctx.db,allowed.sub.user_id)?.locale??teamDefaultLocale(this.ctx.db),path=pushPathOf(this.ctx,allowed.event,r.notification_id)
-            // tag: this device's id on this team; the gateway hands it to the app as data.device, and the app ignores a tap for another device
-            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
+            // tag: this device's id on this team; the gateway hands it to the app as data.device, and the app ignores a tap for another device.
+            // badge: the person's count now (what the page would show on the icon), a number only; an iPhone's only (the
+            // gateway sends none to Android: launchers count the notifications there)
+            const badge=device.platform==='ios'?this.o.badge(allowed.sub.user_id):null
+            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')
             const sub=this.vault.decrypt(aad,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription

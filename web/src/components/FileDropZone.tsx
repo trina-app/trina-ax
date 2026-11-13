@@ -34,7 +34,7 @@ export function useDropTarget(target: DropTarget): boolean {
 
 /** `target`: the zone's own box (the side chat's), else the box that registers inside it; `empty`: why nothing can be
  * attached while there is no box (default: no message can be sent here). */
-export function FileDropZone({ target, empty, className, children, ...rest }: { target?: DropTarget; empty?: string; className?: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+export function FileDropZone({ target, empty, className, children, ...rest }: { target?: DropTarget; empty?: string; className?: string; children: ReactNode; inert?: boolean } & Record<`data-${string}`, string | undefined>) {
   const t = useT()
   const attached = useRef<RefObject<DropTarget> | null>(null)
   const attach = useMemo<Attach>(() => (ref) => {

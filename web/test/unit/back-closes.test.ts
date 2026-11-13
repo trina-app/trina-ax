@@ -3,7 +3,7 @@
 // backed off (all at once), unless an overlay opened in that moment takes it over; a page opened from inside an overlay
 // takes its entry; a replace while one is open reaches the page's entry under it; entries of closed overlays are skipped.
 import { afterEach, expect, test } from 'bun:test'
-import { HISTORY_STEPS_EVENT, holdOverlayEntry, isOverlayEntry, OVERLAY_DEPTH, resetOverlaysForTest, whenOverlaysSettled } from '../../src/lib/backCloses'
+import { HISTORY_STEPS_EVENT, holdHistory, holdOverlayEntry, isOverlayEntry, OVERLAY_DEPTH, resetOverlaysForTest, whenOverlaysSettled } from '../../src/lib/backCloses'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 type State = Record<string, unknown> | null
@@ -368,3 +368,38 @@ test('a page pushed while our back is on its way is not pushed twice when the br
   expect(entries.filter((e) => e.url === '/files')).toHaveLength(1)
 })
 
+
+test('QA TC-251: the history held while the phone app\'s photo picker is on: the closed sheet\'s back-off waits, then goes once', async () => {
+  start()
+  let closed = 0
+  const release = holdOverlayEntry(() => closed++)
+  // the sheet's item starts the pick before the sheet's entry is let go (the item runs before the sheet closes)
+  const letGo = holdHistory()
+  release()
+  await tick()
+  expect(gos).toEqual([])
+  expect(at).toBe(1)
+  // an overlay opened meanwhile pushes its entry only after the hold
+  let settled = 0
+  whenOverlaysSettled(() => settled++)
+  expect(settled).toBe(0)
+  letGo()
+  letGo()
+  await tick()
+  expect(gos).toEqual([-1])
+  expect(at).toBe(0)
+  expect(closed).toBe(0)
+  expect(settled).toBe(1)
+})
+
+test('a Back while the history is held still closes the overlay on top', () => {
+  start()
+  let closed = 0
+  holdOverlayEntry(() => closed++)
+  const letGo = holdHistory()
+  back()
+  expect(closed).toBe(1)
+  expect(at).toBe(0)
+  letGo()
+  expect(gos).toEqual([])
+})

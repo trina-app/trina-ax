@@ -62,36 +62,42 @@ describe('a skill by its title', () => {
 })
 
 describe('the team link on a phone: one primary action, no boxes', () => {
-  test('"메시지 복사" is the only primary; the link is plain text with quiet "링크만 복사" and "QR 코드"; the message a quote', () => {
+  test('"메시지 복사" is the only primary; the link one quiet line with "링크 복사" in it and the QR code beside it; the message a quote', () => {
     const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     const buttons = [...html.matchAll(/<button[^>]*>/g)].map((b) => b[0])
     expect(buttons.filter((b) => b.includes('bg-accent '))).toHaveLength(1)
     expect(buttons.find((b) => b.includes('bg-accent '))).toContain('data-testid="team-link-copy-message"')
     expect(html).toContain(` ${en('teamLink.copyMessage')}</button>`)
-    expect(ko('teamLink.copyLink')).toBe('링크만 복사')
+    expect(ko('teamLink.copyLink')).toBe('링크 복사')
     expect(html).toContain(` ${en('teamLink.copyLink')}</button>`)
     expect(buttons.find((b) => b.includes('team-link-copy-link'))).toContain('text-muted')
     expect(buttons.find((b) => b.includes('team-link-qr'))).toContain('text-muted')
-    // the link and the message have no frame of their own (a hairline beside the quote only)
-    expect(/<p[^>]*data-testid="team-link-url"/.exec(html)?.[0]).not.toContain('border')
+    // the link: one line on a tint, cut with "…" (the whole address in its title), no border; the message no frame (a
+    // hairline beside the quote only)
+    const urlEl = /<span[^>]*data-testid="team-link-url"[^>]*>/.exec(html)?.[0] ?? ''
+    expect(urlEl).toContain('font-mono')
+    expect(html).toContain('min-w-0 truncate')
+    expect(urlEl).toContain(`title="${URL_}"`)
+    expect(urlEl).not.toContain('border')
+    expect(/<button[^>]*data-testid="team-link-qr"[^>]*>/.exec(html)?.[0]).toContain(`aria-label="${en('members.qr')}"`)
     expect(/<blockquote[^>]*data-testid="team-link-message"/.exec(html)?.[0]).toContain('border-l-2')
     expect(/<blockquote[^>]*data-testid="team-link-message"/.exec(html)?.[0]).not.toContain('rounded')
-    // the facts as quiet lines: uses, expiry, the skill; the member note without a badge
+    // the facts as one aligned list (label, value; no frame): uses, expiry, the skill, groups, the role without a badge
     expect(html).toContain(`data-testid="team-link-uses">${en('teamLink.uses', { used: 0, max: 20 })}<`)
-    expect(html).toContain(en('teamLink.memberNote'))
-    expect(html).not.toContain('<dl')
+    expect(/<dl[^>]*data-testid="team-link-facts"[^>]*>/.exec(html)?.[0]).not.toContain('border')
+    expect(html).toContain(`<dt class="text-muted">${en('teamLink.roleLabel')}</dt><dd class="text-ink" data-testid="team-link-role">${en('teamLink.roleMember')}</dd>`)
     // the date says what it is in every language ("Works until Nov 18, …", "사용 기한 …까지")
-    expect(html).toContain(`${en('teamLink.expiresLabel')} <span class="text-ink" data-testid="team-link-expires">`)
+    expect(html).toContain(`<dt class="text-muted">${en('teamLink.expiresLabel')}</dt><dd class="text-ink" data-testid="team-link-expires">`)
   })
 
-  test('the groups line: the names; how many while the groups load; "no group" only on a team that has groups', () => {
+  test('the Groups row: the names; how many while the groups load; "None" (QA TC-458)', () => {
     const G = { id: '01900000-0000-7000-8000-0000000000aa', name: '디자인팀' }
     const html = (l: TeamLinkResponse, groups: { id: string; name: string }[]) =>
       renderToStaticMarkup(<TeamLinkView data={l} inviter="김팀장" team="Acme" groups={groups as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(html(link({ groupIds: [G.id] }), [G])).toContain('data-testid="team-link-groups">디자인팀<')
     expect(html(link({ groupIds: [G.id] }), [])).toContain('data-testid="team-link-groups">1<')
-    expect(html(link(), [G])).toContain(en('members.noGroups'))
-    expect(html(link(), [])).not.toContain(en('members.noGroups'))
+    expect(html(link(), [G])).toContain(`data-testid="team-link-groups">${en('teamLink.groupsNone')}<`)
+    expect(html(link(), [])).toContain(`data-testid="team-link-groups">${en('teamLink.groupsNone')}<`)
   })
 
   test('two skills that read the same are told apart in the picker', () => {
@@ -120,9 +126,11 @@ describe('the team link on a phone: one primary action, no boxes', () => {
         // the rest is one quiet "링크 관리" row, folded; opened, still one primary and no "링크 끄기"
         expect(m.get('team-link-manage').getAttribute('class')).toContain('text-muted')
         expect(m.get('team-link-manage').textContent).toContain(ko('teamLink.manage'))
-        expect(m.find('team-link-url')).toBeNull()
-        await m.click('team-link-manage')
+        // the link is in view at once (one line); the facts wait in the fold
         expect(m.find('team-link-url')).not.toBeNull()
+        expect(m.find('team-link-facts')).toBeNull()
+        await m.click('team-link-manage')
+        expect(m.find('team-link-facts')).not.toBeNull()
         expect(m.find('team-link-revoke')).toBeNull()
         expect([...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))).toHaveLength(1)
         // no new frame: the fold adds no border of its own

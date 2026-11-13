@@ -102,7 +102,7 @@ test('Members: "Team invite link" opens a popup; make, copy, and the page lists 
   await expect(dialog.getByTestId('team-link-uses-input')).toHaveAttribute('placeholder', '20')
   await dialog.getByTestId('team-link-create').click()
   // after making it, the popup shows the link with Copy
-  const url = (await dialog.getByTestId('team-link-url').innerText()).trim()
+  const url = ((await dialog.getByTestId('team-link-url').textContent()) ?? '').trim()
   expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
   await dialog.getByRole('button', { name: t['teamLink.copyLink'] }).first().click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url)

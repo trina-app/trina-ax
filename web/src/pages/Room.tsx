@@ -34,10 +34,10 @@ import { lookingAt, onWindowFocus } from '../lib/attention'
 import { readUpTo, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { useOverlayEntry } from '../lib/backCloses'
-import { holdPlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
+import { holdPlace, listPlace, restorePlace, ROOM_ROW, useStickToBottom } from '../lib/stickToBottom'
 import { useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
-import { useRooms, type PendingSend } from '../store/rooms'
+import { keptFor, keptPlace, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
 import { useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
@@ -45,7 +45,6 @@ import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
-import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
@@ -78,6 +77,12 @@ const documentLoad = () => {
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
+/** the rows of the timeline by their message (a message, an event line): where the reader was is kept by them */
+const ROOM_ROW_ID = messageDomId('')
+const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
+
+/** the thread or side chat as a sheet over the room (a narrow computer window) */
+const SHEET = 'absolute inset-0 z-20 border-l-0! shadow-xl'
 
 export default function RoomPage() {
   const { roomId = '', messageId } = useParams()
@@ -111,7 +116,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const navigate = useNavigate()
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const loaded = useRooms((s) => s.loaded)
-  const timeline = useRooms((s) => (s.timeline?.roomId === roomId ? s.timeline : null))
+  // (a room left a moment ago shows as it was from the first frame: kept until the open below takes it)
+  const timeline = useRooms((s) => (s.timeline?.roomId === roomId ? s.timeline : keptFor(s, roomId)))
   const allPending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
   // the timeline's own sends (a thread's are in its panel)
   const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
@@ -183,6 +189,31 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const moreRef = useRef<HTMLButtonElement>(null)
   // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
   const wide = useMediaQuery('(min-width: 768px)')
+  // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
+  // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
+  // room, as on a phone, and the room under it waits as it was
+  const roomy = useMediaQuery('(min-width: 812px)')
+  const sheet = wide && !roomy
+  // the sheet over the room (below 812 px): the keyboard goes into it as it opens and back to
+  // where it was in the room as it closes; Esc closes it (not while a menu or dialog of its own is open)
+  const sheetOpen = sheet && !!(threadId || sideOpen)
+  useEffect(() => {
+    if (!sheetOpen) return
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const el = document.querySelector<HTMLElement>('[data-sheet]')
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      e.preventDefault()
+      if (threadId) closeThread()
+      else closeSide()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (before?.isConnected) requestAnimationFrame(() => before.focus({ preventScroll: true }))
+    }
+  }, [sheetOpen, threadId, closeThread, closeSide])
   usePeopleList()
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
@@ -197,10 +228,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (room.hidden && byChoice) void useRooms.getState().setHidden(room.id, false).catch(() => {})
   }, [room, byChoice])
 
+  // where the reader was when the page leaves the room (read while its messages are still on screen), kept with the
+  // room for going back
+  const leftPlace = useRef<RoomPlace | null>(null)
   useEffect(() => {
     useRooms.getState().open(roomId)
     return () => {
-      useRooms.getState().close(roomId)
+      useRooms.getState().close(roomId, leftPlace.current)
       // back in the room, ✦ opens the side chat afresh
       roomLeft(roomId)
     }
@@ -224,8 +258,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
   const messages = timeline?.messages ?? NO_MESSAGES
-  // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
-  const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
   const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
   // a DM: the other person's online status (docs/DECISIONS.md "접속 상태"), on their picture on a computer and as a dot
   // before the name on a phone (which shows no picture here)
@@ -237,8 +269,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const detached = !!timeline?.newerCursor
   const detachedNow = useRef(detached)
   detachedNow.current = detached
-  // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
-  // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
+  // thumbnails load after the text, and a phone's keyboard shrinks the list: stay at the bottom if we were there
   // (lib/stickToBottom.ts)
   const list = useStickToBottom(() => {
     const th = useRooms.getState().timeline
@@ -250,7 +281,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useLayoutEffect(() => {
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [last?.id, messages.length, pending.length, aiKey])
+  }, [last?.id, messages.length, pending.length])
   // my send or "최근 메시지로" from a window around an older message: the list lands at the bottom once the newest page
   // has taken the window's place. The scroll events on the way (the box clearing, the window's own place) come while the
   // window is still there and the list may not stick to it (onListScroll's canStick), so `stick` alone was lost and the
@@ -272,6 +303,21 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     toBottom.current = true
     void useRooms.getState().loadNewest(roomId)
   }
+  // back in a room left a moment ago with the reader part way up: the same message in the same place (at the bottom
+  // when it was there, or when something came since: the newest, as on any open; not for a link to a message, which
+  // goes to it). After the follow above, before the first frame shows
+  const [place] = useState(() => (target ? null : keptPlace(keptFor(useRooms.getState(), roomId))))
+  useLayoutEffect(() => {
+    const el = scroller.current
+    // (its own row: a thread beside it shows its root too; out of sight, a phone's thread over it, it opens at the bottom)
+    if (place && el?.clientHeight && restorePlace(el, el.querySelector(`[id="${messageDomId(place.messageId)}"]`), place.offset)) stick.current = false
+    // leaving: where the reader is now (none at the bottom), for the next time
+    return () => {
+      const at = scroller.current
+      leftPlace.current = at ? listPlace(at, ROOM_PLACE_ROWS, (row) => row.id.slice(ROOM_ROW_ID.length) || null, stick.current) : null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const tryRead = useCallback(() => {
     const el = scroller.current
@@ -338,9 +384,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const muted = !!room && roomNotify(room).level === 'off'
 
   return (
-    <div className="flex h-full" data-testid="room-page">
+    <div className={clsx('flex h-full', sheet && 'relative')} data-testid="room-page">
     {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
-    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} inert={(sheet && !!(threadId || sideOpen)) || undefined} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4" data-testid="room-header">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -424,7 +470,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
             <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />
-            <RoomAiStatus roomId={roomId} />
           </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>
@@ -465,11 +510,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     </FileDropZone>
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
-      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider="thread">
+      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
       </RoomSideColumn>
     ) : sideOpen ? (
-      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider="side-chat">
+      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} />
       </RoomSideColumn>
     ) : null}

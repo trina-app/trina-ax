@@ -36,11 +36,11 @@ const PAGES: { path: string; ready: string; primary?: string; filters?: string }
   { path: '/admin/connectors', ready: 'connector-list' },
   { path: '/admin/ai-apps', ready: 'admin-ai-app-list' },
   { path: '/admin/plugins', ready: 'plugins-catalog' },
-  { path: '/admin/slack', ready: 'slack-status', primary: 'slack-toggle' },
+  { path: '/admin/connectors/slack', ready: 'slack-status', primary: 'slack-toggle' },
   { path: '/admin/usage', ready: 'usage-stats', primary: 'usage-limits-link', filters: 'usage-filters' },
   { path: '/admin/audit', ready: 'audit-list', filters: 'activity-more' },
   { path: '/settings/providers', ready: 'my-providers' },
-  // Settings › Connectors leads to the Connectors page (/connectors) since #366: its own design, not a Settings list
+  // Settings › Connectors (QA TC-400) keeps the Connectors page's own design, not a Settings list: not checked here
   { path: '/settings/ai-apps', ready: 'ai-app-list' },
   { path: '/settings/usage', ready: 'my-usage-totals' },
 ]
@@ -168,7 +168,7 @@ test.describe('each page', () => {
   // Plugins: #388 made Admin › Plugins cards and a page per plugin, like Connectors; its own tests are plugins.spec.ts
 
   test('Slack: Turn off and Replace tokens are 44 px tall, without a frame', async ({ page }) => {
-    await page.goto('/admin/slack')
+    await page.goto('/admin/connectors/slack')
     await tall(page.getByTestId('slack-toggle'))
     await tall(page.getByTestId('slack-replace'))
     const card = page.getByTestId('slack-status').locator('xpath=ancestor::section[1]')
@@ -260,7 +260,7 @@ test.describe('a computer', () => {
     await page.goto('/admin/groups')
     await expect(page.getByTestId('group-row')).toHaveCount(0)
     await expect(page.getByTestId('group-list')).toContainText('Olga')
-    await page.goto('/admin/slack')
+    await page.goto('/admin/connectors/slack')
     expect(await page.getByTestId('slack-status').locator('xpath=ancestor::section[1]').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
     // Admin › Connectors: the Connectors page's rows on a computer too (no tiles since the two pages share a layout)
     await page.goto('/admin/connectors')

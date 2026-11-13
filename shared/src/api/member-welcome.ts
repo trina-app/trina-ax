@@ -33,6 +33,9 @@ export const MemberWelcome = z.object({
   /** rooms: always done; hi: they wrote a message in a room; photo: they have a profile photo (optional, not counted);
    * asked: they asked Trina what they can do here */
   steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean() }),
+  /** an admin's extra row "팀 파일 정리하기" (not counted): no owner or admin has applied the setup's folder plan yet
+   * (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"); it opens the same 팀 파일 step. Absent from older servers. */
+  organizeFiles: z.boolean().optional(),
   /** every counted row is done: the card says "You're all set" (for a few minutes, then it is gone for good) */
   allSet: z.boolean(),
 })

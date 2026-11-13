@@ -130,6 +130,25 @@ describe('where it is', () => {
 })
 
 describe('saving a room file from my own chat', () => {
+  // review of #678 (TC-664): "Always allow" for saving where more people can see does not skip the room's own card
+  // (the one card asks both); only both choices on skip it
+  test('the combined room + wider card: never skipped by "save where more people can see" alone; both on: no card', async () => {
+    const { keepAlways } = await import('../../server/src/chat/always-allow')
+    const roomId = await teamRoom(['alice', 'erin'], `combo-${uuidv7().slice(-6)}`)
+    const { file } = await sentPdf('erin', roomId)
+    keepAlways(h.ctx.db, 'alice', 'save_wider', null)
+    try {
+      const one = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-one/')), () => 'skip')
+      expect(one.cards).toHaveLength(1)
+      expect(one.cards[0]!.options?.map((o) => o.value)).toEqual(['save', 'skip'])
+      expect(fs.existsSync(at(`shared/combo-one/${file.name}`))).toBe(false)
+      keepAlways(h.ctx.db, 'alice', 'room_change', null)
+      const both = await run('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/combo-two/')), () => 'skip')
+      expect(both.cards).toHaveLength(0)
+      expect(fs.existsSync(at(`shared/combo-two/${file.name}`))).toBe(true)
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
   test('a member saves a PDF from a team room into shared/: one card, and its yes saves the same bytes', async () => {
     const name = `leads-${uuidv7().slice(-6)}`
     const roomId = await teamRoom(['alice', 'erin'], name)
@@ -205,7 +224,7 @@ describe('saving a room file from my own chat', () => {
     fs.writeFileSync(at(`users/alice/second-${file.name}`), 'mine\n')
     const again = await run('alice', chat, fake(save(roomId, file.id, `users/alice/second-${file.name}`)))
     expect(again.cards).toHaveLength(1)
-    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', 'skip'])
+    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', '__always', 'skip'])
     expect(again.cards[0]!.question).toContain(`Save conversation file · ${file.name}`)
     expect(fs.readFileSync(at(`users/alice/second-${file.name}`), 'utf8')).toBe('mine\n')
     for (const f of [`downloads/${file.name}`, `second-${file.name}`]) fs.rmSync(at(`users/alice/${f}`), { force: true })
@@ -266,11 +285,10 @@ describe('saving a room file from my own chat', () => {
     for (const n of ['hidden.pdf', 'private.pdf', file.name]) expect(fs.existsSync(at(`users/alice/${n}`))).toBe(false)
     expect(events(r.turnId).filter((e) => e.tool === 'save_room_file').map((l) => l.summary)).toEqual(['save_room_file -> not found', 'save_room_file -> not found', 'save_room_file -> refused: not a file id'])
     expect(r.done.content).toContain("Give the file's file_id (from room_read), not its name")
-    // erin, whose preview it is, may save hers (as only hers: a new file in her own folder, no card)
+    // nor erin, whose old private preview it was: unposted previews are nobody's since the room AI was removed
     const hers = await run('erin', await newChat('erin'), fake(save(roomId, privFile.id, 'users/erin/')), () => 'allow')
     expect(hers.cards).toHaveLength(0)
-    expect(fs.existsSync(at('users/erin/private.pdf'))).toBe(true)
-    fs.rmSync(at('users/erin/private.pdf'), { force: true })
+    expect(fs.existsSync(at('users/erin/private.pdf'))).toBe(false)
   })
 
   test('a read-only target and a held file are refused before any card; skills/ and instruction files too', async () => {

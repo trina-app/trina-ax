@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { navTop } from './nav'
 
 const t = DICTS.en
 const WIDE = { width: 1360, height: 560 }
@@ -36,11 +37,12 @@ async function staysPut(header: Locator, line = true) {
 }
 
 for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
-  test(`Connectors keeps its title row at the top in Admin and on its own page (${name})`, async ({ page }) => {
+  test(`Connectors keeps its title row at the top in Admin (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    // a phone's Connectors page scrolls its search away with the list (QA TC-262: the test below); Admin keeps its row
-    for (const path of name === 'phone' ? ['/admin/connectors'] : ['/admin/connectors', '/connectors']) {
+    // the person's Connectors is a section of Settings (QA TC-400): its top scrolls with Settings' column like every
+    // section's (a phone: the test below); Admin keeps its row
+    for (const path of ['/admin/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
       // Admin keeps its own name (Connected apps); the page is Connectors (a phone's top bar says it there); the cards are under it
@@ -63,10 +65,10 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
   })
 }
 
-test("a phone's Connectors page scrolls its description, search and 'Add custom connector' away with the list (TC-262)", async ({ page }) => {
+test("a phone's Settings › Connectors scrolls its description, search and 'Add custom connector' away with the list (TC-262)", async ({ page }) => {
   await page.setViewportSize(PHONE)
   await start(page)
-  await page.goto('/connectors')
+  await page.goto('/settings/connectors')
   const header = page.getByTestId('connectors-header')
   await expect(page.getByTestId('connector-card').first()).toBeVisible()
   const box = scroller(page.getByTestId('connector-card').first())
@@ -107,9 +109,9 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
   await expect(top.getByTestId('project-menu')).toBeVisible()
   await staysPut(top, false)
   await expect(top.getByTestId('project-menu')).toBeInViewport()
-  // a phone: the top bar holds "+" and the project's "···" (QA TC-254); the page scrolls under it
+  // a phone: the top bar (프로젝트's title; a project's "···", QA TC-254) stays while the page scrolls under it
   await page.setViewportSize({ width: 390, height: 480 })
-  for (const [to, action, inPage] of [['/projects', 'project-new', 'project-row'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
+  for (const [to, action, inPage] of [['/projects', 'topbar-title', 'projects-panel-row'], [`/projects/${id}`, 'project-menu', 'project-chats']] as const) {
     await page.goto(to)
     const button = page.getByTestId('phone-page-bar').getByTestId(action)
     await expect(button).toBeVisible()
@@ -140,7 +142,7 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
       expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(size.height)
       // what stays put is still whole: the sidebar's first item (wide) or the phone's top bar, and the Admin menu
       if (size.width >= 768) {
-        const first = (await page.getByTestId('new-chat').boundingBox())!
+        const first = (await navTop(page).boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
         expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       } else {

@@ -1,7 +1,7 @@
 // The team's logo (Admin › Team settings; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07): it shows
-// only inside the page, in the computer's sidebar header. The tab icon, /favicon.ico, the home-screen icon and the
+// only inside the page, at the top of the computer's rail. The tab icon, /favicon.ico, the home-screen icon and the
 // installed app's manifest are always the product's. Pure code shared by the server (validation, the public
-// /team-icon route), the web app (a check before uploading, the sidebar's address) and the web client's mock server.
+// /team-icon route), the web app (a check before uploading, the logo's address) and the web client's mock server.
 //
 // Only raster images whose header can be read here: PNG, JPEG and WebP. Never SVG: an SVG served from the team's own
 // address can run scripts. The type the uploader names must match the file's first bytes, and the pixel size comes

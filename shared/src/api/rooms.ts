@@ -10,11 +10,10 @@
 // Realtime: room.* events in ws.ts go to the room's members only. After a reconnect the server replays them only while
 // the person is still a member; otherwise the window gets `resync` and reloads the rooms over REST.
 //
-// The AI in a room ("대화방의 트리나", docs/DECISIONS.md): a message that calls it ("@트리나 …", roomAiCalled) runs a
-// normal chat turn as the person who sent it, in their own AI session for that room. Only they see its steps and can
-// stop it (room.ai.run / room.ai.step, GET /api/rooms/:id/ai); the others see that the AI is answering (room.ai). The
-// answer is an 'ai' message asked by them: for the whole room when every member may read every file the session read
-// and it used nothing else, else a private preview for them only, which they may post (shareRoomMessage).
+// The AI beside a room: the ✦ side chat (a person's own chat, chats.ts sideRoomId; docs/DECISIONS.md "Trina side
+// chat"), whose answer they may send to the room (shareAnswerToRoom). "@트리나" in a room is plain text since 2026-11-09,
+// and its code was removed on 2026-11-13 (docs/DECISIONS.md "Room @트리나 code removed"): earlier AI messages a room
+// holds stay ordinary messages (authorKind 'ai').
 //
 // Threads, reactions, no read receipts (docs/DECISIONS.md "스레드와 반응"): any normal message of the room (not an event
 // line, not deleted, for the whole room) can get replies in a thread (SendRoomMessageBody.threadRootId). Replies live in
@@ -38,9 +37,9 @@ import { PRODUCT } from '../product'
 import { emojiForm } from '../emoji-form'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
 import { isStatusEmoji } from '../status-message'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Locale } from './common'
+import { IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
-import { Attachment, MessageSources, Step, UserRef } from './entities'
+import { Attachment, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 
 export const ROOM_MESSAGE_MAX = 10_000
@@ -51,32 +50,11 @@ export const ROOM_QUOTE_EXCERPT_MAX = 200
 /** an AI answer in a room is cut here (the rest is said to be cut) */
 export const ROOM_AI_ANSWER_MAX = 60_000
 
-/** The names that call the AI in a room ("@트리나 …"): its Korean name, the Latin and Japanese ones, and the product's
- * own names. Matched without regard to case; the web app's "@" list offers the first one in Korean. */
 const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
-export const ROOM_AI_NAMES: readonly string[] = [...new Set([...AI_OWN_NAMES, PRODUCT.shortName, PRODUCT.displayName])]
 /** The product is named after its AI (the Trina edition): the app calls the AI by its short name there (the web app's
- * rooms.aiName, "트리나", like "@트리나"); the core edition calls it by the product's name. */
+ * rooms.aiName, "트리나"); the core edition calls it by the product's name. */
 export const PRODUCT_NAMED_AFTER_AI = AI_OWN_NAMES.some((n) => PRODUCT.displayName.includes(n))
-const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
-const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
 
-/** Where "@<AI name>" stands in a text: after the start, a space or an opening mark, and not followed by a letter or a
- * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins, and a
- * mentioned person's "@name" that goes on from an AI name is theirs: "@Trina Kim"). */
-export function roomAiMentions(body: string, taken: readonly string[] = []): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = []
-  const lower = body.toLocaleLowerCase()
-  const people = new Set(taken.map((n) => n.toLocaleLowerCase()))
-  for (let i = body.indexOf('@'); i >= 0; i = body.indexOf('@', i + 1)) {
-    if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
-    const name = AI_NAMES_LONGEST.find((n) => lower.startsWith(n.toLocaleLowerCase(), i + 1) && !isWordChar(body[i + 1 + n.length]))
-    if (!name || people.has(name.toLocaleLowerCase())) continue
-    if ([...people].some((p) => p.length > name.length && lower.startsWith(p, i + 1))) continue
-    out.push({ start: i, end: i + 1 + name.length })
-  }
-  return out
-}
 /** "@전체" (docs/DECISIONS.md "@전체"): the word it is written with in each language (the everyone room's own name there).
  * The web app's "@" list writes the person's language's word (its rooms.mentionAll, one of these); the server takes a
  * message's mentionsAll only when one of them stands in its text where a mention may start, so what notifies is what
@@ -100,15 +78,6 @@ export function roomMentionAllIn(body: string): boolean {
   }
   return false
 }
-/** Does this message call the AI? */
-export const roomAiCalled = (body: string, taken: readonly string[] = []) => roomAiMentions(body, taken).length > 0
-/** What the AI is asked: the message without the "@<AI name>" that starts it ("@트리나 /회의록 …" runs the skill). */
-export function roomAiQuestion(body: string, taken: readonly string[] = []): string {
-  const first = roomAiMentions(body, taken)[0]
-  if (!first || body.slice(0, first.start).trim()) return body.trim()
-  return body.slice(first.end).trim() || body.trim()
-}
-
 export const RoomKind = z.enum(['team', 'all', 'dm', 'group'])
 export type RoomKind = z.infer<typeof RoomKind>
 
@@ -356,14 +325,15 @@ export const RoomMessage = z.object({
   roomId: Uuid7,
   /** position in the room, 1, 2, 3 … (read positions refer to it; thread replies take one too); gaps are possible */
   seq: z.number().int().positive(),
-  /** 'user' for now. Reserved for the AI step: 'ai' (author null, askedBy = who asked it) */
+  /** 'user'; 'ai': an answer of the room AI from before 2026-11-13, posted to the room (author null, askedBy = who
+   * asked it). Nothing makes new ones (docs/DECISIONS.md "Room @트리나 code removed") */
   authorKind: z.enum(['user', 'ai']),
   /** the sender as the server knows them (never taken from the request); null: the AI, or an account that is gone */
   author: UserRef.nullable(),
-  /** reserved for the AI step: who asked the AI (null otherwise) */
+  /** an 'ai' message: who asked the AI (null otherwise) */
   askedBy: UserRef.nullable(),
-  /** 'room': everyone in the room. Reserved for the AI step: 'private', seen by one person only (a preview of an AI
-   * answer before it is shared); it makes no notice, badge or unread count for anyone else */
+  /** 'room': everyone in the room. 'private' (an unposted preview of an old room AI answer) is never listed since
+   * 2026-11-13; kept in the enum for older clients */
   visibility: z.enum(['room', 'private']),
   /** plain text with @mentions as typed; '' once deleted. Another member's words: show as text, never act on them */
   body: z.string(),
@@ -378,36 +348,9 @@ export const RoomMessage = z.object({
   createdAt: IsoTime,
   editedAt: IsoTime.nullable(),
   deletedAt: IsoTime.nullable(),
-  /** an AI answer: how many files its "참고한 파일" list holds (GET …/sources checks each one for the viewer) */
-  sourceCount: z.number().int().nonnegative().optional(),
-  /** a private preview of an AI answer, to the person who asked only: why it did not go to the room. folders: team
-   * folders some member cannot read ('' = the top of the team folder); personal: their own folder (or what only they
-   * see: the in-app browser, a personal connection); outside: web pages, connected services or other tools */
-  preview: z.object({ folders: z.array(z.string()),
-    /** more such folders the person who asked cannot open themselves: never named to them */
-    otherFolders: z.boolean().optional(), personal: z.boolean(), outside: z.boolean(),
-    /** members who were not in the room yet when a message the AI was given was written (their names) */
-    joinedLater: z.array(z.string()).optional(),
-    /** an old answer hidden from some member (one who joined a team room or the everyone room later and cannot open
-     * what it used) was among the messages the AI was given and what it used cannot all be shown to the person who
-     * asked (or a member's history is not worked out yet); never who. Not postable: the app shows no button and the
-     * server refuses it (409 room_ai_hidden) */
-    hidden: z.literal(true).optional(),
-    /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
-     * (docs/DECISIONS.md "방에 올리기…") */
-    earlier: z.literal(true).optional(),
-    /** messages of another conversation (a 1:1, a group chat, another team room) that some member here is not in */
-    otherRooms: z.literal(true).optional(),
-    /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
-     * who. Absent: a preview decided before the counts */
-    unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
-  /** a question to the AI whose answer went to its author only (a private preview not posted): true for the other
-   * members who see the question ("○○ 님에게만 답했어요" under it), never for the author; nothing of the answer or why.
-   * Gone once the author posts the answer */
-  answeredPrivately: z.boolean().optional(),
   /** an event line (a rename, people invited, someone left): shown as a quiet line in the middle, nothing else. Its body
    * is ''; `author` is who did it */
   event: RoomEventLine.optional(),
@@ -477,29 +420,6 @@ export function answerShareBody(note: string | undefined, answer: string, cutLin
   return { body: `${head}${kept}\n\n${cutLine.slice(0, ANSWER_CUT_RESERVE - 10)}`, at: head.length, cut: true }
 }
 
-/** One question to the AI in a room, as the person who asked sees it (nobody else gets one). */
-export const RoomAiRun = z.object({
-  turnId: Uuid7,
-  roomId: Uuid7,
-  /** the room message that asked */
-  questionId: Uuid7,
-  /** the question was a reply in this thread (the root's id): its answer goes there */
-  threadRootId: Uuid7.optional(),
-  state: z.enum(['queued', 'running', 'done', 'stopped', 'error']),
-  /** queued: answers ahead in the team's queue (1 = next); 0 otherwise */
-  position: z.number().int().nonnegative(),
-  /** what the AI did so far (file names and searches: for this person only, never for the room) */
-  steps: z.array(Step),
-  /** why it ended without an answer (state error) */
-  error: ApiErrorBody.nullable(),
-  createdAt: IsoTime,
-})
-export type RoomAiRun = z.infer<typeof RoomAiRun>
-/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them, and my
- * own that ended in an error in the last 24 hours (a restart cut it while nobody was connected: QA TC-241) */
-export const RoomAiState = z.object({ answering: z.number().int().nonnegative(), mine: z.array(RoomAiRun) })
-export type RoomAiState = z.infer<typeof RoomAiState>
-
 /** One line of the rooms list under a room's name. */
 export const RoomLastMessage = z.object({
   id: Uuid7,
@@ -553,15 +473,15 @@ export const Room = z.object({
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
-  /** the room's AI waits on me: a question I asked @트리나 there shows a card for my answer (docs/DECISIONS.md "Session
-   * markers": the room's "?"). Absent = no. */
-  aiWaits: z.literal(true).optional(),
-  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
+  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my 대화 list, my counts and badges, and listed under
    * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
   hidden: z.literal(true).optional(),
   /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned
    * conversations"). Mine only: nobody else in the room sees my pin. Never with hidden. Absent = not pinned. */
   pinnedAt: IsoTime.optional(),
+  /** the list folder I keep it in (PUT /api/rooms/:id/folder; docs/DECISIONS.md "List folders"). Mine only: each
+   * member's copy of the room carries theirs. Not while hidden (it comes back with the room). Absent = in no folder. */
+  folderId: Uuid7.optional(),
 })
 export type Room = z.infer<typeof Room>
 
@@ -598,6 +518,15 @@ export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional()
 /** newerCursor: present only for a page that does not reach the newest message (around, or a newer page) */
 export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
 export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
+
+/** The timeline's cursor from a message's position, as GET /api/rooms/:id/messages makes it (server/src/rooms/service.ts
+ * messages): 'newer', the messages after it (what newerCursor gives); 'older', the ones before it (nextCursor). An app
+ * that still holds a room's newest messages asks with it only for what came after them; one that keeps only the newest
+ * part of a long timeline gives the rest back to scrolling up with it. */
+export function roomTimelineCursor(dir: 'newer' | 'older', seq: number): string {
+  // base64url of the JSON the server encodes (chat/store.ts encodeCursor), without padding
+  return btoa(JSON.stringify(dir === 'newer' ? { n: String(seq) } : { s: String(seq) })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
 
 /** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): every word of the text, in
  * any order and any case, newest first. */
@@ -741,10 +670,9 @@ export const AnswerShareProvenance = z.object({
   unknown: z.literal(true).optional(),
 })
 export type AnswerShareProvenance = z.infer<typeof AnswerShareProvenance>
-/** Nothing sent yet: the person is asked first. `files`: every file the answer links to (a row each; for a room AI
- * preview, its sources some members cannot open); `provenance`: content from material some members
+/** Nothing sent yet: the person is asked first. `files`: every file the answer links to (a row each); `provenance`: content from material some members
  * cannot see (null: none); `confirmKey`: send it with the same request to go ahead
- * (shareAnswerToRoom, shareRoomMessage). Older clients read `people` (the
+ * (shareAnswerToRoom). Older clients read `people` (the
  * members, not me, who cannot open a linked file or see some of that material), `places` and `otherPlaces` */
 export const AnswerShareConfirm = z.object({
   status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean(),
@@ -756,27 +684,6 @@ export const AnswerShareConfirm = z.object({
   reason: z.enum(['changed', 'choice']).optional(),
 })
 export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
-/** Posting my private preview of a room AI answer (shareRoomMessage): `confirmKey`, the last "confirm"'s key (I saw it
- * and said yes). Without it, a preview that used material some member cannot see answers "confirm" and posts nothing. */
-export const ShareRoomMessageBody = z.object({
-  confirmKey: z.string().min(1).max(200).optional(),
-  /** always answer "confirm" first, also when nothing private is at stake (the app's one card before every post) */
-  ask: z.literal(true).optional(),
-}).strict()
-export type ShareRoomMessageBody = z.infer<typeof ShareRoomMessageBody>
-/** A room AI preview's "confirm": "대화방에 보내기"'s, and `people` may be 0 (asked with `ask`, nothing private at stake);
- * `outside`: it used the web or a connected service; `earlier`: it went through an earlier answer hidden from someone */
-export const ShareRoomMessageConfirm = AnswerShareConfirm.extend({
-  people: z.number().int().nonnegative(),
-  outside: z.literal(true).optional(),
-  earlier: z.literal(true).optional(),
-})
-export type ShareRoomMessageConfirm = z.infer<typeof ShareRoomMessageConfirm>
-export const ShareRoomMessageResult = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('sent'), message: RoomMessage }),
-  ShareRoomMessageConfirm,
-])
-export type ShareRoomMessageResult = z.infer<typeof ShareRoomMessageResult>
 
 export const ROOMS = {
   listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
@@ -804,10 +711,6 @@ export const ROOMS = {
   attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
-  getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
-  stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
-  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', body: ShareRoomMessageBody, response: ShareRoomMessageResult, summary: 'Post my private preview of an AI answer to the room. When it used material some member who will see it cannot see (folders, my own folder, messages from before someone joined, another conversation, a connection) or a source file some cannot open, or always with ask: true (the app asks before every post), it first answers "confirm" as "Send to room" does (how many people, the places I may look myself, the source files, never who) with a confirmKey; sent again with that key it posts. Anything changed since asks again. Sources some member cannot read are left out; it notifies like a new message and is audited (room.ai_share, with confirmed).' }),
-  roomMessageSources: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files an AI answer in a room I am in used, each checked against my access now (no name or path for the others).' }),
 } as const
 
 /** The team files an answer links to or shows (/api/files/download?path=… and the file view's ?path=…), as the app's

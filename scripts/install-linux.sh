@@ -49,6 +49,11 @@
 #                         in /etc/default/<id>) and the Google Workspace library for Gmail, Calendar, Docs and Sheets
 #                         (a Python venv in /opt/trina/python/workspace-mcp). Kept for repair / update; --no-minimal
 #                         turns the default groups back on.
+#   --dev-env             turn on the dev environment on srt (scripts/dev-env/srt/install-srt.sh, run from root's copy
+#                         <base>/root/dev-env-srt/): the AI's commands run in a sandbox on this server. The default on a
+#                         self-install on Debian 13 with the default groups and systemd; elsewhere it is off (Ubuntu
+#                         24.04: its systemd 255 cannot limit the run scopes with polkit; Debian 12). Team admins turn it off in the
+#                         team settings. Kept for repair / update; --no-dev-env turns it off (uninstall-srt.sh)
 #   --skip-apt            do not install distribution packages (they must already be there; the browser is still
 #                         downloaded unless --minimal)
 #   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
@@ -87,6 +92,7 @@ FROM="" HOSTED=0 PLAN="" CODEX_MODELS="" ALLOW_UNSIGNED=0 AUTO_UPDATE=1 SKIP_APT
 IMAGE_MODE=0 MINIMAL=0
 PUBLIC_HOST="" APP_CONNECTORS="" DRIVE_CLIENT=""   # "" = not given: keep what server.json has
 ENGINES=()
+DEV_ENV=""  # the dev environment on srt: 1 / 0 as given (or kept in install.json), "" = the default for this system
 SET=()   # options given on the command line (repair/update keep the rest from install.json)
 WARNINGS=()
 die() { echo "install: $*" >&2; exit 1; }
@@ -123,6 +129,8 @@ while [ $# -gt 0 ]; do
     --no-app-connectors) APP_CONNECTORS=0; SET+=(appconn); shift ;;
     --google-drive-client) val "$@"; DRIVE_CLIENT=$2; shift 2 ;;
     --skip-apt) SKIP_APT=1; shift ;;
+    --dev-env) DEV_ENV=1; SET+=(devenv); shift ;;
+    --no-dev-env) DEV_ENV=0; SET+=(nodevenv); shift ;;
     --minimal) MINIMAL=1; SET+=(minimal); shift ;;
     --no-minimal) MINIMAL=0; SET+=(nominimal); shift ;;
     --no-systemd) SYSTEMD=0; SET+=(nosystemd); shift ;;
@@ -137,6 +145,7 @@ given() { local s; for s in ${SET[@]+"${SET[@]}"}; do [ "$s" = "$1" ] && return 
 ! { given auto && given noauto; } || die "--auto-update and --no-auto-update exclude each other"
 ! { given signed && given unsigned; } || die "--require-signed and --allow-unsigned exclude each other"
 ! { given minimal && given nominimal; } || die "--minimal and --no-minimal exclude each other"
+! { given devenv && given nodevenv; } || die "--dev-env and --no-dev-env exclude each other"
 ! { given auto && given hosted; } || die "--auto-update is for self-installs; the hosted service updates its tenants"
 [ "$IMAGE_MODE" = 0 ] || [ "$CMD" = install ] || die "--image-mode is for install only (a template build)"
 
@@ -162,6 +171,7 @@ if [ "$CMD" = repair ] || [ "$CMD" = update ] || [ "$CMD" = uninstall ]; then
     given minimal || given nominimal || { [ "$(j minimal)" = true ] && MINIMAL=1; }
     given pubhost || { h=$(j publicHost); [ "$h" = null ] || PUBLIC_HOST=$h; }
     given appconn || case "$(j appConnectors)" in true) APP_CONNECTORS=1 ;; false) APP_CONNECTORS=0 ;; esac
+    given devenv || given nodevenv || case "$(j devEnv)" in true) DEV_ENV=1 ;; false) DEV_ENV=0 ;; esac
   elif [ "$CMD" != uninstall ]; then
     die "$CMD: no earlier install of $ID ($INSTALL_JSON missing); use install"
   fi
@@ -257,6 +267,18 @@ if [ "$CMD" = uninstall ]; then
     KEEP_AUTH="$BASE/.codex-auth-kept"
     rm -rf "$KEEP_AUTH"; mv -T "$BASE/agent/codex-auth" "$KEEP_AUTH"
   fi
+  # the dev environment on srt (install-srt.sh, by install-linux.sh or by hand): its drop-in, polkit rule, slice and
+  # /opt/trina programs go with the install; its run data in <base>/devenv goes with --purge
+  if grep -qs MYCEL_DEV_ENV_RUNNER=srt "$UNIT_DIR/$ID-server.service.d/dev-env.conf"; then
+    U="$BASE/root/dev-env-srt/uninstall-srt.sh"
+    if [ -f "$U" ] && [ ! -L "$U" ] && [ "$(stat -c %U "$U")" = root ]; then
+      UARGS=(--id "$ID"); [ "$PURGE" = 1 ] && UARGS+=(--purge)
+      bash "$U" "${UARGS[@]}" || warn "uninstall-srt.sh failed; the dev environment's files may stay (scripts/dev-env/srt/uninstall-srt.sh)"
+    else
+      warn "the dev environment on srt stays (no root copy of uninstall-srt.sh): run scripts/dev-env/srt/uninstall-srt.sh --id $ID"
+    fi
+  fi
+  rmdir "$UNIT_DIR/$ID-server.service.d" 2>/dev/null || true  # only when empty (uninstall-srt.sh leaves the folder)
   rm -rf "$BASE/app" "$BASE/root" "$BASE/run" "$BASE/run-launcher" "$BASE/agent" "$BASE/status" "$BASE/.install-tmp" \
     "$BASE/.install-stage" "$BASE/.install-root-old" "$BASE/.install-root-old.new" "$BASE/.install-root-failed"
   if [ -n "$KEEP_AUTH" ]; then
@@ -372,6 +394,19 @@ OSID=$(. /etc/os-release && echo "${ID:-}"); OSVER=$(. /etc/os-release && echo "
 OS_OK=0
 case "$OSID:$OSVER" in debian:12|debian:13|ubuntu:24.04) OS_OK=1 ;; esac
 [ "$OS_OK" = 1 ] || die "unsupported system $OSID $OSVER: Debian 12/13 or Ubuntu 24.04 only (spec 1)"
+# ---- the dev environment on srt: on or off for this install (DEVENV_ON), and why not (DEVENV_WHY). A hosted server gets it
+# from its image (scripts/image/files/mycel-devenv-boot, by plan); a self-install runs install-srt.sh after the server
+# answers (step 15). install-srt.sh supports Debian 13 and Ubuntu 24.04 (runs are instances of a root-installed
+# template unit, so polkit gets the unit name on systemd 255; AppArmor: srt's apply-seccomp inherits <ID>-bwrap).
+DEVENV_ON=0 DEVENV_WHY=""
+if [ "$HOSTED" = 1 ]; then
+  { given devenv || given nodevenv; } && die "--dev-env and --no-dev-env are for self-installs; a hosted server's plan decides"
+elif [ "$DEV_ENV" = 0 ]; then DEVENV_WHY="off (--no-dev-env)"
+elif [ "$MINIMAL" = 1 ]; then DEVENV_WHY="off: --minimal leaves out its tools (the default groups)"
+elif [ "$SYSTEMD" = 0 ]; then DEVENV_WHY="off: it needs systemd (its slice and polkit rule)"
+elif [ "$OSID:$OSVER" != debian:13 ] && [ "$OSID:$OSVER" != ubuntu:24.04 ]; then DEVENV_WHY="off: install-srt.sh supports Debian 13 and Ubuntu 24.04 only (this is $OSID $OSVER)"
+else DEVENV_ON=1; fi
+[ "$DEV_ENV" != 1 ] || [ "$DEVENV_ON" = 1 ] || [ "$HOSTED" = 1 ] || die "--dev-env: the dev environment is ${DEVENV_WHY#off: }"
 MACH=$(uname -m)
 case "$MACH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) die "unsupported processor $MACH (x86_64 or aarch64)" ;; esac
 if [ "$ARCH" = amd64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then die "this x86_64 processor has no SSE4.2 (bun and Claude Code need it; in a VM use CPU type x86-64-v2 or host)"; fi
@@ -1061,6 +1096,13 @@ rootfile 644 safe-fs.sh
 # the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
 # (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.
 for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done
+# the dev environment's install files (root/dev-env-srt/, a kit since this change): root runs install-srt.sh and
+# uninstall-srt.sh from this root-owned copy only, never from app/ (the server account's)
+if [ -d "$KROOT/dev-env-srt" ]; then
+  mk root root 755 "$BASE/root/dev-env-srt"
+  mk root root 755 "$BASE/root/dev-env-srt/system"
+  for f in "$KROOT"/dev-env-srt/* "$KROOT"/dev-env-srt/system/*; do [ -f "$f" ] && rootfile 644 "${f#"$KROOT"/}"; done
+fi
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"
 for t in firewall.service firewall.timer launcher.service server.service update.service update.timer slice; do rootfile 644 "systemd/$t.in"; done
@@ -1377,7 +1419,8 @@ cat > "$ITMP/install.json" <<EOF
   "minimal": $(jbool "$MINIMAL"),
   "skipApt": $(jbool "$SKIP_APT"),
   "publicHost": $(if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != none ]; then echo "\"$PUBLIC_HOST\""; else echo null; fi),
-  "appConnectors": $(case "$APP_CONNECTORS" in 1) echo true ;; 0) echo false ;; *) echo null ;; esac)
+  "appConnectors": $(case "$APP_CONNECTORS" in 1) echo true ;; 0) echo false ;; *) echo null ;; esac),
+  "devEnv": $(case "$DEV_ENV" in 1) echo true ;; 0) echo false ;; *) echo null ;; esac)
 }
 EOF
 install -o root -g root -m 644 "$ITMP/install.json" "$INSTALL_JSON"
@@ -1467,7 +1510,37 @@ PHASE=started
 # ---- 15) wait until the server answers with the version app/current points to ----
 WAIT=60; [ "$ACTION" = switch ] && WAIT=180
 say "waiting for the server on 127.0.0.1:$PORT ($RUNNING)"
+# the dev environment on srt (self-installs): install-srt.sh restarts the server on its first run (and on a re-run only
+# when something changed), so it runs once the server answers. A failure keeps the server running without it.
+# install-srt.sh and uninstall-srt.sh restart the server: wait until it answers again
+dev_env_wait() {
+  local i
+  for i in $(seq 1 60); do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  warn "the server did not answer within 60 s after the dev environment changed; see journalctl -u $ID-server -n 100"
+}
+dev_env_step() {
+  local ins="$BASE/root/dev-env-srt/install-srt.sh" uns="$BASE/root/dev-env-srt/uninstall-srt.sh"
+  local dropin="$UNIT_DIR/$ID-server.service.d/dev-env.conf"
+  [ "$HOSTED" = 0 ] && [ "$IMAGE_MODE" = 0 ] || return 0
+  if [ "$DEVENV_ON" = 0 ]; then
+    if [ "$DEV_ENV" = 0 ] && grep -qs MYCEL_DEV_ENV_RUNNER=srt "$dropin" && [ -f "$uns" ]; then
+      say "turning the dev environment off (--no-dev-env): uninstall-srt.sh"
+      if bash "$uns" --id "$ID"; then dev_env_wait; else warn "uninstall-srt.sh failed; retry: sudo bash $uns --id $ID"; fi
+    fi
+    say "dev environment: $DEVENV_WHY"
+    return 0
+  fi
+  if [ ! -f "$ins" ]; then warn "the dev environment is not turned on: this kit has no root/dev-env-srt (an older kit)"; return 0; fi
+  say "turning the dev environment on (srt): sudo bash $ins --id $ID"
+  if ! bash "$ins" --id "$ID"; then
+    warn "the dev environment could not be turned on; the server runs without it. Retry: sudo bash $ins --id $ID"
+    return 0
+  fi
+  dev_env_wait
+  say "dev environment on (srt). Team admins turn it off in the team settings; --no-dev-env removes it from this server"
+}
 done_ok() {
+  dev_env_step
   say "installed $ID $RUNNING ($DEPLOYMENT; server $SRV_USER, engine $AGT_USER)"
   if [ -f "$BASE/setup/code" ] && [ -e "$BASE/data/setup-token" ]; then
     say "first-run setup: the code is in $BASE/setup/code (sudo cat $BASE/setup/code). This server has no screen: from your"

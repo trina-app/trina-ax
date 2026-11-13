@@ -1,34 +1,30 @@
 // The team chat rooms ("대화방" v1, shared/src/api/rooms.ts): the rooms I am in with their unread badges, the timeline
 // of the one room on screen (pages/Room.tsx) and the threads on screen (components/rooms/ThreadPanel.tsx; docs/
 // DECISIONS.md "스레드와 반응"): the one beside the room or over it, and the one beside a file in the viewer
-// (components/rooms/ViewerColumn.tsx), each kept while a panel shows it (threadViews, by root, with a count). Only
-// those are kept: leaving drops them and opening reads the newest page. What the room page shows on its right (a
+// (components/rooms/ViewerColumn.tsx), each kept while a panel shows it (threadViews, by root, with a count): leaving
+// drops a thread and opening reads its newest page. A room's timeline stays a while after leaving it (kept, the last
+// KEPT_ROOMS rooms, in memory only, current by the same events): going back shows it at once and reads only what came
+// after its newest message (docs/DECISIONS.md "Rooms left a moment ago open at once"). What the room page shows on its right (a
 // thread is in the address; side: the Trina side chat) is here too, so the file viewer can start the same way. A reply in a thread goes to the thread, and to the timeline only when it was sent to the room too. The
 // WebSocket's room.* events come in through store/live.ts dispatch → handleEvent; the pure with* functions below make
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type ShareRoomMessageBody, type ShareRoomMessageResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
-import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
+import { optimistic, optimisticPending } from '../lib/optimistic'
+import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
+import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
-import { mergeOpenRequests, useChats } from './chats'
 import { useSession } from './session'
 import { useSideChats } from './sideChats'
-import { toast } from './ui'
+import { toast, useUi } from './ui'
 
-export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' | 'room.ai' | 'room.ai.run' | 'room.ai.step' | 'queue.position' }>
-
-/** The AI in a room (docs/DECISIONS.md "대화방의 트리나"): how many questions it answers there now (anyone's), and my own
- * questions: working ones with their steps, and ones that stopped or failed until I close them. A finished answer is a
- * room message, so its run goes. Someone else's question whose answer stayed theirs only says so itself
- * (RoomMessage.answeredPrivately). */
-export interface RoomAi { answering: number; runs: RoomAiRun[] }
-const NO_AI: RoomAi = { answering: 0, runs: [] }
+export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' }>
 
 export const ROOM_PAGE = 50
 
@@ -80,6 +76,23 @@ export interface PendingSend {
   restored?: true
 }
 
+/** Where the reader was in a room they left: the first message in sight and how far below the list's top its top was.
+ * None: at the bottom, following the newest. */
+export interface RoomPlace { messageId: string; offset: number }
+
+/** A room left a moment ago (KEPT_ROOMS): its timeline at the newest, kept current by the room.* events as the open
+ * one is, where the reader was, when it was left and its newest message then (leftSeq). */
+export interface KeptTimeline extends RoomTimeline { place: RoomPlace | null; leftAt: number; leftSeq: number }
+
+/** Where going back to a kept room opens: where the reader left it, while nothing came since (else at the bottom, with
+ * what came in sight, as before); null: at the bottom. */
+export const keptPlace = (tl: KeptTimeline | null): RoomPlace | null => (tl?.place && newestSeq(tl.messages) === tl.leftSeq ? tl.place : null)
+
+/** how many rooms left lately keep their messages in this window's memory (never on the device), the last left first */
+export const KEPT_ROOMS = 10
+/** the newest messages each keeps (the older ones load again on scrolling up) */
+export const KEPT_MESSAGES = 200
+
 export interface RoomsData {
   rooms: Room[]
   /** the room on screen */
@@ -87,6 +100,10 @@ export interface RoomsData {
   timeline: RoomTimeline | null
   /** the threads on screen, by placeKey(roomId, rootId) */
   threadViews: Record<string, ThreadView>
+  /** the rooms left lately, by room (docs/DECISIONS.md "Rooms left a moment ago open at once"): going back shows them
+   * at once and asks only for what came after their newest message. Gone with the room, when the live updates may
+   * have missed something (resync), at sign-out. */
+  kept?: Record<string, KeptTimeline>
 }
 
 /** Where a send belongs (its draft, a refused send coming back): the room's timeline, or one thread of it. */
@@ -106,6 +123,35 @@ export function mergeMessages(list: RoomMessage[], incoming: RoomMessage[]): Roo
 
 /** Is this message in the room's timeline (not a reply that stays in its thread)? */
 export const inTimeline = (m: Pick<RoomMessage, 'threadRootId' | 'alsoInRoom'>) => !m.threadRootId || !!m.alsoInRoom
+
+/** A timeline cut to its newest `max` messages: what it drops loads again on scrolling up, from the oldest it keeps. */
+export function capped<T extends RoomTimeline>(tl: T, max = KEPT_MESSAGES): T {
+  if (tl.messages.length <= max) return tl
+  const messages = tl.messages.slice(-max)
+  return { ...tl, messages, nextCursor: roomTimelineCursor('older', messages[0]!.seq) }
+}
+
+/** This room's kept timeline changed by `f` (kept to its newest KEPT_MESSAGES), as a part of RoomsData to spread:
+ * empty when the room is not kept or `f` changed nothing. */
+function keptPatch(d: Pick<RoomsData, 'kept'>, roomId: string, f: (tl: KeptTimeline) => KeptTimeline): Pick<RoomsData, 'kept'> {
+  const tl = d.kept?.[roomId]
+  if (!tl) return {}
+  const next = capped(f(tl))
+  return next === tl ? {} : { kept: { ...d.kept, [roomId]: next } }
+}
+
+/** The kept timeline to show on going back to a room (null: read it as the first time). Only while the live connection
+ * is up and was heard lately (a link that went quiet, a computer waking from sleep, may be dead): otherwise events may
+ * be missing, the one that took me out of the room too, so the room is read again (the server answers 404 then, and
+ * nothing of it shows). */
+export const keptFor = (d: Pick<RoomsData, 'kept'>, roomId: string): KeptTimeline | null =>
+  useUi.getState().conn === 'open' && Date.now() - lastHeard() < LIVE_QUIET_MS ? (d.kept?.[roomId] ?? null) : null
+
+/** The kept rooms with this one added as the last left, the one left longest ago going past KEPT_ROOMS. */
+export function withKept(kept: Record<string, KeptTimeline> | undefined, tl: KeptTimeline, max = KEPT_ROOMS): Record<string, KeptTimeline> {
+  const others = Object.values(kept ?? {}).filter((x) => x.roomId !== tl.roomId).sort((a, b) => b.leftAt - a.leftAt)
+  return Object.fromEntries([capped(tl), ...others].slice(0, max).map((x) => [x.roomId, x]))
+}
 
 export function lastLineOf(m: RoomMessage): RoomLastMessage {
   return { id: m.id, seq: m.seq, author: m.author, excerpt: m.deletedAt ? '' : m.body.slice(0, 120), fileCount: m.files.length, deleted: !!m.deletedAt, createdAt: m.createdAt }
@@ -134,9 +180,11 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
   if (!inTimeline(m)) return { ...d, threadViews }
   // a window around an older message (newerCursor) gets it with the newer pages, not after a gap
   const timeline = d.timeline && d.timeline.roomId === roomId && !d.timeline.newerCursor ? { ...d.timeline, messages: mergeMessages(d.timeline.messages, [m]) } : d.timeline
+  // a room left a moment ago gets it too (kept at the newest), so going back shows it
+  const kept = keptPatch(d, roomId, (tl) => ({ ...tl, messages: mergeMessages(tl.messages, [m]) }))
   const room = d.rooms.find((r) => r.id === roomId)
-  if (!room) return { ...d, timeline, threadViews }
-  if (m.event) return { ...d, timeline, threadViews, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
+  if (!room) return { ...d, timeline, threadViews, ...kept }
+  if (m.event) return { ...d, timeline, threadViews, ...kept, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
   const fresh = m.seq > room.lastSeq
   const mine = !!meId && m.author?.id === meId
   // my message in the room reads the room up to it (as the server does); my reply sent to the room too does not: it was
@@ -153,7 +201,7 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
     mentioned: read && fresh ? room.threadsUnread > 0 && room.mentioned : room.mentioned || (counts && mentionsMe(m, meId)),
     lastReadSeq: read ? Math.max(room.lastReadSeq, m.seq) : room.lastReadSeq,
   }
-  return { ...d, rooms: sortRooms(d.rooms.map((r) => (r.id === roomId ? next : r))), timeline, threadViews }
+  return { ...d, rooms: sortRooms(d.rooms.map((r) => (r.id === roomId ? next : r))), timeline, threadViews, ...kept }
 }
 
 /** Each thread on screen through `f` (the same object when none changed). */
@@ -166,11 +214,15 @@ function mapViews(views: Record<string, ThreadView>, f: (tv: ThreadView) => Thre
   return out ?? views
 }
 
-/** One message changed in place wherever it shows in the room: the timeline, each thread's root and replies on screen. */
-function mapMessages(d: RoomsData, roomId: string, f: (x: RoomMessage) => RoomMessage): Pick<RoomsData, 'timeline' | 'threadViews'> {
+/** One message changed in place wherever it shows in the room: the timeline, each thread's root and replies on screen,
+ * and the room's kept timeline when it was left a moment ago. */
+function mapMessages(d: RoomsData, roomId: string, f: (x: RoomMessage) => RoomMessage): Pick<RoomsData, 'timeline' | 'threadViews' | 'kept'> {
   const timeline = d.timeline && d.timeline.roomId === roomId ? { ...d.timeline, messages: d.timeline.messages.map(f) } : d.timeline
   const threadViews = mapViews(d.threadViews, (tv) => (tv.roomId === roomId ? { ...tv, root: tv.root ? f(tv.root) : tv.root, replies: tv.replies.map(f) } : tv))
-  return { timeline, threadViews }
+  return { timeline, threadViews, ...keptPatch(d, roomId, (tl) => {
+    const messages = tl.messages.map(f)
+    return messages.every((m, i) => m === tl.messages[i]) ? tl : { ...tl, messages }
+  }) }
 }
 
 /** An edited or deleted message: replaced where it shows (the timeline, the threads on screen, older quotes of it, the
@@ -221,8 +273,23 @@ export function withRoom(d: RoomsData, room: Room): RoomsData {
   return { ...d, rooms: sortRooms(rooms) }
 }
 
+const pinKey = (roomId: string) => `room:${roomId}:pin`
+
+/** A room's pin as it is on screen now (lib/optimistic.ts), or none */
+const withPin = (r: Room, at: string | undefined): Room => {
+  const { pinnedAt: _was, ...rest } = r
+  return at ? { ...rest, pinnedAt: at } : rest
+}
+
+/** A room read or heard while my pin of it is still on its way (lib/optimistic.ts): it keeps the pin on screen (the
+ * read may be from before it; the pin's own answer decides). */
+function keepPendingPin(d: Pick<RoomsData, 'rooms'>, room: Room): Room {
+  if (!optimisticPending(pinKey(room.id))) return room
+  return withPin(room, d.rooms.find((r) => r.id === room.id)?.pinnedAt)
+}
+
 /** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
- * only marked (the sidebar, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
+ * only marked (the 대화 list, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
  * unpins it (docs/DECISIONS.md "Pinned conversations"). */
 export function withHidden(d: RoomsData, roomId: string, hidden: boolean): RoomsData {
   return { ...d, rooms: d.rooms.map((r) => {
@@ -236,23 +303,11 @@ export function withHidden(d: RoomsData, roomId: string, hidden: boolean): Rooms
   }) }
 }
 
-/** I am no longer in the room: gone from the list, and its messages and threads with it. */
+/** I am no longer in the room: gone from the list, and its messages and threads with it (the kept ones too: they never
+ * show again). */
 export function withoutRoom(d: RoomsData, roomId: string): RoomsData {
   const threadViews = Object.values(d.threadViews).some((tv) => tv.roomId === roomId) ? Object.fromEntries(Object.entries(d.threadViews).filter(([, tv]) => tv.roomId !== roomId)) : d.threadViews
-  return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadViews }
-}
-
-/** One of my runs changed: a done one goes (its answer is a message now), the others stay in their place. */
-export function withAiRun(ai: Record<string, RoomAi>, roomId: string, run: RoomAiRun): Record<string, RoomAi> {
-  const cur = ai[roomId] ?? NO_AI
-  const runs = run.state === 'done' ? cur.runs.filter((r) => r.turnId !== run.turnId) : withRun(cur.runs, run)
-  return { ...ai, [roomId]: { ...cur, runs } }
-}
-
-/** The AI's count in a room. */
-export function withAiCount(ai: Record<string, RoomAi>, roomId: string, answering: number): Record<string, RoomAi> {
-  const cur = ai[roomId] ?? NO_AI
-  return { ...ai, [roomId]: { ...cur, answering } }
+  return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadViews, ...(d.kept?.[roomId] ? { kept: omit(d.kept, roomId) } : {}) }
 }
 
 /** The read position the server answered: my badge for the room follows it. */
@@ -275,8 +330,9 @@ const myRef = () => {
 export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
 
 interface RoomsState extends RoomsData {
+  kept: Record<string, KeptTimeline>
   loaded: boolean
-  /** the list could not be read (an older server without rooms: the sidebar group stays away) */
+  /** the list could not be read (an older server without rooms: the 대화 list stays empty) */
   failed: unknown
   /** what decides the room sound besides each room's level (GET /api/rooms alerts; null: not read yet or an older
    * server); read again with the list when my notification settings change (store/live.ts room_alerts_changed) */
@@ -284,11 +340,10 @@ interface RoomsState extends RoomsData {
   members: Record<string, RoomMember[]>
   /** per room: its timeline's sends and its threads' (PendingSend.threadRootId) */
   pending: Record<string, PendingSend[]>
-  /** a send the server refused (the AI still busy with my question, a used-up budget, …): back in its message box (by
+  /** a send the server refused (a used-up budget, a team file I can no longer open, …): back in its message box (by
    * placeKey: the room's, or a thread's) with the reason as a toast, not a failed bubble to retry
    * (components/rooms/RoomComposer.tsx takes it) */
   returned: Record<string, PendingSend>
-  ai: Record<string, RoomAi>
   /** what the room page shows on its right besides a thread (which is in the address): 'trina', its Trina side chat
    * (components/rooms/SideChatPanel.tsx); none: nothing, or the thread. Gone when the page leaves the room. */
   side: Record<string, 'trina'>
@@ -296,9 +351,14 @@ interface RoomsState extends RoomsData {
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
   fetchRoom: (id: string) => Promise<Room | null>
+  /** the room on screen: as it was when I left it a moment ago (kept), else its newest page read */
   open: (roomId: string) => void
-  close: (roomId: string) => void
+  /** the room off screen; `place`: where the reader was (none: at the bottom), kept with its timeline for going back */
+  close: (roomId: string, place?: RoomPlace | null) => void
   loadNewest: (roomId: string) => Promise<void>
+  /** what came after the newest message on screen (a kept room shown again), added to it; more than a page: the newest
+   * page as a first read */
+  loadAfter: (roomId: string) => Promise<void>
   /** the newest page read again into the timeline as it is (older pages and the reader's place stay); nothing for a
    * window around an older message */
   refreshNewest: (roomId: string) => Promise<void>
@@ -340,29 +400,25 @@ interface RoomsState extends RoomsData {
    * shown at once, the server's answer wins; hiding the room on screen goes to the conversations list */
   setHidden: (roomId: string, hidden: boolean) => Promise<void>
   /** pin a room to the top of my lists, or unpin it ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned
-   * conversations"): mine only; my other windows hear it (room.updated) */
+   * conversations"): mine only; my other windows hear it (room.updated). On screen at once; a failure puts it back
+   * with a toast (lib/optimistic.ts), so it never rejects */
   setPinned: (roomId: string, pinned: boolean) => Promise<void>
   removeMember: (roomId: string, userId: string) => Promise<void>
-  /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
-  loadAi: (roomId: string) => Promise<void>
-  stopAi: (roomId: string, turnId: string) => Promise<void>
-  /** close a run of mine that stopped or failed */
-  dismissAi: (roomId: string, turnId: string) => void
   /** the message box took back a refused send (by placeKey) */
   takeReturned: (key: string) => void
-  /** post my private preview of an AI answer to the room (shared/src/api/rooms.ts shareRoomMessage): "confirm" first when
-   * it used material some member cannot see (with `ask`: always); sent again with that `confirmKey`, it posts */
-  shareAi: (roomId: string, messageId: string, body?: ShareRoomMessageBody) => Promise<ShareRoomMessageResult>
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
   shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
+  /** the live connection could not resume (events in between are lost): the kept rooms go, and the open one is not kept
+   * when left until its newest page is read again */
+  forgetKept: () => void
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'ai' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, ai: {}, side: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'kept' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, kept: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, side: {} }
 
 /** what was typed in a room (or one of its threads: placeKey) and not sent yet (components/rooms/RoomComposer.tsx); kept
  * on this device too (keepRoomDraft), like the AI chat's drafts; gone at sign-out with the rest */
@@ -570,6 +626,13 @@ const memberReads = new Map<string, number>()
 let memberReadSeq = 0
 /** a newer read of the same room's messages wins over an older one still on its way */
 let timelineGen = 0
+/** the open rooms whose timeline may be out of date in a way the events do not mend: someone joined or left (the
+ * reactions they took with them, on any message: the newest page read again does not cover the older ones), or the
+ * live connection could not resume. Such a room is not kept when left, unless its newest page was read afresh since
+ * (loadNewest). */
+const unsure = new Map<string, number>()
+/** (by the read count when it was marked: only a read that started after it clears it) */
+const markUnsure = (roomId: string) => unsure.set(roomId, timelineGen)
 /** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
  * takes an answer meant for its earlier showing); a thread's goes with it */
 let threadGenSeq = 0
@@ -649,24 +712,6 @@ export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & 
   return pending
 }
 
-/** The runs of my questions that ended and whose line I closed (EndedRun's X), in this browser, per person: the server
- * lists a failed one for a day (rooms/ai.ts state), and a reload must not bring a closed line back. The last 200. */
-const CLOSED_RUNS_MAX = 200
-const closedKey = (userId: string) => `mycel.roomAiClosed:${userId}`
-export function closedRuns(userId: string | null): Set<string> {
-  if (!userId) return new Set()
-  try {
-    const v = JSON.parse(localStorage.getItem(closedKey(userId)) ?? '[]') as unknown
-    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-  } catch { return new Set() }
-}
-function closeRun(userId: string | null, turnId: string) {
-  if (!userId) return
-  try {
-    const list = [...closedRuns(userId)].filter((x) => x !== turnId)
-    localStorage.setItem(closedKey(userId), JSON.stringify([...list, turnId].slice(-CLOSED_RUNS_MAX)))
-  } catch { /* storage full or blocked: closed for this page only */ }
-}
 
 export const useRooms = create<RoomsState>((set, get) => {
   // (the first change to a room's sends in this page starts from the ones this device kept: withKeptUnsent)
@@ -718,9 +763,10 @@ export const useRooms = create<RoomsState>((set, get) => {
     async loadRooms() {
       try {
         const r = await api.call(API.listRooms)
-        set({ rooms: sortRooms(r.items), loaded: true, failed: null, alerts: r.alerts ?? null })
-        // what this device kept for rooms I am no longer in, or for too long, goes
+        // (a room left a moment ago that is not mine any more: its kept messages go with it)
         const mine = new Set(r.items.map((x) => x.id))
+        set((s) => ({ rooms: sortRooms(r.items.map((x) => keepPendingPin(s, x))), loaded: true, failed: null, alerts: r.alerts ?? null, kept: Object.values(s.kept).every((tl) => mine.has(tl.roomId)) ? s.kept : Object.fromEntries(Object.entries(s.kept).filter(([id]) => mine.has(id))) }))
+        // what this device kept for rooms I am no longer in, or for too long, goes
         pruneRoomDevice((id) => mine.has(id))
       } catch (e) {
         set({ loaded: true, failed: e })
@@ -730,7 +776,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     async fetchRoom(id) {
       try {
         const room = await api.call(API.getRoom, { params: { id } })
-        set((s) => withRoom(s, room))
+        set((s) => withRoom(s, keepPendingPin(s, room)))
         return room
       } catch (e) {
         if (isApiError(e, 'not_found') || isApiError(e, 'forbidden')) {
@@ -747,27 +793,35 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     open(roomId) {
       asked.delete(roomId)
+      // a room left a moment ago: as it was, at once (the events kept it current meanwhile), and only what came after its
+      // newest message is read; else its newest page
+      const kept = keptFor(get(), roomId)
+      const shown: RoomTimeline = kept ? { roomId, messages: kept.messages, nextCursor: kept.nextCursor, loading: false, error: null } : { roomId, messages: [], nextCursor: null, loading: true, error: null }
       // (the threads stay: each is its panel's, opened before the page's own effect runs)
-      set({ openRoomId: roomId, timeline: { roomId, messages: [], nextCursor: null, loading: true, error: null } })
+      set((s) => ({ openRoomId: roomId, timeline: shown, kept: omit(s.kept, roomId) }))
       // the sends this device kept for the room come back as not sent, after the newest page: one the server did get
       // (its answer lost when the app closed) is on that page and settles at once (settledPending), not shown failed
       // (a send before that page came adds them at once: setPending)
-      void get().loadNewest(roomId).finally(() => {
+      void (kept ? get().loadAfter(roomId) : get().loadNewest(roomId)).finally(() => {
         if (restoredUnsent.has(roomId) || get().openRoomId !== roomId) return
         setPending(roomId, (list) => list)
         // the ones that settled at once are gone from the device too
         keepUnsent(roomId, get().pending[roomId])
       })
       void get().loadMembers(roomId)
-      void get().loadAi(roomId)
     },
 
-    close(roomId) {
+    close(roomId, place = null) {
       // the page's right side goes with it, as the page's own state did
       set((s) => ({ side: omit(s.side, roomId) }))
       if (get().openRoomId !== roomId) return
       timelineGen++
-      set({ openRoomId: null, timeline: null })
+      // kept for going back: a timeline read to the newest (not a window around an older message, not one still being
+      // read or that failed, nor one read again after a change the events do not carry) of a room still in my list
+      const tl = get().timeline
+      const keep = !!tl && tl.roomId === roomId && !tl.loading && !tl.error && !tl.newerCursor && tl.messages.length > 0 && !unsure.has(roomId) && get().rooms.some((r) => r.id === roomId)
+      unsure.delete(roomId)
+      set((s) => ({ openRoomId: null, timeline: null, kept: keep ? withKept(s.kept, { ...tl!, place, leftAt: Date.now(), leftSeq: newestSeq(tl!.messages) }) : omit(s.kept, roomId) }))
       // messages that came while it was on screen did not count; left without reading them, the server's count is right
       const r = get().rooms.find((x) => x.id === roomId)
       if (r && r.lastReadSeq < r.lastSeq) void get().fetchRoom(roomId).catch(() => {})
@@ -784,9 +838,34 @@ export const useRooms = create<RoomsState>((set, get) => {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         // the messages that came while it was read (my own send from a window around an older one too) stay
         set((s) => ({ timeline: replayed(s, w.changes, { timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, loading: false, error: null } }).timeline }))
+        // read afresh since it was marked: kept again when left
+        if ((unsure.get(roomId) ?? Infinity) < gen) unsure.delete(roomId)
       } catch (error) {
         if (gen !== timelineGen || get().openRoomId !== roomId) return
         set((s) => ({ timeline: { roomId, messages: s.timeline?.roomId === roomId ? s.timeline.messages : [], nextCursor: s.timeline?.roomId === roomId ? s.timeline.nextCursor : null, loading: false, error } }))
+      } finally {
+        w.done()
+      }
+    },
+
+    async loadAfter(roomId) {
+      const tl = get().timeline
+      if (!tl || tl.roomId !== roomId || tl.newerCursor || !tl.messages.length) return get().loadNewest(roomId)
+      const gen = timelineGen
+      const w = watchChanges()
+      try {
+        const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE, cursor: roomTimelineCursor('newer', newestSeq(tl.messages)) } })
+        if (gen !== timelineGen || get().openRoomId !== roomId) return
+        // more than a page came that the events did not bring: the newest page, as on a first open (no gap between)
+        if (page.newerCursor) return void get().loadNewest(roomId)
+        if (!page.items.length) return
+        // added after what is on screen; what changed meanwhile (an edit, a reaction) made again on top
+        set((s) => (s.timeline?.roomId === roomId && !s.timeline.newerCursor ? { timeline: replayed(s, w.changes, { timeline: { ...s.timeline, messages: mergeMessages(s.timeline.messages, page.items) } }).timeline } : {}))
+      } catch (error) {
+        if (gen !== timelineGen || get().openRoomId !== roomId) return
+        // no longer mine (taken out, the room closed): nothing of it stays on screen, the page says it is not there
+        if (isApiError(error, 'not_found') || isApiError(error, 'forbidden')) set({ timeline: { roomId, messages: [], nextCursor: null, loading: false, error } })
+        // else what is on screen stays (the events keep it current; a reconnect that could not resume reads it again)
       } finally {
         w.done()
       }
@@ -1100,8 +1179,16 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async setPinned(roomId, pinned) {
       const params = { id: roomId }
-      const room = pinned ? await api.call(API.pinRoom, { params }) : await api.call(API.unpinRoom, { params })
-      set((s) => withRoom(s, room))
+      // on screen at once; a failure puts it back and says so (lib/optimistic.ts)
+      await optimistic<string | undefined, Room>({
+        key: pinKey(roomId),
+        from: get().rooms.find((r) => r.id === roomId)?.pinnedAt,
+        to: pinned ? new Date().toISOString() : undefined,
+        show: (at) => set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? withPin(r, at) : r)) })),
+        send: () => (pinned ? api.call(API.pinRoom, { params }) : api.call(API.unpinRoom, { params })),
+        confirmed: (room) => room.pinnedAt,
+        settle: (room) => set((s) => withRoom(s, room)),
+      })
     },
 
     async removeMember(roomId, userId) {
@@ -1109,57 +1196,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       set((s) => (s.members[roomId] ? { members: { ...s.members, [roomId]: s.members[roomId]!.filter((m) => m.user.id !== userId) } } : {}))
     },
 
-    async loadAi(roomId) {
-      // the cards of my questions here come along (the AI's question, a confirmation), as a chat's do with its thread
-      // (store/chats.ts loadThread): after a reload, in another browser or after a reconnect the events that opened
-      // them are not replayed, and the question would wait for an answer nobody can give
-      const before = new Set(Object.keys(useChats.getState().requests))
-      const who = myId()
-      const [r, open] = await Promise.all([
-        api.call(API.getRoomAi, { params: { id: roomId } }).catch(() => null),
-        // an older server without the list: the cards that come over the socket, as before
-        api.call(API.listRoomAiRequests, { params: { id: roomId } }).catch(() => null),
-      ])
-      // an older server without the AI in rooms: nothing shows; signed out meanwhile: nothing of it stays
-      if (!r || myId() !== who) return
-      // the questions of mine the list speaks for: the room's as this window knew them and as the server lists them
-      // (the window's own: a question that ended while the socket was away still has its run here, so its card, which
-      // the list no longer has, goes). The two reads run side by side: a turn that ended between them (the cards read
-      // with its card, the runs read without it) and that this window does not know is outside these, so its listed
-      // card is not merged (it would wait under no question) and a copy the socket brought is not dropped by this read;
-      // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
-      // closed before the merge stays out, mergeOpenRequests)
-      const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
-      // the server lists the working ones and my recent failed ones (one a restart cut while this window was away, QA
-      // TC-241), not one I closed in this browser
-      const closed = closedRuns(who)
-      const mine = r.mine.filter((x) => !closed.has(x.turnId))
-      set((s) => {
-        // runs that ended here (stopped, failed) stay until closed
-        const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...mine, ...ended.filter((x) => !mine.some((m) => m.turnId === x.turnId))] } } }
-      })
-      if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
-    },
-
-    async stopAi(roomId, turnId) {
-      await api.call(API.stopRoomAi, { params: { id: roomId, turnId } })
-    },
-
-    dismissAi(roomId, turnId) {
-      // closed here stays closed after a reload (the server lists a failed run for a day)
-      closeRun(myId(), turnId)
-      set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
-    },
-
     takeReturned(key) {
       set((s) => ({ returned: omit(s.returned, key) }))
-    },
-
-    async shareAi(roomId, messageId, body = {}) {
-      const r = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId }, body })
-      if (r.status === 'sent') patchMessages((s) => withMessage(s, roomId, r.message, myId()))
-      return r
     },
 
     async shareAnswer(chatId, messageId, body) {
@@ -1168,7 +1206,16 @@ export const useRooms = create<RoomsState>((set, get) => {
       return r
     },
 
+    forgetKept() {
+      const open = get().openRoomId
+      if (open) markUnsure(open)
+      set({ kept: {} })
+    },
+
     async resync() {
+      // the events in between are lost: the rooms left a moment ago may have missed some, so they are read again when
+      // opened, as the first time; so is the open one when it is left before its newest page is read again
+      get().forgetKept()
       await get().loadRooms()
       const open = get().openRoomId
       // the member lists: a members change missed while away is in none of them, so all go (the next open of a room reads
@@ -1181,31 +1228,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       const threads = Object.values(get().threadViews).map((tv) => get().loadThread(tv.roomId, tv.rootId))
       if (open) {
         asked.delete(open)
-        await Promise.all([get().loadNewest(open), get().loadAi(open), ...members, ...threads])
+        await Promise.all([get().loadNewest(open), ...members, ...threads])
       } else await Promise.all([...members, ...threads])
     },
 
     handleEvent(ev) {
       switch (ev.type) {
-        case 'room.ai':
-          set((s) => ({ ai: withAiCount(s.ai, ev.data.roomId, ev.data.answering) }))
-          return
-        case 'room.ai.run':
-          set((s) => ({ ai: withAiRun(s.ai, ev.data.roomId, ev.data.run) }))
-          return
-        case 'room.ai.step': {
-          const cur = get().ai[ev.data.roomId]
-          if (cur?.runs.some((r) => r.turnId === ev.data.turnId)) set((s) => ({ ai: { ...s.ai, [ev.data.roomId]: { ...cur, runs: withRunStep(cur.runs, ev.data.turnId, ev.data.step) } } }))
-          return
-        }
-        case 'queue.position': {
-          // the queue of every answer of mine: only my questions in rooms are kept here
-          const { turnId, position } = ev.data
-          for (const [roomId, cur] of Object.entries(get().ai)) {
-            if (cur.runs.some((r) => r.turnId === turnId)) set((s) => ({ ai: { ...s.ai, [roomId]: { ...cur, runs: withRunPosition(cur.runs, turnId, position) } } }))
-          }
-          return
-        }
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)
@@ -1240,13 +1268,15 @@ export const useRooms = create<RoomsState>((set, get) => {
             }
             return
           }
-          set((s) => withRoom(s, room))
+          set((s) => withRoom(s, keepPendingPin(s, room)))
           if (change === 'members') {
             memberReads.delete(roomId)
-            set((s) => ({ members: omit(s.members, roomId) }))
+            // (kept after leaving it, it is read again as the first time: the events do not say whose reactions went)
+            set((s) => ({ members: omit(s.members, roomId), kept: omit(s.kept, roomId) }))
             // someone joined or left: the member list, and the reactions they took with them (in place: the reader keeps
             // their place)
             if (get().openRoomId === roomId) {
+              markUnsure(roomId)
               void get().loadMembers(roomId, true)
               void get().refreshNewest(roomId)
             }
@@ -1260,6 +1290,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     reset() {
       asked.clear()
       leaving.clear()
+      unsure.clear()
       memberReads.clear()
       roomDrafts.clear()
       roomDraftMentions.clear()

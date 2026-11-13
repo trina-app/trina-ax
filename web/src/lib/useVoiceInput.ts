@@ -117,7 +117,7 @@ const watchOwner = (f: () => void) => {
 
 /** Esc is for something else: aimed inside a menu, a list or a dialog, or while one is open anywhere (a menu opened by a
  * click: Safari and Firefox leave the focus on the page then), as Layout's own Esc asks */
-const POPUP = '[role="dialog"]:not([data-drawer]),[role="alertdialog"],[role="menu"],[aria-haspopup][aria-expanded="true"]'
+const POPUP = '[role="dialog"],[role="alertdialog"],[role="menu"],[aria-haspopup][aria-expanded="true"]'
 const inPopup = (t: EventTarget | null) =>
   !!(t as Element | null)?.closest?.(`${POPUP},[role="listbox"]`) || (typeof document !== 'undefined' && !!document.querySelector?.(POPUP))
 

@@ -303,25 +303,29 @@ describe('limits, the cap and the switch', () => {
     expect(buildTurnPrompt(A.ctx.files, input('alice'))).toContain(FILE_LIST_RULE)
   })
 
-  test('off: no list for anyone, the stored lines are deleted, nothing starts; on: nothing until the next run reads', async () => {
-    const off = await A.json('/api/admin/file-list', { as: 'carol', ...jsonBody({ enabled: false }, 'PATCH') })
-    expect(off.status).toBe(200)
-    expect(off.body.enabled).toBe(false)
-    expect(await readList('alice', 'shared/_FILES.md')).toBeNull()
-    expect((await call('dana', 'glob', { pattern: '**/_FILES.md' })).text).toBe('No files found')
-    expect(fl.store.counts()).toEqual({ listed: 0, waiting: 0 })
-    expect(fl.hasListFor(A.ctx.files.principal('alice'))).toBe(false)
-    const input: PromptInput = { user: A.ctx.files.principal('alice'), groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, fileList: fl.hasListFor(A.ctx.files.principal('alice')) }
-    expect(buildTurnPrompt(A.ctx.files, input)).not.toContain(FILE_LIST_RULE)
-    expect(fl.start('now')).toBeNull()
-    // a Run now from a screen still showing it on: refused with the reason the web turns into a plain message
-    const refused = await A.json('/api/admin/file-list/run', { as: 'carol', method: 'POST' })
-    expect({ status: refused.status, code: refused.body.error.code, reason: refused.body.error.params?.reason }).toEqual({ status: 409, code: 'conflict', reason: 'off' })
-    const on = await A.json('/api/admin/file-list', { as: 'carol', ...jsonBody({ enabled: true }, 'PATCH') })
-    expect(on.body.enabled).toBe(true)
-    expect(await readList('alice', 'shared/_FILES.md')).toBeNull()
-    expect(await run()).toBe('done')
-    expect(await readList('alice', 'shared/_FILES.md')).toContain(HEADER)
+  test('always on: no switch to turn it off, a stored off from an older build is ignored; only the host turns it off', async () => {
+    // the admin switch is gone (docs/DECISIONS.md "File list: always on")
+    expect((await A.json('/api/admin/file-list', { as: 'carol', ...jsonBody({ enabled: false }, 'PATCH') })).status).toBe(404)
+    A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('fileList.enabled', 'false') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run()
+    try {
+      const s = await A.json('/api/admin/file-list', { as: 'carol' })
+      expect({ enabled: s.body.enabled, forcedOff: s.body.forcedOff, next: typeof s.body.nextRunAt }).toEqual({ enabled: true, forcedOff: false, next: 'string' })
+      expect(fl.on()).toBe(true)
+      expect(await readList('alice', 'shared/_FILES.md')).toContain(HEADER)
+      // the host's server.json is the one way off: no list for anyone, nothing starts, Run now says why
+      A.ctx.config.fileList = { enabled: false }
+      try {
+        expect(await readList('alice', 'shared/_FILES.md')).toBeNull()
+        expect(fl.hasListFor(A.ctx.files.principal('alice'))).toBe(false)
+        const input: PromptInput = { user: A.ctx.files.principal('alice'), groupNames: [], locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history: null, fileList: fl.hasListFor(A.ctx.files.principal('alice')) }
+        expect(buildTurnPrompt(A.ctx.files, input)).not.toContain(FILE_LIST_RULE)
+        expect(fl.start('now')).toBeNull()
+        const refused = await A.json('/api/admin/file-list/run', { as: 'carol', method: 'POST' })
+        expect({ status: refused.status, code: refused.body.error.code, reason: refused.body.error.params?.reason }).toEqual({ status: 409, code: 'conflict', reason: 'forced_off' })
+        expect((await A.json('/api/admin/file-list', { as: 'carol' })).body).toMatchObject({ enabled: false, forcedOff: true, nextRunAt: null })
+      } finally { A.ctx.config.fileList = undefined }
+      expect(await readList('alice', 'shared/_FILES.md')).toContain(HEADER)
+    } finally { A.ctx.db.query("DELETE FROM settings WHERE key = 'fileList.enabled'").run() }
   })
 
   test('members cannot see or change it; admins see counts only', async () => {

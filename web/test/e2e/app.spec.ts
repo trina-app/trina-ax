@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab, openTrinaRow } from './nav'
 import { PRODUCT } from '@mycel/shared'
 
 test('a dropped WebSocket shows "reconnecting", resumes, and the answer continues', async ({ page }) => {
@@ -28,19 +29,17 @@ test('a new server version offers a reload', async ({ page }) => {
   await expect(page.getByRole('button', { name: '새로 고침' })).toBeVisible()
 })
 
-test('projects: create a team project, open a chat in it', async ({ page }) => {
+test('projects: make a project by its name, open a chat in it', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.getByRole('link', { name: '프로젝트' }).click()
+  await openTrinaRow(page, 'projects')
   await page.getByTestId('project-new').click()
-  await page.getByTestId('project-name').fill('Launch')
-  // no folder to choose: a team project is a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/")
-  await expect(page.getByTestId('project-kind-team')).toBeChecked()
+  // the name only (docs/DECISIONS.md "Making a project"): no kind, no folder, no instructions to fill first
+  await expect(page.getByTestId('project-kind-team')).toHaveCount(0)
   await expect(page.getByTestId('project-folder')).toHaveCount(0)
-  await page.getByRole('dialog').getByLabel('지침').fill('Answer in short bullet points.')
-  await page.getByTestId('project-save').click()
+  await page.getByTestId('project-name').fill('Launch')
+  await page.getByTestId('project-create').click()
   await expect(page.getByRole('heading', { name: 'Launch' })).toBeVisible()
-  await expect(page.getByText('Answer in short bullet points.')).toBeVisible()
   // the project's page has the box that starts a chat in it
   await page.getByTestId('composer-input').fill('project question')
   await page.getByTestId('send').click()
@@ -131,21 +130,13 @@ test('keyboard: ⌘K opens search, Esc closes it, ⌘⇧O starts a new chat', as
 
 test.describe('phone width', () => {
   test.use({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true })
-  test('drawer sidebar, full-screen panel, no horizontal scroll', async ({ page }) => {
+  test('the 파일 tab, full-screen panel, no horizontal scroll', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await expect(page.getByTestId('new-chat')).not.toBeVisible()
-    await page.getByRole('button', { name: '메뉴 열기' }).click()
-    // the drawer is the AI's history: a new chat is the 트리나 tab itself (Home, where this opened)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('button', { name: '검색' })).toBeVisible()
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByTestId('new-chat')).toBeHidden()
-    // 프로젝트 is a tab on a phone, with the team folder as its last row: neither is a row of the drawer (QA TC-255)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '파일' })).toHaveCount(0)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '프로젝트', exact: true })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await page.getByTestId('tab-projects').click()
-    await page.getByTestId('projects-team-folder-row').click()
-    await page.getByTestId('file-row').filter({ hasText: 'marketing' }).getByRole('button').first().click()
+    await openTab(page, 'files')
+    // a phone's 파일 tab is its places (the team folder's top folders among them): marketing from there
+    await page.getByTestId('files-panel-team').filter({ hasText: 'marketing' }).click()
+    await expect(page).toHaveURL(/\/files\?path=marketing$/)
     await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first().click()
     const panel = page.getByTestId('file-panel')
     await expect(panel).toBeVisible()

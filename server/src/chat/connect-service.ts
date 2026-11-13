@@ -42,8 +42,8 @@ import type { TurnExec } from './turn'
 export function connectRows(db: Database, userId: string, scope: 'personal' | 'team'): { rows: Row[]; count: number } {
   const rows = scope === 'personal'
     ? [...(db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(userId) as Row[]).filter((r) => !r.template_id || templateCovers(db, r.template_id, userId)),
-      ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
-    : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
+      ...(db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
+    : db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]
   return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id).length }
 }
 
@@ -169,6 +169,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const viewer = activeUser(db, spec.userId)
   if (!viewer) return early('Access denied: this account is disabled.', 'account disabled')
   const target = a.data.target ?? 'service'
+  // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Marketplace-safe reading"); without
+  // this the AI offered a card for Slack that does nothing (2026-11-13)
+  if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
   // cannot see or that turns the text around (hiddenText)
   for (const [field, v] of [['name', a.data.name], ['notes', a.data.notes], ['why', a.data.why]] as const) {
@@ -325,13 +328,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
-  // changed or removed in Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
+  // changed or removed in Settings › Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
   // through it
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}), ...(note ? { note } : {}) }, false, shownLabel) }
   exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
   const reason = made ? `"${made.name}" ${kept.created ? 'was added but is not working yet' : 'is still not working'} (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
-    : kept.changed ? 'the connection this card made was changed or removed in Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
+    : kept.changed ? 'the connection this card made was changed or removed in Settings › Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
@@ -475,4 +478,20 @@ async function done(ctx: AppContext, exec: TurnExec, viewer: Viewer, requestId: 
   const v = row.status === 'connected' || !row.secret_enc ? view(ctx.db, row, viewer, L) : await integrationsOf(ctx).refresh(viewer, row.id, L)
   if (v.status !== 'connected') return { state: 'retry', integrationId: v.id, status: v.status, lastError: v.lastError ?? tr('connectNotYet', L) }
   return stateOfView(v, requestId, exec, row.auth === 'oauth')
+}
+
+/** A connect_service call for Slack: its name, or an address at slack.com */
+export function isSlack(name: string | undefined, url: string | undefined): boolean {
+  if (name && /^\s*slack\b/i.test(name)) return true
+  if (!url) return false
+  try { const h = new URL(url).hostname.toLowerCase(); return h === 'slack.com' || h.endsWith('.slack.com') } catch { return false }
+}
+
+/** How this person reaches Slack, in words for the AI (no card exists for it) */
+function slackWay(db: Database, userId: string): string {
+  const cfg = db.query('SELECT enabled, secret_enc, team_id FROM slack_config WHERE id = 1').get() as { enabled: number; secret_enc: string | null; team_id: string | null } | null
+  if (!cfg?.enabled || !cfg.secret_enc) return 'Slack is not set up for this team: the team\'s owner or an admin adds it in Admin › Connected apps › Slack. Tell the user that; do not offer a card.'
+  const linked = !!db.query('SELECT 1 FROM slack_links WHERE user_id = ? AND team_id = ?').get(userId, cfg.team_id)
+  if (!linked) return 'The user links their Slack account once in Settings › Connectors › Slack (Sign in with Slack). Tell the user that; do not offer a card.'
+  return 'The user\'s Slack account is linked. Slack is read only in channels the Slack app was invited to (/invite) and the user is in; if you have no Slack tools, the team\'s owner or an admin first updates the Slack app\'s permissions in Admin › Connected apps › Slack. Tell the user that; do not offer a card.'
 }

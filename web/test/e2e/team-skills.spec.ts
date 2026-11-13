@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { openTrinaRow } from './nav'
 
 const SHOTS = process.env.STAGE67_SHOTS
 
@@ -173,13 +174,15 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
   await expect(panel.getByTestId('edit-skill-locked')).toHaveCount(0)
   await shot('skills-line-panel-1360')
-  await page.setViewportSize({ width: 375, height: 800 })
-  await expect(panel.getByTestId('edit-skill-editors')).toBeVisible()
-  await shot('skills-line-panel-375')
-  await page.setViewportSize({ width: 1360, height: 860 })
   await panel.getByTestId('edit-close').click()
   await page.getByRole('dialog', { name: '바꾼 규칙을 버릴까요?' }).getByRole('button', { name: '버리기', exact: true }).click()
   await expect(panel).toHaveCount(0)
+  // a phone: the rule editor is a page of its own (`&rules=`, since 1d63c17a1), with the same line
+  await page.setViewportSize({ width: 375, height: 800 })
+  await page.goto(`/admin/folders?folder=${encodeURIComponent('skills/재무')}&rules=${encodeURIComponent('skills/재무')}`)
+  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
+  await shot('skills-line-panel-375')
+  await page.setViewportSize({ width: 1360, height: 860 })
 
   // the Team skills page says the same as the tree; the group's rule is a row of its dialog
   await page.goto('/skills')
@@ -364,7 +367,9 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await page.getByTestId('send').click()
   card = page.getByTestId('ask-card')
   const preview = card.getByTestId('skill-preview')
-  await expect(preview).toContainText('skills/weekly.md')
+  // the file in words since the plain-words pass (795113c5a), its path on hover
+  await expect(preview.getByTestId('skill-preview-path')).toHaveText('팀 스킬 › weekly.md')
+  await expect(preview.getByTestId('skill-preview-path')).toHaveAttribute('title', 'skills/weekly.md')
   await expect(preview).toContainText('새 파일')
   await expect(preview.getByTestId('skill-preview-count')).toHaveText('+6 −0줄')
   await expect(preview.getByTestId('skill-preview-diff')).toContainText('+name: 주간 보고서')
@@ -403,7 +408,7 @@ test('a deleted team skill: 최근 변경 and the notice open 파일 › 휴지�
   await expect(change.getByRole('button', { name: '삭제한 기록' })).toHaveCount(0)
   await change.getByRole('button', { name: '휴지통', exact: true }).click()
   await expect(page).toHaveURL(/\/files\?view=trash$/)
-  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
   await expect(page.getByTestId('trash-list')).toContainText('skills/team-rules.md')
   expect(realErrors(errors)).toEqual([])
 })
@@ -426,7 +431,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await dialog.getByTestId('suggest-description').fill('회의록으로 주간 보고서를 만든다')
   await page.getByTestId('suggest-send').click()
   await expect(page.getByText('스킬을 제안했어요. 검토가 끝나면 알려 드려요.')).toBeVisible()
-  await page.getByTestId('nav-skills').click()
+  await openTrinaRow(page, 'skills')
   // the page opens on the skills Bob can use; his suggestion is on "내 제안"
   await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: '내 제안' }).click()
@@ -440,7 +445,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/skills.*$/, ''), locale: 'ko-KR' })
   const owner = await ctx.newPage()
   await signIn(owner, OWNER)
-  await owner.getByTestId('nav-skills').click()
+  await openTrinaRow(owner, 'skills')
   await expect(owner.getByRole('tab', { name: '검토 대기 (1)' })).toBeVisible()
   await owner.getByTestId('review-list').getByTestId('review-open').click()
   const review = owner.getByTestId('review-dialog')
@@ -498,7 +503,7 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
     { path: 'users/bob/skills/tone.md', name: '내 말투', description: 'Bob의 메일 말투' },
   ] } })).ok()).toBeTruthy()
   await signIn(page, BOB)
-  await page.getByTestId('nav-skills').click()
+  await openTrinaRow(page, 'skills')
   await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
   // only "내 제안" besides it: no review, no recent changes
   await expect(page.getByRole('tab')).toHaveCount(2)
@@ -623,6 +628,6 @@ test('no skill to use yet: the tab says so, who puts skills in, and how one gets
   // a member: the owner or an admin puts the team skills in (docs/DECISIONS.md "W6")
   await expect(page.getByText('아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요')).toBeVisible()
   // how one gets there, without the folder path ("skills/ 폴더")
-  await expect(page.getByTestId('skill-none-member')).toHaveText('채팅 답변 아래나 내 폴더의 파일 메뉴에서 "스킬로 제안"을 눌러 팀에 스킬을 제안할 수 있어요.')
+  await expect(page.getByTestId('skill-none-member')).toHaveText('채팅 답변 아래나 내 파일에 있는 파일의 메뉴에서 "스킬로 제안"을 눌러 팀에 스킬을 제안할 수 있어요.')
   await expect(page.locator('main')).not.toContainText('skills/')
 })

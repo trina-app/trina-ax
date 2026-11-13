@@ -34,7 +34,7 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
-/** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
+/** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
@@ -53,6 +53,8 @@ export const reloadAsked = new Emitter<'reset' | 'resync'>()
 /** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
  * a project's page applies those of its project (pages/Projects.tsx) */
 export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
+/** my list folders changed (navFolders.changed, docs/DECISIONS.md "List folders"): the Trina list reads its groups again */
+export const navFoldersChanged = new Emitter<'chats' | 'rooms'>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
@@ -77,8 +79,6 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
     case 'queue.position':
-      // a question to the AI in a room waits in the same queue (store/rooms.ts keeps the room's own)
-      useRooms.getState().handleEvent(ev)
       useChats.getState().handleEvent(ev)
       return
     case 'chat.updated':
@@ -115,8 +115,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
       return
     case 'room.updated':
-      // the room's AI waits on me now (Room.aiWaits): told like a card
-      roomUpdated(ev, meta)
+      // a room I am out of: nothing of it is told any more
+      roomUpdated(ev)
       useRooms.getState().handleEvent(ev)
       return
     case 'room.message.updated':
@@ -124,9 +124,6 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'room.thread':
     // a reaction never rings (nor counts anywhere)
     case 'room.reactions':
-    case 'room.ai':
-    case 'room.ai.run':
-    case 'room.ai.step':
       // the team chat rooms (store/rooms.ts): only the room's members get these
       useRooms.getState().handleEvent(ev)
       return
@@ -191,7 +188,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.code === 'team_icon_changed') {
-        // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
+        // an admin set or removed the team logo: the rail's logo follows (GET /api/me carries its version); the tab
         // icon stays the product's
         void useSession.getState().refreshMe()
         return
@@ -258,6 +255,9 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
       return
+    case 'navFolders.changed':
+      navFoldersChanged.emit(ev.data.kind)
+      return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
       if (useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('ended')
@@ -274,6 +274,9 @@ export function startLive() {
     createSocket: (url, protocols) => new WebSocket(url, protocols) as never,
     onEvent: dispatch,
     onReload: (reason) => {
+      // the rooms left a moment ago may have missed events: read again when opened (also when no screen that reads the
+      // rooms again is up: components/rooms/useRoomsSync)
+      useRooms.getState().forgetKept()
       void useChats.getState().reloadAll()
       void useDeckBuilds.getState().reloadAll()
       void useSession.getState().refreshMe() // a language change may have happened while we were away
@@ -299,7 +302,7 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
-  activity = startActivity((state) => client?.send({ type: 'presence', state }))
+  activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange, !!desktop())
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
   client.start()

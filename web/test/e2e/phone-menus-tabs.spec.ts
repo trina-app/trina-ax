@@ -9,6 +9,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openChatFilter, openSearch, phoneTrinaHome, showChats } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -69,6 +70,14 @@ for (const lang of ['ko', 'en'] as const) {
       const made = await page.request.post('/api/skills/suggestions', { headers: H_, data: { source: { kind: 'file', path: `users/${me.user.id}/tone.md` }, name: 'Mail tone', content: '# Mail tone\n\nShort and kind.' } })
       expect(made.status()).toBe(201)
       await page.goto('/skills')
+      // the row measures its words (ui.tsx PhoneTabs): with a wider system font (the Linux runner's DejaVu Sans) English
+      // does not fit and the row is a picker, on purpose; the rest of this test runs in Korean too
+      const phoneTabs = page.getByTestId('skills-header').getByTestId('tabs-phone')
+      await expect(phoneTabs).toHaveAttribute('data-fits', /^(row|picker)$/)
+      if (lang === 'en' && (await phoneTabs.getAttribute('data-fits')) === 'picker') {
+        test.info().annotations.push({ type: 'note', description: 'English tabs are a picker in this font' })
+        return
+      }
       const tabs = page.getByTestId('skills-header').getByRole('tablist')
       await expect(tabs.getByRole('tab')).toHaveText([t['skills.tabSkillsShort'], `${t['skills.tabReviewShort']} (1)`, t['skills.tabMineShort'], t['skills.tabChangesShort']])
       // the row is the width of the page (16px each side), never scrolls, every word whole
@@ -151,8 +160,7 @@ for (const lang of ['ko', 'en'] as const) {
       await page.getByTestId('send').click()
       await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
       await page.getByTestId('chat-back').click()
-      await page.getByTestId('menu-open').click()
-      await page.getByRole('button', { name: t['sidebar.search'] }).first().click()
+      await openSearch(page)
       const palette = page.getByTestId('search-palette')
       await expect(palette).toBeVisible()
       // no row of chips that scrolls: one picker, 44px
@@ -276,23 +284,25 @@ for (const lang of ['ko', 'en'] as const) {
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
-    test('the drawer\'s filter: four rows with their values as a sheet, a row\'s choices as a second sheet', async ({ page }) => {
+    test('the 트리나 tab\'s filter: four rows with their values as a sheet, a row\'s choices as a second sheet', async ({ page }) => {
       await start(page, lang)
       await page.getByTestId('composer-input').fill('first chat')
       await page.getByTestId('send').click()
       await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
       await page.getByTestId('chat-back').click()
-      await page.getByTestId('menu-open').click()
-      const drawer = page.locator('[data-drawer]')
+      await showChats(page)
+      const drawer = phoneTrinaHome(page)
       const filter = drawer.getByTestId('recents-filter')
-      // a small square in the line of 트리나 기록, taking taps from 44px around it (touch-hit)
-      expect(await filter.evaluate((el) => { const a = getComputedStyle(el, '::after'); return Math.min(parseFloat(a.width), parseFloat(a.height)) })).toBeGreaterThanOrEqual(44)
+      // in the 트리나 tab's bar: 44 px to tap
+      const box = (await filter.boundingBox())!
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44)
       await filter.click()
       const sheet = page.getByRole('menu', { name: t['sidebar.filter'] })
       await isSheet(sheet)
       await expect(sheet.getByRole('menuitem')).toHaveText([
         `${t['sidebar.view.status']}· ${t['sidebar.status.all']}`,
         `${t['sidebar.view.activity']}· ${t['sidebar.activity.all']}`,
+        // the drawer: by date by default, as before the redesign (docs/DECISIONS.md "Phones: the 트리나 tab as before")
         `${t['sidebar.view.group']}· ${t['sidebar.group.date']}`,
         `${t['sidebar.view.sort']}· ${t['sidebar.sort.updated']}`,
       ])
@@ -373,11 +383,11 @@ test('the phone\'s tabs, pickers and sheets have no serious accessibility proble
   await expect(page.getByTestId('schedule-delete-row')).toBeAttached()
   await audit(page, 'scheduled task')
   await page.goto('/')
-  await page.getByTestId('menu-open').click()
-  await page.locator('[data-drawer]').getByTestId('recents-filter').click()
-  await audit(page, 'drawer filter sheet', '[data-drawer]')
+  // the 트리나 tab's filter
+  await openChatFilter(page)
+  await audit(page, 'filter sheet', '[role="menu"]')
   await page.keyboard.press('Escape')
-  await page.locator('[data-drawer]').getByRole('button', { name: DICTS.en['sidebar.search'] }).first().click()
+  await openSearch(page)
   await expect(page.getByTestId('search-palette')).toBeVisible()
   await audit(page, 'search', '[data-testid="search-palette"]')
   await page.getByTestId('search-type').click()

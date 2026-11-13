@@ -1,6 +1,7 @@
 // Settings › App connectors › Slack (docs/SLACK.md): one line, always there while the team uses Slack: the Slack account
 // linked to me with Unlink, or "Sign in with Slack" to link the Slack account I sign in to (or, without it, how to get a
-// link in Slack). The outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack
+// link in Slack), and what the AI may read in Slack (the channels and threads the app was invited to and I am in). The
+// outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack
 // and nothing is linked. `onShown` tells the page whether it shows.
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -55,6 +56,9 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
             <p className="mt-1 text-xs text-muted">
               {t('slack.mine.linked', { name: me.link.slackName ?? me.link.slackUserId, workspace: me.workspace ?? '' })}
               <span className="mt-0.5 block text-faint">{t('slack.mine.since', { date: formatDateTime(me.link.linkedAt, locale) })}</span>
+              {/* what the AI may read in Slack: the channels and threads the app was invited to and I am in (the bot's
+                  permissions; nothing for me to allow) */}
+              {me.available && <span className={`mt-0.5 block ${me.read ? 'text-faint' : ''}`} data-testid="slack-read-state">{t(me.read ? 'slack.read.on' : 'slack.read.needsAdmin')}</span>}
             </p>
           ) : (
             <>

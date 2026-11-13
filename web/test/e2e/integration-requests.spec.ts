@@ -4,9 +4,16 @@
 // from there). The member opens the link, enters their own key and it becomes their connection; the admin sees it
 // connected and never the key. A withdrawn request leaves the list and its link says so; a decline shows on the row.
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+
+/** the member is picked from a search with pictures (the one Folder permissions uses), not the browser's list */
+async function pickMember(page: Page, query: string, username: string) {
+  await page.getByTestId('integration-request-user-search').fill(query)
+  await page.getByTestId('edit-add-option').filter({ hasText: username }).click()
+  await expect(page.getByTestId('integration-request-user')).toHaveAttribute('data-user', username)
+}
 
 const KEY = 'member-own-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -24,10 +31,15 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.getByTestId('integration-request-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()
-  // nothing goes without a member
+  // nothing red on a popup nobody has filled in yet; nothing goes without a member
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByTestId('integration-request-user-search')).toBeFocused()
   await page.getByTestId('integration-request-send').click()
   await expect(dialog).toContainText('멤버를 골라 주세요.')
-  await page.getByTestId('integration-request-user').selectOption('bob')
+  await expect(page.getByTestId('integration-request-user-search')).toHaveAttribute('aria-invalid', 'true')
+  await pickMember(page, 'bo', 'bob')
+  await expect(dialog).not.toContainText('멤버를 골라 주세요.')
+  await expect(page.getByTestId('integration-request-user-change')).toBeFocused()
   await page.getByTestId('integration-request-kind-http').check()
   // an API signs in with a key only, which the member enters
   await expect(page.getByTestId('integration-request-auth-oauth')).toHaveCount(0)
@@ -82,10 +94,9 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.getByTestId('integration-answer-connect').click()
   expect((await done).postDataJSON()).toEqual({ writePolicy: 'deny', secret: KEY })
   await expect(answer).toHaveCount(0)
-  const mine = page.getByTestId('integrations-mine').getByTestId('integration-row').filter({ hasText: 'Ledger' })
+  const mine = page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name: 'Ledger' }) })
   await expect(mine).toBeVisible()
-  await mine.getByTestId('integration-toggle').click()
-  await expect(mine.getByTestId('integration-meta')).toContainText('키 저장됨')
+  await expect(mine.getByTestId('app-info')).toContainText('키 저장됨')
   await expect(page.getByTestId('integrations-asked-list')).toHaveCount(0)
   await expect(page.locator('body')).not.toContainText(KEY)
 
@@ -143,7 +154,8 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await declined.getByTestId('integration-request-again').click()
   await expect(page.getByTestId('integration-request-name')).toHaveValue('Wiki')
   await expect(page.getByTestId('integration-request-url')).toHaveValue('https://mcp.wiki.example/mcp')
-  await expect(page.getByTestId('integration-request-user')).toHaveValue('bob')
+  await expect(page.getByTestId('integration-request-user')).toHaveAttribute('data-user', 'bob')
+  await expect(page.getByTestId('integration-request-user')).toContainText('Bob')
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
   await expect(declined.getByTestId('integration-request-again')).toBeFocused()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
@@ -167,9 +179,23 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') })
   await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()
-  // why a member's own key: one line in the popup, not on the page
-  await expect(dialog).toContainText('호출마다 키 주인의 이름으로 기록하는 서비스에 써요.')
-  await page.getByTestId('integration-request-user').selectOption('bob')
+  // one short line in the popup, not on the page; the 7 days under the member
+  await expect(dialog).toContainText('멤버가 자기 키나 로그인으로 직접 연결해요.')
+  await expect(dialog).toContainText('요청은 7일 동안 기다려요.')
+  // the member list from the keyboard: arrows move, Enter picks, Change goes back to the search
+  const search = page.getByTestId('integration-request-user-search')
+  await expect(search).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(search).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('edit-add-option').first()).toBeVisible()
+  await search.fill('zzz-nobody')
+  await expect(page.getByTestId('edit-add-list')).toContainText('맞는 멤버가 없어요.')
+  await search.fill('bob')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('integration-request-user')).toHaveAttribute('data-user', 'bob')
+  await page.getByTestId('integration-request-user-change').click()
+  await expect(search).toBeFocused()
+  await pickMember(page, 'bob', 'bob')
   await page.getByTestId('integration-request-name').fill('Tracker')
   await page.getByTestId('integration-request-url').fill('https://mcp.tracker.example/mcp')
   await page.getByTestId('integration-request-send').click()
@@ -189,6 +215,8 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   // the Team connection item opens the team dialog, like the main button
   await page.getByTestId('integration-add-more').click()
   await page.getByTestId('integration-add-team').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
@@ -214,7 +242,11 @@ for (const scheme of ['light', 'dark'] as const) {
     // (axe's target-size counts that); the list was checked above
     expect(await axe('[role="menu"]')).toEqual([])
     await page.getByTestId('integration-request-add').click()
-    await expect(page.getByTestId('integration-request-user')).toBeVisible()
+    await expect(page.getByTestId('integration-request-user-search')).toBeVisible()
+    expect(await axe()).toEqual([])
+    // the member list open
+    await page.getByTestId('integration-request-user-search').click()
+    await expect(page.getByTestId('edit-add-option').first()).toBeVisible()
     expect(await axe()).toEqual([])
   })
 }

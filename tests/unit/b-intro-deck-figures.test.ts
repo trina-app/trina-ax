@@ -237,6 +237,20 @@ describe('the themes from one brand colour', () => {
       }
     }
   })
+  test('the brand mesh: every blob carries the feature type as well as B does; labels and the footer (mute) at 4.5:1 on it', () => {
+    // blue → cyan reads far lighter at the same HSL lightness: the turned blob used to drop white type to 2:1
+    for (const b of ['#1d6ae5', '#0b5fff', '#2563eb', '#c2410c', '#7c3aed', '#1428a0', '#ffd400']) for (const theme of ['brand', 'paper'] as DeckTheme[]) {
+      const look = lookFor2(theme, b)
+      if (!look.mesh) continue
+      const g = look.feature
+      for (const m of look.mesh) {
+        const at = `${b} ${theme} ${m}`
+        expect(contrast(g.text, m), at).toBeGreaterThanOrEqual(contrast(g.text, g.bg) - 1e-9)
+        expect(contrast(g.dim, m), at).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(g.mute, m), at).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
   test('a hueless brand takes the accent sampled from its pictures (paper), the café\'s rust on paper and on the warm black', () => {
     const look = lookFor2('paper', '#212121', '#a5532b')
     expect(look.content.accent).toBe('#a5532b')

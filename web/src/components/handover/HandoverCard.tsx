@@ -11,7 +11,7 @@ import type { LeadCard, Locale } from '@mycel/shared/api'
 import { formatShortDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
-import { useHandover } from '../../store/handover'
+import { leadCardWaiting, useHandover } from '../../store/handover'
 import { toast } from '../../store/ui'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { HandoverDialog } from './HandoverDialog'
@@ -33,8 +33,8 @@ export function useLeadCard(enabled: boolean): LeadCard | null {
   useEffect(() => {
     if (owner && enabled) void useHandover.getState().load().catch(() => {})
   }, [owner, enabled])
-  if (!owner || !enabled || !state?.flag || !state.card || state.card.dismissed) return null
-  return state.card
+  if (!owner || !enabled || !leadCardWaiting(state)) return null
+  return state!.card
 }
 
 export function HandoverCard({ card }: { card: LeadCard }) {

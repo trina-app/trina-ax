@@ -26,7 +26,10 @@ async function tooSmall(page: Page, only?: string): Promise<{ small: Control[]; 
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(300)
   return page.evaluate((only) => {
-    const bottom = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect().top ?? innerHeight
+    // the phone's tab bar, unless a menu sheet is drawn over it (the message box's ＋ since TC-251): then the screen's bottom
+    const tr = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect()
+    const over = tr && document.elementFromPoint(tr.left + tr.width / 2, tr.top + tr.height / 2)?.closest('[role="menu"]')
+    const bottom = tr && !over ? tr.top : innerHeight
     const sel = 'button, a[href], [role=tab], [role=menuitem], input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea, label:has(input[type=checkbox])'
     const small: Control[] = []
     const fields: Control[] = []
@@ -107,7 +110,8 @@ for (const touch of [true, false])
 
   test('Home: the message box and its buttons', async ({ page }) => {
     await signIn(page)
-    await page.goto('/')
+    // a phone's new-chat box is its own page (`/` is 트리나's list, nav rail #673)
+    await page.goto('/new')
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expectPhoneSized(page)
   })
@@ -194,7 +198,8 @@ for (const touch of [true, false])
     await page.getByTestId('file-menu').first().click()
     await expectTargets(page, '[role="menu"] [role="menuitem"]', 2)
     await page.keyboard.press('Escape')
-    await page.goto('/files')
+    // a phone's /files is 파일's places; the team folder's top is ?team=1 (nav rail #673, lib/newChat.ts)
+    await page.goto('/files?team=1')
     await page.getByTestId('content-search-input').fill('refund')
     await expect(page.getByTestId('content-hit').first()).toBeVisible()
     await expectTargets(page, '[data-testid="content-hit-file"], [data-testid="content-hit"], [data-testid="name-hit"]', 3)
@@ -248,7 +253,8 @@ for (const touch of [true, false])
   // (Scheduled's search with its ✕ is a computer's: a phone has a field of its own in the page, without one)
   test('the ✕ in the file picker\'s search: 44 px, where it was', async ({ page }) => {
     await signIn(page)
-    await page.goto('/')
+    // a phone's new-chat box is its own page (`/` is 트리나's list, nav rail #673)
+    await page.goto('/new')
     await page.getByTestId('attach-button').click()
     await page.getByTestId('attach-team').click()
     const dialog = page.getByRole('dialog')
@@ -264,7 +270,8 @@ for (const touch of [true, false])
   // and a Files row's ⋯ menu on the last row (a sheet since #475: checked in full sight)
   test('the message box\'s ＋ menu and the team file picker\'s "Team folder" and folders', async ({ page }) => {
     await signIn(page)
-    await page.goto('/')
+    // a phone's new-chat box is its own page (`/` is 트리나's list, nav rail #673)
+    await page.goto('/new')
     await page.getByTestId('attach-button').click()
     await expect(page.getByTestId('attach-team')).toBeVisible()
     await expectTargets(page, '[role="menu"] [data-testid^="attach-"][role="menuitem"]', 3)
@@ -312,18 +319,19 @@ for (const touch of [true, false])
   })
 
 for (const width of [768, 1440])
-  test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 14 px fields`, async ({ page }) => {
+  test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 15 px fields`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/login')
     expect((await page.getByTestId('login-submit').boundingBox())!.height).toBe(36)
-    expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
+    expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('15px')
   })
 
-// measured on dev before the third round's change: computers keep these exactly
-const KEPT = { notFound: 20, attachItem: 36, crumb: 28, folderRow: 36 }
+// computers keep the desktop layout: these were 20 / 36 / 28 / 36 before computers read at 15px (22px lines, docs/DECISIONS.md
+// "Computers read at the phone's sizes"); each grew by the 2px of the line, nothing else changed
+const KEPT = { notFound: 22, attachItem: 38, crumb: 30, folderRow: 38 }
 
 for (const width of [768, 1440])
-  test(`a computer or tablet at ${width} px keeps the ＋ menu, the picker and the 404 link as they were`, async ({ page }) => {
+  test(`a computer or tablet at ${width} px keeps the ＋ menu, the picker and the 404 link at their computer sizes`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
     await signIn(page)

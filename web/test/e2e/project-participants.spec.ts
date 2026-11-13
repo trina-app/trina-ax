@@ -28,6 +28,22 @@ async function asBob(browser: Browser): Promise<Page> {
   return b
 }
 
+/** "+ 새 프로젝트" on the projects page: the name only, made mine, its page opened */
+async function makeMine(p: Page, name: string) {
+  await p.goto('/projects')
+  await p.getByTestId('project-new').click()
+  await p.getByTestId('project-name').fill(name)
+  await p.getByTestId('project-create').click()
+  await expect(p.getByRole('heading', { level: 1, name })).toBeVisible()
+}
+/** 멤버 추가's 공유하기, and its plain confirm */
+async function shareConfirmed(p: Page) {
+  await p.getByTestId('project-share-confirm').click()
+  await expect(p.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' })).toBeVisible()
+  await p.getByTestId('dialog-confirm').click()
+  await expect(p.getByRole('dialog')).toHaveCount(0)
+}
+
 test('the owner\'s case: every count is the members, the owner and admins only when chosen; the owner sees it without being in it', async ({ page, browser }) => {
   // the owner, another admin (Eve) and Dana, who makes the project with a group of three she is in
   await reset(page, { withAdmin: true })
@@ -39,16 +55,14 @@ test('the owner\'s case: every count is the members, the owner and admins only w
   const ctx = await browser.newContext({ locale: 'ko-KR', viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' })
   const d = await ctx.newPage()
   await signIn(d, { username: 'dana', password: 'dana password 1' })
-  await d.goto('/projects')
-  await d.getByTestId('project-new').click()
-  await d.getByTestId('project-name').fill('견적서 제작')
-  // only Dana yet: nobody by role
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 1명')
+  // a new project is mine, by its name only (docs/DECISIONS.md "Making a project"); 멤버 추가 makes it the team's
+  await makeMine(d, '견적서 제작')
+  await d.getByTestId('project-share').click()
   await d.getByTestId('project-participants-search').fill('리드')
   await d.getByTestId(`participant-add-group-${lead}`).click()
   // Dana, who is in the group too, counts once: 3 members, and nothing about the owner and Eve
   await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
-  await d.getByTestId('project-save').click()
+  await shareConfirmed(d)
   await expect(d.getByRole('heading', { level: 1, name: '견적서 제작' })).toBeVisible()
   const id = d.url().split('/').pop()!
   await expect(d.getByTestId('project-members')).toContainText('멤버3명')
@@ -77,16 +91,17 @@ test('a member makes a team project with a person, then adds one more: the confi
   await signIn(page)
   await seed(page)
   const b = await asBob(browser)
+  // a new project: its name only, mine first, no folder to choose; who sees it is said ("나만 봐요", members later)
   await b.goto('/projects')
   await b.getByTestId('project-new').click()
   const dialog = b.getByRole('dialog')
-  await b.getByTestId('project-name').fill('주간 보고')
-  // a team project by default, no folder to choose; how many see it is always said
-  await expect(b.getByTestId('project-kind-team')).toBeChecked()
+  await expect(dialog.getByTestId('project-who')).toHaveText('나만 봐요. 멤버는 나중에 추가할 수 있어요.')
   await expect(dialog.getByTestId('project-folder')).toHaveCount(0)
-  // a new project: the count is me and the people I choose (members only)
-  await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 1명')
-  // I am always in it (no × to take me out)
+  await dialog.getByTestId('project-name').fill('주간 보고')
+  await dialog.getByTestId('project-create').click()
+  await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
+  // 멤버 추가: I am always in it (no × to take me out)
+  await b.getByTestId('project-share').click()
   await expect(b.getByTestId('participant-user-bob')).toContainText('나')
   await expect(b.getByTestId('participant-remove-user-bob')).toHaveCount(0)
   // the search lists everyone I can add, my own group (부서) too; typing narrows it
@@ -98,7 +113,7 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('participant-add-user-sora').click()
   await expect(b.getByTestId('participant-user-sora')).toBeVisible()
   await expect(b.getByTestId('project-access-summary')).toHaveText('멤버 2명')
-  await b.getByTestId('project-save').click()
+  await shareConfirmed(b)
   await expect(b.getByRole('heading', { level: 1, name: '주간 보고' })).toBeVisible()
   const id = b.url().split('/').pop()!
 
@@ -196,9 +211,9 @@ test('a team that lets only admins make team projects: a member makes a personal
   expect((await page.request.patch('/api/admin/settings', { headers: H, data: { projectCreators: 'admins' } })).ok()).toBeTruthy()
   const b = await asBob(browser)
   await b.goto('/projects?new=1')
-  await expect(b.getByRole('dialog')).toContainText('이 팀에서는 팀장과 관리자만 팀 프로젝트를 만들 수 있어요.')
+  // the name-only dialog says it stays mine, without "members later"
+  await expect(b.getByRole('dialog').getByTestId('project-who')).toHaveText('나만 봐요.')
   await expect(b.getByTestId('project-kind-team')).toHaveCount(0)
-  await expect(b.getByTestId('project-kind-personal')).toBeChecked()
   await b.context().close()
   // the switch in Team settings
   await page.goto('/admin/settings')

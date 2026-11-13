@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { myStatusRow, openStatusDialog } from './nav'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -136,6 +137,15 @@ test('the keyboard: ↓ into the grid, arrows move; Esc closes and gives the key
   await expect(pop).toBeVisible()
   await page.mouse.click(700, 300)
   await expect(pop).toHaveCount(0)
+  // and a press on another message's reaction (which keeps its press from the message): the picker goes, and the press
+  // is the reaction's
+  await (await strip(msg)).getByTestId('reaction-more').click()
+  await expect(pop).toBeVisible()
+  const before = room.reacted.length
+  await page.getByTestId('room-message').nth(1).getByTestId('reaction-chip').first().click()
+  await expect(pop).toHaveCount(0)
+  await expect.poll(() => room.reacted.length).toBe(before + 1)
+  expect(room.reacted.at(-1)?.messageId).toBe(id(2))
 })
 
 test(`a message with 20 different emoji: a new one is refused before asking the server; one that is there still works`, async ({ page }) => {
@@ -153,8 +163,7 @@ test(`a message with 20 different emoji: a new one is refused before asking the 
 test('the status dialog opens the same picker, its 32 first; a search finds any emoji', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-status').click()
+  await openStatusDialog(page)
   await page.getByTestId('status-emoji-button').click()
   const grid = page.getByTestId('status-emoji-grid')
   await expect(grid.getByTestId('status-emoji-pick')).toHaveCount(32)
@@ -252,8 +261,7 @@ test.describe('screens for review', () => {
     await shot(page, '1440-dark-several-reactions.png')
     // the status dialog's picker
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
-    await page.getByTestId('account-menu').click()
-    await page.getByTestId('account-status').click()
+    await openStatusDialog(page)
     await page.getByTestId('status-emoji-button').click()
     await expect(page.getByTestId('status-emoji-grid')).toBeVisible()
     await shot(page, '1440-light-status-picker.png')
@@ -281,8 +289,7 @@ test.describe('screens for review', () => {
       await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
       await page.goto('/')
-      await page.getByTestId('menu-open').click()
-      await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+      await (await myStatusRow(page)).click()
       await page.getByTestId('status-emoji-button').click()
       await expect(page.getByTestId('status-emoji-grid')).toBeVisible()
       await shot(page, '390-light-status-picker.png')

@@ -23,16 +23,15 @@ async function openRoom(page: Page, o: Parameters<typeof routeRoom>[1], who?: Pa
 }
 const rows = (page: Page) => page.getByTestId('mention-option')
 
-test('the row under the AI, a token once picked, sent with mentionsAll and shown as a mention', async ({ page, browserName }) => {
+test('the first row, a token once picked, sent with mentionsAll and shown as a mention', async ({ page, browserName }) => {
   const room = await openRoom(page, { members: few })
   const box = page.getByTestId('room-input')
   await box.click()
   await page.keyboard.type('@')
-  await expect(rows(page)).toHaveCount(5)
-  await expect(rows(page).nth(0)).toHaveAttribute('data-ai', '')
-  await expect(rows(page).nth(1)).toHaveAttribute('data-all', '')
-  await expect(rows(page).nth(1)).toContainText('전체')
-  await expect(rows(page).nth(1)).toContainText('이 방의 3명에게 알림')
+  await expect(rows(page)).toHaveCount(4)
+  await expect(rows(page).nth(0)).toHaveAttribute('data-all', '')
+  await expect(rows(page).nth(0)).toContainText('전체')
+  await expect(rows(page).nth(0)).toContainText('이 방의 3명에게 알림')
   // Slack's word finds it too
   await page.keyboard.type('chan')
   await expect(rows(page)).toHaveCount(1)
@@ -82,11 +81,11 @@ test('the everyone room: the owner gets the row, a member does not', async ({ pa
   await openRoom(page, { members: few, kind: 'all' })
   await page.getByTestId('room-input').click()
   await page.keyboard.type('@')
-  await expect(rows(page).nth(1)).toHaveAttribute('data-all', '')
+  await expect(rows(page).nth(0)).toHaveAttribute('data-all', '')
   await page.context().clearCookies()
   await openRoom(page, { members: few, kind: 'all' }, { username: 'bob', password: 'bob password 1' })
   await page.getByTestId('room-input').click()
   await page.keyboard.type('@')
-  await expect(rows(page).first()).toHaveAttribute('data-ai', '')
+  await expect(rows(page).first()).toBeVisible()
   await expect(page.locator('[data-testid="mention-option"][data-all]')).toHaveCount(0)
 })

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "expo start",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ../tests/unit/mobile-bridge.test.ts ../tests/unit/mobile-security.test.ts"
+    "test": "bun test ../tests/unit/mobile-bridge.test.ts ../tests/unit/mobile-security.test.ts ../tests/unit/mobile-badge.test.ts"
   },
   "dependencies": {
     "expo": "58.0.17",
@@ -16,6 +16,7 @@
     "expo-constants": "58.0.13",
     "expo-crypto": "58.0.7",
     "expo-file-system": "58.0.10",
+    "expo-image-picker": "58.0.10",
     "expo-localization": "58.0.5",
     "expo-navigation-bar": "58.0.4",
     "expo-notifications": "58.1.6",

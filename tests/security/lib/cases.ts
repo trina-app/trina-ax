@@ -21,6 +21,7 @@ import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
+import { NAV_FOLDER_CANARY, NAV_FOLDER_SPECS } from './nav-folders-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -120,6 +121,7 @@ export const SPECS: Record<string, Spec> = {
   ...SKILL_SHARE_SPECS,
   ...ONBOARDING_FILES_SPECS,
   ...FILE_LIST_SPECS,
+  ...NAV_FOLDER_SPECS,
   ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
@@ -171,6 +173,12 @@ export const SPECS: Record<string, Spec> = {
   // ---- chats (own only) ----
   listChats: { build: (c) => c.get('/api/chats'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s chat list shows alice's chat`) } },
+  // the Trina list's groups (chat/chat-groups.ts): my own list only, never alice's chat or her folder's name
+  listChatGroups: { build: (c) => c.get('/api/chats/groups'), scope: 'self',
+    check: (r, w, who) => {
+      if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s Trina list shows alice's chat`)
+      if (who !== 'memberIn' && r.text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}'s Trina list shows alice's folder`)
+    } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
   // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
   chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
@@ -417,6 +425,9 @@ export const SPECS: Record<string, Spec> = {
   findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
   searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self' },
   recentFiles: { build: (c) => c.get('/api/files/recent?limit=50'), scope: 'self' },
+  // the Move picker's suggestions for a file in users/alice/: only alice; nobody else learns a folder or that it exists
+  moveSuggestions: { build: (c) => c.post('/api/files/move-suggestions', { paths: ['users/alice/todo.md'] }), scope: 'users-alice' },
+  dismissMoveSuggestion: { build: (c) => c.post('/api/files/move-suggestions/dismiss', { paths: ['users/alice/todo.md'], folder: 'shared' }), scope: 'users-alice' },
   createUploadSession: { build: (c) => c.post('/api/upload-sessions', { target: { kind: 'path', path: 'users/alice/sess.bin', onExists: 'rename' }, size: 4, sha256: 'ab'.repeat(32) }), scope: 'users-alice' },
   uploadChunk: { build: (c, w) => c.req('PUT', `/api/upload-sessions/${w.ids.uploadAlice}/chunks/0`, undefined, { raw: '0123456789', headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } }), scope: 'own-alice' },
   getUploadSession: { build: (c, w) => c.get(`/api/upload-sessions/${w.ids.uploadAlice}`), scope: 'own-alice' },

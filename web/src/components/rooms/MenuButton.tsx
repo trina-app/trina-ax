@@ -1,8 +1,8 @@
 // A "…" button with a small menu (a message's reply / copy / edit / delete): arrow keys move, Esc closes and gives the
 // keyboard back, a click or a touch outside closes. On a computer the menu stays in the window (`menuSpot`): under the
 // button with their right edges in line, above it where it would run off the bottom, moved in 8px from a side it would
-// run off (a sidebar row's menu wider than the sidebar slides right), and fixed to the window, so a scroll box (the
-// sidebar's list) does not cut it; it moves with the button when something scrolls, and closes once the button is
+// run off (a list panel row's menu wider than the panel slides right), and fixed to the window, so a scroll box (the
+// list panel) does not cut it; it moves with the button when something scrolls, and closes once the button is
 // scrolled out of sight. On a touch screen
 // the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress). Below 768px the
 // menu is a bottom sheet with 48px rows. `header`: something above the rows where there is no hover row to hold it (a
@@ -142,7 +142,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   })
   useEffect(() => {
     if (!open) return
-    // the button moves under it (the sidebar's list scrolled) or the window changes size: it follows; once the button
+    // the button moves under it (the list panel scrolled) or the window changes size: it follows; once the button
     // is scrolled out of its list's sight the menu goes (the list used to cut it off with the button)
     const scrolled = (e: Event) => {
       const list = e.target as Node & Partial<Pick<Element, 'getBoundingClientRect'>>
@@ -162,8 +162,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-  // the finger lifting after a long press that opened it (a row whose "…" shows on a touch screen: the AI's history in
-  // the phone's drawer) is no second click that closes it
+  // the finger lifting after a long press that opened it (a row whose "…" shows on a touch screen: the Trina list on
+  // a phone) is no second click that closes it
   const toggle = () => {
     if (open && Date.now() - pressedAt.current < 800) return
     setOpen(!open)

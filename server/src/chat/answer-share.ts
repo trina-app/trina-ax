@@ -70,7 +70,6 @@ import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
 import { historyKinds, openHistories } from '../rooms/history'
-import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { confirmMac, confirmSecret } from './confirm-key'
@@ -80,13 +79,16 @@ import type { ChatRow, MessageRow } from './store'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
 export const LINKS_PER_TOKEN = 10
+/** How long deciding an answer's audience may spend working out waiting members' histories (rooms/history.ts); one
+ * still waiting after it keeps the answer unsendable */
+export const DECIDE_HISTORY_MS = 100
 
 /** Paths of an answer's list that are not content of a place people read (the receipt's isTeamFilePath, but a person's
  * own folder stays: it is theirs alone). */
 const notCounted = (p: string) => !p || /^(skills|\.system)(\/|$)/.test(p)
 
 /** The line that ends an answer cut to fit one room message, in the sender's language: "…(이하 생략) 전체는 내 트리나
- * 기록에서" (the web app's sidebar heading for the AI chats, with the AI's name there: tabs.ts aiName). */
+ * 기록에서" (the web app's name for the AI chats, with the AI's name there: tabs.ts aiName). */
 export function answerCutLine(locale: Locale): string {
   const name = PRODUCT_NAMED_AFTER_AI ? tr('aiOwnName', locale) : PRODUCT.shortName
   return tr('answerShareCut', locale, { history: tr('aiHistory', locale, { name }) })

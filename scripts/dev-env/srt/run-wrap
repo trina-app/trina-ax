@@ -1,13 +1,39 @@
 #!/bin/bash
-# Trina dev environment (srt runner): the first program in each run's scope (docs/research/srt-dev-env.md 2.2).
-# A scope has no exec properties, so this script does what a service unit would do:
+# Trina dev environment (srt runner): the first program of each run (docs/research/srt-dev-env.md 2.2). It does:
 #   1. rlimits: file size 4 GiB, open files 4096, no core files;
 #   2. oom_score_adj 800: when the whole machine is short of memory, the kernel picks the run before the server;
 #   3. runs the rest of the argv (srt);
 #   4. writes the exit code to the exit file. The server reads it; the sandbox can only read that folder.
-# Usage: run-wrap <exit-file> -- <program> [args...]
+# Usage:
+#   run-wrap <exit-file> -- <program> [args...]
+#       a scope of an older install, or no systemd (the Docker attack test): the caller set the folder, environment
+#       and output files.
+#   run-wrap --unit <run-folder> <runId>
+#       the main program of trina-dev@<runId>.service (devenv-run.service.in). The instance name gives no arguments:
+#       it reads <run-folder>/<runId>.args, which the server wrote (0600, a folder the sandbox cannot read), and
+#       removes it. The file is NUL-separated:
+#         trina-run-1, folder, stdout file, stderr file, exit file, N, N environment entries (NAME=value), argv...
 # Root owns this file (0755). It runs as the server account.
 set -u
+if [ "${1:-}" = --unit ]; then
+  DIR=${2:?run folder}
+  RUN=${3:?run id}
+  [[ "$RUN" =~ ^[a-z0-9]{16}$ ]] || { echo "run-wrap: bad run id" >&2; exit 2; }
+  ARGS=$DIR/$RUN.args
+  # the server's own file: a regular file of this account, not a link
+  [ -f "$ARGS" ] && [ ! -L "$ARGS" ] && [ -O "$ARGS" ] || { echo "run-wrap: no $ARGS" >&2; exit 2; }
+  mapfile -d '' -t A < "$ARGS" || { echo "run-wrap: cannot read $ARGS" >&2; exit 2; }
+  rm -f "$ARGS"
+  [ "${#A[@]}" -ge 7 ] && [ "${A[0]}" = trina-run-1 ] && [[ "${A[5]}" =~ ^[0-9]{1,3}$ ]] || { echo "run-wrap: bad $ARGS" >&2; exit 2; }
+  N=${A[5]}
+  [ "${#A[@]}" -gt $((6 + N)) ] || { echo "run-wrap: no program in $ARGS" >&2; exit 2; }
+  # the output files: made by the server first (O_NOFOLLOW); never follow a link here
+  for f in "${A[2]}" "${A[3]}"; do [ ! -L "$f" ] || { echo "run-wrap: $f is a link" >&2; exit 2; }; done
+  cd "${A[1]}" || exit 2
+  exec >>"${A[2]}" 2>>"${A[3]}" || exit 2
+  # the program's environment is exactly the list: nothing of systemd's
+  set -- "${A[4]}" -- /usr/bin/env -i "${A[@]:6:N}" "${A[@]:6+N}"
+fi
 EXIT_FILE=${1:?exit file}
 shift
 [ "${1:-}" = "--" ] || { echo "run-wrap: missing --" >&2; exit 2; }

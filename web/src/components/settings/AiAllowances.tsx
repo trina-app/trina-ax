@@ -1,4 +1,5 @@
-// Settings › 트리나에게 허용한 것 (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"): what I allowed the AI in advance, mine
+// Settings › 트리나에게 허용한 것 (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용", "Always allow on every card"): what I
+// allowed the AI in advance ("Always allow" on a kind of card, a room's folder), mine
 // only (GET /api/ai-allowances). One row each: "영업팀 → 영업/견적서" and under it "새 파일 저장 · 11월 8일", with [지우기]
 // (no confirm: deleting only means being asked again). A room is named as I see it (a 1:1 by the other person). An empty
 // list is one line. Lean: no cards or extra buttons. A row is a kind (room_files today), so other allowances (sites
@@ -8,7 +9,7 @@
 import clsx from 'clsx'
 import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { PRODUCT_NAMED_AFTER_AI, type AiAllowance } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type AiAllowance, type CardAllowance, type RoomFilesAllowance } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatMonthDay } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
@@ -40,7 +41,9 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
       setBusy(null)
     }
   }
-  const roomName = (a: AiAllowance) => (a.room.kind === 'dm' ? t('composer.roomDm', { name: title(a.room) }) : title(a.room))
+  const roomName = (a: RoomFilesAllowance) => (a.room.kind === 'dm' ? t('composer.roomDm', { name: title(a.room) }) : title(a.room))
+  // "Always allow" on a kind of card (docs/DECISIONS.md "Always allow on every card"): what it covers, in plain words
+  const cardName = (a: CardAllowance) => t(`allowances.card.${a.card}` as 'allowances.card.remember')
   return (
     <section className="mb-8" data-testid="ai-allowances">
       {/* a phone's bar names the section already (SettingsDialog.tsx): there the title is for screen readers only */}
@@ -59,17 +62,21 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'card' ? cardName(a) : `${roomName(a)} → ${a.folder}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm [overflow-wrap:anywhere]">
-                    <span className="font-medium">{roomName(a)}</span>
-                    <span className="px-1.5 text-faint" aria-hidden>→</span>
-                    <span>{a.folder}</span>
-                  </p>
+                  {a.kind === 'card' ? (
+                    <p className="text-sm font-medium [overflow-wrap:anywhere]">{cardName(a)}</p>
+                  ) : (
+                    <p className="text-sm [overflow-wrap:anywhere]">
+                      <span className="font-medium">{roomName(a)}</span>
+                      <span className="px-1.5 text-faint" aria-hidden>→</span>
+                      <span>{a.folder}</span>
+                    </p>
+                  )}
                   <p className="mt-0.5 text-xs text-muted">
-                    {t('allowances.newFiles')} · {formatMonthDay(a.createdAt, locale)}
+                    {t(a.kind === 'card' ? 'allowances.always' : 'allowances.newFiles')} · {formatMonthDay(a.createdAt, locale)}
                   </p>
                 </div>
                 {phone ? (

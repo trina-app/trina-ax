@@ -1,7 +1,6 @@
 // Icon-only controls carry the shared tooltip (docs/DESIGN-SYSTEM.md "Tooltip"). The static check that keeps it so
 // (web/scripts/check-icon-tooltips.ts, run by `bun run check:docs`) on small samples, and a few of the controls
-// themselves: a dialog's close button, a code block's download, a skill chip's remove, a browser site's remove, and a
-// connector's "official" mark with what it means.
+// themselves: a dialog's close button, a code block's download, a skill chip's remove and a browser site's remove.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { iconOnlyProblems } from '../../scripts/check-icon-tooltips'
@@ -9,7 +8,6 @@ import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
 import { Modal } from '../../src/components/ui'
 import { CodeBlock } from '../../src/components/Markdown'
 import { SkillChip } from '../../src/components/chat/SkillChip'
-import { ConnectorDetail } from '../../src/components/integrations/ConnectorsView'
 import { BrowserSettingsView } from '../../src/pages/BrowserSettings'
 import { t } from '../../src/i18n'
 import { FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
@@ -32,7 +30,7 @@ test('an icon-only button, link or Button needs a <Tooltip>', () => {
   // words that show again from some width on are words
   expect(problems(`<button aria-label="AI"><X /> <span className="sr-only md:not-sr-only">AI</span></button>`)).toHaveLength(1)
   expect(problems(`<button aria-label="AI"><X /> <span className="not-sr-only">AI</span></button>`)).toEqual([])
-  // words at every width: one part on computers, another on phones (the sidebar's team / AI name)
+  // words at every width: one part on computers, another on phones (the team / AI name)
   expect(problems(`<Link to="/"><img src="/favicon.svg" alt="" /><span className="max-md:hidden">{team}</span><span className="md:hidden">{ai}</span></Link>`)).toEqual([])
   expect(problems(`<Link to="/"><img src="/favicon.svg" alt="" /><span className="max-md:hidden">{team}</span></Link>`)).toHaveLength(1)
 })
@@ -126,12 +124,3 @@ test("Settings › Browser: a site's trash button says which site it removes, in
   } finally { await m.unmount() }
 })
 
-test("a connector's official mark: the tip says what official means, and describes the mark", async () => {
-  media(true)
-  const m = await mount(<ConnectorDetail logo="" name="Notion" line="문서" official description="…" onBack={() => {}} testId="cd" />)
-  try {
-    const mark = document.body.querySelector(`svg[aria-label="${t('connectors.official')}"]`)!
-    expect(await hover(m, mark)).toBe(t('connectors.officialTip'))
-    expect(mark.getAttribute('aria-describedby')).toBe(tip()!.getAttribute('id'))
-  } finally { await m.unmount() }
-})

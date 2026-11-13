@@ -8,8 +8,6 @@ const noPaths = (r: { status: number; text: string }) => {
 }
 export const FILE_LIST_SPECS: Record<string, Spec> = {
   fileListStatus: { build: (c) => c.get('/api/admin/file-list'), scope: 'byLevel', check: noPaths },
-  // switching it on while it is on: answers the status, changes nothing
-  updateFileList: { build: (c) => c.patch('/api/admin/file-list', { enabled: true }), scope: 'byLevel', check: noPaths },
   // a run needs the team's AI: the allowed side is in tests/unit/c-file-list.test.ts
   runFileList: { skipPositive: true, build: (c) => c.post('/api/admin/file-list/run', {}), scope: 'byLevel' },
 }

@@ -178,9 +178,15 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
       <Button variant="primary" busy={d.busy} disabled={!v.available} onClick={() => void d.start()} data-testid="gapp-connect">{t('aiApps.connect')}</Button>
     )
   const state = flow ? `flow-${flow.state}` : !v.available && !linked ? 'unavailable' : v.status
+  // the person's own Always allow on the shared account goes (the team's rule stays the admins')
+  const askAgain = async (id: string) => {
+    try { await api.call(API.stopAlwaysAllow, { params: { id } }); toast({ level: 'success', text: t('integrations.alwaysAllow.stopped', { name }) }) }
+    catch { toast({ level: 'error', text: t('gapps.saveFailed') }) }
+    void g.load()
+  }
   return (
     <>
-      <AppDetail testId="gapp-detail" state={state} logo={builtInLogo(v.id)} name={name} byLine={t('gapps.byLine', { line: t(lineKey(v.id)) })}
+      <AppDetail embedded inSettings testId="gapp-detail" state={state} logo={builtInLogo(v.id)} name={name} byLine={t('gapps.byLine', { line: t(lineKey(v.id)) })}
         actions={actions}
         status={<>
           {linked && v.account && !flow && (
@@ -191,6 +197,14 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
           {v.status === 'needs_reconnect' && !flow && <Note tone="warn" testId="gapp-needs-reconnect">{t('gapps.needsReconnect', { name })}</Note>}
           {onComputer && <Note testId="gapp-on-computer">{onComputer}</Note>}
           {v.status === 'connected' && v.serviceDown && <Note testId="gapp-service-down">{t('gapps.serviceDown', { name })}</Note>}
+          {/* the account an admin shared with the team, when it includes this person: used without connecting their own;
+              only an owner or admin changes it (Admin › Connectors) */}
+          {v.shared && !flow && (
+            <Note testId="gapp-shared" tone={v.shared.status === 'connected' ? undefined : 'warn'}>
+              {t(v.shared.status === 'connected' ? 'gapps.team.member' : 'gapps.team.memberReconnect', { account: v.shared.account.email ?? v.shared.account.name ?? '', name })}
+              {v.shared.alwaysAllowed && <> {t('gapps.team.memberAlways')} <button type="button" className="font-medium text-accent-text underline underline-offset-2" onClick={() => void askAgain(v.shared!.id)} data-testid="gapp-shared-ask-again">{t('integrations.alwaysAllow.stop')}</button></>}
+            </Note>
+          )}
           {ask && ask.state !== 'none' && <Note testId="service-asked-note">{t('serviceRequest.waiting', { name })}</Note>}
           {ask?.error && <Note tone="warn" testId="service-ask-error">{ask.error}</Note>}
           {why && !ask && (

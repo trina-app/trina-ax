@@ -5,7 +5,7 @@
 //   block shows once the server answers again, without a click; a draft typed meanwhile stays in the box;
 // - the message box: a send that cannot reach the server keeps the text with a calm line (the block under it then waits
 //   quietly: the cause is said once), and [다시 시도] sends it;
-// - the rooms list: [다시 시도] reads at once; the file list comes back by itself;
+// - the rooms list (a computer's 대화 panel): [다시 시도] reads at once; the file list comes back by itself;
 // - the connection banner: the neutral surface and plain words.
 // With SHOTS_DIR set, the last test saves Home (1440 light and dark, 390) and the rooms list for review.
 import { expect, test, type Page } from '@playwright/test'
@@ -78,7 +78,8 @@ test('the rooms list: [다시 시도] reads at once; the file list comes back by
   await page.unroute(/\/api\/rooms$/)
   await page.getByTestId('load-error-retry').click()
   await expect(page.locator('[data-testid="load-error"][data-what="rooms"]')).toHaveCount(0, { timeout: 2_000 })
-  await expect(page.getByTestId('rooms-page').getByText(ko['rooms.listEmpty'])).toBeVisible()
+  // a computer: the list is the 대화 panel beside the rail (its notice sat there, nothing in it before)
+  await expect(page.getByTestId('chats-panel').getByText(ko['rooms.listEmpty'])).toBeVisible()
 
   await down(page, /\/api\/files\/tree(\?.*)?$/)
   await page.goto('/files')
@@ -93,8 +94,8 @@ test('the connection banner: the neutral surface and plain words', async ({ page
   await signIn(page)
   await page.request.post('/__test/drop-ws')
   const banner = page.getByTestId('conn-banner')
-  await expect(banner).toContainText(ko['conn.reconnecting'])
-  expect(await banner.getAttribute('class')).not.toMatch(/danger|warn/)
+  // the words and the neutral surface in one look: the banner may be gone a moment later (the connection comes back)
+  await expect(page.locator('[data-testid="conn-banner"]:not([class*="danger"]):not([class*="warn"])')).toContainText(ko['conn.reconnecting'])
   await expect(banner).toHaveCount(0, { timeout: 8_000 })
 })
 

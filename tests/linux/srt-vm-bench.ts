@@ -1,5 +1,5 @@
 // Dev environment on srt: real work on a Starter-size VM (2 vCPU, 4 GB), through the real box_shell tool of a test
-// server (tests/lib/b-harness.ts) with the real runner (systemd scopes, polkit, run-wrap, srt). It runs INSIDE the
+// server (tests/lib/b-harness.ts) with the real runner (run units, polkit, run-wrap, srt). It runs INSIDE the
 // stand-in team server unit as the server account (scripts/dev-env/srt/vm-check.sh REPO bench).
 //   1. npm install of a small Remotion project, then a 1080p 15 s render as a job (time, memory);
 //   2. pip install in a venv in the project folder;
@@ -16,6 +16,7 @@ import { startHarness } from '../lib/b-harness'
 import { parsePlan } from '../../server/src/devenv/srt/plan'
 import { setSrtSystem } from '../../server/src/devenv/srt/runner'
 import { systemdSystem } from '../../server/src/devenv/srt/system'
+import { UNIT_RE, runIdOfUnit } from '../../server/src/devenv/srt/config'
 import { pollSrt } from '../../server/src/devenv/jobs'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
@@ -30,7 +31,7 @@ if (!plan) throw new Error('no plan file')
 
 const health = Bun.serve({ hostname: '127.0.0.1', port: 8099, fetch: () => new Response('ok') })
 
-// ---- a sampler of every run scope (the cgroup is gone after the run, so it reads while the run is active) ----
+// ---- a sampler of every run unit (the cgroup is gone after the run, so it reads while the run is active) ----
 interface Peak { peak: number; current: number; unreclaimable: number; pids: number; oomKill: number; firstSeen: number; lastSeen: number }
 const peaks = new Map<string, Peak>()
 let minAvail = Infinity
@@ -40,7 +41,7 @@ const stat = (txt: string, key: string) => Number(new RegExp(`^${key} (\\d+)$`, 
 function sample() {
   minAvail = Math.min(minAvail, Math.round(stat(read('/proc/meminfo').replace(/:\s+/g, ' ').replace(/ kB/g, ''), 'MemAvailable') / 1024))
   let names: string[] = []
-  try { names = fs.readdirSync(SLICE_DIR).filter((n) => n.startsWith('trina-dev-') && n.endsWith('.scope')) } catch { return }
+  try { names = fs.readdirSync(SLICE_DIR).filter((n) => UNIT_RE.test(n)) } catch { return }
   for (const n of names) {
     const d = `${SLICE_DIR}/${n}`, ms = read(`${d}/memory.stat`)
     const p = peaks.get(n) ?? { peak: 0, current: 0, unreclaimable: 0, pids: 0, oomKill: 0, firstSeen: Date.now(), lastSeen: 0 }
@@ -61,7 +62,7 @@ const peaksOf = (units: string[]) => {
 
 // ---- the test server and the team setting ----
 const h = await startHarness({ name: 'srt-bench' })
-const sys = systemdSystem(ID)
+const sys = systemdSystem(ID, BASE)
 setSrtSystem(sys, { base: BASE, id: ID, plan })
 const FALCON = 'projects/falcon'
 const falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FALCON, instructions: '' } })).id
@@ -98,7 +99,7 @@ async function shell(input: Record<string, unknown>, o: { user?: string; project
 }
 type Row = { id: string; name: string; state: string; unit: string; exit_code: number | null; end_reason: string; started_at: string; run_at: string | null; ended_at: string | null; log_tail: string }
 const rowOf = (name: string) => h.ctx.db.query("SELECT * FROM dev_env_runs WHERE name = ? ORDER BY started_at DESC LIMIT 1").get(name) as Row | null
-const activeScopes = () => { try { return fs.readdirSync(SLICE_DIR).filter((n) => n.startsWith('trina-dev-') && n.endsWith('.scope')).length } catch { return -1 } }
+const activeScopes = () => { try { return fs.readdirSync(SLICE_DIR).filter((n) => UNIT_RE.test(n)).length } catch { return -1 } }
 /** wait until the named jobs end; the tracker's poll every 2 s */
 async function waitJobs(names: string[], maxMs: number, during?: () => void) {
   const end = Date.now() + maxMs
@@ -111,7 +112,7 @@ async function waitJobs(names: string[], maxMs: number, during?: () => void) {
   // a job that is still running at the limit is stopped, so it does not hold the slot for the next checks
   for (const n of names) {
     const r = rowOf(n)
-    if (r && !r.ended_at && r.unit) { console.log(`bench note: stopping ${n} at the wait limit`); await sys.stop(r.unit.slice('trina-dev-'.length, -'.scope'.length), 0); await Bun.sleep(3000); await pollSrt(h.ctx) }
+    if (r && !r.ended_at && r.unit) { console.log(`bench note: stopping ${n} at the wait limit`); await sys.stop(runIdOfUnit(r.unit), 0); await Bun.sleep(3000); await pollSrt(h.ctx) }
   }
   return names.map((n) => rowOf(n)!)
 }

@@ -1,7 +1,8 @@
 // The srt runner of the dev environment (docs/research/srt-dev-env.md), the only runner (docs/DECISIONS.md "Dev
 // environment: box runner removed, srt only"). The AI's commands run on the team server as the server account, inside
-// Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in a `systemd-run --scope` unit with
-// memory, CPU and pids limits. Each command, job or dev server is one srt process in its own scope.
+// Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in its own systemd unit with memory, CPU
+// and pids limits: an instance trina-dev@<runId>.service of a root-installed template (an older install: a
+// `systemd-run --scope` unit). Each command, job or dev server is one srt process in its own unit.
 //
 // A run is not locked to a project. It belongs to the person who owns the chat: it may read and write exactly the team
 // folders that person may open now (srt/access.ts, built from the folder rules for every command and every job start),
@@ -35,12 +36,13 @@ import { mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
 import { projectZoneFolders } from '../../policy/zone'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
-import { directSystem, systemdSystem, type SrtSystem } from './system'
+import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
+import { macConfig, macSystem } from './system-mac'
 import { END_NOTE, endRow, type EndReason } from './end'
 
 export const MAX_WAITING_PER_PERSON = 3
@@ -60,18 +62,28 @@ export interface Space { userId: string; chatId: string | null; projectId: strin
 
 // ---------------- configuration ----------------
 
-export interface SrtConfig { base: string; id: string; system: SrtSystem; planFile: string }
+export interface SrtConfig { base: string; id: string; system: SrtSystem; planFile: string; problem?: string }
 
 let systemOverride: SrtSystem | null = null
-let configOverride: (Partial<SrtConfig> & { plan?: DevEnvPlan | null }) | null = null
-/** tests: a fake system, other folders, a plan (the real file must belong to root) */
-export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { plan?: DevEnvPlan | null }) | null = null) { systemOverride = s; configOverride = c; reset() }
+let configOverride: (Partial<SrtConfig> & { plan?: DevEnvPlan | null; platform?: DevPlatform }) | null = null
+/** tests: a fake system, other folders, a plan (the real file must belong to root), the platform of the host lists
+ * (a fake system: Linux unless it says darwin, so the tests read the same on a Mac) */
+export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { plan?: DevEnvPlan | null; platform?: DevPlatform }) | null = null) { systemOverride = s; configOverride = c; reset() }
+/** the platform of the runs: this machine's, or the tests' */
+export const runPlatform = (): DevPlatform => configOverride?.platform ?? (systemOverride ? 'linux' : devPlatform())
 
 export function srtConfig(env: Record<string, string | undefined> = process.env): SrtConfig {
   const id = configOverride?.id ?? env.MYCEL_LABEL ?? 'mycel'
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
-  const system = systemOverride ?? (env.MYCEL_DEV_ENV_SRT_DIRECT === '1' ? directSystem() : systemdSystem(id))
-  return { id, base, system, planFile: configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json') }
+  const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
+  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
+  if (devPlatform() === 'darwin') {
+    const m = macConfig(base, env)
+    if (!m.ok) return { id, base, system: directSystem(), planFile, problem: m.reason }
+    return { id, base, system: macSystem(m.c), planFile }
+  }
+  return { id, base, system: systemdSystem(id, base), planFile }
 }
 
 const listEnv = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
@@ -113,7 +125,11 @@ const active = new Map<string, Active>()
 const rootLocks = new Map<string, Promise<void>>()
 /** dev servers: CPU time at the last poll, and since when they are idle */
 const idleSince = new Map<string, { usec: number; at: number; since: number | null }>()
-function reset() { active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
+/** the preview forwarders of this process: "<runId>:<port>" -> the start (a forwarder, or why it did not start) */
+const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
+/** the time of the last preview request of a run (a previewed dev server is not idle) */
+const lastPreview = new Map<string, number>()
+function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
@@ -131,16 +147,19 @@ export const newRunId = () => {
 
 // ---------------- availability ----------------
 
-/** Can this server run srt? '' = yes, else why not. Checks the files of the install and that a scope can be made. */
+/** Can this server run srt? '' = yes, else why not. Checks the files of the install and that a run unit can start. */
 export async function srtProblem(c = srtConfig()): Promise<string> {
   const p = planState(c)
   if (!p.ok) return p.reason
-  if (!systemOverride) {
-    const { SRT_PATHS } = await import('./config')
+  if (c.problem) return c.problem
+  if (!systemOverride && devPlatform() === 'darwin') {
+    for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.cliMac, SRT_PATHS.cliFull, SRT_PATHS.runWrapMac, SRT_PATHS.sudo, '/usr/bin/sandbox-exec']) if (!fs.existsSync(f)) return `${f} is missing: run scripts/install-macos.sh again (the dev environment step)`
+  } else if (!systemOverride) {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
     for (const b of ['bwrap', 'socat', 'rg']) if (!['/usr/bin', '/bin', '/usr/local/bin'].some((d) => fs.existsSync(path.join(d, b)))) return `${b} is missing`
   }
-  if (!selfTest || Date.now() - selfTest.at > 10 * 60_000) selfTest = { at: Date.now(), problem: await c.system.selfTest(c.id) }
+  // a failed check is tried again after a minute: an update brings the server before install-srt.sh's new root files
+  if (!selfTest || Date.now() - selfTest.at > (selfTest.problem ? 60_000 : 10 * 60_000)) selfTest = { at: Date.now(), problem: await c.system.selfTest(c.id) }
   return selfTest.problem
 }
 
@@ -239,6 +258,15 @@ export function connectedSources(ctx: Pick<AppContext, 'db'>): string[] {
  * the run gets the lists only (fail closed). */
 export const fullAvailable = () => !!systemOverride || fs.existsSync(SRT_PATHS.cliFull)
 
+/** macOS: where the dev server of a run listens (127.0.0.1 and the run's port), for the preview. macOS shares localhost,
+ * so the server reaches it directly (Linux needs a port-forward into the run's network namespace: not built yet).
+ * Null on Linux, or when the run is not there. */
+export function previewTarget(runId: string): { host: '127.0.0.1'; port: number } | null {
+  const sys = srtConfig().system as SrtSystem & { slotOf?: (id: string) => { port: number } | null }
+  const s = sys.slotOf?.(runId)
+  return s ? { host: '127.0.0.1', port: s.port } : null
+}
+
 /** The network of runs now: the team's choice cut to the plan ('offline' wins). */
 export function networkNow(ctx: AppContext): 'open' | 'offline' {
   const l = limitsFor(ctx)
@@ -272,6 +300,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
     connectedSources: connectedSources(ctx),
+    platform: runPlatform(),
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
@@ -298,9 +327,9 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform() }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
-    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings),
+    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }
   } catch (e) { release(); releaseSkills(); throw e }
@@ -404,7 +433,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       const t = setTimeout(() => stop('timeout'), o.timeoutMs)
       const onAbort = () => stop('stopped')
       o.signal?.addEventListener('abort', onAbort, { once: true })
-      // the scope's cgroup goes away when the run ends, so its OOM count is read while it runs
+      // the unit's cgroup goes away when the run ends, so its OOM count is read while it runs
       const watch = setInterval(() => { if ((c.system.oomKills(runId) ?? 0) > 0) oom = true }, 1000)
       const ended = await sp.exited
       clearTimeout(t); clearInterval(watch); o.signal?.removeEventListener('abort', onAbort)
@@ -434,7 +463,7 @@ const openRuns = (db: Database, state: 'waiting' | 'running', kind?: 'job' | 'se
   db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL AND state = ? ${kind ? 'AND kind = ?' : ''} ORDER BY started_at, id`).all(...(kind ? [state, kind] : [state])) as RunRow[]
 const spaceOfRow = (r: RunRow): Space => ({ userId: r.user_id, chatId: r.chat_id, projectId: r.project_id, root: r.root })
 
-const runIdOf = (unit: string) => (UNIT_RE.test(unit) ? unit.slice('trina-dev-'.length, -'.scope'.length) : '')
+const runIdOf = runIdOfUnit
 const logFile = (c: SrtConfig, userId: string, name: string) => path.join(personLogs(c.base, userId), `${name}.log`)
 
 /** Does a job or dev server with this log name still run or wait for this person? (The log is per person.) */
@@ -605,7 +634,10 @@ async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail
     return { running: false, code, reason: a?.stopReason ?? 'exit', tail }
   }
   const u = await c.system.unit(runId)
-  if (u.state === 'active' || u.state === 'activating' || u.state === 'deactivating' || (a && !a.stopReason && u.state === '' && a.pid && alive(a.pid))) {
+  // a run this process just spawned: systemd may not know its unit yet (''), or know it but not have started it yet
+  // (inactive; an instance of the template is always known). While its process (systemd-run, or systemctl start
+  // --wait) lives it runs; ending it here would delete its settings file before srt reads it
+  if (u.state === 'active' || u.state === 'activating' || u.state === 'deactivating' || (a && !a.stopReason && (u.state === '' || u.state === 'inactive') && a.pid && alive(a.pid))) {
     // a large log: cut it, the AI reads only the end
     try { if (fs.statSync(log).size > LOG_MAX_BYTES) { fs.truncateSync(log, 0); fs.appendFileSync(log, '(log cut at 64 MiB)\n') } } catch {}
     return { running: true, tail }
@@ -644,13 +676,16 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     }
     const s = await rowStatus(c, r)
     const seconds = Math.round((Date.now() - Date.parse(r.run_at ?? r.started_at)) / 1000)
+    // the time limit of a job or dev server: systemd 255 cannot give a run unit its own RuntimeMaxSec (the template
+    // has the longest kind's), so the tracker stops it
+    if (s.running && seconds > (r.kind === 'server' ? SERVER_MAX_SEC : JOB_MAX_SEC)) { await stopRow(ctx, r, 'timeout'); continue }
     if (s.running) {
       out.set(r.id, { name: r.name, state: 'running', code: null, seconds, tail: s.tail, lastLine: lastLine(s.tail) })
       if (r.kind === 'server') await idleCheck(ctx, c, r)
     } else {
       out.set(r.id, { name: r.name, state: 'ended', code: s.code, seconds, tail: s.tail, lastLine: lastLine(s.tail), why: END_NOTE[s.reason], reason: s.reason })
       const runId = runIdOf(r.unit)
-      active.delete(runId); idleSince.delete(runId)
+      active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
     }
   }
   return { rows: out, diskStopped }
@@ -664,9 +699,11 @@ async function idleCheck(ctx: AppContext, c: SrtConfig, r: RunRow) {
   const prev = idleSince.get(runId)
   if (!prev) { idleSince.set(runId, { usec, at: now, since: null }); return }
   const share = (usec - prev.usec) / 1000 / Math.max(1, now - prev.at)
-  const since = share < IDLE_CPU_SHARE ? (prev.since ?? prev.at) : null
-  idleSince.set(runId, { usec, at: now, since })
   const idleMin = teamSetting(ctx.db).limits.idleStopMin
+  // idle: under 2 % CPU and no preview request for idleStopMin
+  const previewed = (lastPreview.get(runId) ?? 0) > now - idleMin * 60_000
+  const since = share < IDLE_CPU_SHARE && !previewed ? (prev.since ?? prev.at) : null
+  idleSince.set(runId, { usec, at: now, since })
   if (since !== null && now - since >= idleMin * 60_000) await stopRow(ctx, r, 'idle')
 }
 
@@ -682,7 +719,7 @@ async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   const tail = readTail(logFile(c, r.user_id, r.name), TAIL_BYTES)
   rm(path.join(personLogs(c.base, r.user_id), `${runId}.exit`))
   endRow(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
-  active.delete(runId); idleSince.delete(runId)
+  active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
 }
 
 /** An open run by its row id or run id (a command of this process). */
@@ -722,6 +759,8 @@ export async function reconcile(ctx: AppContext): Promise<void> {
   const c = srtConfig()
   // the calls of waiting commands went with the old process
   endOrphanTickets(ctx.db)
+  // so did the preview forwarders (their stdin closed): their sockets stay as files
+  try { for (const f of fs.readdirSync(devenvPaths(c.base).run)) if (PREVIEW_SOCK_RE.test(f) && ![...forwarders.keys()].some((k) => f === sockName(k))) rm(path.join(devenvPaths(c.base).run, f)) } catch {}
   const known = new Set((ctx.db.query("SELECT unit FROM dev_env_runs WHERE ended_at IS NULL AND unit != ''").all() as { unit: string }[]).map((r) => r.unit))
   for (const a of active.values()) known.add(unitName(a.runId))
   for (const u of await c.system.units()) {
@@ -770,6 +809,64 @@ export function othersInProject(ctx: AppContext, projectId: string, userId: stri
   return rows.map((r) => ({ kind: tickets.has(r.id) ? 'command' : r.kind, name: tickets.has(r.id) ? 'a command' : r.name, by: names.get(r.user_id) ?? '?', position: r.state === 'waiting' ? order.indexOf(r.id) + 1 || waitingAll.findIndex((w) => w.id === r.id) + 1 : null }))
 }
 
+// ---------------- preview (docs/DECISIONS.md "Dev environment on srt: preview") ----------------
+
+/** the ports a preview never forwards: srt's proxy relays in the run's network namespace */
+export const SRT_RELAY_PORTS: readonly number[] = [3128, 1080]
+export const previewPortProblem = (port: number): string | null =>
+  !Number.isInteger(port) || port < 1 || port > 65535 ? 'not a port' : SRT_RELAY_PORTS.includes(port) ? 'this port is the sandbox proxy, not a dev server' : null
+const PREVIEW_SOCK_RE = /^[a-z0-9]{16}-\d{1,5}\.sock$/
+const sockName = (key: string) => key.replace(':', '-') + '.sock'
+
+/** this server can serve previews: a system with port-forward (systemd scopes and the sandbox helper) */
+export const previewSupported = () => !!srtConfig().system.forward
+
+/** The open dev server row of a preview link, or null: the row must be open, running, a dev server, of this person,
+ * and still the same run (its unit). */
+export function previewRow(ctx: AppContext, o: { rowId: string; runId?: string; userId: string }): RunRow | null {
+  const r = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ? AND ended_at IS NULL`).get(o.rowId) as RunRow | null
+  if (!r || r.kind !== 'server' || r.state !== 'running' || r.user_id !== o.userId) return null
+  const runId = runIdOf(r.unit)
+  if (!runId || (o.runId !== undefined && runId !== o.runId)) return null
+  return r
+}
+
+/** The unix socket that reaches a port of a running dev server (row rowId), for the preview gateway. The run comes from
+ * the row, never from the request: a link of run A can only ever reach run A's namespace (attack A26). One forwarder
+ * per run and port; it ends with the run (stopRow, pollRuns) or with this process. */
+export async function previewSocket(ctx: AppContext, o: { rowId: string; runId: string; userId: string; port: number }): Promise<{ ok: true; socket: string } | { ok: false; message: string }> {
+  const c = srtConfig()
+  if (previewPortProblem(o.port)) return { ok: false, message: previewPortProblem(o.port)! }
+  if (!c.system.forward) return { ok: false, message: 'this server has no preview (no systemd scopes)' }
+  if (!previewRow(ctx, o)) return { ok: false, message: 'the dev server is not running' }
+  lastPreview.set(o.runId, Date.now())
+  const key = `${o.runId}:${o.port}`
+  let start = forwarders.get(key)
+  if (start) {
+    const f = await start
+    if ('error' in f) forwarders.delete(key)
+    else return { ok: true, socket: f.socket }
+  }
+  const socket = path.join(devenvPaths(c.base).run, sockName(key))
+  start = c.system.forward({ runId: o.runId, port: o.port, socket }).catch((e) => ({ error: String((e as Error).message ?? e).slice(0, 300) }))
+  forwarders.set(key, start)
+  const f = await start
+  if ('error' in f) { if (forwarders.get(key) === start) forwarders.delete(key); return { ok: false, message: f.error } }
+  void f.exited.then(() => { if (forwarders.get(key) === start) forwarders.delete(key); rm(socket) })
+  return { ok: true, socket: f.socket }
+}
+
+/** Stop the preview forwarders of a run (it ended or stopped). */
+export function closeForwarders(runId: string) {
+  if (!runId) return
+  lastPreview.delete(runId)
+  for (const [key, start] of forwarders) {
+    if (!key.startsWith(runId + ':')) continue
+    forwarders.delete(key)
+    void start.then((f) => { if ('stop' in f) { f.stop(); rm(f.socket) } })
+  }
+}
+
 /** The work folder of a chat goes with the chat (chat/forget.ts, after the purge). */
 export function forgetChatWork(chatId: string) {
   try { fs.rmSync(chatWork(srtConfig().base, chatId), { recursive: true, force: true }) } catch {}
@@ -777,3 +874,4 @@ export function forgetChatWork(chatId: string) {
 
 /** tests */
 export function _active() { return active }
+export function _forwarders() { return forwarders }

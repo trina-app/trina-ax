@@ -1,4 +1,4 @@
-// Scheduled tasks, from the sidebar (like Claude's "Scheduled"): /scheduled lists the person's own tasks as quiet cards
+// Scheduled tasks, from the 트리나 list (like Claude's "Scheduled"): /scheduled lists the person's own tasks as quiet cards
 // (name, what it does, "Paused · Weekdays at 09:00", how the last run went), /scheduled/:id is one task: run now, on/off,
 // its last run, and what it does, when, and with what. The same rules as before in Settings › Scheduled tasks
 // (docs/DECISIONS.md "Scheduled tasks: run now, edit, pause", "Scheduled tasks nobody confirmed"): a finished or expired
@@ -9,10 +9,12 @@ import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { CONNECTORS_HOME } from '../lib/connectors'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatRelative } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
+import { newChatPath } from '../lib/newChat'
 import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
@@ -89,7 +91,7 @@ function useStartInChat() {
   return () => {
     // a start for the sentence in the new-chat box, unless something is already typed there
     if (!readDraft(me.user.id, 'new')) writeDraft(me.user.id, 'new', t('scheduled.chatStarter'))
-    navigate('/')
+    navigate(newChatPath())
   }
 }
 
@@ -384,7 +386,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
           {lapsed && (
             <p className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="schedule-save-lapsed">
               <ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />
-              {t('scheduled.saveLapsedHint')}
+              {t('scheduled.saveLapsedHintFiles')}
             </p>
           )}
           {s.pendingDueAt && <p className="mt-1 text-xs text-faint" data-testid="schedule-deferred">{t('scheduleTemplates.deferred', { time: when(s.retryAt ?? s.pendingDueAt) })}</p>}
@@ -430,7 +432,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}

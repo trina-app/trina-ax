@@ -1,5 +1,5 @@
-// A project's files on a phone (QA TC-254; pages/Projects.tsx ProjectFiles, lib/screens.ts): a screen of the 프로젝트 tab
-// (QA TC-255) under the project's page, its folders under each other (?dir= in the project's folder), so Back goes up a
+// A project's files on a phone (QA TC-254; pages/Projects.tsx ProjectFiles, lib/screens.ts): a screen of the 트리나 tab
+// under the project's page, its folders under each other (?dir= in the project's folder), so Back goes up a
 // folder and then to the project, never into the team folder; a folder's address is one screen however it is written.
 import { describe, expect, test } from 'bun:test'
 import { chainOf, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
@@ -14,10 +14,11 @@ describe('the project files screen', () => {
     expect(parentOf('/projects/p1/files?dir=a%2Fb%2Fc')).toBe(`/projects/p1/files?dir=${encodeURIComponent('a/b')}`)
     expect(chainOf('/projects/p1/files?dir=a%2Fb')).toEqual(['/projects', '/projects/p1', '/projects/p1/files', '/projects/p1/files?dir=a', '/projects/p1/files?dir=a%2Fb'])
     expect(rootTab('/projects/p1/files')).toBeNull()
-    // the project's own page is under the list, the list is the tab's root
+    // the project's own page is under 프로젝트's list, the tab's root
     expect(parentOf('/projects/p1')).toBe('/projects')
     expect(parentOf('/projects')).toBeNull()
     expect(rootTab('/projects')).toBe('projects')
+    expect(rootTab('/')).toBe('ai')
   })
 
   test('one screen however the folder is written; another folder or project is another', () => {

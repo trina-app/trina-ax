@@ -15,7 +15,9 @@ import { whoSees } from '../../lib/sharedChat'
  * 멤버 N명이 …"), an open chat ("멤버 N명이 이 채팅을 …") or the project page's 멤버 line ("N명이 봐요"). */
 export function whoSeesText(t: ReturnType<typeof useT>, shared: { audience?: number; alone?: boolean } | null, place: 'new' | 'chat' | 'project'): string {
   const who = whoSees(shared)
-  if (who.kind === 'me') return t('chat.whoMe')
+  // a new chat's box says it as a sentence of the same shape as the shared one ("새 채팅은 나만 볼 수 있어요." / "새 채팅은
+  // 멤버 N명이 볼 수 있어요."), whatever the project's own members: one rule, what the server does for the new chat
+  if (who.kind === 'me') return place === 'new' ? t('projects.newChatMe') : t('chat.whoMe')
   if (who.kind === 'admins') return t('chat.whoMeAdmins')
   return t(place === 'new' ? 'projects.sharedNewChat' : place === 'chat' ? 'chat.sharedSeen' : 'projects.membersCount', { n: who.n })
 }

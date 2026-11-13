@@ -6,7 +6,8 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn, adv } from './helpers'
+import { reset, signIn, adv, choose } from './helpers'
+import { activityRows } from './nav'
 
 const KEY = 'member-own-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -17,10 +18,12 @@ const joined = (page: Page) => page.getByTestId('connected-apps').locator('[data
 async function makeTemplate(page: Page, o: { name?: string; url?: string } = {}) {
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   const d = modal(page)
   // a new connection is for the team with one key unless the admin picks a template
-  await expect((await adv(page, 'integration-who-team'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await expect(await adv(page, 'integration-who-team')).toHaveJSProperty('selected', true)
+  await choose(page, 'integration-who-template')
   // a template takes no key, and has no write rule (each member's own)
   await expect(page.getByTestId('integration-key')).toHaveCount(0)
   await expect((await adv(page, 'integration-write-ask'))).toHaveCount(0)
@@ -28,7 +31,7 @@ async function makeTemplate(page: Page, o: { name?: string; url?: string } = {})
   await page.getByTestId('integration-url').fill(o.url ?? 'https://mcp.tasks.example/mcp')
   // "no sign-in" is not offered for a template
   await expect((await adv(page, 'integration-auth-none'))).toHaveCount(0)
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   await expect(page.getByTestId('integration-template-key-note')).toBeVisible()
   await page.getByTestId('integration-notes').fill('Use the key from your Tasks profile.')
   await (await adv(page, 'integration-access-pick')).check()
@@ -77,20 +80,19 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await page.getByTestId('integration-answer-connect').click()
   // the template's version as Bob saw it goes along: changed since, the server refuses (409)
   expect((await sent).postDataJSON()).toEqual({ secret: KEY, writePolicy: 'ask', version: 1 })
-  // it is Bob's own connection now, still with the Team label, Connected; its page has its row
+  // it is Bob's own connection now, still with the Team label, Connected; its page has ⋯ with what he may do
   await expect(joined(page).filter({ hasText: 'Tasks' }).getByTestId('connector-row-status')).toHaveText('Connected')
   await expect(group.getByTestId('template-row')).toHaveCount(0)
   await joined(page).filter({ hasText: 'Tasks' }).click()
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
-  const conn = page.getByTestId('integration-row').filter({ hasText: 'Tasks' })
-  await expect(conn).toHaveAttribute('data-scope', 'personal')
+  const conn = page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name: 'Tasks' }) })
   // editing it: only the key and the write rule are his
-  await conn.getByTestId('integration-toggle').click()
-  await conn.getByRole('button', { name: /Edit/ }).click()
+  await conn.getByTestId('connection-menu').click()
+  await conn.getByTestId('integration-edit').click()
   await expect(page.getByTestId('integration-from-team')).toBeVisible()
   await expect(page.getByTestId('integration-name')).toHaveCount(0)
   await expect(page.getByTestId('integration-url')).toHaveCount(0)
-  await expect((await adv(page, 'integration-write-ask'))).toBeVisible()
+  await expect(await adv(page, 'integration-write-ask')).toHaveCount(1)
   await modal(page).getByRole('button', { name: 'Cancel' }).click()
 
   // the owner: one connected, and the key is nowhere
@@ -172,10 +174,10 @@ test('a member can disconnect; at phone width the group and Connect still work',
   await expect(joined(page)).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await joined(page).click()
-  const conn = page.getByTestId('integration-row')
+  const conn = page.getByTestId('connector-detail')
   await expect(conn).toHaveCount(1)
-  await conn.getByTestId('integration-toggle').click()
-  await conn.getByRole('button', { name: /Delete|Disconnect/ }).first().click()
+  await conn.getByTestId('connection-menu').click()
+  await conn.getByTestId('integration-delete').click()
   await page.getByRole('button', { name: 'Delete' }).last().click()
   // back on the list, to Connect
   await expect(page).toHaveURL(/\/connectors$/)
@@ -195,7 +197,9 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await axe()).toEqual([])
     // the admin's dialog with the template choice open
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-who-template')).check()
+    // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+    await page.getByTestId('integration-pick-custom').click()
+    await choose(page, 'integration-who-template')
     expect(await axe()).toEqual([])
     await modal(page).getByRole('button', { name: 'Cancel' }).click()
     await page.context().clearCookies()
@@ -242,16 +246,18 @@ test('a new template is for the whole team unless the admin picks people; the me
   await signIn(page)
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   // one team key and a template both start with the whole team (QA TC-134 retest); switching between them keeps it
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await choose(page, 'integration-who-template')
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-team')).check()
+  await choose(page, 'integration-who-team')
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await choose(page, 'integration-who-template')
   await page.getByTestId('integration-name').fill('Wiki')
   await page.getByTestId('integration-url').fill('https://mcp.wiki.example/mcp')
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integration-templates') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toMatchObject({ name: 'Wiki', access: { everyone: true } })
@@ -292,6 +298,10 @@ test('R4: "N connected" opens who it is for, who connected and when, never a key
   await expect(bob).toContainText('Connected')
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
+    // the app takes the new look on the system's change event (lib/theme.ts), and its colours move there by
+    // transitions: axe in the middle of one reads a mix no one sees for long (a11y.spec.ts audit)
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(scheme === 'dark')
+    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))))
     const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).include('[role="dialog"]').analyze()
     expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
   }
@@ -316,11 +326,12 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
     { id: 'n1', eventType: 'integration.template', code: 'integration.template', sourceId: tid, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: tid, name: 'Tasks' } },
     { id: 'n2', eventType: 'schedule.failure', code: 'schedule.failure', sourceId: 's1', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: tid, name: 'Tasks' } },
   ] } }))
+  // a computer: the 활동 panel's rows, each opening where its notice leads
   await page.goto('/activity')
-  const items = page.getByTestId('notification-item')
+  const items = await activityRows(page)
   await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
   await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()
-  await items.filter({ hasText: 'Tasks is ready' }).getByTestId('notification-template-link').click()
+  await items.filter({ hasText: 'Tasks is ready' }).click()
   await expect(page).toHaveURL(/\/connectors/)
   await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
   await expect(page).not.toHaveURL(/template=/)
@@ -358,5 +369,5 @@ test('a sign-in template connected but never signed in says "Sign-in needed" on 
   // its page says the same
   await line.getByTestId('connector-row-status').click()
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
-  await expect(page.getByTestId('integration-row').filter({ hasText: 'Docs' })).toHaveAttribute('data-status', 'needs_auth')
+  await expect(page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name: 'Docs' }) })).toHaveAttribute('data-state', 'needs_auth')
 })

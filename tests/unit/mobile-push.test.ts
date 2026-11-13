@@ -4,7 +4,7 @@ import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, startRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
-import { APPEARANCE_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
@@ -113,7 +113,7 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
   process.env.MYCEL_MOBILE_EDITION = 'trina'
   delete process.env.MYCEL_MOBILE_GOOGLE_SERVICES; delete process.env.MYCEL_MOBILE_BUILD_NUMBER
   const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
-  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.4')
+  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.5')
   expect(c.ios).toMatchObject({ bundleIdentifier: 'app.trina.ax', supportsTablet: false, buildNumber: '1', appleTeamId: 'YWW96288YY', infoPlist: { ITSAppUsesNonExemptEncryption: false } })
   for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription']) {
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()
@@ -286,6 +286,28 @@ test('share-text-v1: the phone\'s share sheet with a bounded text, only with the
   // a sheet that fails says so
   expect((await app([...config.capabilities, SHARE_TEXT_CAPABILITY], async () => { throw new Error('no sheet') })({ text }))?.error).toBe('mobile_operation_failed')
   expect(shared).toEqual([text])
+})
+
+test('change-team-v1: the 나 tab\'s "다른 팀으로 전환…" opens the app\'s own "다른 팀에 연결" screen, only with the capability, at most once in a few seconds', async () => {
+  let shown = 0
+  const app = (capabilities: readonly string[], changeTeam?: () => void) => {
+    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, undefined, undefined, changeTeam)
+    return (over: object = {}, source = 'https://team.example/settings') => receiver.receive(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'change-team-1', type: 'change-team', ...over }), source)
+  }
+  expect(parseMessage(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'change-team-1', type: 'change-team' }))?.type).toBe('change-team')
+  const send = app([...config.capabilities, CHANGE_TEAM_CAPABILITY], () => { shown++ })
+  expect(await send()).toMatchObject({ ok: true, for: 'change-team' })
+  expect(shown).toBe(1)
+  // again at once: refused (a page cannot keep covering itself with the app's screen)
+  expect((await send())?.ok).toBe(false)
+  // another origin or an old nonce: no answer, no screen
+  expect(await send({}, 'https://evil.example/')).toBeNull()
+  expect(await send({ nonce: 'b'.repeat(64) })).toBeNull()
+  expect(shown).toBe(1)
+  // an app without the capability (today's store builds): refused, and the page shows no row
+  expect((await app(config.capabilities, () => { shown++ })())?.ok).toBe(false)
+  expect((await app([...config.capabilities, CHANGE_TEAM_CAPABILITY])())?.ok).toBe(false)
+  expect(shown).toBe(1)
 })
 
 test('the look: the page says first, the phone before that; insets reach the page as CSS variables, even before it has a root', () => {
@@ -658,15 +680,25 @@ test('the session check: the page answers GET /api/me with the check number; any
   const script = sessionCheckScript(7)
   expect(script).toContain("fetch('/api/me',{credentials:'same-origin'")
   expect(script).toContain('mycelSessionCheck:7')
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: true }), 7)).toBe(true)
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: false }), 7)).toBe(false)
-  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 6, ok: true }), 7)).toBeNull() // an older check
-  for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, ok: 'yes' }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
+  expect(script).toContain('status:r.status')
+  expect(script).toContain('status:0')
+  const ans = (status: unknown, n = 7) => readSessionCheck(JSON.stringify({ mycelSessionCheck: n, status }), 7)
+  expect(ans(200)).toBe('in')
+  expect(ans(204)).toBe('in')
+  // the team says no one is signed in
+  expect(ans(401)).toBe('out')
+  expect(ans(403)).toBe('out')
+  // a blip is not "signed out" (the owner, 2026-11-12: the team line under a signed-in Settings page on 4G)
+  for (const blip of [0, 429, 500, 502, 503, 504, 404]) expect(ans(blip)).toBe('unknown')
+  expect(ans(200, 6)).toBeNull() // an older check
+  for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, status: '200' }), JSON.stringify({ mycelSessionCheck: 7, status: 2.5 }), JSON.stringify({ mycelSessionCheck: 7, ok: true }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
   // the footer follows the rule shared with the desktop (shared/src/team-link.ts hostLineNow): it waits for this check
   // (or 300 ms) before it shows, so a signed-in page does not jump; the check's answer counts as answered
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   expect(app).toContain('const showFooter = hostLineNow({ path: pathname, signedIn, answered, waited })')
-  expect(app).toContain('if (session !== null) { setSignedIn(session); setAnswered(true); return }')
+  expect(app).toContain("if (session !== null) { if (session !== 'unknown') setSignedIn(session === 'in'); setAnswered(true); return }")
+  // back in the foreground: asked again
+  expect(app).toContain('if (ready.current) checkSession()')
   expect(app).toContain('if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)')
 })
 

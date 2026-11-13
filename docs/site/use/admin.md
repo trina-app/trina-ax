@@ -3,10 +3,9 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** in the sidebar is for the owner and admins. Every page in it is for the whole team: the menu's title is your
+**Admin** (관리자) is for the owner and admins. On a computer it is in the team menu under your team's logo at the top of the bar on the left, and ⌘K finds it; on a phone it is in the **나** tab. Every page in it is for the whole team: the menu's title is your
 team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
-the same names as in Settings. Admin › Connected apps is the team's connections; yours are under **Connectors** in the
-sidebar. It opens on
+the same names as in Settings. Admin › Connected apps is the team's connections; yours are in **Settings › Connectors**. It opens on
 **Home**, which lists what needs attention first.
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
@@ -18,14 +17,15 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | Providers, MCP, App connectors, AI apps, Plugins |
+| **Connections** | Providers, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), AI apps, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
 **Providers** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
-own accounts, usage limits) are in **Team settings**.
+own accounts, usage limits) are in **Team settings**. **Slack** had its own menu item too; it is one row of
+**Connected apps** now, and its old address opens it there.
 :::
 
 ## Your first week
@@ -38,7 +38,7 @@ Assign folders to groups and check access with two test accounts. [Read about pe
 In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › AI accounts: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
+![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -62,11 +62,14 @@ People who operate the server, its OS or its storage can read stored files and c
 
 ## Providers
 
-**Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
-sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex are
-the accounts the team answers with, in the order they are tried, with **Add account** for the owner.
+**Admin › AI accounts**, first in the Connections group, has one row per engine (Claude Code, Codex, API) with its
+logo, its state and an on/off switch. When something is wrong, one short line under the name says how to fix it.
+Under Claude Code and Codex are the accounts the team answers with, in the order they are tried, each with its logo,
+plan and state, and **Add account** for the owner and admins. **How order works** under the list explains the order.
 
-Click an engine's name to open its details: what is missing and how to fix it, every model, and for the owner and admins the API engine form.
+Click an engine's name to open its details: how it signs in, every model, when it was last checked, **Check again**,
+and for the owner and admins the API engine form. Click an account's name for who uses it, this month's use and when it
+was last used. The **⋯** menu of an account has Check again, Move up / down, rename, replace, switch off and delete.
 
 ![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
 

@@ -8,7 +8,7 @@ import {
   cardEndShort, cardNext, cardReason, nameList, notFoundNext, readOnlyNote, reasonText, refusal, SCREEN, writeGranters, writeLimitText,
 } from '../../server/src/policy/refusal'
 import { readOnlyFor } from '../../server/src/chat/tools'
-import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, roomSection, sharedSection, type PromptInput } from '../../server/src/chat/prompt'
+import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, sharedSection, type PromptInput } from '../../server/src/chat/prompt'
 import { scheduledRunBlock } from '../../server/src/chat/schedules'
 import { roomRefsBlock } from '../../server/src/chat/turn'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -61,8 +61,8 @@ describe('refusal()', () => {
       for (const s of Object.values(SCREEN)) expect(s(L).length).toBeGreaterThan(5)
     }
     expect(SCREEN.adminFolders('ko')).toBe('Admin › Folder permissions ("관리자 › 폴더 권한")')
-    expect(SCREEN.connectors('ja')).toBe('Connectors in the sidebar ("コネクター")')
-    expect(SCREEN.connectors('ko', 'Gmail')).toBe('Connectors › Gmail in the sidebar ("커넥터 › Gmail")')
+    expect(SCREEN.connectors('ja')).toBe('Settings › Connectors ("設定 › コネクター")')
+    expect(SCREEN.connectors('ko', 'Gmail')).toBe('Settings › Connectors › Gmail ("설정 › 커넥터 › Gmail")')
     expect(SCREEN.adminMcp('ko')).toBe('Admin › Connected apps ("관리자 › 연결한 서비스")')
     expect(SCREEN.sideChat('ko')).toMatch(/^the room's side panel \("✦ .+에게 따로 묻기"\)$/)
   })
@@ -134,11 +134,11 @@ describe('who can give access', () => {
   })
 
   // review of #273: in a shared chat the answer reaches everyone who sees it, not only the asker
-  test('a shared chat or a room: the creator is named only when everyone there may read the project folder', () => {
+  test('a shared chat: the creator is named only when everyone there may read the project folder', () => {
     const t = "Access denied: read-only folder: you cannot create files in 'projects/atlas'"
-    const exec = (o: { shared?: boolean; room?: boolean; everyone?: boolean | null }) => ({
+    const exec = (o: { shared?: boolean; everyone?: boolean | null }) => ({
       rt: { db, files: { rules: () => ({ access: () => 'read' }) } }, livePrincipal: () => ({ id: 'm', name: 'Member Moon', role: 'member', groups: [] }),
-      spec: { locale: 'en', userId: 'm' }, room: o.room ? { roomId: 'r' } : null, shared: o.shared ? { project: {} } : null,
+      spec: { locale: 'en', userId: 'm' }, shared: o.shared ? { project: {} } : null,
       roomReadable: o.everyone === null || o.everyone === undefined ? null : () => o.everyone!,
     }) as unknown as Parameters<typeof readOnlyFor>[0]
     expect(readOnlyFor(exec({}), t)).toContain("Pat Creator (the project's creator) or an admin can give it")
@@ -148,7 +148,6 @@ describe('who can give access', () => {
     expect(hidden).not.toContain('Pat Creator')
     expect(hidden).not.toContain('button under your answer')
     expect(readOnlyFor(exec({ shared: true, everyone: true }), t)).toContain("Pat Creator (the project's creator)")
-    expect(readOnlyFor(exec({ room: true, everyone: false }), t)).not.toContain('Pat Creator')
     // no reader check known: never named
     expect(readOnlyFor(exec({ shared: true, everyone: null }), t)).not.toContain('Pat Creator')
     // only a policy refusal's own text, never a tool's or a connection's that happens to say so
@@ -163,13 +162,6 @@ describe('the instructions say what each kind of chat cannot do, and where to do
   const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
     user: h.ctx.files.principal('alice'), groupNames: [], locale: 'ko', timeZone: 'Asia/Seoul', memories: [], project: null,
     browser: false, tools: ['move_files', 'copy_files'], history: null, ...extra,
-  })
-
-  test('a room: what is missing there, and the side panel or an own chat instead', () => {
-    const t = roomSection({ name: 'Sales', kind: 'team', members: 4, asker: 'Alice Kim' }, 'ko')
-    expect(t).toContain('Not available in a room: memories about Alice Kim, connected services (and connecting one), Google Drive, scheduled tasks, video generation, the browser')
-    expect(t).toContain('the room\'s side panel ("✦')
-    expect(t).toContain('do not just say you cannot')
   })
 
   test('a shared chat: what is missing there, and an own chat instead', () => {

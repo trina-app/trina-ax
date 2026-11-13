@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS } from '../../src/i18n'
+const ko = DICTS.ko
 
 async function audit(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
@@ -26,7 +27,7 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await expect(card).toBeVisible()
   await page.getByTestId('team-link-skill').selectOption('skills/광고-문구.md')
   await page.getByTestId('team-link-create').click()
-  const url = (await page.getByTestId('team-link-url').innerText()).trim()
+  const url = ((await page.getByTestId('team-link-url').textContent()) ?? '').trim()
   expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/join#t=tl[0-9a-f]+$/)
   await expect(page.getByTestId('team-link-uses')).toHaveText('0/20명')
   await audit(page, 'members, the open team link')
@@ -101,4 +102,35 @@ test('a join link on a weak connection: Try again, also after a refresh, then th
   await p2.getByTestId('join-retry').click()
   await expect(p2.getByTestId('join-form')).toBeVisible()
   await other.close()
+})
+
+test('the team link row says which groups people join; an admin changes them on the same link (QA TC-458)', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  const h = { [CSRF_HEADER]: '1' }
+  const leads = (await (await page.request.post('/api/admin/groups', { headers: h, data: { name: 'Leads' } })).json()) as { id: string }
+  await page.request.post('/api/admin/groups', { headers: h, data: { name: 'Field' } })
+  const made = await page.request.post('/api/admin/team-link', { headers: h, data: { groupIds: [leads.id] } })
+  const { url } = ((await made.json()) as { link: { url: string } }).link
+  await page.goto('/admin/members')
+  const row = page.getByTestId('team-link-row')
+  await expect(row).toContainText(ko['teamLink.joins'].replace('{groups}', 'Leads'))
+  // the popup: "Change groups", the same checks, "Make a new group", the one line about people who joined
+  await page.getByTestId('team-link-row').getByTestId('member-more').click()
+  await page.getByTestId('team-link-row-open').click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByTestId('team-link-groups-change').click()
+  const edit = dialog.getByTestId('team-link-groups-edit')
+  await expect(edit).toContainText(ko['teamLink.groupsKeep'])
+  await expect(edit.getByTestId('group-checks-new')).toHaveAttribute('href', '/admin/groups')
+  await edit.getByRole('checkbox', { name: 'Leads' }).uncheck()
+  await edit.getByRole('checkbox', { name: 'Field' }).check()
+  await edit.getByTestId('team-link-groups-save').click()
+  await expect(dialog.getByTestId('team-link-groups')).toHaveText('Field')
+  // the same address
+  await expect(dialog.getByTestId('team-link-url')).toHaveText(url)
+  await dialog.getByTestId('team-link-done').click()
+  await expect(row).toContainText(ko['teamLink.joins'].replace('{groups}', 'Field'))
+  expect(realErrors(errors)).toEqual([])
 })

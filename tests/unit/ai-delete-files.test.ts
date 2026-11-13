@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, uuidv7, type RoomAiRun, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
+import { API, uuidv7, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { FILE_TOOLS, PRODUCT } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
@@ -20,8 +20,8 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
 import { AI_SKILL_TRASH_REFUSAL, AI_TRASH_FOLDER_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
 import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
-import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, type DeleteExec } from '../../server/src/chat/delete-files'
-import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, restoreUntilDay, type DeleteExec } from '../../server/src/chat/delete-files'
+import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { buildAgentDefinitions, PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { localTool } from '../../server/src/safe-ops/confidential'
 import { buildTurnPrompt, DELETE_RULE, filePlacementRule, type PromptInput } from '../../server/src/chat/prompt'
@@ -640,7 +640,6 @@ describe('refused up front, before any card', () => {
 
   test('only the person\'s own chat with the person there', async () => {
     expect(mode({})).toBeNull()
-    expect(mode({ room: { roomId: 'r' } })).toBe('room')
     expect(mode({ shared: { project: {} } })).toBe('shared')
     expect(mode({ spec: { ...base.spec, clientKind: 'schedule' } })).toBe('scheduled')
     expect(mode({ templateRun: true })).toBe('template')
@@ -657,7 +656,6 @@ describe('refused up front, before any card', () => {
   })
 
   test('never offered where there is no card: rooms, shared chats, confidential chats, sub-agents, the connector', () => {
-    expect(ROOM_TOOLS.has('delete_files')).toBe(false)
     expect(SHARED_TOOLS.has('delete_files')).toBe(false)
     expect(localTool('delete_files')).toBe(false)
     expect(PARENT_ONLY_TOOLS.has('delete_files')).toBe(true)
@@ -742,6 +740,18 @@ describe('refused up front, before any card', () => {
   })
 })
 
+describe('the restore day the AI is told (QA TC-015)', () => {
+  test("is the team's day, not the UTC day, near midnight in a +07:00 zone", () => {
+    // 2026-12-12 18:30 UTC is 2026-12-13 01:30 in Jakarta: the card and the trash list say Dec 13
+    expect(restoreUntilDay('2026-12-12T18:30:00.000Z', 'Asia/Jakarta')).toBe('2026-12-13')
+    expect(restoreUntilDay('2026-12-12T16:59:59.000Z', 'Asia/Jakarta')).toBe('2026-12-12')
+    expect(restoreUntilDay('2026-12-12T17:00:00.000Z', 'Asia/Jakarta')).toBe('2026-12-13')
+    // and the card's own date for the same instant agrees
+    expect(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'Asia/Jakarta' }).format(new Date('2026-12-12T18:30:00.000Z'))).toBe('December 13, 2026')
+    expect(restoreUntilDay('2026-12-12T18:30:00.000Z', 'UTC')).toBe('2026-12-12')
+  })
+})
+
 describe('the card, the answer, the audit and the restore', () => {
   test('full paths, files per folder, other people by name, who loses it, the purge date of the setting; yes trashes exactly that, one audit row, restorable', async () => {
     put('users/alice/del-card.md', 'mine\n')
@@ -757,7 +767,7 @@ describe('the card, the answer, the audit and the restore', () => {
       expect(r.cards).toHaveLength(1)
       const c = r.cards[0]!
       expect(c.origin).toBe('server')
-      expect(c.options?.map((o) => o.value)).toEqual(['trash', 'skip'])
+      expect(c.options?.map((o) => o.value)).toEqual(['trash', '__always', 'skip'])
       expect(c.question).toContain('The AI wants to move 2 items to the trash.')
       expect(c.question).toContain('With what is inside the folders, that is 3 files.')
       expect(c.question).toContain('It includes files made or changed by Bob Lee, Erin Yoo.')
@@ -774,6 +784,8 @@ describe('the card, the answer, the audit and the restore', () => {
       // the result says what went and where to restore it
       expect(r.content).toContain('Moved to the team trash (2):\n- shared/del-card\n- users/alice/del-card.md')
       expect(r.content).toContain('Files › Trash')
+      // the day the AI is told is the team's day, the one the card shows (QA TC-015)
+      expect(r.content).toContain(`restore each item until ${restoreUntilDay(rows[0]!.purge_at, teamTimeZone(h.ctx.db))} (in the team's time zone, ${teamTimeZone(h.ctx.db)})`)
       // one audit row: the card, the turn, the trash ids
       const [a, ...more] = audits(r.turnId)
       expect(more).toEqual([])
@@ -906,6 +918,20 @@ describe('the card, the answer, the audit and the restore', () => {
     expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'refused'])
   })
 
+  // docs/DECISIONS.md "Always allow on every card": once picked, no card and no two-card limit (review of #678)
+  test('"Always allow" for deletes: picked on the first card, then three deletes in one answer go without a card', async () => {
+    for (const n of [0, 1, 2, 3]) put(`users/alice/always-${n}.md`)
+    try {
+      const first = await turn('alice', fake(del('users/alice/always-0.md')), () => '__always')
+      expect(first.cards.map((c) => c.options?.map((o) => o.value))).toEqual([['trash', '__always', 'skip']])
+      expect(has('users/alice/always-0.md')).toBe(false)
+      const r = await turn('alice', fake(del('users/alice/always-1.md'), del('users/alice/always-2.md'), del('users/alice/always-3.md')), () => 'skip')
+      expect(r.cards).toHaveLength(0)
+      expect([has('users/alice/always-1.md'), has('users/alice/always-2.md'), has('users/alice/always-3.md')]).toEqual([false, false, false])
+      expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'trashed'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
   test('one card at a time: a second delete while one waits (or while any other card is open) is refused, not queued; a sub-agent\'s call is refused', async () => {
     put('users/alice/one-at-a-time.md')
     let release!: (v: unknown) => void
@@ -990,45 +1016,4 @@ describe('the prompt', () => {
 })
 
 describe('room grants', () => {
-  test('a path the AI just put in the trash is never "new" for a room\'s "always allow"', async () => {
-    // the people who may read groups/marketing, so no wider-audience card stands in for the room's own (b-room-ai-grants)
-    const g = await h.api('dana').call(API.createGroup, { body: { name: 'del-grant-room', memberIds: ['alice', 'erin', 'carol', 'dana'] } })
-    const roomId = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
-    const dir = 'groups/marketing/del-grant'
-    put(`${dir}/old.md`, 'agreed to remove\n')
-    // made after everyone joined (a member who joins later lapses it, rooms/ai-grants.ts)
-    await Bun.sleep(5)
-    createGrant(h.ctx.db, h.ctx.files.fx, h.ctx.files.rules(), { userId: 'alice', roomId, folder: dir, turnId: null, since: new Date().toISOString() })
-    // alice's own chat put it in the trash (a turn of hers)
-    const plan = planOf('alice', [`${dir}/old.md`])
-    expect(svc().trashAiPlan('alice', plan, uuidv7()).trashed).toHaveLength(1)
-    expect(svc().aiTrashed(`${dir}/old.md`)).toBe(true)
-    async function ask(steps: unknown[]) {
-      const q = await h.api('alice').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: `@트리나 do it\n${fake(...steps, { say: 'done' })}`, clientMessageId: cm(), mentions: [], fileIds: [] } }) as RoomMessage
-      const turnId = (await socks.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id, 20_000)).data.run.turnId
-      const cards: Ask[] = []
-      const seen = new Set<string>()
-      for (let waited = 0; ; waited += 50) {
-        if (waited > 60_000) throw new Error('the answer did not end')
-        for (const f of socks.alice!.frames) {
-          if (f.type !== 'turn.request' || f.data.turnId !== turnId || seen.has(f.data.request.requestId)) continue
-          seen.add(f.data.request.requestId)
-          cards.push(f.data.request as Ask)
-          await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: f.data.request.requestId, answer: 'skip' } })
-        }
-        let end: RoomAiRun | null = null
-        for (const f of socks.alice!.frames) if (f.type === 'room.ai.run' && f.data.run.turnId === turnId && ['done', 'stopped', 'error'].includes(f.data.run.state)) end = f.data.run
-        if (end) return cards
-        await Bun.sleep(50)
-      }
-    }
-    // a new name in the folder: the grant covers it, no card
-    expect(await ask([{ tool: 'write', args: { file_path: `${dir}/fresh.md`, content: 'new\n' } }])).toEqual([])
-    expect(has(`${dir}/fresh.md`)).toBe(true)
-    // the trashed path: the room card again (no grant covers it, so no "always" either), and "no" leaves it in the trash
-    const cards = await ask([{ tool: 'write', args: { file_path: `${dir}/old.md`, content: 'replaced without a card\n' } }])
-    expect(cards.map((c) => c.options?.map((o) => o.value))).toEqual([['allow', 'skip']])
-    expect(has(`${dir}/old.md`)).toBe(false)
-    await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })
-  })
 })

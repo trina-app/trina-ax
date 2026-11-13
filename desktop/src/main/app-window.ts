@@ -6,7 +6,8 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, powerMonitor, session, WebContentsView, type Session } from 'electron'
+import { readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
@@ -217,6 +218,20 @@ export class AppWindow {
     }
     nativeTheme.on('updated', themed)
     this.win.on('closed', () => nativeTheme.off('updated', themed))
+    // the computer's own use for the team page's "in use" (common/system-activity.ts): another app in front or the
+    // in-app browser is still the person at the computer; a locked screen is not
+    const tellSystem = (a: SystemActivity | null) => { if (a && this.app && !this.win.isDestroyed()) this.send(this.app, 'bridge:system-activity', a) }
+    const systemActivity = setInterval(() => tellSystem(readSystemActivity(powerMonitor)), SYSTEM_ACTIVITY_EVERY_MS)
+    // a lock or an unlock is told at once, not at the next poll (macOS and Windows send these; elsewhere the poll sees it)
+    const onLock = () => tellSystem({ locked: true, idleMs: 0 })
+    const onUnlock = () => tellSystem(readSystemActivity(powerMonitor) ?? { locked: false, idleMs: 0 })
+    powerMonitor.on('lock-screen', onLock)
+    powerMonitor.on('unlock-screen', onUnlock)
+    this.win.on('closed', () => {
+      clearInterval(systemActivity)
+      powerMonitor.off('lock-screen', onLock)
+      powerMonitor.off('unlock-screen', onUnlock)
+    })
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
     void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
@@ -752,8 +767,8 @@ export class AppWindow {
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
-      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed when it goes off, never
-      // when it goes on): common/me-policy.ts
+      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed both ways):
+      // common/me-policy.ts
       if (pane && this.pane === pane) applyMePolicy(pane, me.data)
       if (me.data.team.name && me.data.team.name !== team.label) {
         this.saveTeams(updateTeam(this.teams, team.id, { label: me.data.team.name.slice(0, 200) }))

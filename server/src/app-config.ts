@@ -198,13 +198,13 @@ export const AppConfigFile = z.object({
    * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
    * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
   handoverSafe: z.boolean().optional(),
-  /** "@트리나 …" in a room asks the AI there (rooms/ai.ts). Off by default since the side chat (docs/DECISIONS.md
-   * "Trina side chat", option A): people ask the AI beside a room and share an answer on purpose. On: the old way, for
-   * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
-  roomAiMentions: z.boolean().optional(),
+  /** obsolete: the switch of the new navigation (docs/DECISIONS.md "navRail: the new navigation behind one server
+   * switch"), retired: the rail and the phone tabs 트리나 · 대화 · 파일 · 나 are the only navigation. Accepted with any
+   * value and ignored, so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
+  navRail: z.unknown().optional(),
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
-   * whatever the team's admin chooses (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's
-   * instructions). Absent: the team's switch in Admin › Team settings decides (on by default). */
+   * (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's instructions). Absent: on; the team
+   * has no switch (docs/DECISIONS.md "File list: always on"). */
   fileList: z.object({
     enabled: z.boolean().optional(),
     /** files the model reads per run, and tokens it may use per run (default: file-list/policy.ts RUN_FILES, RUN_TOKENS) */
@@ -214,6 +214,9 @@ export const AppConfigFile = z.object({
   /** obsolete: the knowledge graph was removed (docs/DECISIONS.md, 2026-11-11). Accepted with any value and ignored,
    * so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
   knowledgeGraph: z.unknown().optional(),
+  /** obsolete: "@트리나" in rooms was removed (docs/DECISIONS.md "Room @트리나 code removed", 2026-11-13). Accepted with
+   * any value and ignored, like knowledgeGraph (OBSOLETE_KEYS). */
+  roomAiMentions: z.unknown().optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
 
@@ -261,9 +264,7 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** see AppConfigFile.handoverSafe; absent = off */
   handoverSafe?: boolean
-  /** see AppConfigFile.roomAiMentions; absent = off */
-  roomAiMentions?: boolean
-  /** see AppConfigFile.fileList; absent = the team's switch decides */
+  /** see AppConfigFile.fileList; absent = on (the team has no switch) */
   fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
@@ -277,6 +278,8 @@ export interface AppConfig {
 /** Config file keys older versions read and this one ignores, with why, for the start's log line. */
 export const OBSOLETE_KEYS: Readonly<Record<string, string>> = {
   knowledgeGraph: 'the knowledge graph was removed; the AI finds files with list, glob, grep and read',
+  navRail: 'the new navigation is the only one now; the switch does nothing',
+  roomAiMentions: 'asking the AI with an @mention in rooms was removed; people ask it in the side chat beside a room',
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -373,7 +376,6 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
-    ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
     ...(f.fileList ? { fileList: f.fileList } : {}),
     ...(demo ? { demo } : {}),
     ...(obsolete.length ? { obsoleteKeys: obsolete } : {}),

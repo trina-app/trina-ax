@@ -82,23 +82,6 @@ export function IconButton({ label, danger, compact, className, children, tip = 
 export const inputCls =
   'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-md:min-h-11'
 
-/** The title of a sidebar section (대화, 트리나 기록), which folds its list. As large as the rows under it (14px, 15px on
- * phones) and bold, in the main text colour, so it reads as a title and it is clear where 대화 ends and 트리나 기록 starts
- * (QA TC-149; earlier a step under the rows, 12px semibold, which ran the two lists together). Type only, no fill, line
- * or box (the owner prefers a lean sidebar). The labels inside a list (팀 채팅방, 그룹 채팅, 1:1 대화, 오늘…) stay lower
- * (text-micro, 500, faint) and so does "더 보기" / "접기" (text-xs, muted). The chevron stays quiet; hover shifts the
- * colour one step, as before. It never shrinks or wraps: a long filter label beside it is cut instead. */
-export function SidebarSectionTitle({ open, onToggle, controls, children, testId }: { open: boolean; onToggle: () => void; controls: string; children: ReactNode; testId: string }) {
-  return (
-    <h2 className="shrink-0 text-sm font-bold whitespace-nowrap text-ink">
-      <button type="button" aria-expanded={open} aria-controls={controls} onClick={onToggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid={testId}>
-        {children}
-        <ChevronDown size={14} className={clsx('text-faint transition-transform', !open && '-rotate-90')} aria-hidden />
-      </button>
-    </h2>
-  )
-}
-
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. `aside` (a password field's eye button) sits over the control's right edge, outside the label, so
  * the control's name stays the label's words; the control then keeps room for it (pr-11). The box is the field's
@@ -251,7 +234,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     // reach when the first one went inert)
     const onFocusIn = (e: FocusEvent) => {
       if (!onTop() || !el || !(e.target instanceof Node) || el.contains(e.target)) return
-      const to = first && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
+      // the first control may be gone (a dialog that swapped its content): then the first one there now
+      const to = first?.isConnected && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
       ;(to ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)
@@ -273,7 +257,7 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
   }, [open, ref])
 }
 
-export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: string; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
+export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -858,7 +842,7 @@ export function StickyHeader({ className, children, testId, bar }: { className?:
   )
 }
 
-/** A page's content column: centred in the space beside the sidebar, like Claude's Customize page (phones: full width). */
+/** A page's content column: centred in the space beside the rail and its list panel, like Claude's Customize page (phones: full width). */
 export const pageColumn = 'mx-auto w-full max-w-5xl'
 
 /** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls; its contents line up

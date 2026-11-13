@@ -23,6 +23,8 @@ LoadCredential=tls-cert:/etc/mycel-relay/credentials/origin.pem
 LoadCredential=tls-key:/etc/mycel-relay/credentials/origin.key
 LoadCredential=aop-ca:/etc/mycel-relay/credentials/aop-ca.pem
 Environment=RELAY_TLS_CERT=%d/tls-cert RELAY_TLS_KEY=%d/tls-key RELAY_TLS_CLIENT_CA=%d/aop-ca
+# the instance tag on error reports (RELAY_SENTRY_DSN, README.md "Error reports and check-ins")
+Environment=RELAY_INSTANCE=%i
 ExecStart=/opt/node-26/bin/node --disable-warning=ExperimentalWarning /opt/mycel-relay/instance-%i/relay/src/main.ts --port 443 --data /var/lib/mycel-relay --trusted-proxies cloudflare
 KillSignal=SIGTERM
 TimeoutStopSec=20

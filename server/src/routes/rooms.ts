@@ -2,6 +2,7 @@
 // Implements: ROOMS (shared/src/api/rooms.ts) and AI_ALLOWANCES (shared/src/api/ai-allowances.ts: what I allowed @트리나
 // in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
 // request never names an author or another member's read position.
+import { dropAlways, listAlways } from '../chat/always-allow'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
@@ -16,11 +17,7 @@ import { componentC } from '../team-files/component'
 import { httpError } from '../team-files/errors'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
-import { roomAiOf } from '../rooms/ai'
-import { redecideRoomSoon, startRedecide } from '../rooms/ai-redecide'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
-import { getChatRuntime } from '../chat/runtime'
-import { windowOf } from './chats'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -40,15 +37,6 @@ export const roomsRoutes: RouteModule = {
       ;(later as { unref?: () => void }).unref?.()
       ctx.onClose(() => { clearTimeout(later); stop.abort() })
     }
-    // the AI in rooms (rooms/ai.ts): the chat runtime's room hooks, and the questions that ended while it was down
-    try {
-      getChatRuntime(ctx).rooms = roomAiOf(ctx)
-      roomAiOf(ctx).reconcile()
-      // previews kept as not postable before what a hidden answer used could be named (rooms/earlier-sources.ts): tried
-      // again after start, in steps; and a room's refused ones when people leave it or its history changes for someone
-      startRedecide(ctx)
-      rooms.onAccessChanged = (roomId) => redecideRoomSoon(ctx, roomId)
-    } catch (e) { ctx.log.error('room AI start failed', { err: e }) }
     const tick = setInterval(() => { rooms.syncSoon(); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()
     ctx.onClose(() => clearInterval(tick))
@@ -67,8 +55,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
-    // "@트리나 …" asks the AI as the sender (rooms/ai.ts): the window for the desktop browser, the screen's language
-    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { windowId: windowOf(c), clientKind: auth.session.client, locale: c.get('locale') }))
+    // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
+    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale') }))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
@@ -88,8 +76,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.pinRoom, ({ c, auth, params }) => rooms.pin(auth.user.id, params.id, c.get('locale')))
     kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
-    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: listGrants(ctx.db, auth.user.id) } })
-    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!deleteGrant(ctx.db, auth.user.id, params.id)) fail('not_found') })
+    // "Always allow" on a kind of card (chat/always-allow.ts) first, then the room folders
+    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)] } })
+    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
     kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
@@ -112,13 +101,6 @@ export const roomsRoutes: RouteModule = {
       const unable = others.filter((m) => !fileOpener(ctx, m.user_id)(body.path)).length
       return { file, unable }
     })
-    const ai = roomAiOf(ctx)
-    kit.handle(API.getRoomAi, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.state(auth.user.id, params.id) })
-    // the cards of my own questions here, read again when the room opens (another member's question gives nothing)
-    kit.handle(API.listRoomAiRequests, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: ai.requests(auth.user.id, params.id, windowOf(c)) } })
-    kit.handle(API.stopRoomAi, ({ auth, params }) => ai.stop(auth.user.id, params.id, params.turnId))
-    kit.handle(API.shareRoomMessage, ({ auth, params, body }) => ai.share(auth.user.id, params.id, params.messageId, body))
-    kit.handle(API.roomMessageSources, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.sources(auth.user.id, params.id, params.messageId) })
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no

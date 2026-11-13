@@ -289,6 +289,11 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
+  // the team page's "다른 팀으로 전환…": the OS menu's own team list as a menu under the pointer (the page never sees it)
+  ipcMain.on('bridge:team-menu', (e) => {
+    if (!fromApp(e) || !win) return
+    Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
+  })
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
@@ -320,17 +325,23 @@ function registerIpc() {
 
 // ------------------------------------------------------------------ menu
 
-function buildMenu() {
-  const L = locale()
-  const tr = (k: UiKey) => t(L, k)
-  const teams = win?.teamList() ?? []
-  const teamItems: MenuItemConstructorOptions[] = teams.map((x, i) => ({
+/** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
+ * and the team page's "다른 팀으로 전환…" (bridge:team-menu). */
+function teamMenuItems(): MenuItemConstructorOptions[] {
+  const tr = (k: UiKey) => t(locale(), k)
+  const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({
     label: x.label,
     type: 'radio',
     checked: x.id === win?.team?.id,
     accelerator: i < 9 ? `CmdOrCtrl+${i + 1}` : undefined,
     click: () => void win?.openTeam(x.id),
   }))
+  return [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.teams'), click: () => win?.showWelcome() }]
+}
+
+function buildMenu() {
+  const L = locale()
+  const tr = (k: UiKey) => t(L, k)
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin'
       ? [{ label: PRODUCT.displayName, submenu: [{ role: 'about' as const, label: tr('menu.about') }, { type: 'separator' as const }, { role: 'hide' as const, label: tr('menu.hide') }, { role: 'hideOthers' as const, label: tr('menu.hideOthers') }, { role: 'unhide' as const, label: tr('menu.showAll') }, { type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit') }] }]
@@ -353,7 +364,7 @@ function buildMenu() {
       ],
     },
     // one item for the list and adding a team: both were the same screen
-    { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
+    { label: tr('menu.team'), submenu: teamMenuItems() },
     // a downloaded update (Windows): installs on quit, or now from here
     ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
     {

@@ -6,6 +6,7 @@
 // these pages is wider than the screen. A computer keeps the one page.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -29,7 +30,7 @@ function fakeDesktop() {
 }
 
 async function openTeamSettings(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await page.getByTestId('admin-row-settings').click()
   await expect(page).toHaveURL(/\/admin\/settings$/)
@@ -224,9 +225,11 @@ test('Settings › Profile: the photo button and the language and theme choices 
   expect(user.x + user.width).toBeGreaterThan(390 - 30)
 })
 
-test('nothing on these pages is wider than the screen, in Spanish too', async ({ page }) => {
+// one test per language: about 30 pages each, both in one test ran past the 45 s limit on a busy runner
+for (const locale of ['en', 'es'] as const) test(`nothing on these pages is wider than the screen, in ${locale}`, async ({ page }) => {
   await page.addInitScript(fakeDesktop)
-  for (const locale of ['en', 'es'] as const) {
+  {
+    // the Spanish run is the one with the longest words
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
     const pages: [string, string][] = [

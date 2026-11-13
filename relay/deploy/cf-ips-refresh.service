@@ -5,4 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/mycel-relay/current/deploy/cf-ips-refresh.sh
+# relay-checkin: Sentry monitor relay-cf-ips-refresh when RELAY_SENTRY_DSN is set (README.md); the margin covers the
+# timer's 30 min random delay
+ExecStart=/usr/local/sbin/relay-checkin relay-cf-ips-refresh "17 3 * * 1" 45 10 -- /opt/mycel-relay/current/deploy/cf-ips-refresh.sh

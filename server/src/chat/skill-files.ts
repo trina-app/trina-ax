@@ -9,6 +9,7 @@
 // gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
+import { withAlways } from './always-allow'
 import { z } from 'zod'
 import { SkillFilesInput, uuidv7 } from '@mycel/shared'
 import type { ConfirmDetail, Locale, TurnRequest } from '@mycel/shared/api'
@@ -45,7 +46,6 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   const own = 'the user can ask for it in one of their own chats, or do it on the Files screen'
   if (files && files !== exec.files) return r('only the main AI may change skill folders, where the user answers its card; a helper (sub-agent) cannot ask the user', 'put it in your report; the main AI calls skill_files itself', 'sub-agent')
   if (exec.spec.clientKind === 'schedule') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
-  if (exec.room) return r('this is a team chat room, where skill folders are not changed (other people\'s words could steer it)', own, 'room')
   if (exec.shared) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')
@@ -106,11 +106,12 @@ export function skillFilesTool(exec: TurnExec) {
         ...(plan.files.length ? [{ label: st('fileList', L, { n: String(plan.files.length) }), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }] : []),
       ]
       const yes = a.action === 'copy' ? st('copyYes', L) : a.action === 'rename' ? st('fileYesRename', L) : st('moveYes', L)
-      const answer = await exec.waitForPerson({
+      // "Always allow" for skill file moves, copies and renames (chat/always-allow.ts)
+      const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files', [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: card, multiple: false, allowText: false,
-        options: [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], details,
+        options, details, ...more,
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
       const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
       if (picked !== 'yes') {
         const declined = picked === 'no'

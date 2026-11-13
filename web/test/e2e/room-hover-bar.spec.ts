@@ -1,5 +1,5 @@
 // A message's hover bar in the browser (components/rooms/MessageHoverBar.tsx): it floats over the top-right edge of the
-// message under the mouse (under the first one), moves nothing, names each button in a tooltip
+// message under the mouse (under the first one), never over its words, moves nothing, names each button in a tooltip
 // (components/Tooltip.tsx), toggles a quick reaction, opens the thread, and is reached with the keyboard too (Tab shows
 // it, Esc closes its menu). Its buttons in order: ✅ 👀 👍, 반응 추가, 스레드에서 답장, ✦ 트리나에게 이 메시지 묻기, ⋮ 더 보기.
 // The ✦ is Trina's mark without a circle (rooms/AiFace.tsx AiMark), as in the room header.
@@ -48,6 +48,9 @@ test('hover: the bar floats over the top-right edge, moves nothing, and every bu
   expect(b.x + b.width).toBeLessThanOrEqual(before.x + before.width)
   expect(b.y).toBeLessThan(before.y)
   expect(b.y + b.height).toBeGreaterThan(before.y)
+  // over the edge, never over the words: a link at the end of the first line stays under the pointer
+  const words = await box(msg.getByTestId('message-markdown'))
+  expect(b.y + b.height).toBeLessThanOrEqual(words.y + 0.5)
   // the row is marked while the mouse is on it
   expect(await msg.evaluate((e) => getComputedStyle(e).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
 
@@ -88,7 +91,9 @@ test('✦ is Trina\'s mark with no circle, drawn larger than the icons beside it
   expect(await box(ask)).toMatchObject({ width: 28, height: 28 })
   // the icons beside it are 16; the bar keeps its height
   expect(await box(bar.getByTestId('message-thread').locator('svg'))).toMatchObject({ width: 16, height: 16 })
-  expect((await box(bar)).height).toBe(34)
+  // 34: 28 px buttons, 2 px padding and a 1 px border each side; a system font's line metrics can add 1 px around the
+  // ⋯ menu's wrapper (35 on the Linux runner's fonts), which is not the bar growing
+  expect(Math.abs((await box(bar)).height - 34)).toBeLessThanOrEqual(1)
   // the room header's ✦: drawn 24 beside the 16 px bell, its button the 32 px it was (the sparkle 18, its button 28)
   const head = page.getByTestId('room-side-chat-button')
   const [drawn, button] = PRODUCT_NAMED_AFTER_AI ? [24, 32] : [18, 28]
@@ -105,8 +110,34 @@ test('the first message has its bar under it, where the header cannot cut it', a
   await expect.poll(() => opacity(bar)).toBe('1')
   const m = await box(first), b = await box(bar)
   expect(b.y + b.height).toBeGreaterThan(m.y + m.height)
+  // under the words, not over the last line
+  const words = await box(first.getByTestId('message-markdown'))
+  expect(b.y).toBeGreaterThanOrEqual(words.y + words.height - 0.5)
   const header = await box(page.getByTestId('room').locator('h1'))
   expect(b.y).toBeGreaterThan(header.y + header.height)
+})
+
+test('the first message\'s bar stays on top of the next run\'s bar where they meet (keyboard focus kept, mouse on the next message)', async ({ page }) => {
+  // the next message starts its own run (another person, its name line above it): its bar shows over its top edge,
+  // where the first message's bar hangs; while both show, the first one's buttons are the ones under the pointer
+  await reset(page)
+  await routeRoom(page, { members: [SORA], messages: [MESSAGES[0]!, { id: id(4), author: OLGA, body: '확인했어요' }] })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await expect(page.getByTestId('room-message')).toHaveCount(2)
+  const top = page.getByTestId('room-message').first()
+  await page.keyboard.press('Shift')
+  await top.getByTestId('message-react').focus()
+  const next = page.getByTestId('room-message').nth(1)
+  await next.hover({ position: { x: 20, y: 4 } })
+  await expect.poll(() => opacity(next.getByTestId('message-hover-bar'))).toBe('1')
+  const react = await box(top.getByTestId('message-react'))
+  // (the two bars do meet there: the point is inside the next message's bar too)
+  const nb = await box(next.getByTestId('message-hover-bar'))
+  expect(react.y + react.height / 2).toBeGreaterThan(nb.y)
+  expect(react.y + react.height / 2).toBeLessThan(nb.y + nb.height)
+  const onTop = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid="room-message"]') === document.querySelector('[data-testid="room-message"]'), [react.x + react.width / 2, react.y + react.height / 2])
+  expect(onTop).toBe(true)
 })
 
 test('keyboard: Tab reaches the bar and shows it, each button is named, Esc closes its menu and gives the focus back', async ({ page }) => {

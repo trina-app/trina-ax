@@ -140,8 +140,69 @@ test('a real drag from the computer (the browser\'s own drag, not made-up events
   await cdp.send('Input.dispatchDragEvent', { type: 'dragEnter', x, y, data })
   await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x, y: y + 5, data })
   await expect(page.getByTestId('drop-overlay')).toHaveCount(1)
-  await cdp.send('Input.dispatchDragEvent', { type: 'drop', x, y: y + 5, data })
+  // a real drag keeps sending dragover: one more now that the overlay is up, so the browser's last answer about the drop
+  // comes from the overlay (a drop that follows only the dragover answered before it was drawn can be refused, CI)
+  await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x, y: y + 6, data })
+  await cdp.send('Input.dispatchDragEvent', { type: 'drop', x, y: y + 6, data })
   await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
   await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
   await expect(page.getByTestId('attachment-chip')).toContainText('icon-192.png')
+})
+
+// Home (a new chat, before the first message) and a project's page take a drop anywhere too, not only on the box: the
+// same overlay over the page, the file on the new-chat box as a chip (QA TC-071 Partial, 2026-11-13).
+async function openHome(page: Page) {
+  await reset(page)
+  await signIn(page)
+  await page.mouse.move(1439, 899)
+}
+
+test('Home: a file over the page away from the box shows the overlay over the page; dropped, it is a chip on the box', async ({ page }) => {
+  await openHome(page)
+  const overlay = page.getByTestId('drop-overlay')
+  const chip = page.getByTestId('attachment-chip')
+  // away from the box: the greeting
+  const away = page.getByRole('heading', { level: 1 })
+  const dt = await transfer(page)
+  await dragOver(away, dt)
+  await expect(overlay).toHaveCount(1)
+  await expect(overlay).toHaveText('여기에 놓으면 첨부돼요')
+  const zone = (await page.getByTestId('home-drop').boundingBox())!
+  const box = (await overlay.boundingBox())!
+  expect(box.width).toBeGreaterThan(zone.width - 24)
+  expect(box.height).toBeGreaterThan(zone.height - 24)
+  await shot(page, 'home-drop-overlay-1440.png')
+  await away.dispatchEvent('drop', { dataTransfer: dt })
+  await expect(overlay).toHaveCount(0)
+  await expect(chip).toHaveCount(1)
+  await expect(chip).toContainText('screenshot.png')
+  await expect(chip).toHaveAttribute('data-status', 'done')
+  // Send makes the chat with the picture in it
+  await page.getByTestId('composer-input').fill('what is in the picture?')
+  await page.getByTestId('send').click()
+  await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+  await expect(page.getByTestId('user-message').last().locator('img[alt="screenshot.png"]')).toBeVisible()
+})
+
+test('Home: a file dropped on the box itself goes on it once', async ({ page }) => {
+  await openHome(page)
+  await dropOn(page.getByTestId('composer-input'), await transfer(page))
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
+  await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
+})
+
+test("a project's page: a file dropped away from its new-chat box is a chip on that box", async ({ page }) => {
+  await openHome(page)
+  const made = await page.request.post('/__test/project', { data: { name: 'acme-plan', by: 'olga' } })
+  const { id } = (await made.json()) as { id: string }
+  await page.goto(`/projects/${id}`)
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await page.mouse.move(1439, 899)
+  const away = page.getByRole('heading', { level: 1, name: 'acme-plan' })
+  await dropOn(away, await transfer(page))
+  await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
+  await expect(page.getByTestId('attachment-chip')).toContainText('screenshot.png')
 })

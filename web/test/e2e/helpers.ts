@@ -1,8 +1,10 @@
 import { expect, type Locator, type Page } from '@playwright/test'
+import { reportBrowserAnswers } from './coverage-report'
 
 export const OWNER = { username: 'olga', password: 'correct horse battery' }
 
 export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' | 'en' | 'id' | 'ja' | 'es'; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
+  reportBrowserAnswers(page)
   const r = await page.request.post('/__test/reset', { data: o })
   expect(r.ok()).toBeTruthy()
 }
@@ -25,21 +27,63 @@ export async function signIn(page: Page, who = OWNER) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  // a phone lands on the 대화 list (App.tsx AfterSignIn); the tests start from Home either way
-  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page'))).toBeVisible()
-  if (await page.getByTestId('rooms-page').isVisible()) {
-    await page.goto('/')
-    await expect(page.getByTestId('composer-input')).toBeVisible()
-  }
+  // a phone lands on the 트리나 tab's Home (App.tsx AfterSignIn; START_TAB) or, if START_TAB is 대화, on its list; the
+  // tests start from the new-chat box either way
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page')).first()).toBeVisible()
+  if (await page.getByTestId('rooms-page').isVisible()) await page.goto('/')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
-/** Errors other than the expected 401 of GET /api/me before signing in. */
-export const realErrors = (errors: string[]) => errors.filter((e) => !/status of 401/.test(e))
+/** Errors other than the expected 401 of GET /api/me before signing in, and WebKit's notice that it does not know
+ * index.html's interactive-widget=resizes-content (only Chromium reads it): about our own markup, no error of the page. */
+export const realErrors = (errors: string[]) => errors.filter((e) => !/status of 401/.test(e) && !/^Viewport argument key "interactive-widget" not recognized/.test(e))
 
 /** A field of the add-connection dialog that sits under its collapsed "Advanced" (type, sign-in, write rule, who connects,
  * who may use it): opens Advanced first when it is closed. `root`: the page or the dialog. */
 export async function adv(root: Page | Locator, testId: string): Promise<Locator> {
+  // who may use a team connection opens under its "For: … · Change" line, not under Advanced
+  if (testId.startsWith('integration-access')) {
+    const change = root.getByTestId('integration-for-change')
+    if ((await change.count()) && (await change.first().getAttribute('aria-expanded')) === 'false') await change.first().click()
+    return root.getByTestId(testId)
+  }
   const toggle = root.getByTestId('integration-advanced')
   if ((await toggle.count()) && (await toggle.first().getAttribute('aria-expanded')) === 'false') await toggle.first().click()
   return root.getByTestId(testId)
 }
+
+/** Choose one option of the add-connection dialog's selects (who connects, type, sign-in, write rule, the key's header)
+ * by the option's test id, opening Advanced first when it is closed. */
+export async function choose(root: Page | Locator, testId: string) {
+  const option = await adv(root, testId)
+  await option.locator('xpath=..').selectOption({ value: (await option.getAttribute('value'))! })
+}
+
+/** @deprecated The new navigation's server switch is retired (docs/DECISIONS.md "navRail: retired, the old navigation
+ * removed"): the rail and the phone tabs are always on, so this does nothing. Kept so suites that still call it run
+ * unchanged until they drop the call. */
+export async function navRail(_page: Page, _on = true) {}
+
+/** Press a place on the computer's rail (lib/rail.ts RailItem: 'ai' | 'chats' | 'projects' | 'files' | 'activity'), the
+ * way a person does, and wait for it to be the lit one. */
+export async function openRail(page: Page, item: 'ai' | 'chats' | 'projects' | 'files' | 'activity') {
+  const button = page.getByTestId(`rail-${item}`)
+  await button.click()
+  await expect(button).toHaveAttribute('aria-current', 'page')
+}
+
+/** Whether a phone bar's ‹ label (PhonePageBar.tsx) has room beside the bar's title in this browser's font, as the bar
+ * measures it ('moved': ‹ with its label, the whole title and the right side). Where it has none the bar shows ‹ alone,
+ * on purpose; the label's room depends on the system font (wider on the Linux CI's DejaVu Sans than on a phone). */
+export function backLabelHasRoom(label: Locator): Promise<boolean> {
+  return label.evaluate((el) => {
+    const bar = el.closest('[data-testid="phone-page-bar"]') as HTMLElement
+    const st = getComputedStyle(bar)
+    const room = bar.clientWidth - (parseFloat(st.paddingLeft) || 0) - (parseFloat(st.paddingRight) || 0)
+    const r = document.createRange()
+    r.selectNodeContents(bar.children[1]!)
+    const right = Math.max(44, bar.children[2]?.firstElementChild?.getBoundingClientRect().width ?? 0)
+    return 44 - 10 + el.scrollWidth + 8 + r.getBoundingClientRect().width + 8 + right <= room + 1
+  })
+}
+

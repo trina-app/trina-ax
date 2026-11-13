@@ -15,10 +15,9 @@
 // document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
 // small download icon of its own. Both read the room's copy through the room (lib/imageViewer.ts roomItem,
 // roomFileItem) and have the download too; the viewer's bar says who sent it, when and where.
-// The AI's answers (docs/DECISIONS.md "대화방의 트리나") are written by the AI and shown
-// like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
-// click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
-// 있어요 · 방에 올리기…") with why in one plain line; the action asks first, with what some members cannot see. An event line (a
+// The room AI's earlier answers (docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed") are
+// shown like an answer in the AI chat (Markdown) without its steps, with who asked ("○○ 님이 물어봄", a click goes to the
+// question). An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
 // no avatar, menu, reaction or thread.
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
@@ -32,19 +31,15 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
-import { useShallow } from 'zustand/react/shallow'
-import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
-import { api, API, errorText, roomFileUrl, startDownload } from '../../lib/api'
+import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, runActive, type MessageRun } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../Markdown'
-import SourcesList from '../chat/SourcesList'
-import { RoomOptionLabel } from '../chat/RoomRefMenu'
-import { ShareConfirm, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -59,7 +54,6 @@ import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
-import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { LinkedText } from './MessageText'
 import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
@@ -70,7 +64,6 @@ import { roomFileItem, roomItem } from '../../lib/imageViewer'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 
-const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
@@ -143,12 +136,11 @@ export type ListVariant = 'timeline' | 'root' | 'reply'
 /** How long a message picked out by a link (an Inbox row) stays marked. */
 export const HIGHLIGHT_MS = 2400
 
-/** `threadRootId`: the thread of a 'reply' list (my questions asked there that ended without an answer show under it).
- * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
+/** `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -183,16 +175,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     setTimeout(() => setLit((x) => (x === highlight ? null : x)), HIGHLIGHT_MS)
   }, [highlight, loaded])
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null && !runs.at(-1)?.messages[0]?.event
-  // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
-  // stayed theirs only (the question says so, also after a reload)
-  const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
-  const after = (m: RoomMessage) => [
-    ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={nameOf(m.author) ?? t('rooms.goneUser')} />] : []),
-  ]
-  // my ended questions not on this list: under the timeline the timeline's, under a thread's replies that thread's
-  const place = variant === 'reply' ? threadRootId : null
-  const orphans = variant === 'root' ? [] : ended.filter((r) => !loaded.has(r.questionId) && (r.threadRootId ?? null) === place).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
   const where = useViewerWhere(roomId)
@@ -223,7 +205,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                   </time>
                 </p>
                 {run.messages.map((m) => m.withheld ? (
-                  <WithheldRow key={m.id} roomId={roomId} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
+                  <WithheldRow key={m.id} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
                 ) : (
                   <Fragment key={m.id}>
                     <MessageRow
@@ -246,7 +228,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       barBelow={variant !== 'reply' && m.id === messages[0]?.id}
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
                     />
-                    {after(m)}
                   </Fragment>
                 ))}
               </div>
@@ -255,7 +236,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
           </Fragment>
         )
       })}
-      {orphans.length > 0 && <div className="pl-11">{orphans}</div>}
       {pending.length > 0 && (
         <div className={clsx('pl-11', !lastMine && 'pt-2')} data-testid="room-pending">
           {pending.map((p) => (
@@ -269,7 +249,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
 }
 
 /** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
- * 대화에서" (the room's name as the sidebar shows it). */
+ * 대화에서" (the room's name as the 대화 list shows it). */
 function useViewerWhere(roomId: string): string | null {
   const t = useT()
   const title = useRoomTitle()
@@ -332,7 +312,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const deleted = !!m.deletedAt
   const ai = m.authorKind === 'ai'
   const me = useMe()
-  // an AI answer: the person who asked puts it (or their preview) away; an owner or admin any answer they see
+  // an earlier AI answer: the person who asked puts it away; an owner or admin any answer they see
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
   // an answer sent from someone's own AI chat: their note before `at`, the answer after it
   const shared = !ai && !deleted ? m.sharedAnswer ?? null : null
@@ -343,14 +323,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
   const text = shared ? m.body.slice(0, shared.at).trim() : m.body
-  // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone); a
-  // shared answer's note mentions nobody (the server keeps no mention on it). "@트리나" only while the server takes it
-  // (Me.server.roomAiMentions, as the box's "@" list: off, it asks nobody, so it is plain text)
-  // (the mention highlight: me, or "@전체" in someone else's message)
-  const aiMentions = !!me?.server?.roomAiMentions
+  // "@전체" stands out like a person's name (it mentions everyone); a shared answer's note mentions nobody (the server
+  // keeps no mention on it) (the mention highlight: me, or "@전체" in someone else's message)
   const marks = useMemo<MessageMention[]>(
-    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...(aiMentions ? aiMentionNames(text, mentioned) : [])]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
-    [text, m, mentioned, ai, shared, meId, aiMentions],
+    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
+    [m, mentioned, ai, shared, meId],
   )
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
@@ -409,17 +386,12 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       ) : variant === 'reply' ? (
         <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
       ) : null)}
-      {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
+      {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {/* the pictures in it say who sent them and when in the image viewer's bar, and its column shows their thread (a
           reply's thread, or the message's own; one that cannot have a thread, alone) */}
       <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
-        <>
-          <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
-          {!!m.sourceCount && (
-            <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
-          )}
-        </>
+        <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
       ) : deleted ? (
@@ -477,11 +449,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
 
 /** An old answer hidden from me: who asked it (an AI answer, a click goes to the question) and one faint line; a
  * person's message (an answer they shared, a message an AI app sent for them) by its author's name above it. */
-function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMessage; flash: boolean; onJump?: () => void }) {
+function WithheldRow({ m, flash, onJump }: { m: RoomMessage; flash: boolean; onJump?: () => void }) {
   const t = useT()
   return (
     <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition select-none', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
-      {m.authorKind === 'ai' && <AskedBy roomId={roomId} m={m} onJump={onJump} />}
+      {m.authorKind === 'ai' && <AskedBy m={m} onJump={onJump} />}
       <p className={clsx('text-reading leading-reading text-faint', WORDS)} data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
     </div>
   )
@@ -516,12 +488,10 @@ function SharedAnswer({ text, openable, attached }: { text: string; openable?: R
   )
 }
 
-/** "○○ 님이 물어봄" above an AI answer; a click goes to the question when it is loaded. My private preview says
- * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not (PreviewLine). */
-function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump?: () => void }) {
+/** "○○ 님이 물어봄" above an earlier AI answer; a click goes to the question when it is loaded. */
+function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
   const t = useT()
   const nameOf = useNameOf()
-  if (m.visibility === 'private') return <PreviewLine roomId={roomId} m={m} />
   const text = t('rooms.aiAskedBy', { name: nameOf(m.askedBy) ?? t('rooms.goneUser') })
   return onJump ? (
     <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
@@ -533,119 +503,6 @@ function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump
     </p>
   )
 }
-
-/** Why a private preview is mine only, in one plain line: material some members cannot see (folders, my own folder,
- * messages from before someone joined, an earlier answer hidden from someone whose sources could be named), or the web
- * or a connected service alone; a preview that cannot be posted (it used an earlier answer hidden from someone and what
- * that used cannot all be shown to me) says so. Without a reason (an older preview): that everyone would see it. `dm`:
- * a 1:1 room, where "some people in this room" is the other person. Who cannot see it, and where it came from, is in the
- * server's confirm (PreviewLine). */
-export function previewLine(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
-  if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
-  // not postable: the server refuses it too (docs/DECISIONS.md "방에 올리기…")
-  if (p.hidden) return t('rooms.aiWhyHidden')
-  const material = previewMaterial(p)
-  if (material) return t(dm ? 'rooms.aiPrivateWhyDm' : 'rooms.aiPrivateWhy')
-  if (p.outside) return t('rooms.aiPrivateWhyOutside')
-  return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
-}
-
-/** Does a private preview name material some members cannot see (folders, my own folder, messages from before someone
- * joined or of another conversation, an earlier hidden answer's sources)? Its one line says so. */
-export const previewMaterial = (p: RoomMessage['preview']): boolean =>
-  !!p && (p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier || !!p.otherRooms)
-
-/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
- * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
- * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share). It always asks the server first
- * (`ask`): its "confirm" opens the card of "대화방에 보내기" (chat/ShareToRoom.tsx ShareConfirm: the room, the files it
- * used that some cannot open, how many people here cannot see that content and where it came from, never who), with
- * "everyone in the room will see it" when nothing is at stake, a line for the web or a connected service and one when it
- * went through an earlier answer hidden from someone; its yes posts with the key (asked again when something changed).
- * Nothing is posted without that card. Posting leaves out the sources some member cannot read; when the reasons changed
- * meanwhile the server answers 409 with why (a toast) and sends the preview again (the line and the button follow).
- * Putting it away is in the message's "…" menu. */
-function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
-  const t = useT()
-  const locale = useLocale()
-  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
-  const dm = room?.kind === 'dm'
-  const [busy, setBusy] = useState(false)
-  const confirm = useConfirmStep<ConfirmAsk & { lines: Lines }>()
-  const button = useRef<HTMLButtonElement>(null)
-  /** ask the server (`confirmKey`: my yes on its card): posted, or its "confirm" */
-  const share = async (confirmKey?: string) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const r = await useRooms.getState().shareAi(roomId, m.id, confirmKey ? { confirmKey } : { ask: true })
-      if (r.status === 'confirm') confirm.asked(r, !!confirmKey, { lines: { all: r.people === 0, outside: !!r.outside, earlier: !!r.earlier } })
-      else confirm.close()
-    } catch (e) {
-      // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
-      confirm.close()
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-    setBusy(false)
-  }
-  const lines = confirm.ask?.lines
-  const extra = lines && (
-    <>
-      {lines.all && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-all">{t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')}</p>}
-      {lines.outside && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-outside">{t('rooms.aiPostOutside')}</p>}
-      {lines.earlier && <p className="text-sm leading-6 break-keep text-ink" data-testid="room-ai-post-earlier">{t(confirm.ask!.provenance ? 'rooms.aiPostEarlier' : 'rooms.aiPostEarlierNone')}</p>}
-    </>
-  )
-  const card = confirm.ask && (
-    <ShareConfirm
-      title={t('rooms.aiPostTitle')}
-      target={room ? <div className="flex items-center gap-2.5"><RoomOptionLabel room={room} /></div> : null}
-      ask={confirm.ask}
-      others={room ? Math.max(0, room.memberCount - 1) : 0}
-      attach={NO_FILES}
-      onAttach={() => {}}
-      busy={busy}
-      onSend={(yes) => void share(yes.confirmKey)}
-      onCancel={() => { if (!busy) confirm.close() }}
-      returnTo={button.current}
-      sources
-      extra={extra}
-    />
-  )
-  // put away (deleted): only the lock line, nothing to post
-  if (m.deletedAt)
-    return (
-      <p className="mb-0.5 flex items-center gap-1 text-xs text-faint" data-testid="room-ai-private">
-        <Lock size={12} className="shrink-0" aria-hidden />
-        {t('rooms.aiPrivate')}
-      </p>
-    )
-  return (
-    <div className="mb-1 text-xs text-faint" role="note">
-      <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">
-        <Lock size={12} className="shrink-0" aria-hidden />
-        {t('rooms.aiPrivate')}
-        {/* it used an old answer hidden from someone here and what that used cannot all be shown: not postable
-            (docs/DECISIONS.md "방에 올리기…") */}
-        {!m.preview?.hidden && (
-          <>
-            <span aria-hidden>·</span>
-            <button ref={button} type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
-              {t('rooms.aiPost')}
-            </button>
-          </>
-        )}
-      </p>
-      <p className="mt-0.5 break-keep" data-testid="room-ai-preview">{previewLine(m.preview, t, dm)}</p>
-      {card}
-    </div>
-  )
-}
-/** a preview's card attaches nothing (its sources are left out, never copied) */
-const NO_FILES: ReadonlySet<string> = new Set()
-/** the card's own lines under the side chat's: nothing at stake (everyone will see it), the web or a connected service,
- * an earlier hidden answer */
-type Lines = { all: boolean; outside: boolean; earlier: boolean }
 
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()

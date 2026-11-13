@@ -7,8 +7,8 @@
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
-import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ExternalLink, MoreHorizontal, Plug, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
@@ -20,6 +20,7 @@ import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
+import { LogoTile } from '../../components/integrations/ConnectorsView'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -132,7 +133,7 @@ export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family
   const list = d.items.filter((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind))
   const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
   return (
-    <div className="mt-3 space-y-2 pl-5" data-testid={`provider-accounts-${fam}`}>
+    <div className="mt-3 space-y-2 pl-12 max-md:pl-0" data-testid={`provider-accounts-${fam}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium text-muted">{t('providers.accounts')}</p>
         {tc.owner && kinds.length > 0 && (
@@ -142,13 +143,30 @@ export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family
       {!list.length ? <p className="text-xs text-faint" data-testid={`provider-none-${fam}`}>{t('providers.noAccounts')}</p> : (
         <ul className="divide-y divide-line rounded-xl border border-line" data-testid={`credentials-${fam}`}>
           {list.map((c, i) => (
-            <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id}
+            <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} gateway={d.anthropicGateway}
               onCheck={() => tc.check(c)} onEdit={() => tc.setEditing(c)} onReplace={() => tc.setReplacing(c)} onRemove={() => tc.remove(c)}
               onToggle={() => tc.patch(c, { disabled: !c.disabled })}
               onUp={i > 0 ? () => tc.move(d, c, -1) : undefined} onDown={i < list.length - 1 ? () => tc.move(d, c, 1) : undefined} />
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/** "How order works": the order the accounts are tried in (and, on the list, how costs are estimated), behind one small
+ * link under the providers instead of two lines of small print. */
+export function HowOrderWorks({ pricesAsOf }: { pricesAsOf?: string }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  return (
+    <div className="mt-3 text-xs">
+      <button type="button" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}
+        className="touch-hit font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="how-order-works">
+        {t(open ? 'common.less' : 'providers.howOrder')}
+      </button>
+      {open && <p id={id} className="mt-1 max-w-prose leading-relaxed text-faint" data-testid="credentials-order">{t('credentials.order')}{pricesAsOf && ` ${t('credentials.costNote', { date: pricesAsOf })}`}</p>}
     </div>
   )
 }
@@ -168,56 +186,107 @@ export function PersonalCredentialList({ tc }: { tc: TeamCredentials }) {
   )
 }
 
-export function CredentialRow({ c, target, owner, checking, personal, ownDelete, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown }: {
+/** Whose mark a provider or an account shows: Claude (Anthropic), OpenAI (ChatGPT, Codex) or a plain plug (the API
+ * engine, a gateway's key). The marks are the files Connected apps already uses (web/public/icons/connectors), on a white
+ * tile so they read in dark mode too. */
+export type ProviderMark = 'claude' | 'openai' | 'api'
+export const markOfKind = (kind: CredentialKind, gateway?: Gateway): ProviderMark =>
+  kind === 'chatgpt' || kind === 'openai-api-key' ? 'openai' : kind === 'anthropic-api-key' && gateway ? 'api' : 'claude'
+export function ProviderLogo({ mark, small }: { mark: ProviderMark; small?: boolean }) {
+  const size = small ? 'size-7 !p-1' : 'size-9 !p-1.5'
+  if (mark === 'api') return (
+    <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted ${size}`} data-testid="provider-logo" data-mark="api">
+      <Plug size={small ? 14 : 16} aria-hidden />
+    </span>
+  )
+  return <span className="contents" data-testid="provider-logo" data-mark={mark}><LogoTile src={`/icons/connectors/${mark === 'claude' ? 'claude.svg' : 'codex.svg'}`} className={size} /></span>
+}
+
+/** The short line under an account with a problem: what to do, as one link for the owner and admins ("Replace the key"),
+ * or nothing when the state badge already says it (a limit, Reconnect's own button). */
+function fixOf(c: Credential): 'reconnect' | 'replace' | null {
+  if (c.disabled || !['expired', 'invalid', 'expiring'].includes(c.state)) return null
+  return SUBSCRIPTION.has(c.kind) ? 'reconnect' : 'replace'
+}
+
+/** One account: its mark, its name, its plan in short and one state; one short line when something needs doing. The
+ * name opens the rest under it (who uses it, this month's use, when it was last used, the server's longer explanation).
+ * Check again, move up / down and the rest are in the ⋯ menu. */
+export function CredentialRow({ c, target, owner, checking, personal, ownDelete, gateway, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown }: {
   c: Credential; target: string; owner: boolean; checking: boolean; personal?: boolean
   /** a member's own row (Settings): a delete button instead of the owner's menu */
   ownDelete?: boolean
+  /** the server's Anthropic-compatible gateway: its key shows a plain mark, not Claude's */
+  gateway?: Gateway
   onCheck: () => void; onEdit: () => void; onReplace: () => void; onRemove: () => void; onToggle: () => void; onUp?: () => void; onDown?: () => void
 }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
+  const [open, setOpen] = useState(false)
+  const details = useId()
   const apiKey = c.kind === 'anthropic-api-key' || c.kind === 'openai-api-key'
+  const plan = [c.kind === 'anthropic-api-key' && gateway ? t('credentials.kind.gateway', { label: gateway.label }) : t(`credentials.kindShort.${c.kind}` as MessageKey), c.planType && c.planType.charAt(0).toUpperCase() + c.planType.slice(1)].filter(Boolean).join(' · ')
+  const fix = fixOf(c)
+  const reconnectButton = !personal && c.state === 'needs_reconnect' && c.kind === 'chatgpt' && owner
+  const item = 'block w-full px-3 py-1.5 text-left hover:bg-hover disabled:opacity-50'
   return (
-    <li className="flex flex-wrap items-start gap-3 px-3 py-3" data-testid="credential-row" data-kind={c.kind}>
-      <KeyRound size={16} className="mt-1 text-faint" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{c.label}</span>
-          {c.hint && <span className="text-xs text-faint">…{c.hint}</span>}
-          <span className="text-xs text-muted">{t(`credentials.kind.${c.kind}` as MessageKey)}{c.planType ? ` (${c.planType})` : ''}</span>
-          <Badge tone={TONE[c.state]}>{t(`credentials.state.${c.state}` as MessageKey)}</Badge>
-          {c.expiresAt && c.state === 'ok' && <span className="text-xs text-faint">{t('credentials.until', { date: formatDateTime(c.expiresAt, locale) })}</span>}
-        </p>
-        {c.detail && <p className="mt-1 text-xs text-muted" data-testid="credential-detail">{c.detail}</p>}
-        <p className="mt-1 text-xs text-faint">
-          {target} · {t('credentials.month', { tokens: formatNumber(c.month.tokens, locale) })}
-          {apiKey && c.month.usd > 0 && ` · ${t('credentials.monthUsd', { usd: formatUsd(c.month.usd, locale) })}`}
-          {apiKey && c.spendLimit.usd !== null && ` / ${formatUsd(c.spendLimit.usd, locale)}`}
-          {c.lastUsedAt && ` · ${t('credentials.lastUsed', { date: formatDateTime(c.lastUsedAt, locale) })}`}
-        </p>
+    <li className="px-3 py-2.5" data-testid="credential-row" data-kind={c.kind}>
+      <div className="flex items-center gap-3">
+        <ProviderLogo mark={markOfKind(c.kind, gateway)} small />
+        <div className="min-w-0 flex-1">
+          <p className="flex min-w-0 items-baseline gap-x-2 text-sm">
+            <button type="button" aria-expanded={open} aria-controls={open ? details : undefined} onClick={() => setOpen(!open)}
+              className="touch-hit -ml-1 min-w-0 truncate rounded-md px-1 text-left hover:bg-hover" data-testid="credential-open">
+              <span className="font-medium text-ink">{c.label}</span>
+            </button>
+            {c.hint && <span className="shrink-0 text-xs text-faint">…{c.hint}</span>}
+          </p>
+          <p className="text-sm text-muted">{plan}</p>
+          {fix && (
+            <p className="text-xs text-warn" data-testid="credential-fix">
+              {owner && !personal
+                ? <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={onReplace}>{t(fix === 'reconnect' ? 'credentials.fix.reconnect' : 'credentials.fix.replace')}</button>
+                : t(fix === 'reconnect' ? 'credentials.fix.reconnect' : 'credentials.fix.replace')}
+              {c.state === 'expiring' && c.expiresAt && ` · ${t('credentials.until', { date: formatDateTime(c.expiresAt, locale) })}`}
+            </p>
+          )}
+        </div>
+        <Badge tone={TONE[c.state]}>{t(`credentials.state.${c.state}` as MessageKey)}</Badge>
+        <div className="flex shrink-0 items-center gap-1">
+          {reconnectButton && <Button size="sm" onClick={onReplace}>{t('credentials.reconnect')}</Button>}
+          {!personal && !owner && <Button size="sm" variant="ghost" onClick={onCheck} disabled={checking}>{checking ? t('credentials.checking') : t('credentials.check')}</Button>}
+          {ownDelete && <IconButton label={t('common.deleteNamed', { name: c.label })} onClick={onRemove} data-testid="my-credential-delete"><Trash2 size={14} /></IconButton>}
+          {owner && (
+            <div className="relative">
+              <IconButton label={t('credentials.menu')} onClick={() => setMenu((v) => !v)} aria-expanded={menu} data-testid="credential-menu"><MoreHorizontal size={15} /></IconButton>
+              {menu && (
+                <div role="menu" className="absolute right-0 z-30 mt-1 w-56 rounded-lg border border-line bg-surface py-1 text-sm shadow-lg" onClick={() => setMenu(false)}>
+                  {!personal && <button role="menuitem" type="button" className={item} onClick={onCheck} disabled={checking} data-testid="credential-check">{checking ? t('credentials.checking') : t('credentials.check')}</button>}
+                  {onUp && <button role="menuitem" type="button" className={item} onClick={onUp}>{t('credentials.moveUp')}</button>}
+                  {onDown && <button role="menuitem" type="button" className={item} onClick={onDown}>{t('credentials.moveDown')}</button>}
+                  {!personal && <button role="menuitem" type="button" className={item} onClick={onEdit}>{t('credentials.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
+                  {!personal && <button role="menuitem" type="button" className={item} onClick={onReplace}>{SUBSCRIPTION.has(c.kind) ? t('credentials.reconnect') : t('credentials.replace')}</button>}
+                  <button role="menuitem" type="button" className={item} onClick={onToggle}>{c.disabled ? t('credentials.enable') : t('credentials.disable')}</button>
+                  <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" onClick={onRemove}>{t('common.delete')}</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        {owner && onUp && <IconButton label={t('credentials.moveUp')} onClick={onUp}><ArrowUp size={14} /></IconButton>}
-        {owner && onDown && <IconButton label={t('credentials.moveDown')} onClick={onDown}><ArrowDown size={14} /></IconButton>}
-        {!personal && (c.state === 'needs_reconnect' && c.kind === 'chatgpt' && owner
-          ? <Button size="sm" onClick={onReplace}>{t('credentials.reconnect')}</Button>
-          : <IconButton label={t('credentials.check')} onClick={onCheck} disabled={checking}><RefreshCw size={14} className={checking ? 'animate-spin' : ''} /></IconButton>)}
-        {ownDelete && <IconButton label={t('common.deleteNamed', { name: c.label })} onClick={onRemove} data-testid="my-credential-delete"><Trash2 size={14} /></IconButton>}
-        {owner && (
-          <div className="relative">
-            <IconButton label={t('credentials.menu')} onClick={() => setMenu((v) => !v)} aria-expanded={menu} data-testid="credential-menu"><MoreHorizontal size={15} /></IconButton>
-            {menu && (
-              <div role="menu" className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-line bg-surface py-1 text-sm shadow-lg" onClick={() => setMenu(false)}>
-                {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onEdit}>{t('credentials.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
-                {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onReplace}>{SUBSCRIPTION.has(c.kind) ? t('credentials.reconnect') : t('credentials.replace')}</button>}
-                <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onToggle}>{c.disabled ? t('credentials.enable') : t('credentials.disable')}</button>
-                <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" onClick={onRemove}>{t('common.delete')}</button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {open && (
+        <div id={details} className="mt-1.5 space-y-0.5 pl-10 text-xs text-faint max-md:pl-0" data-testid="credential-details">
+          {c.detail && <p className="text-muted" data-testid="credential-detail">{c.detail}</p>}
+          <p>
+            {target} · {t('credentials.month', { tokens: formatNumber(c.month.tokens, locale) })}
+            {apiKey && c.month.usd > 0 && ` · ${t('credentials.monthUsd', { usd: formatUsd(c.month.usd, locale) })}`}
+            {apiKey && c.spendLimit.usd !== null && ` / ${formatUsd(c.spendLimit.usd, locale)}`}
+          </p>
+          {c.lastUsedAt && <p>{t('credentials.lastUsed', { date: formatDateTime(c.lastUsedAt, locale) })}</p>}
+          {c.expiresAt && c.state === 'ok' && <p>{t('credentials.until', { date: formatDateTime(c.expiresAt, locale) })}</p>}
+        </div>
+      )}
     </li>
   )
 }
@@ -421,7 +490,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       {!secure ? <p className="text-sm text-warn" data-testid="credential-https-only">{t('credentials.httpsOnly')}</p>
         : login ? (login.kind === 'anthropic-oauth'
           ? <ClaudeProgress l={login} code={loginCode} onCode={(v) => { setLoginCode(v); setError(null) }} onSubmit={sendCode} error={error} />
-          : <ChatgptProgress l={login} />)
+          : <ChatgptProgress l={login} personal={personal} />)
         : (
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
@@ -449,7 +518,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
             {kind === 'anthropic-oauth' && !manual && <p className="text-sm text-muted" data-testid="claude-login-how">{t('credentials.claude.how')}</p>}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
-                {t('credentials.apiKey.hint')}{' '}
+                {/* a member's own key (Settings › AI accounts) is theirs, not a key made for the team */}
+                {t(personal ? 'credentials.apiKey.hintOwn' : 'credentials.apiKey.hint')}{' '}
                 {!(kind === 'anthropic-api-key' && gateway) && <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
                   {t(kind === 'anthropic-api-key' ? 'credentials.apiKey.consoleAnthropic' : 'credentials.apiKey.consoleOpenai')} <ExternalLink size={12} aria-hidden />
                 </a>}
@@ -462,7 +532,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
             )}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <Field label={t('credentials.apiKey.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.apiKey.invalidFormat') : null}>
-                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(null); if (move) setMove(null) }} data-testid="credential-secret" />
               </Field>
             )}
             {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />}
@@ -508,7 +578,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                     <li>{t('credentials.setupToken.steps.4')}</li>
                   </ol>
                   <Field label={t('credentials.setupToken.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.setupToken.invalidFormat') : null}>
-                    <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+                    <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(null); if (move) setMove(null) }} data-testid="credential-secret" />
                   </Field>
                 </div>
               </details>
@@ -565,7 +635,8 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
   return <p className="text-sm text-danger" data-testid="claude-failed">{t(reason)}</p>
 }
 
-function ChatgptProgress({ l }: { l: CredentialLogin }) {
+/** `personal`: a member's own account (Settings › AI accounts), not the one the team uses */
+function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boolean }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted">{t('credentials.chatgpt.starting')}</p>
   if (l.state === 'code' && l.url && l.code) return (
@@ -579,7 +650,7 @@ function ChatgptProgress({ l }: { l: CredentialLogin }) {
       <li>{t('credentials.chatgpt.step2')}
         <span className="mt-1 flex items-center gap-2"><code className="text-xl font-semibold tracking-widest" data-testid="chatgpt-user-code">{l.code}</code><CopyButton text={l.code} /></span>
       </li>
-      <li>{t('credentials.chatgpt.step3')}</li>
+      <li>{t(personal ? 'credentials.chatgpt.step3Own' : 'credentials.chatgpt.step3')}</li>
       <li className="list-none text-muted">⏳ {t('credentials.chatgpt.waiting')}</li>
     </ol>
   )

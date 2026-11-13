@@ -70,7 +70,7 @@ test('a picked name stands out at once, acts as one piece, and is exactly what i
   await expect(box).toHaveValue('')
   expect(await tokens(page)).toEqual([])
 
-  // a pasted "@name" is text; one picked again, "@트리나" typed
+  // a pasted "@name" is text; one picked again; "@트리나" typed is text too
   await pick(page, '소라')
   // (WebKit grants these tests no clipboard: there the text comes as typed text in one piece, as an IME's would)
   if (browserName === 'webkit') await page.keyboard.insertText('@Minjaelee 이것도 ')
@@ -80,17 +80,17 @@ test('a picked name stands out at once, acts as one piece, and is exactly what i
   }
   await page.keyboard.type('@트리나 회의록 정리해 줘')
   await expect(box).toHaveValue('@소라님 @Minjaelee 이것도 @트리나 회의록 정리해 줘')
-  expect(await tokens(page)).toEqual(['person:@소라님', 'ai:@트리나'])
+  expect(await tokens(page)).toEqual(['person:@소라님'])
   // a letter of a token replaced through a selection: plain text
   await box.evaluate((t: HTMLTextAreaElement) => t.setSelectionRange(2, 3))
   await page.keyboard.type('X')
-  expect(await tokens(page)).toEqual(['ai:@트리나'])
+  expect(await tokens(page)).toEqual([])
   if (browserName === 'chromium') {
     // (how much one undo takes back is the engine's own: WebKit takes the typing before it too)
     await page.keyboard.press('ControlOrMeta+Z')
     await expect(box).toHaveValue('@소라님 @Minjaelee 이것도 @트리나 회의록 정리해 줘')
     // the undo brings the letters back, not the mention: what stands out is what is sent
-    expect(await tokens(page)).toEqual(['ai:@트리나'])
+    expect(await tokens(page)).toEqual([])
   }
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Backspace')
@@ -148,7 +148,7 @@ test('while an IME writes, the box paints its own letters (so its underline show
   await box.click()
   await pick(page, 'Minj')
   await page.keyboard.type('민재님 좀 봐 주세요 ')
-  await pick(page, '트리')
+  await pick(page, '소라')
   const composer = page.getByTestId('room-composer')
   await page.mouse.move(0, 0)
   const before = await composer.screenshot()
@@ -164,7 +164,10 @@ test('while an IME writes, the box paints its own letters (so its underline show
     const data = (img: HTMLImageElement) => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d')!; g.drawImage(img, 0, 0); return g.getImageData(0, 0, c.width, c.height).data }
     const p = data(x), q = data(y)
     let n = 0
-    for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i]! - q[i]!) + Math.abs(p[i + 1]! - q[i + 1]!) + Math.abs(p[i + 2]! - q[i + 2]!) > 60) n++
+    // by brightness: where the system smooths text by subpixel (Linux), the box's own letters get coloured fringes the
+    // layer's grey-smoothed letters have not, at the same place and weight; a letter moved or doubled still differs
+    const lum = (d: Uint8ClampedArray, i: number) => 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!
+    for (let i = 0; i < p.length; i += 4) if (Math.abs(lum(p, i) - lum(q, i)) > 40) n++
     return n / (p.length / 4)
   }, [`data:image/png;base64,${before.toString('base64')}`, `data:image/png;base64,${during.toString('base64')}`])
   expect(differ).toBeLessThan(0.002)
@@ -239,22 +242,18 @@ test("a thread's reply box: a picked name stands out and the reply mentions them
   expect(room.sent[0]).toMatchObject({ body: '@소라님 네', mentions: [SORA.id], threadRootId: SEEN.id })
 })
 
-for (const on of [false, true]) {
-  test(`"@트리나" with room AI mentions ${on ? 'on: stands out in the box and on a sent message' : 'off (the real default): plain text in the box and on a sent message'}`, async ({ page }) => {
-    await reset(page)
-    // (the mock takes "@트리나" unless told otherwise; a real server only with AppConfig.roomAiMentions)
-    expect((await page.request.post('/__test/room-ai-mentions', { data: { on } })).ok()).toBeTruthy()
-    await routeRoom(page, { members: [MJ, SORA], messages: [{ id: '019a5f00-0000-7000-8000-000000000002', author: SORA, body: '@트리나 hello' }] })
-    await signIn(page)
-    await page.goto(`/rooms/${ROOM_ID}`)
-    const box = page.getByTestId('room-input')
-    await expect(box).toBeVisible()
-    const said = page.getByTestId('room-message').filter({ hasText: 'hello' })
-    await expect(said).toContainText('@트리나 hello')
-    await expect(said.locator('span.text-accent-text')).toHaveText(on ? ['@트리나'] : [])
-    await box.click()
-    await page.keyboard.type('@트리나 hi')
-    await expect(box).toHaveValue('@트리나 hi')
-    expect(await tokens(page)).toEqual(on ? ['ai:@트리나'] : [])
-  })
-}
+test('"@트리나" is plain text: not in the "@" list, no token in the box, nothing marked on a sent message', async ({ page }) => {
+  await reset(page)
+  await routeRoom(page, { members: [MJ, SORA], messages: [{ id: '019a5f00-0000-7000-8000-000000000002', author: SORA, body: '@트리나 hello' }] })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const box = page.getByTestId('room-input')
+  await expect(box).toBeVisible()
+  const said = page.getByTestId('room-message').filter({ hasText: 'hello' })
+  await expect(said).toContainText('@트리나 hello')
+  await expect(said.locator('span.text-accent-text')).toHaveText([])
+  await box.click()
+  await page.keyboard.type('@트리나 hi')
+  await expect(box).toHaveValue('@트리나 hi')
+  expect(await tokens(page)).toEqual([])
+})

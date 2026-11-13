@@ -19,8 +19,8 @@ import { isolation } from '../../server/src/tools/isolate'
 import { imageTokens, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_IMAGES, visionTools } from '../../server/src/files/vision'
 import { TurnFiles } from '../../server/src/files/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { readRoomFileFor, ROOM_SESSION_TOOL_DESCRIPTIONS, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
-import { RoomFileHereInput, RoomFileInput } from '@mycel/shared'
+import { readRoomFileFor, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
+import { RoomFileInput } from '@mycel/shared'
 import type { McpContent, TurnToolSet } from '../../server/src/turns'
 import { roomTool } from '../../server/src/connectors/remote-mcp/rooms'
 
@@ -85,10 +85,10 @@ async function withPages<T>(jpeg: Buffer | (() => Promise<Buffer>), f: (calls: (
 
 describe('the tool contract', () => {
   test('room_file takes pages and as_images in both chats; the descriptions say scanned pages come as images', () => {
-    for (const s of [RoomFileInput, RoomFileHereInput]) {
+    for (const s of [RoomFileInput]) {
       expect(s.safeParse({ room: roomId, file: 'x', pages: '1-3', as_images: true }).success || s.safeParse({ file: 'x', pages: '1-3', as_images: true }).success).toBe(true)
     }
-    for (const d of [ROOM_TOOL_DESCRIPTIONS.room_file, ROOM_SESSION_TOOL_DESCRIPTIONS.room_file]) {
+    for (const d of [ROOM_TOOL_DESCRIPTIONS.room_file]) {
       expect(d).toContain('pages without a text layer (scans) as images')
       expect(d).not.toContain('scanned pages have none')
     }

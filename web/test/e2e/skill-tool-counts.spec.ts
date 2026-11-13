@@ -4,9 +4,10 @@
 // 150 tools" with "check again" for a list an older server cut (docs/DECISIONS.md "Connection tools: deferred, found and
 // called").
 import { expect, test, type Page } from '@playwright/test'
-import { OWNER, realErrors, reset, signIn, watchConsole, adv } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole, choose } from './helpers'
 
-const row = (page: Page, name: string) => page.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })
+/** a connection's page (components/integrations/ConnectionPage.tsx), by its name */
+const row = (page: Page, name: string) => page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name, exact: true }) })
 
 test('Team skills: the AI list counts show only when something is left out', async ({ page }) => {
   await reset(page)
@@ -35,36 +36,40 @@ test('External services: every tool of a big service is listed with its switch; 
     await page.getByTestId('integration-add').click()
     await page.getByTestId('integration-name').fill(name)
     await page.getByTestId('integration-url').fill(url)
-    await (await adv(page, 'integration-auth-none')).check()
+    await choose(page, 'integration-auth-none')
     await page.getByTestId('integration-save').click()
     const r = row(page, name)
-    await expect(r).toHaveAttribute('data-status', 'connected')
+    await expect(r).toHaveAttribute('data-state', 'connected')
     return r
   }
   // 186 tools (like Higgsfield's MCP server): all of them, no "N of M"
   const big = await add('Big tools', 'https://many.tools.example/mcp')
-  await big.getByTestId('integration-toggle').click()
-  const toggle = big.getByTestId('integration-tools-toggle')
-  await expect(toggle).toHaveText('도구 186개')
-  await toggle.click()
-  await expect(big.getByTestId('integration-tool')).toHaveCount(186)
-  await expect(big.getByTestId('integration-tool-switch')).toHaveCount(186)
+  // the page shows the first chips, "Show all" the rest in place
+  await expect(big.getByTestId('app-tool')).toHaveCount(12)
+  await big.getByTestId('connector-tools-more').click()
+  await expect(big.getByTestId('app-tool')).toHaveCount(186)
   await expect(big.getByTestId('integration-tools-capped')).toHaveCount(0)
+  // every one with its switch in the tools dialog
+  const toggle = big.getByTestId('integration-tools-toggle')
+  await expect(toggle).toHaveText('도구 켜고 끄기')
+  await toggle.click()
+  await expect(page.getByTestId('integration-tool')).toHaveCount(186)
+  await expect(page.getByTestId('integration-tool-switch')).toHaveCount(186)
   // the last one switches like the first
   const sent = page.waitForRequest((r) => /\/api\/integrations\/[^/]+\/tools$/.test(r.url()) && r.method() === 'POST')
-  const last = big.getByTestId('integration-tool').last()
+  const last = page.getByTestId('integration-tool').last()
   await last.locator('label').click()
   expect((await sent).postDataJSON()).toEqual({ name: 'tool_185', enabled: false })
   await expect(last).toHaveAttribute('data-enabled', 'false')
-  await expect(big.getByTestId('integration-tools-off')).toHaveText(' · 1개 꺼짐')
+  await page.getByTestId('integration-tools-done').click()
+  await expect(big.getByTestId('integration-tools-off')).toHaveText('1개 꺼짐')
   // a list an older server cut at 100: said, with what to do; "check again" saves them all
   const old = await add('Old list', 'https://stale.tools.example/mcp')
-  await old.getByTestId('integration-toggle').click()
-  await expect(old.getByTestId('integration-tools-toggle')).toHaveText('도구 150개 중 100개')
-  await old.getByTestId('integration-tools-toggle').click()
   await expect(old.getByTestId('integration-tools-capped')).toHaveText('이 서비스는 도구 150개를 제공하는데, 지난번 확인 때 100개만 저장됐어요. 다시 확인하면 전부 저장돼요.')
+  await expect(old.getByTestId('connector-tools-more')).toHaveText('100개 모두 보기')
+  await old.getByTestId('connection-menu').click()
   await old.getByTestId('integration-refresh').click()
-  await expect(old.getByTestId('integration-tools-toggle')).toHaveText('도구 150개')
+  await expect(old.getByTestId('connector-tools-more')).toHaveText('150개 모두 보기')
   await expect(old.getByTestId('integration-tools-capped')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })

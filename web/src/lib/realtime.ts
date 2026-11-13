@@ -77,6 +77,15 @@ const realTimers: Timers = {
 const OPEN = 1
 export const OUTBOX_MAX_FRAMES = 200
 
+/** When this window last heard its live connection (any frame: an event, presence, a pong). A link quiet for longer than
+ * a ping and its answer (LIVE_QUIET_MS) may be dead without the browser knowing yet, a computer waking from sleep: what
+ * it would have said meanwhile is not known (store/rooms.ts keptFor). */
+let heard = 0
+export const lastHeard = () => heard
+export const noteHeard = (at = Date.now()) => { heard = at }
+/** a ping every 20 s, its answer within 10 s */
+export const LIVE_QUIET_MS = 30_000
+
 const PRESENCE_ENTRY = PresenceFrameSchema.shape.people.element
 /** A `presence` frame read leniently: each entry it can read (an id and a known state), the others skipped (a state a
  * later server adds must not blank every dot of an older page). Null when the frame itself is not one (no `full`, no
@@ -212,6 +221,7 @@ export class RealtimeClient {
 
   private onMessage(raw: unknown) {
     if (typeof raw !== 'string') return
+    noteHeard()
     let json: unknown
     try { json = JSON.parse(raw) } catch { return }
     if ((json as { type?: unknown } | null)?.type === 'presence') {

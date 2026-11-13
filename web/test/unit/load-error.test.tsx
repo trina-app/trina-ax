@@ -6,7 +6,7 @@
 // - the server's own error: the red note with its words, and no read by itself; `soft`: the calm "불러오지 못했어요";
 // - while the app's connection banner shows: a quiet spinner and no words, no read; the connection back: read at once;
 // - a hidden page reads nothing; shown again, it reads at once; the browser back online reads at once;
-// - two places on screen: one says it (the main one before the sidebar's `minor`), the other waits quietly;
+// - two places on screen: one says it (the main one before a list panel's `minor`), the other waits quietly;
 // - [다시 시도] shows its spinner while its read is in flight, and keeps the focus (not disabled);
 // - the message box: a send that fails for the connection keeps the text, says so calmly (never red) and sends it on
 //   [다시 시도]; another failure keeps its red line; while its line shows, a notice on the same page (Home's block) steps
@@ -247,7 +247,7 @@ describe('one place says it', () => {
     } finally { await m.unmount() }
   })
 
-  test('the sidebar\'s (minor) waits while the page\'s says it, even when it came first', async () => {
+  test('a list panel\'s (minor) waits while the page\'s says it, even when it came first', async () => {
     next = async () => { throw offline() }
     const m = await mount(<><Place what="side" minor /><Place what="main" /></>)
     try {

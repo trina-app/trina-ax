@@ -1,26 +1,22 @@
-// The team menu on top of the computer's sidebar (docs/DECISIONS.md "The team menu"; the owner: "top of the sidebar =
-// the team, bottom = me"). The team's logo (28 px, Admin › Team settings, or the product's mark) and its name (16 px,
-// semibold: above the 14 px rows, below the 18–20 px page titles), then a ▾. For owners and admins it is a button that
-// opens a menu under it: the team again with its address (GET /api/me team.address, when the server knows one), then
-// "Invite people" (the invite endpoints are admins' only) and "Admin". Nothing personal: Settings and Sign out are the
-// profile menu's at the bottom. A member has neither item, so for them the header is the team's name and logo, not a
-// button (a menu with no items would be a dead end). Home is the "Ask Trina" row right under it, as ⇧⌘O is; the header
-// is not a second way there. Keyboard as in the profile menu: the first item takes focus, arrows, Home and End move,
-// Esc closes it and gives the keyboard back, Tab and a click outside close it. Phones (below 768 px) keep the AI's
-// drawer and have Admin on the 나 tab (Sidebar.tsx).
-// "Invite people" (here and in ⌘K) opens the invite dialog Home's goal card opens (onboarding/InviteStep.tsx: the team
-// invite link's message and its copy button), one for the whole window (Layout.tsx mounts it; a page change closes it,
-// as leaving Home closes the goal card's); while the owner's welcome steps are unfinished it opens the owner's own
-// invite step instead, never a second invite dialog (GoalCard.tsx). An admin who is not the owner always gets the
-// dialog: the welcome steps are the owner's (pages/Welcome.tsx sends anyone else Home).
+// The team menu on top of the rail (components/rail/Rail.tsx; docs/DECISIONS.md "The team menu", "Computers: an icon
+// rail with labels"): the team's logo (Admin › Team settings, or the product's mark) with its name small under it. For
+// owners and admins it is a button that opens a menu to its right: the team again with its address (GET /api/me
+// team.address, when the server knows one), then "Invite people" (the invite endpoints are admins' only) and "Admin".
+// Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. A member has neither item, so for
+// them it is the team's logo and name, not a button (a menu with no items would be a dead end). Keyboard as in the
+// profile menu: the first item takes focus, arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and
+// a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab. In the desktop
+// app the menu ends with "다른 팀으로 전환…" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
+// member's logo is a button too.
 import clsx from 'clsx'
-import { ChevronDown, Shield, UserPlus } from 'lucide-react'
+import { ArrowLeftRight, Shield, UserPlus } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { create } from 'zustand'
 import { teamIconUrl } from '@mycel/shared'
 import { useT } from '../i18n'
 import { teamAddressShown } from '../lib/team-address'
+import { switchTeam, useTeamSwitchWay } from '../lib/teamSwitch'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
@@ -29,7 +25,7 @@ import { InviteStep } from './onboarding/InviteStep'
 import { Modal } from './ui'
 
 /** The team's logo, cropped square as the settings previews do; the product's mark while there is none. */
-function TeamLogo({ className, testId }: { className: string; testId?: string }) {
+export function TeamLogo({ className, testId }: { className: string; testId?: string }) {
   const me = useMeStrict()
   const src = me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'
   return <img src={src} alt="" aria-hidden className={clsx('shrink-0 object-cover', className)} data-testid={testId} />
@@ -44,6 +40,9 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
+  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환…" for everyone, so a
+  // member gets the menu too; a plain browser is one team per address
+  const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
   const addressId = useId()
   const hide = (focusBack: boolean) => {
@@ -77,36 +76,35 @@ export function TeamMenu() {
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(-1)
   }
-  const name = <span className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight" data-testid="sidebar-team">{me.team.name}</span>
-  // the logo's middle is in line with the rows' icons below (8 + 6 + 14 = 8 + 12 + 8 px from the edge)
-  const head = 'flex h-11 w-full items-center gap-2.5 rounded-lg pr-2 pl-1.5 text-left text-ink'
-  if (!admin)
+  const railHead = 'flex w-full flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-ink'
+  if (!admin && !canSwitch)
     return (
-      <div className="px-2 pt-2 pb-1">
-        <div className={head} data-testid="team-header">
-          <TeamLogo className="size-7 rounded-lg" testId="sidebar-logo" />
-          {name}
+      <div className="px-1.5 pt-2 pb-1" title={me.team.name}>
+        <div className={railHead} data-testid="team-header">
+          <TeamLogo className="size-9 rounded-xl" testId="sidebar-logo" />
+          <span className="block w-full truncate px-0.5 text-center text-micro leading-tight text-muted" data-testid="sidebar-team">{me.team.name}</span>
         </div>
       </div>
     )
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
-    <div ref={ref} className="relative px-2 pt-2 pb-1" onKeyDown={onKey}>
+    <div ref={ref} className="relative px-1.5 pt-2 pb-1" onKeyDown={onKey}>
       <button
         ref={button}
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={me.team.name}
         onClick={() => (open ? hide(false) : setOpen(true))}
-        className={clsx(head, 'hover:bg-hover active:bg-hover aria-expanded:bg-hover focus-visible:-outline-offset-2')}
+        className={clsx(railHead, 'hover:bg-hover active:bg-hover aria-expanded:bg-hover focus-visible:-outline-offset-2')}
         data-testid="team-menu"
+        data-rail-stop=""
       >
-        <TeamLogo className="size-7 rounded-lg" testId="sidebar-logo" />
-        {name}
-        <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
+        <TeamLogo className="size-9 rounded-xl" testId="sidebar-logo" />
+        <span className="block w-full truncate px-0.5 text-center text-micro leading-tight text-muted" aria-hidden data-testid="sidebar-team">{me.team.name}</span>
       </button>
       {open && (
-        <div ref={menu} role="menu" aria-label={me.team.name} aria-describedby={host ? addressId : undefined} className="absolute top-full right-2 left-2 z-30 mt-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="team-dropdown">
+        <div ref={menu} role="menu" aria-label={me.team.name} aria-describedby={host ? addressId : undefined} className="absolute top-2 left-full z-30 ml-2 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="team-dropdown">
           {/* the team, as a new device would look for it: its logo, its whole name (the button above may cut it) and its
               address (Settings › 앱 has the copy button) */}
           <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-2" data-testid="team-menu-head">
@@ -117,30 +115,51 @@ export function TeamMenu() {
             </span>
           </div>
           <div role="separator" className="mx-1 mb-1.5 border-t border-line" />
-          <button
-            role="menuitem"
-            type="button"
-            className={item}
-            onClick={() => {
-              hide(true)
-              void openTeamInvite(navigate, button.current)
-            }}
-            data-testid="team-menu-invite"
-          >
-            <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
-          </button>
-          <button
-            role="menuitem"
-            type="button"
-            className={item}
-            onClick={() => {
-              hide(false)
-              navigate('/admin')
-            }}
-            data-testid="team-menu-admin"
-          >
-            <Shield size={16} className="text-muted" aria-hidden /> {t('sidebar.admin')}
-          </button>
+          {admin && (
+            <>
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(true)
+                  void openTeamInvite(navigate, button.current)
+                }}
+                data-testid="team-menu-invite"
+              >
+                <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
+              </button>
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(false)
+                  navigate('/admin')
+                }}
+                data-testid="team-menu-admin"
+              >
+                <Shield size={16} className="text-muted" aria-hidden /> {t('sidebar.admin')}
+              </button>
+            </>
+          )}
+          {canSwitch && (
+            <>
+              {admin && <div role="separator" className="mx-1 my-1.5 border-t border-line" />}
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(true)
+                  switchTeam()
+                }}
+                data-testid="team-menu-switch"
+              >
+                <ArrowLeftRight size={16} className="text-muted" aria-hidden /> {t('teamMenu.switch')}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

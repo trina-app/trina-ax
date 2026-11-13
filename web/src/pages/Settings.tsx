@@ -3,9 +3,9 @@
 // team address, every phone and desktop app with one way to get it, components/settings/AppList.tsx, and in a web browser
 // only the guide to install the page as an app, components/settings/InstallGuide.tsx),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections). Connectors is its own page now (pages/Connectors.tsx;
-// its section here leads there). Profile ends with "계정 삭제 요청", its own page under the profile
-// (/settings/account/delete, components/settings/AccountDeletion.tsx).
+// connections are made by the owner in Admin > AI connections), and Connectors (pages/Connectors.tsx: the person's own
+// connections, with a connector's page under the section at /settings/connectors/<id>). Profile ends with "계정 삭제
+// 요청", its own page under the profile (/settings/account/delete, components/settings/AccountDeletion.tsx).
 // Phones (below 768 px; docs/AGENTS/plan/20261111-1748-phone-settings-rows.md): rows and switches like the iPhone's
 // Settings, not a web page's buttons. Language and theme are checkmark lists; Security & devices is two rows that open
 // pages under it (the password form, every signed-in device); Memory has its "+" in the bar, a row opens its edit sheet
@@ -15,12 +15,13 @@
 // choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
 // list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
 import clsx from 'clsx'
+import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
-import { api, API, errorText } from '../lib/api'
+import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { deviceKind, deviceLabel } from '../lib/userAgent'
 import { offeredDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
@@ -62,13 +63,16 @@ import { MenuButton } from '../components/rooms/MenuButton'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
 
+/** Connectors and the pages under it (a connector's), loaded when the section opens */
+const ConnectorsSettings = lazy(() => import('./Connectors').then((m) => ({ default: m.ConnectorsSettings })))
+
 /** What a phone's 트리나에게 허용한 것 holds besides its own list: the Browser and Dev environment sites sections, each
  * while the dialog shows it (SettingsDialog.tsx PHONE_FOLDED). */
 export interface SettingsFold { browser: boolean; devEnvSites: boolean }
 
 /** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
  * which sections there are): `tab` is one of settingsTabs(), or a page under a section ('account-delete' under the
- * profile, 'security-password' and 'security-devices' under 보안·기기). */
+ * profile, 'security-password' and 'security-devices' under 보안·기기, 'connector' under Connectors). */
 export default function SettingsPane({ tab, fold }: { tab: string; fold?: SettingsFold }) {
   const me = useMeStrict()
   const browser = browserSettingsBridge()
@@ -86,6 +90,9 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {/* a phone: the sites the AI may open are parts of this page (Settings' list has no rows of their own for them) */}
       {tab === 'allowances' && fold?.browser && <BrowserSettings bridge={browser} part />}
       {tab === 'allowances' && fold?.devEnvSites && <DevEnvSites key={`dev-env:${me.user.id}:${me.session.id}`} part />}
+      {/* Connectors and a connector's page: one element for both, so what is under way (a Google sign-in started from
+          the list's +) stays when the page opens */}
+      {(tab === 'connectors' || tab === 'connector') && <ConnectorsSettings key={`connectors:${me.user.id}:${me.session.id}`} />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
@@ -423,7 +430,7 @@ function PhoneField({ label, id, children }: { label: string; id: string; childr
   return (
     <li className="group/row pl-4 focus-within:bg-hover">
       <span className="flex min-h-12 items-center gap-3 border-t border-line pr-4 group-first/row:border-t-0">
-        <label htmlFor={id} className="w-28 shrink-0 text-sm leading-tight break-words text-ink">{label}</label>
+        <label htmlFor={id} className={clsx('w-28 shrink-0 leading-tight break-words', rowName())}>{label}</label>
         {children}
       </span>
     </li>
@@ -630,6 +637,9 @@ function Security({ all = false }: { all?: boolean }) {
       await api.call(API.revokeMySession, { params: { id: s.id } })
       void load()
     } catch (e) {
+      // already signed out elsewhere (it signed itself out, or a password change ended it): the row was stale, so the
+      // list is read again instead of showing "Not found"
+      if (isApiError(e, 'not_found')) { void load(); return }
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
@@ -700,7 +710,8 @@ function Security({ all = false }: { all?: boolean }) {
       {resetLine}
       {!all && (
         <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
-          <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
+          {/* a password change signs out every other device: the list below is read again so it shows only this one */}
+          <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); void load() }} />
         </Section>
       )}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>

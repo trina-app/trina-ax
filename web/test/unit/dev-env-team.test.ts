@@ -3,7 +3,7 @@
 // limits stay inside the schema and the plan.
 import { describe, expect, test } from 'bun:test'
 import { DevEnvLimits, DevEnvTeamSetting, type DevEnvTeamResponse } from '@mycel/shared/api'
-import { clampLimit, draftOf, LIMIT_RANGE, limitMax, needsWarning, sitesOf, teamBody } from '../../src/lib/dev-env-team'
+import { afterRefusedSave, clampLimit, draftOf, LIMIT_RANGE, limitMax, needsWarning, sitesOf, teamBody } from '../../src/lib/dev-env-team'
 
 const setting = DevEnvTeamSetting.parse({})
 const plan = { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' }
@@ -25,6 +25,13 @@ describe('the dev environment of the team', () => {
     // a consent to the warning of the removed box runner (version 1) does not count
     expect(needsWarning(srt({ ...setting, consent: { by: null, at: new Date().toISOString(), warningVersion: 1 } }), on)).toBe(true)
     expect(needsWarning(srt(), { enabled: false })).toBe(false)
+  })
+  test('a turn-on the server cannot run puts the switch back off; other refusals and edits stay', () => {
+    const on = { ...draftOf(setting), enabled: true, sites: 'api.example.com' }
+    expect(afterRefusedSave(on, setting, 'dev_env_unavailable')).toEqual({ ...on, enabled: false })
+    expect(afterRefusedSave(on, setting, 'dev_env_warning')).toBe(on)
+    expect(afterRefusedSave(on, setting, undefined)).toBe(on)
+    expect(afterRefusedSave(draftOf(setting), setting, 'dev_env_unavailable')).toEqual(draftOf(setting))
   })
   test('who: the people chosen by name stay; "everyone" clears the lists', () => {
     const s = { ...setting, scope: { mode: 'selected' as const, groupIds: ['g1'], userIds: ['u1'] } }

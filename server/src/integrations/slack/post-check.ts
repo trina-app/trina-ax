@@ -6,7 +6,7 @@
 // read, the chat's read scope when it describes the answer, "not all known" otherwise). Memories do not count, as in
 // 대화방에 보내기: they are the asker's own notes, and the asker sees the very text that is posted (one answer, not a
 // whole conversation as when a chat is shared). A team connection or a shared Google Drive counts as not team-wide whoever
-// its rules let use it (the room AI's rule, rooms/ai.ts decide: what it returned is outside content). With nobody else on
+// its rules let use it (what it returned is outside content). With nobody else on
 // the team the channel still has people: the asker's own material and an answer not all known still count. The asker is
 // told the places as they may look at them themselves (placeOf), never what is in them and never who cannot see them.
 // Never posted, whatever the asker says (as 대화방에 보내기 refuses them): a confidential conversation (safe operations
@@ -40,7 +40,13 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   const me = r.user_id
   // the whole team: every account that may read now, but the asker (a disabled or deleted account reads nothing)
   const audience = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY id").all(me) as { id: string }[]).map((u) => u.id)
-  const use = branchUse(db, r.chat_id, r.message_id)
+  const full = branchUse(db, r.chat_id, r.message_id)
+  // Slack messages it read (read.ts, the asker's own token): those of the conversation the answer is posted back to are
+  // seen there already; any other conversation (another channel, a DM, a search result) is not team-wide, and is named
+  // like a team connection. Neither goes through the team's file check (nobody here is known to see Slack content)
+  const channel = (db.query('SELECT channel_id FROM slack_requests WHERE id = ?').get(r.id) as { channel_id: string } | null)?.channel_id ?? null
+  const use = { ...full, other: full.other.filter((s) => s.type !== 'slack') }
+  const slackElsewhere = full.other.filter((s) => s.type === 'slack' && s.id !== channel)
   const pc = provenanceChecker(ctx, me, audience, use.answers)
   const prov = await pc.of([use], new Set())
   // nobody else on the team (one account, or every other one disabled): the asker's own material and an answer not all
@@ -50,7 +56,7 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   const ownFiles = use.files.some((f) => mineAt(f.path))
   const ownUse = ownFiles || use.other.some((s) => (s.type === 'user' && s.id === me) || (s.type === 'name' && mineAt(s.path)))
   // a team connection or a shared Drive: not team-wide, whatever its rules (named by its name, as 대화방에 보내기 does)
-  const outside = use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share')
+  const outside = [...use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share'), ...slackElsewhere]
   const places = new Map<string, AnswerSharePlace>()
   let otherPlaces = prov.otherPlaces
   let mine = false

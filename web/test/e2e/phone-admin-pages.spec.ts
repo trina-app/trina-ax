@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -17,7 +18,7 @@ const backLabel = (page: Page) => page.getByTestId('admin-back-label')
 
 /** Admin's list from the 나 tab, then one of its rows */
 async function openAdminPage(page: Page, id: string, url: RegExp) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId(`admin-row-${id}`).click()
@@ -39,7 +40,7 @@ test('TC-267 step 1: Connectors › a connector is a page of its own; ‹ and Ba
   await expect(bar(page)).toHaveText('Gmail')
   await expect(backLabel(page)).toHaveText(t['admin.team.integrations'])
   // the bar's ‹ is the way back: the card's own "← Connected apps" is not shown
-  await expect(page.getByTestId('connector-back')).toBeHidden()
+  await expect(page.getByTestId('app-breadcrumb')).toBeHidden()
   await page.getByTestId('admin-back').click()
   await expect(page).toHaveURL(/\/admin\/connectors$/)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
@@ -378,7 +379,7 @@ test('TC-269 (ADM-19): Team settings › General: the logo in phone words; the u
 // - TC-270: computer or server setup is not offered as phone forms.
 test('TC-270 steps 2, 4, 5: Slack › 토큰 바꾸기, Connectors › add by address, an engine\'s server login: a status row and "Set this up on a computer" instead of computer forms', async ({ page }) => {
   // Slack › Replace tokens
-  await page.goto('/admin/slack')
+  await page.goto('/admin/connectors/slack')
   await expect(page.getByTestId('slack-status')).toBeVisible()
   await page.getByTestId('slack-replace').click()
   await expect(page.getByTestId('slack-on-computer')).toContainText(t['admin.onComputer'])

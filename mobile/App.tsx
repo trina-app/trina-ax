@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar'
 import { NavigationBar } from 'expo-navigation-bar'
+import { requireOptionalNativeModule } from 'expo'
 import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
@@ -8,12 +9,15 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver, StuckLoad, stillStuck, type PageNav } from './src/bridge'
-import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
+import { documentId, documentScript, FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { PhotoPicks } from './src/photos'
+import { SheetGate } from './src/sheet'
+import { clearPickCache, photoPickIO } from './src/photo-io'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
-import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
+import { appBadge, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
@@ -44,6 +48,10 @@ quietForeground()
 type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void; clearCache?(includeDiskFiles: boolean): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
 const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttributes<WebHandle>>
+/** iPhone: the app's own module (modules/edge-swipe) that turns the page's edge swipe on and off while WebKit keeps its
+ * pictures of earlier screens (src/nav.ts swipeGate); null on Android and in a build without it. */
+interface EdgeSwipeModule { setEnabled(enabled: boolean): Promise<number> }
+const edgeSwipe = Platform.OS === 'ios' ? requireOptionalNativeModule<EdgeSwipeModule>('EdgeSwipe') : null
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
 const Look = createContext<Palette>(LIGHT)
 type PageLook = { dark: boolean; system: boolean }
@@ -97,7 +105,9 @@ function useAndroidKeyboard(): number {
   }, [])
   return keyboard
 }
-const bootstrap = (config: MobileConfig, ready = false) => `if(window.top===window.self){Object.defineProperty(window,'mycelMobile',{value:Object.freeze(${JSON.stringify(config)}),configurable:true});${ready ? "window.dispatchEvent(new Event('mycel:mobile-ready'));" : ''}}true;`
+/** The bridge's config on the page; `document`: the page's document id with it (src/bridge.ts documentScript), when
+ * the bridge is installed on a new document (not a session reset's new config). */
+const bootstrap = (config: MobileConfig, ready = false, document?: string) => `if(window.top===window.self){${document ? documentScript(document) : ''}Object.defineProperty(window,'mycelMobile',{value:Object.freeze(${JSON.stringify(config)}),configurable:true});${ready ? "window.dispatchEvent(new Event('mycel:mobile-ready'));" : ''}}true;`
 
 export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
@@ -137,6 +147,8 @@ export default function App() {
   useEffect(() => windowLook(page), [page])
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
+    // copies of picked photos a closed app never handed over (src/photo-io.ts)
+    clearPickCache()
     let off = () => {}
     void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
@@ -411,6 +423,19 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // where Back goes in the document on screen, as the page said (nav-v1, src/nav.ts); null until it has (an older
   // server, a page loading): the WebView's own history then, as before
   const [pageNav, setPageNav] = useState<PageNav | null>(null)
+  // iOS: the swipe goes off through the module and the property stays on, so a swipe back to a tab's root slides over
+  // its picture, not a white view (src/nav.ts swipeGate); the property again if the module finds nothing to set
+  const [nativeGate, setNativeGate] = useState(!!edgeSwipe), swipeSet = useRef(false)
+  const gate = swipeGate(pageNav, nativeGate)
+  useEffect(() => {
+    if (!edgeSwipe || !nativeGate) return
+    let gone = false
+    edgeSwipe.setEnabled(gate.swipe).then(set => {
+      if (set > 0) swipeSet.current = true
+      else if (!gone && nativeGateLost(set, pageNav, swipeSet.current)) setNativeGate(false)
+    }, () => { if (!gone && !swipeSet.current) setNativeGate(false) })
+    return () => { gone = true }
+  }, [gate.swipe, nativeGate, pageNav])
   const [source, setSource] = useState(address.origin + address.entryPath)
   // the team answered GET /api/me for a signed-in person (src/session-check.ts); until then the address stays under the page
   const [signedIn, setSignedIn] = useState(false), sessionCheck = useRef(0)
@@ -432,7 +457,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
+    const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) {
@@ -445,6 +472,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // signed out (or the session expired, or another person signed in): no names stay on the lock screen, and the
       // extension stops asking
       async signedOut() { forgetDelivered(); await labels?.forget().catch(() => {}) },
+      // badge-v1: the page's count on the app icon (src/badge.ts)
+      badge: n => appBadge.show(n),
     }, look => {
       onAppearance(look)
       if (padRef.current.confirmed) return
@@ -454,8 +483,11 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       if (!padRef.current.selfPadded) void rememberSelfPadded(address.origin, true)
     }, nav => setPageNav(p => p?.canGoBack === nav.canGoBack && p.home === nav.home ? p : nav), async text => {
       // share-text-v1: the phone's own share sheet (the team invite message to KakaoTalk, Slack, a text message)
-      await Share.share({ message: text })
-    })
+      await sheets.run(() => Share.share({ message: text }))
+    // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (no iOS menu before the library)
+    }, new PhotoPicks(photoPickIO(), undefined, sheets),
+    // change-team-v1: the 나 tab's "다른 팀으로 전환…", the same screen as the signed-out footer's "다른 팀에 연결"
+    () => changeTeam())
     void receiver.current.disable()
   }
   const r = receiver.current
@@ -493,7 +525,10 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const keyboard = useAndroidKeyboard()
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
+      if (state !== 'active') return
+      web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
+      // back from the background: ask again (a session may have ended meanwhile, or the last check was a blip)
+      if (ready.current) checkSession()
     })
     return () => sub.remove()
   }, [])
@@ -512,15 +547,18 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     leaving.current = run
     return () => { if (leaving.current === run) leaving.current = null; ask.cancel() }
   }, [address.origin, leaving])
+  // the document id installed with the bridge (src/bridge.ts documentScript): what a load end asks the page about
+  const pageDocument = useRef('')
   const clear = () => { navigation.current++; cleanup.current = r.disable(); return cleanup.current }
   /** Installs the bridge on the page that has loaded; false when it did not (a newer load, a failure, not the team). */
   async function loaded(url: string): Promise<boolean> {
     const generation = navigation.current
     await cleanup.current
-    const random = await Crypto.getRandomBytesAsync(32)
+    const random = await Crypto.getRandomBytesAsync(32), id = await Crypto.getRandomBytesAsync(16)
     if (generation !== navigation.current || loadFailed.current || !sameTeam(address.origin, url)) return false
     r.activate({ ...r.config, nonce: Array.from(random, b => b.toString(16).padStart(2, '0')).join(''), generation: r.config.generation + 1 })
-    web.current?.injectJavaScript(bootstrap(r.config, true))
+    pageDocument.current = documentId(id)
+    web.current?.injectJavaScript(bootstrap(r.config, true, pageDocument.current))
     return true
   }
   // "다른 팀에 연결" / "팀 주소 바꾸기": the first-run box over this team, which stays connected until another team answered
@@ -575,9 +613,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
       injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
       javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
-      // iOS: the edge swipe only while Back has somewhere to go in the page (nav-v1, src/nav.ts). No pull-to-refresh: the
-      // page is live, and a pull at the top of a room (or of any list) reloaded the whole app
-      allowsBackForwardNavigationGestures={backGestures(pageNav)} allowsInlineMediaPlayback
+      // iOS: the edge swipe only while Back has somewhere to go in the page (nav-v1; on through the module, gate above). No
+      // pull-to-refresh: the page is live, and a pull at the top of a room (or of any list) reloaded the whole app
+      allowsBackForwardNavigationGestures={gate.prop} allowsInlineMediaPlayback
       // iOS: no ^ v ✓ bar above the keyboard; the page's message box sits right on it (the page has no form to step through)
       hideKeyboardAccessoryView
       // Camera (photo attachment) and microphone (voice input) for the team's own page only; iOS asks once per app.
@@ -591,9 +629,12 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // Android also reports a same-document navigation (history.pushState: the web app moving to its next page, as
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
+      // While a photo pick is on, a load start at the address on screen is such a step too (src/bridge.ts
+      // loadStartFences)
       onLoadStart={event => {
+        const sameUrl = event.nativeEvent.url === currentUrl.current
         currentUrl.current = event.nativeEvent.url; stuck.current.cancel()
-        if (Platform.OS === 'android' && !event.nativeEvent.loading) return
+        if (!loadStartFences({ android: Platform.OS === 'android', loading: !!event.nativeEvent.loading, sameUrl, picking: r.picking })) return
         loadFailed.current = false; ready.current = false; void clear()
         // a new document: it says where Back goes once it has its bridge
         setPageNav(null)
@@ -603,7 +644,15 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (Platform.OS === 'android') stuck.current.arm(event.nativeEvent.url,
           saved => stillStuck({ saved, current: currentUrl.current, origin: address.origin, ready: ready.current, failed: loadFailed.current }), settle)
       }}
-      onLoadEnd={event => { stuck.current.cancel(); settle(event.nativeEvent.url) }}
+      // A load end while the bridge is on may be a step within the page (iOS: react-native-webview's history shim
+      // reports every pushState / replaceState / popstate as one; src/bridge.ts sameDocumentScript): the page is asked,
+      // and only a new document gets the bridge again. Installing it again for a step gave the page a new nonce, which
+      // cancelled what was on its way (QA TC-251: the photo picker's pick).
+      onLoadEnd={event => {
+        stuck.current.cancel()
+        if (ready.current && pageDocument.current && !loadFailed.current && sameTeam(address.origin, event.nativeEvent.url)) { web.current?.injectJavaScript(sameDocumentScript(pageDocument.current)); return }
+        settle(event.nativeEvent.url)
+      }}
       onNavigationStateChange={state => {
         currentUrl.current = state.url; setCanBack(state.canGoBack)
         if (!sameTeam(address.origin, state.url)) return
@@ -617,13 +666,18 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
         if (sameTeam(address.origin, event.nativeEvent.url) && leaveAsk.current.answer(event.nativeEvent.data)) return
         // the reinstall sign-out's answer (its one-time token), not a bridge message
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
+        // a load end's question (sameDocumentScript): a new document without the bridge, which it gets now
+        if (ready.current && sameTeam(address.origin, event.nativeEvent.url) && readNewDocument(event.nativeEvent.data, pageDocument.current)) {
+          ready.current = false; void clear(); setPageNav(null); settle(event.nativeEvent.url); return
+        }
         // the answer to the app's own session check, not a bridge message
         const session = sameTeam(address.origin, event.nativeEvent.url) ? readSessionCheck(event.nativeEvent.data, sessionCheck.current) : null
-        if (session !== null) { setSignedIn(session); setAnswered(true); return }
+        // a blip (offline, a relay 502) keeps what the last answer said; it still counts as the first answer
+        if (session !== null) { if (session !== 'unknown') setSignedIn(session === 'in'); setAnswered(true); return }
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
-          const script = (reply.nextGeneration ? bootstrap(r.config) : '') + `window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));true;`
-          web.current?.injectJavaScript(script)
+          // only to the document that asked (its nonce): a page that came meanwhile drops it (src/bridge.ts replyScript)
+          web.current?.injectJavaScript(replyScript(reply, reply.nextGeneration ? bootstrap(r.config) : ''))
         }).catch(() => {})
       }}
       onFileDownload={event => { const url = event.nativeEvent.downloadUrl; if (sameTeam(address.origin, url)) web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('mycel:download',{detail:{url:${JSON.stringify(url)}}}));true;`) }}

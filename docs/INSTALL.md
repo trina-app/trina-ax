@@ -527,6 +527,29 @@ cd ~/trina-ax && sudo scripts/install-macos.sh --from dist/release --allow-unsig
 
 For the launcher alone, `sudo launchctl kickstart -k system/app.treesoop.mycel.launcher` is enough.
 
+### 2.7a Dev environment (the AI's commands on this Mac)
+
+The installer turns on the dev environment by default (docs/DECISIONS.md "Dev environment on a Mac team server"). The
+AI's `box_shell` commands then run on this Mac in srt's macOS sandbox (Seatbelt), each run as one of the hidden dev
+accounts `_axdev1` ... `_axdev8` (one account for one run at a time), never as the server account.
+
+- What it adds: `/opt/trina` (node 22, Python 3.13 and srt, pinned with sha256 in `scripts/system/packages.json`), the
+  dev accounts and their group `_axdev`, `/etc/sudoers.d/<id>-devenv` (the server account may start
+  `/opt/trina/devenv/run-wrap-mac` as a dev account, nothing else), an ACL on `team/` and `devenv/`, and pf rules (no dev
+  account reaches the server's ports; nothing from outside the Mac reaches a run's port 47901-47908).
+- It needs the internet once (node, Python, srt). A failure is a warning: the server runs without it. Run the installer
+  again to retry.
+- git, make and cc come from Apple's Command Line Tools. Without them a run has no git: install them with
+  `xcode-select --install` and run the installer again. ffmpeg and chromium are not installed on a Mac (a run uses
+  Homebrew's if this Mac has them in `/opt/homebrew`).
+- Limits: all runs together at most half of the Mac's memory, each run at most its memory limit (a watchdog ends it),
+  at most `(kern.maxproc - 1200) / 8` processes per run, the time limits of the dev environment. There is no CPU quota:
+  runs get a lower priority (nice 10).
+- Off: `sudo scripts/install-macos.sh ... --no-dev-env` removes it and keeps it off for later repairs; `--dev-env` turns
+  it on again. `--dev-slots N` sets the number of dev accounts (2-16). `scripts/uninstall-macos.sh` removes it with the
+  server; `--delete-data` also deletes `devenv/` (the runs' homes and logs).
+- Office mode (no sudo) has no dev environment: it cannot make a separate account.
+
 ### 2.8 Menubar app (optional)
 
 ```sh

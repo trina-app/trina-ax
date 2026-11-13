@@ -16,10 +16,16 @@
 // Envelopes are acknowledged by the socket before any of this runs; an event id or a message seen before is ignored.
 //
 // Two ways to have the Slack app (slack_config.mode): 'own', the team's own app from our manifest, its tokens pasted in
-// Admin › Slack and its own Socket Mode connection; or 'official', the hosting service's one public app ("Add to
+// Slack's admin page and its own Socket Mode connection; or 'official', the hosting service's one public app ("Add to
 // Slack", broker.ts): only the workspace's bot token is here (sealed, delivered sealed), the envelopes come from the
 // hosting service's long poll and go through the very same onEnvelope checks, "Sign in with Slack" goes through it,
 // and Remove takes the app off the workspace there. Everything else (links, turns, answers) is the same.
+//
+// Reading Slack (read.ts, docs/SLACK.md "Marketplace-safe reading"): only with the bot token, never a person's user
+// token: the thread @app was asked in, and for a linked person the threads and channels the bot was invited to and the
+// person is in. It needs the bot scopes channels:history and groups:history (READ_BOT_SCOPES); an app installed before
+// them answers as before, with reading off until an admin updates the permissions (slack_config.bot_scopes, what Slack
+// last listed for the bot token). Nothing of Slack's messages is stored here: read in real time for one turn.
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
@@ -37,7 +43,7 @@ import { SecretBox } from '../connections/store'
 import { redactorFor } from '../connections/redact'
 import { SlackApi, SlackApiError, type SlackDeps } from './api'
 import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
-import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
+import { BASE_BOT_SCOPES, READ_BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
 import { SlackBrokerClient, SlackBrokerError, SlackBrokerFeed, challengeOf, slackBrokerFor, type SlackBrokerOptions } from './broker'
 import { parseSlackBrokerLifecycle, type SlackBrokerEvent, type SlackBrokerInstallInfo } from '@mycel/shared/cloud-protocol'
@@ -45,6 +51,8 @@ import { slackAnswer } from './rich-text'
 import { placesText, postCheck } from './post-check'
 import { confidentialChat } from '../../safe-ops/confidential'
 import { clip, plain, questionText, say } from './text'
+import { askedContext } from './read'
+import type { ReadSource } from '../../chat/read-scope'
 
 export const LINK_TTL_MS = 10 * 60_000
 const LINK_PER_HOUR = 10
@@ -70,6 +78,8 @@ interface ConfigRow {
   enabled: number; team_id: string | null; team_name: string | null; team_url: string | null; enterprise_id: string | null
   bot_user_id: string | null; bot_name: string | null; app_id: string | null; client_id: string | null; secret_enc: string | null; key_version: number | null
   link_origin: string | null; last_error: string | null; mode: 'own' | 'official'; install_id: string | null
+  /** the bot token's scopes as Slack last listed them (X-OAuth-Scopes, comma separated); null: not known yet */
+  bot_scopes: string | null
 }
 /** sealed together: the two tokens and, for Sign in with Slack, the app's client secret (own app); the bot token alone
  * (the official app: the app-level token and the client secret stay at the hosting service) */
@@ -77,7 +87,12 @@ interface Tokens { bot: string; app?: string; clientSecret?: string }
 interface SigninFlowRow { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string; via: 'own' | 'broker'; verifier_enc: string | null; verifier_key_version: number | null }
 interface InstallFlowRow { id: string; user_id: string; verifier_enc: string; key_version: number; link_origin: string | null; client: string; state: string; expires_at: string }
 /** test deps: also the hosting service's broker (null: none; left out: from the environment, broker.ts) */
-export interface SlackConnectorDeps extends SlackDeps { broker?: SlackBrokerOptions | null; pollWaitMs?: number }
+export interface SlackConnectorDeps extends SlackDeps {
+  broker?: SlackBrokerOptions | null; pollWaitMs?: number
+  /** the official app is listed in the Slack Marketplace (no limit of 1 history read a minute, 15 messages); default:
+   * MYCEL_SLACK_OFFICIAL_LISTED=1, else false */
+  listed?: boolean
+}
 /** how often the hosting service is asked whether it serves this server: while it does, and while it does not */
 const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
 /** Slack's answers for a bot token that no longer works (the official app: removed, the same as Slack's own event) */
@@ -89,7 +104,7 @@ interface RequestRow {
   channel_kind: 'im' | 'channel'; thread_ts: string; in_thread: number; ext_shared: number; attempts: number; slack_user_id: string; enterprise_id: string; progress_ts: string | null
   asked_notice: number; state: 'waiting' | 'delivered' | 'failed' | 'posted'; created_at: string
 }
-interface Question { team: string; enterprise: string; user: string; channel: string; kind: 'im' | 'channel'; ts: string; threadTs: string | null; text: string; userTeam: string | null; extShared: boolean }
+export interface Question { team: string; enterprise: string; user: string; channel: string; kind: 'im' | 'channel'; ts: string; threadTs: string | null; text: string; userTeam: string | null; extShared: boolean }
 const ID = /^[A-Z0-9]{2,40}$/
 interface SlackPerson { id: string; ours: boolean; name: string | null; realName: string | null; handle: string | null; email: string | null }
 /** An e-mail address as compared: Unicode NFC, no surrounding space, lower case. Never NFKC: that would make a
@@ -161,6 +176,15 @@ export class SlackConnector {
    * memory only: after a restart the owner presses Add to Slack again (the same install comes back). */
   private pending: { installId: string; actor: string; origin: string | null; until: number; tries: number } | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
+  /** what the next turn of a chat gets about the Slack question it answers (read.ts askedContext), taken once; memory
+   * only, 30 minutes: the thread's text is never stored */
+  readonly asked = new Map<string, { text: string; context: string; until: number; seen: ReadSource[] }>()
+  /** Slack people's names read for the AI (read.ts), 10 minutes, memory only */
+  readonly names = new Map<string, { name: string; at: number }>()
+  /** conversations a linked Slack user shares with the bot (read.ts), 2 minutes, memory only */
+  readonly shared = new Map<string, { ids: Set<string>; at: number }>()
+  /** the bot's scopes were asked of Slack (checkBotScopes): at most every 10 minutes from refresh */
+  private scopesCheckedAt = 0
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
@@ -194,6 +218,39 @@ export class SlackConnector {
   // ---------------------------------------------------------------- configuration (the owner)
   config(): ConfigRow | null { return this.db.query('SELECT * FROM slack_config WHERE id = 1').get() as ConfigRow | null }
 
+  /** the workspace's bot token (read.ts), or null */
+  botToken(): string | null { return this.tokens()?.bot ?? null }
+
+  /** The official app is listed in the Slack Marketplace (operator's MYCEL_SLACK_OFFICIAL_LISTED=1): Slack's limit for
+   * non-Marketplace apps (conversations.history / .replies: 1 a minute, 15 messages) does not apply. Default false. */
+  get listed(): boolean { return this.deps.listed ?? process.env.MYCEL_SLACK_OFFICIAL_LISTED === '1' }
+  /** reads go under Slack's limit for commercially distributed apps outside the Marketplace: the official app, unlisted */
+  readLimited(cfg = this.config()): boolean { return cfg?.mode === 'official' && !this.listed }
+
+  /** The bot token has the reading scopes (channels:history, groups:history), as Slack last listed them. */
+  botReads(cfg = this.config()): boolean {
+    const have = (cfg?.bot_scopes ?? '').split(',')
+    return !!cfg?.bot_scopes && READ_BOT_SCOPES.every((sc) => have.includes(sc))
+  }
+
+  /** Ask Slack which scopes the bot token has now (auth.test's X-OAuth-Scopes) and keep the list (metadata only).
+   * Never throws; a Slack that lists none leaves what was known. */
+  async checkBotScopes(): Promise<void> {
+    const bot = this.botToken()
+    if (!bot) return
+    this.scopesCheckedAt = this.now()
+    try {
+      const who = await this.api.call('auth.test', bot)
+      // tokens replaced while Slack was asked (a save, an install): that answer is the old token's, not kept
+      if (who.scopes && this.botToken() === bot) this.noteBotScopes(who.scopes)
+    } catch (e) { this.log.info('slack bot scopes check failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+  }
+
+  private noteBotScopes(scopes: string[]) {
+    const v = scopes.map((x) => x.trim()).filter((x) => /^[a-z_.:]{2,60}$/.test(x)).slice(0, 100).join(',')
+    this.db.query('UPDATE slack_config SET bot_scopes = ? WHERE id = 1').run(v)
+  }
+
   private tokens(cfg = this.config()): Tokens | null {
     if (!cfg?.secret_enc || cfg.key_version === null) return null
     try { return this.box.open<Tokens>(AAD, cfg.secret_enc, cfg.key_version) } catch { return null }
@@ -203,8 +260,12 @@ export class SlackConnector {
    * connection, or the official app's long poll at the hosting service. */
   refresh() {
     if (this.closed) return
+    // the user tokens the earlier "read Slack as the person" kept (migration 348): revoked at Slack and deleted, once
+    void this.retireUserTokens()
     const cfg = this.config()
     const on = !!cfg?.enabled && !!cfg.secret_enc
+    // what the bot may read: asked of Slack when not known, or now and then (an app updated in Slack meanwhile)
+    if (on && (!cfg!.bot_scopes || this.now() - this.scopesCheckedAt > 10 * 60_000)) void this.checkBotScopes()
     const official = cfg?.mode === 'official'
     if (!on || official) { this.socket?.stop(); this.socket = null }
     if (!on || !official) { this.feed?.stop(); this.feed = null }
@@ -246,8 +307,8 @@ export class SlackConnector {
   }
 
   /** The bot's name as people find it in Slack (`@`, `/invite`): users.info of the bot user, its display name or else
-   * its full name. null: Slack did not say (Admin › Slack then shows the manifest's). Not auth.test's `user`: that is
-   * the user name (`trinaax`), which Slack's `@` does not find. */
+   * its full name. null: Slack did not say (Slack's admin page then shows the manifest's). Not auth.test's `user`: that
+   * is the user name (`trinaax`), which Slack's `@` does not find. */
   private async botNameOf(bot: string, botUserId: string): Promise<string | null> {
     try {
       const info = await this.api.call('users.info', bot, { user: botUserId })
@@ -290,10 +351,14 @@ export class SlackConnector {
       botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
       signIn: official ? !!cfg?.secret_enc && !!this.broker : !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
+      // reading needs the bot's two history scopes: missing (an app from before them: "Update Slack permissions"), ok,
+      // or null (no tokens, or Slack has not said yet)
+      readScopes: !cfg?.secret_enc || !cfg.bot_scopes ? null : this.botReads(cfg) ? 'ok' : 'missing',
+      missingScopes: cfg?.secret_enc && cfg.bot_scopes ? READ_BOT_SCOPES.filter((sc) => !cfg.bot_scopes!.split(',').includes(sc)) : [],
     }
   }
 
-  /** Admin › Slack: the hosting service asked again when its last answer is old (or never came), so the page says
+  /** Slack's admin page: the hosting service asked again when its last answer is old (or never came), so the page says
    * whether "Add to Slack" can be used now. */
   async freshAdminView(origin: string | null = null): Promise<SlackAdmin> {
     if (this.broker && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) await this.checkBroker()
@@ -316,8 +381,9 @@ export class SlackConnector {
     const team = typeof who.team_id === 'string' && ID.test(who.team_id) ? who.team_id : null
     const botUser = typeof who.user_id === 'string' && ID.test(who.user_id) ? who.user_id : null
     if (!team || !botUser) throw new SlackError('not_bot_token', 'validation', { field: 'botToken' })
+    // the reading scopes are not required: without them the app answers, with reading off ("Update Slack permissions")
     if (who.scopes) {
-      const missing = BOT_SCOPES.filter((s) => !who.scopes!.includes(s))
+      const missing = BASE_BOT_SCOPES.filter((s) => !who.scopes!.includes(s))
       if (missing.length) throw new SlackError('missing_scope', 'validation', { field: 'botToken', scopes: missing.join(', ') })
     }
     try { await this.api.call('apps.connections.open', app) } catch (e) {
@@ -350,8 +416,9 @@ export class SlackConnector {
         VALUES (1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'own', NULL)
         ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
           bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, app_id = excluded.app_id, client_id = excluded.client_id, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
-          link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at, mode = 'own', install_id = NULL`)
+          link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at, mode = 'own', install_id = NULL, bot_scopes = NULL`)
         .run(team, cleanName(who.team) ?? team, url, enterprise, botUser, botName, appId, clientId, sealed.enc, sealed.keyVersion, origin, actor, now)
+      if (who.scopes) this.noteBotScopes(who.scopes)
     })()
     audit(this.db, { actor, action: 'slack.tokens', target: team, detail: { workspaceChanged: changed } })
     // the new tokens: a fresh connection
@@ -370,9 +437,11 @@ export class SlackConnector {
   }
 
   /** Forget the tokens and every link. The official app: the hosting service takes it off the workspace first (best
-   * effort: unreachable, it is removed here anyway and its operator can remove the install there). */
-  async remove(actor: string): Promise<SlackAdmin> {
+   * effort: unreachable, it is removed here anyway and its operator can remove the install there). The team's own app
+   * (its tokens saved here): the owner's alone; an admin removes the official app, or a row with no tokens left. */
+  async remove(actor: string, by: { owner: boolean }): Promise<SlackAdmin> {
     const cfg = this.config()
+    if (!by.owner && cfg?.mode !== 'official' && cfg?.secret_enc) throw new SlackError('owner_only', 'forbidden')
     let slack: 'removed' | 'unavailable' | null = null
     // an install still waiting for Slack's check is not taken up after this
     this.pending = null
@@ -380,7 +449,12 @@ export class SlackConnector {
       this.feed?.stop(); this.feed = null
       slack = this.broker ? await this.broker.uninstall() : 'unavailable'
     }
-    this.db.transaction(() => { this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run() })()
+    this.db.transaction(() => {
+      // the team's own app saved while the hosting service was asked: that one is not what was removed
+      const now = this.config()
+      if (cfg?.mode === 'official' && now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict')
+      this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run()
+    })()
     if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id, ...(slack ? { detail: { via: 'official', slack } } : {}) })
     this.refresh()
     return this.adminView()
@@ -401,7 +475,65 @@ export class SlackConnector {
       link: l ? { slackUserId: l.slack_user_id, slackName: l.slack_name, linkedAt: l.created_at } : null,
       signIn: this.signInReady(cfg),
       emailSetByOther: this.emailSetByOther(userId),
+      read: !!l && this.readsSlack(userId),
     }
+  }
+
+  /** The person's Slack link, of the workspace connected now */
+  linkOf(userId: string, cfg = this.config()): LinkRow | null {
+    const l = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    return l && cfg?.team_id && l.team_id === cfg.team_id ? l : null
+  }
+
+  /** May the AI read Slack for this person now: Slack on, linked to the workspace connected now, and the bot has the
+   * reading scopes. What it reads is still only conversations the bot is in and the person too (read.ts). */
+  readsSlack(userId: string): boolean {
+    const cfg = this.config()
+    return this.available(cfg) && !!this.linkOf(userId, cfg) && this.botReads(cfg)
+  }
+
+  /** Admin › Slack "I updated them": Slack is asked again now which scopes the bot token has (the team's own app after
+   * the two scopes were added and the app reinstalled; the official app after Add to Slack again). */
+  async recheckReadScopes(actor: string): Promise<SlackAdmin> {
+    const cfg = this.config()
+    if (cfg?.secret_enc) {
+      await this.checkBotScopes()
+      const now = this.config()
+      audit(this.db, { actor, action: 'slack.read_scopes_recheck', target: cfg.team_id, detail: { mode: cfg.mode, reads: this.botReads(now) } })
+    }
+    return this.adminView()
+  }
+
+  private retiring: Promise<void> | null = null
+  /** The user tokens "read Slack as the person" kept (migration 348, superseded 2026-11-13 by bot-only reading): each
+   * revoked at Slack (auth.revoke with the token itself: no client secret needed; best effort) and deleted. Runs once a
+   * start; a row whose revoke Slack could not be asked about (unreachable), or whose token does not open now, stays for
+   * the next start; any other answer (revoked, already invalid) deletes it. Nothing reads these tokens any more. */
+  retireUserTokens(): Promise<void> {
+    this.retiring ??= (async () => {
+      let rows: { user_id: string; token_enc: string; key_version: number }[]
+      try { rows = this.db.query('SELECT user_id, token_enc, key_version FROM slack_user_tokens LIMIT 1000').all() as typeof rows } catch { return }
+      for (const r of rows) {
+        if (this.closed) return
+        let token: string
+        // a token that does not open now (its key missing or unreadable at this start) is kept, still sealed, and tried
+        // again at the next start: deleting it would leave it working at Slack with no way to revoke it
+        try { token = this.box.open<{ token: string }>(`slack:user-token:${r.user_id}`, r.token_enc, r.key_version).token } catch {
+          this.log.warn('slack user token does not open; kept sealed and tried again at the next start')
+          continue
+        }
+        try { await this.api.call('auth.revoke', token) } catch (e) {
+          const code = e instanceof SlackApiError ? e.code : 'unknown'
+          if (['unreachable', 'ratelimited', 'unknown', 'internal_error', 'fatal_error', 'service_unavailable', 'request_timeout'].includes(code) || (e instanceof SlackApiError && e.status >= 500)) {
+            this.log.info('slack user token not revoked yet; tried again at the next start', { reason: code })
+            continue
+          }
+        }
+        this.db.query('DELETE FROM slack_user_tokens WHERE user_id = ? AND token_enc = ?').run(r.user_id, r.token_enc)
+        audit(this.db, { actor: null, action: 'slack.read_ended', target: r.user_id, detail: { reason: 'bot_only_reading' } })
+      }
+    })().catch((e) => this.log.warn('slack user tokens retire failed', { err: String(e) }))
+    return this.retiring
   }
 
   /** "Sign in with Slack" can be offered: turned on, the app's client id and secret saved, an https address; the
@@ -734,9 +866,14 @@ export class SlackConnector {
     return !!answer
   }
 
-  /** The owner pressed "Add to Slack" (Admin › Slack): a flow bound to them (state hashed, its PKCE verifier sealed, 10
-   * minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`: the team's
-   * address the page is open at (where links in Slack will open). */
+  /** May add the official app now: the team's owner or an admin, active, not waiting to change their password */
+  private mayInstall(userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId)
+  }
+
+  /** The owner or an admin pressed "Add to Slack" (Slack's admin page): a flow bound to them (state hashed, its PKCE verifier
+   * sealed, 10 minutes, used once, the newest only), and Slack's own install page from the hosting service. `origin`:
+   * the team's address the page is open at (where links in Slack will open). */
   async startInstall(userId: string, sessionId: string, client: string, origin: string): Promise<{ authorizationUrl: string }> {
     if (!this.broker) throw new SlackError('official_off', 'conflict')
     const cfg = this.config()
@@ -760,8 +897,8 @@ export class SlackConnector {
     }
   }
 
-  /** The hosting service sent the owner's browser back after Slack's "Add to Slack": only a browser signed in as the
-   * owner who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
+  /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
+   * or admin who started it finishes it (no session: sign in first, the flow waits; another person: refused and ended).
    * The handoff is redeemed with this flow's verifier for the install and its bot token (sealed to a key made for
    * that request), which Slack itself must confirm (auth.test) before it is kept. */
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
@@ -776,9 +913,8 @@ export class SlackConnector {
     if (browser.userId !== f.user_id) return end('signin_other_user')
     if (!this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('install_expired')
     const fail = (reason: string) => { this.db.query('UPDATE slack_install_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
-    // still the team's owner (a role can change in 10 minutes)
-    const owner = this.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(f.user_id)
-    if (!owner || !this.broker) return fail('install_failed')
+    // still the team's owner or an admin (a role can change in 10 minutes)
+    if (!this.mayInstall(f.user_id) || !this.broker) return fail('install_failed')
     let verifier: string
     try { verifier = this.box.open<{ verifier: string }>(`slack:install-flow:${f.id}`, f.verifier_enc, f.key_version).verifier } catch { return fail('install_failed') }
     let got: { install: SlackBrokerInstallInfo; botToken: string }
@@ -837,6 +973,8 @@ export class SlackConnector {
       }
       if (this.pending !== p) return
       if (got.install.installId !== p.installId) { this.pending = null; return }
+      // still the owner or an admin who pressed it (a role can change in 30 minutes)
+      if (!this.mayInstall(p.actor)) { this.pending = null; this.dropInstall(p.installId); return }
       try {
         await this.saveInstall(p.actor, got.install, got.botToken, p.origin)
         this.pending = null
@@ -865,7 +1003,8 @@ export class SlackConnector {
       this.log.warn('slack install does not match its bot token', { installId: install.installId })
       throw new SlackError('install_failed')
     }
-    if (who.scopes && BOT_SCOPES.some((sc) => !who.scopes!.includes(sc))) throw new SlackError('missing_scope')
+    // the reading scopes are not required (an install from before them answers, with reading off until Add to Slack again)
+    if (who.scopes && BASE_BOT_SCOPES.some((sc) => !who.scopes!.includes(sc))) throw new SlackError('missing_scope')
     const botName = await this.botNameOf(bot, install.botUserId)
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(AAD, { bot } satisfies Tokens) } catch { throw new SlackError('key_unsafe', 'unavailable') }
@@ -873,13 +1012,16 @@ export class SlackConnector {
     const now = iso(this.now())
     const url = typeof who.url === 'string' && /^https:\/\/[a-z0-9.-]+\/?$/i.test(who.url) ? who.url : null
     this.db.transaction(() => {
+      // the team's own app saved while Slack was asked (the owner's): never replaced by an install
+      { const now = this.config(); if (now?.mode !== 'official' && now?.secret_enc) throw new SlackError('own_app_saved', 'conflict') }
       if (changed) this.forgetWorkspace()
       this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, app_id, client_id, secret_enc, key_version, link_origin, last_error, updated_by, updated_at, mode, install_id)
         VALUES (1, 1, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, 'official', ?)
         ON CONFLICT(id) DO UPDATE SET enabled = 1, team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
           bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, app_id = excluded.app_id, client_id = NULL, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
-          link_origin = excluded.link_origin, last_error = NULL, updated_by = COALESCE(excluded.updated_by, slack_config.updated_by), updated_at = excluded.updated_at, mode = 'official', install_id = excluded.install_id`)
+          link_origin = excluded.link_origin, last_error = NULL, updated_by = COALESCE(excluded.updated_by, slack_config.updated_by), updated_at = excluded.updated_at, mode = 'official', install_id = excluded.install_id, bot_scopes = NULL`)
         .run(install.teamId, cleanName(install.teamName) ?? install.teamId, url, install.enterpriseId, install.botUserId, botName, install.appId, sealed.enc, sealed.keyVersion, origin ?? before?.link_origin ?? null, actor, now, install.installId)
+      if (who.scopes) this.noteBotScopes(who.scopes)
     })()
     audit(this.db, { actor, action: 'slack.installed', target: install.teamId, detail: { via: 'official', installId: install.installId, workspaceChanged: changed, ...(actor ? {} : { restored: true }) } })
     // a fresh feed with the new token
@@ -1020,11 +1162,14 @@ export class SlackConnector {
     const existing = this.db.query('SELECT c.* FROM slack_threads s JOIN chats c ON c.id = s.chat_id WHERE s.team_id = ? AND s.channel_id = ? AND s.thread_ts = ? AND s.user_id = ? AND c.user_id = s.user_id AND c.deleted_at IS NULL')
       .get(q.team, q.channel, root, who.id) as ChatRow | null
     const person = { id: who.id, role: who.role }
+    const chatId = existing?.id ?? newId()
+    // where it was asked and the thread so far, for this turn's instructions only (read.ts; the bot token, read now,
+    // never stored)
+    try { await askedContext(this, tk.bot, who.id, q, chatId) } catch (e) { this.log.warn('slack thread context failed', { err: String(e) }) }
     let started
     try {
       const fresh = existing ? null : newChatEngine(this.ctx, person, {}, locale)
       const te = turnEngine(this.ctx, person, existing ?? { engine: fresh!.engine, model: fresh!.model }, {}, locale, (e) => rt.defaultModelFor(e))
-      const chatId = existing?.id ?? newId()
       const chat = existing ?? (() => {
         const ts = iso(this.now())
         this.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?, ?, NULL, '', 'auto', ?, ?, ?, ?)")
@@ -1042,6 +1187,7 @@ export class SlackConnector {
         ? e.code === 'conflict' ? say('busy', locale) : e.code === 'unavailable' || e.code === 'rate_limited' ? say('queueFull', locale) : say('cannotStart', locale, { reason: e.userMessage ?? e.code })
         : say('cannotStart', locale, { reason: 'internal' })
       if (!(e instanceof HttpError)) this.log.error('slack question could not start a turn', { err: String(e) })
+      this.asked.delete(chatId)
       await this.ephemeral(tk.bot, q, why)
       return
     }
@@ -1106,7 +1252,11 @@ export class SlackConnector {
     if (this.delivering || this.closed) return
     this.delivering = true
     try {
-      if (this.now() - this.swept > 60_000) { this.swept = this.now(); this.sweep() }
+      if (this.now() - this.swept > 60_000) {
+        this.swept = this.now(); this.sweep()
+        // the bot's scopes now and then: an app updated in Slack (the two reading scopes added) turns reading on by itself
+        if (this.now() - this.scopesCheckedAt > 10 * 60_000) void this.checkBotScopes()
+      }
       this.emailNotices()
       // finished turns first, whatever waits before them
       const done = this.db.query("SELECT r.* FROM slack_requests r JOIN turns t ON t.id = r.turn_id WHERE r.state = 'waiting' AND t.status NOT IN ('queued', 'running') AND (r.not_before IS NULL OR r.not_before <= ?) ORDER BY r.created_at LIMIT 20").all(iso(this.now())) as RequestRow[]
@@ -1128,7 +1278,7 @@ export class SlackConnector {
       AND actor_id IS NOT NULL AND actor_id != target ORDER BY id LIMIT 100`).all(this.emailAuditSeen) as { id: number; target: string }[]
     const last = (this.db.query('SELECT COALESCE(max(id), 0) id FROM audit_log').get() as { id: number }).id
     for (const r of rows) {
-      try { this.ctx.services.realtime.publish(r.target, { type: 'notice', data: { level: 'info', code: 'slack_email_changed', message: say('emailChangedNotice', this.localeOf(r.target)), link: '/connectors' } }) } catch {}
+      try { this.ctx.services.realtime.publish(r.target, { type: 'notice', data: { level: 'info', code: 'slack_email_changed', message: say('emailChangedNotice', this.localeOf(r.target)), link: '/settings/connectors' } }) } catch {}
     }
     this.emailAuditSeen = rows.length === 100 ? rows.at(-1)!.id : last
   }

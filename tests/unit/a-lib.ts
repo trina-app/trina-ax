@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { Hono } from 'hono'
 import type { AppConfig } from '../../server/src/app-config'
 import { buildApp } from '../../server/src/app'
+import { configureChat } from '../../server/src/chat/runtime'
 import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
@@ -24,8 +25,7 @@ export function testConfig(name: string, over: Partial<AppConfig> = {}, o: { reu
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 19110 }, tls: null, publicOrigins: [],
     teamRoot: path.join(dir, 'team'), dataDir: path.join(dir, 'data'), logDir: null, logLevel: 'error',
     engine: { authMode: 'local-login' }, relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null },
-    // the room AI tests ask it with "@트리나 …" (AppConfig.roomAiMentions, off in a real server): on here unless a test says
-    validateResponses: true, setupToken: SETUP_TOKEN, roomAiMentions: true, ...over,
+    validateResponses: true, setupToken: SETUP_TOKEN, ...over,
   }
 }
 
@@ -64,6 +64,8 @@ export async function harness(name: string, over: Partial<AppConfig> = {}, o: { 
   const ctx = createContext({ config: cfg, db, log: o.log ?? silentLogger })
   ctx.onClose(() => db.close())
   const hub = new RecordingHub()
+  // no presence warm-up in tests: it holds phone pushes for 15 s after a start (notifications/away.ts)
+  configureChat(ctx, { presence: { warmupMs: 0 } })
   const app = await buildApp(ctx)
   ctx.services.realtime = hub
   const auth = authOf(ctx)

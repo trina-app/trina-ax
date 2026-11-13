@@ -109,6 +109,9 @@ export const Integration = z.object({
   status: IntegrationStatus,
   /** why the last check failed, in words a person can act on (never a secret or a raw server body) */
   lastError: z.string().nullable(),
+  /** the code of why the last check failed ('timeout', 'refused', 'unreachable', …; server/src/integrations/connections/
+   * text.ts Reason), so a page can say it in one line with the one next step for its reader. Older servers omit it. */
+  lastErrorReason: z.string().nullable().optional(),
   tools: z.array(IntegrationTool),
   /** how many tools the service offers when that is more than `tools` holds: over INTEGRATION_TOOLS_MAX, or a list
    * an older server saved (it kept 100 at most; checking the connection again saves them all); absent when `tools` is

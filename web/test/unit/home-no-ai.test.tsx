@@ -3,7 +3,7 @@
 // row, the suggestions and the line above the box. The owner who put the AI step off ("나중에 하기") gets the card, not
 // the setup row (which only led back to the AI step); once AI answers, the row comes back (on a phone Home's quiet
 // "설정 이어서 하기 · n/4" under the box, counting the steps a phone shows (no 도구 연결, QA TC-271); on a computer the
-// sidebar's setup row stands for it), the AI step recorded done, so it counts 1/5 on a phone and leads on to 회사 소개.
+// list panel's setup row stands for it), the AI step recorded done, so it counts 1/5 on a phone and leads on to 회사 소개.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
@@ -14,6 +14,7 @@ import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
+import { useHandover } from '../../src/store/handover'
 import { forgetStepsSeen, LANDING_STATE, markStepsSeen, stepsSeen } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -37,6 +38,8 @@ let calls: { key: string; body: any }[] = []
  * skill */
 let asked: unknown = { scope: 'none', items: [] }
 let ranTeamSkill = false
+/** GET /api/admin/handover (docs/DECISIONS.md "W6"): null answers 404 (no handover to show) */
+let handover: unknown = null
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/ai-access': () => json(200, access),
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
@@ -51,11 +54,13 @@ const routes: Record<string, (body: any) => Response> = {
   // "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one kept skill and the team's files
   'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', summary: '회사 소개로 정사각형 카드 5장을 만들어요', source: { kind: 'team' } }], teamFolder: { path: 'groups/Acme', files: 4, more: false, without: ['브랜드', 'skills'] }, landing: null, ranTeamSkill, hasProfile: false }),
   'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
+  'GET /api/admin/handover': () => handover ? json(200, handover) : json(404, { error: { code: 'not_found', message: 'none' } }),
+  'POST /api/admin/handover/dismiss': () => json(200, { ok: true }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
 const computerMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
-/** a phone's width: Home's own quiet setup row under the box (on a computer the sidebar's row stands for it) */
+/** a phone's width: Home's own quiet setup row under the box (on a computer the list panel's row stands for it) */
 const phoneWidth = () => { g.matchMedia = (q: string) => ({ ...computerMedia(), matches: q === '(max-width: 767.98px)' }) }
 /** Home's quiet row: "설정 이어서 하기 · n/total" */
 const rowText = (n: number, total: number) => `${ko('setupRow.resume')} · ${n}/${total}`
@@ -78,6 +83,8 @@ afterEach(() => {
   calls = []
   asked = { scope: 'none', items: [] }
   ranTeamSkill = false
+  handover = null
+  useHandover.getState().reset()
   localStorage.clear()
   useChats.getState().reset()
   useAiAccess.getState().reset()
@@ -93,10 +100,13 @@ afterAll(() => {
 })
 
 const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status: { kind: 'signed-in', me: meOf(role) } } as never)
-const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
+/** the new-chat box is `/` on every screen (a phone's 트리나 tab is Home: docs/DECISIONS.md "Phones: the 트리나 tab as
+ * before the redesign"); kept as one place should that change again */
+const boxAt = (e: InitialEntry): InitialEntry => e
+const home = () => mount(<MemoryRouter initialEntries={[boxAt('/')]}><Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
-  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone: its own five with the AI step)', async () => {
+  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 2/5, the step it opens (a phone: its own five with the AI step)', async () => {
     signIn('owner')
     phoneWidth()
     progress = putOff()
@@ -120,13 +130,13 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.find('no-ai-card')).toBeNull()
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
-      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 5), 'the row at 1/5')
+      await m.until(() => m.get('welcome-resume-link').textContent === rowText(2, 5), 'the row at 2/5 (the step it opens, 회사 소개 after the AI step)')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
       await m.until(() => called('GET /api/skills/examples').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved counts as done without a deck: 1/4, the phone\'s four), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved: it opens 내 스킬, 2/4 of the phone\'s four), nothing recorded; on a computer no row on Home', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -135,7 +145,7 @@ describe('Home without AI', () => {
     let m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
-      expect(m.get('welcome-resume-link').textContent).toBe(rowText(1, 4))
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(2, 4))
       expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       expect(m.find('no-ai-card')).toBeNull()
       expect(called('PATCH /api/onboarding/welcome')).toEqual([])
@@ -248,8 +258,8 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
   function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p> }
   /** Home at the last entry: one entry is the tab's first page (a landing); after others, a page reached in the app */
   const open = (entries: InitialEntry[] = ['/']) => mount(
-    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
-      <Routes><Route path="/" element={<Home />} /><Route path="*" element={<Where />} /></Routes>
+    <MemoryRouter initialEntries={entries.map(boxAt)} initialIndex={entries.length - 1}>
+      <Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /><Route path="*" element={<Where />} /></Routes>
     </MemoryRouter>,
   )
   const where = (m: Awaited<ReturnType<typeof open>>) => m.find('where')?.textContent ?? (m.find('composer-input') ? '/' : null)
@@ -285,6 +295,36 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
     m = await open()
     try {
       await m.until(() => where(m) === '/welcome', 'the steps again')
+    } finally { await m.unmount() }
+  })
+
+  test('not while the lead link\'s card waits on Home (QA TC-477): the card shows at once; once it is closed, the next landing resumes', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    progress = unfinished()
+    const card = { inviteId: '01900000-0000-7000-8000-0000000000c1', leadFor: '김팀장', user: { id: 'dana', name: '다나', username: 'dana' }, joinedAt: '2026-11-13T00:00:00.000Z', dismissed: false }
+    handover = { flag: true, recovery: null, openLead: null, card, connections: [] }
+    let m = await open()
+    try {
+      await m.until(() => m.find('handover-card'), 'the lead card')
+      await m.settle(40)
+      expect(where(m)).toBe('/')
+      // not marked: the steps were not on screen
+      expect(stepsSeen('olga')).toBe(false)
+      // ✕ on the card: it goes, the owner stays on Home (decided when the page opened)
+      await act(async () => { m.get('handover-card-close').click() })
+      await m.until(() => !m.find('handover-card'), 'the card closed')
+      await m.settle(40)
+      expect(where(m)).toBe('/')
+      expect(called('POST /api/admin/handover/dismiss')).toHaveLength(1)
+    } finally { await m.unmount() }
+    // closed (✕): a new tab session lands on the steps again
+    handover = { flag: true, recovery: null, openLead: null, card: { ...card, dismissed: true }, connections: [] }
+    useHandover.getState().reset()
+    useWelcome.getState().reset()
+    m = await open()
+    try {
+      await m.until(() => where(m) === '/welcome', 'the steps')
     } finally { await m.unmount() }
   })
 

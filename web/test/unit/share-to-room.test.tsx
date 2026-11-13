@@ -146,7 +146,7 @@ test('the picker lists my rooms like the "#" list (a 1:1 chat as "<name> · 1:1"
   }
 })
 
-test('the rooms are read when the list never was (a phone that never opened the sidebar)', async () => {
+test('the rooms are read when the list never was (a phone that never opened the 대화 tab)', async () => {
   serve()
   const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="short" onClose={() => {}} />)
   try {
@@ -252,7 +252,7 @@ test('the provenance line alone: 보내기 is the focused default; places named,
   const places = [{ kind: 'folder', path: 'finance' }, { kind: 'folder', path: '' }, { kind: 'mine' }, { kind: 'service', name: 'Google Drive' }, { kind: 'room', name: 'Sales' }, { kind: 'room', name: '' }, { kind: 'conversation' }]
   expect(await line({ people: 3, places, otherPlaces: true })).toBe(en('shareRoom.provenance', {
     n: 3,
-    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMine'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
+    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMineFiles'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
   }))
   expect(await line({ people: 2, places: [], otherPlaces: true })).toBe(en('shareRoom.provenanceNoPlace', { n: 2 }))
   expect(await line({ people: 5, places: [], otherPlaces: true, unknown: true })).toBe(en('shareRoom.unknown'))

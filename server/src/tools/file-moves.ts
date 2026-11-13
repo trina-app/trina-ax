@@ -115,7 +115,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       // the folder in words (전사 공유 › 영업, 팀 폴더 맨 위), not its path (chat/place-words.ts)
       const question = [fill(lead, { n: count, to: placeWords(ctx.db, folder, L, tc.user.id) }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
         fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
-      const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L])
+      const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files' })
       if (end !== 'yes') {
         throw new ToolError(refusal({
           done: end === 'declined' ? `The user did not allow this, so nothing was ${verb}.` : `Nothing was ${verb}.`,

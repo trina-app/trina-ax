@@ -1,0 +1,162 @@
+# The feature map (docs/FEATURES.md): on every push to dev, runs the web e2e suite against the mock team server, keeps
+# the endpoints it reached (web/test-results/feature-coverage.json) as an artifact, and rewrites the "Features" tab of
+# the QA sheet when its secrets are set. Not a required check, and not on pull requests (the suite takes long: it runs in
+# four shards).
+# A burst of merges does not cancel a run that is going: one runs, the newest push waits (GitHub keeps one pending).
+# A failing e2e test fails its shard and the run ends red, but only after the coverage of every shard is uploaded and the
+# Features tab is rewritten (the sheet job still runs). Each shard's failed tests are listed in the run summary.
+#
+# One-time setup (docs/FEATURES.md "Sheet sync in CI"): the secret GOOGLE_SHEETS_SA_JSON (a Google service account's key
+# JSON, the sheet shared with its e-mail as an editor) and the secret FEATURES_SHEET_ID (the QA sheet's
+# id). Without them the sheet step is skipped. The script writes only the Features tab, the QA tab's Feature ID header
+# cell and that column's dropdown.
+name: Feature map
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: feature-map
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.3.12
+  # the same pandoc as ci.yml: the mock team server makes its docx and pptx samples with it (answer-sources' deck)
+  PANDOC_VERSION: 3.9.0.2
+
+jobs:
+  e2e:
+    # four shards at once, each with its own mock team server (the suite runs one test at a time per server)
+    name: e2e coverage (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile
+      # the pinned rhwp CLI: the mock team server draws a Hangul file's pages with it (the HWP preview specs)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Pinned Hangul renderer
+        run: bun run prepare:hwp
+      - name: Web build
+        run: bun run build:web
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      # what the mock team server and the specs need that the runner image has none of: ffmpeg (previews.spec.ts makes
+      # its test videos with it), pandoc (the docx and pptx samples: without it answer-sources lists 3 files, not 4),
+      # bubblewrap and fontconfig (the HWP renderer runs isolated as on a server: without bwrap the mock answers "Safe
+      # document rendering is unavailable" and no Hangul page is drawn)
+      - name: Tools (ffmpeg, pandoc, bubblewrap)
+        run: |
+          for try in 1 2 3 4 5; do
+            sudo apt-get -o Acquire::Retries=3 update -qq && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg bubblewrap libfontconfig1 && break
+            [ "$try" = 5 ] && exit 1
+            echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
+          done
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
+          pandoc --version | head -1; ffmpeg -version | head -1
+      # as ci.yml: Ubuntu 24.04 restricts unprivileged user namespaces; the installer's bwrap-only AppArmor allowance
+      - name: Enable and smoke-test converter isolation
+        run: |
+          if ! bwrap --unshare-all --ro-bind / / true &&
+             [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+            for try in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends apparmor && break; [ "$try" = 5 ] && exit 1; sleep $((try * 20)); done
+            sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
+          fi
+          bwrap --unshare-all --ro-bind / / true
+      - name: Playwright browsers (Chromium, WebKit)
+        run: cd web && bunx playwright install --with-deps chromium webkit
+      # no continue-on-error: a failed test fails the shard (and the run); the steps below run anyway (if: always())
+      - name: e2e suite, shard ${{ matrix.shard }} of 4 (records the endpoints it reaches)
+        run: cd web && bunx playwright test -c playwright.config.ts --shard=${{ matrix.shard }}/4 --reporter=dot,json
+        env:
+          FEATURE_COVERAGE_FILE: ${{ github.workspace }}/coverage/feature-coverage-${{ matrix.shard }}.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-report.json
+      - name: Failed tests in the run summary
+        if: ${{ !cancelled() }}
+        run: bun scripts/features/e2e-failures.ts "$RUNNER_TEMP/e2e-report.json" "shard ${{ matrix.shard }}/4" >> "$GITHUB_STEP_SUMMARY"
+      # a failed test's screenshot, trace and error context (Playwright keeps them only for failures), to read a failure
+      # that does not happen on a computer
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: e2e-failures-${{ matrix.shard }}
+          path: web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: feature-coverage-${{ matrix.shard }}
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: warn
+
+  sheet:
+    name: Features tab of the QA sheet
+    needs: e2e
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # the whole history: the tab's "Last contract change" is the date of a file's last commit
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run features:check
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: feature-coverage-*
+          path: coverage
+          merge-multiple: true
+      - name: Rewrite the Features tab
+        env:
+          GOOGLE_SHEETS_SA_JSON: ${{ secrets.GOOGLE_SHEETS_SA_JSON }}
+          FEATURES_SHEET_ID: ${{ secrets.FEATURES_SHEET_ID }}
+        run: |
+          ls coverage || true
+          if [ -z "$GOOGLE_SHEETS_SA_JSON" ] || [ -z "$FEATURES_SHEET_ID" ]; then
+            echo "::notice::GOOGLE_SHEETS_SA_JSON or FEATURES_SHEET_ID is not set: the Features tab is not updated (docs/FEATURES.md)"
+            exit 0
+          fi
+          args=(); for f in coverage/feature-coverage-*.json; do [ -f "$f" ] && args+=(--coverage "$f"); done
+          # a shard that did not finish would count its endpoints as never reached: keep the tab as it is
+          if [ "${#args[@]}" -ne 8 ]; then
+            echo "::warning::$(( ${#args[@]} / 2 )) of 4 coverage files: the Features tab is not updated"
+            exit 0
+          fi
+          bun scripts/features/sync-sheet.ts "${args[@]}"

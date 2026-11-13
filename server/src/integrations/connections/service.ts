@@ -175,11 +175,12 @@ export class Integrations {
   list(viewer: Viewer, locale: Locale): IntegrationList {
     // Gmail, Calendar, Docs and Sheets have their own page (google-apps/): not in the generic list
     const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app IS NULL ORDER BY name, id`).all(viewer.id) as Row[]
-    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
+    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
-    return (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).map((r) => view(this.db, r, viewer, locale))
+    // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)
+    return (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).map((r) => view(this.db, r, viewer, locale))
   }
   /** connections this person may use in a chat now (tools.ts) */
   usable(userId: string): Row[] { return usable(this.db, userId) }
@@ -207,7 +208,7 @@ export class Integrations {
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
     const count = templateId ? 0 : scope === 'personal'
       ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL").get(viewer.id) as { n: number }).n
-      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team'").get() as { n: number }).n
+      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
     if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
     const authHeader = input.auth === 'header' ? this.headerName(input.authHeader ?? null, L) : null
@@ -1033,13 +1034,14 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
   return null
 }
 
-/** where a connection's sign-in or key is fixed: a Google app on its page under Connectors; the person's own on a card
- * in the chat (connect_service, QA TC-127) or in Connectors; one made from a team template on the template's card; a
- * team connection by an admin */
-const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app ? `Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
+/** where a connection's sign-in or key is fixed: a Google app on its page under Settings › Connectors; the person's own
+ * on a card in the chat (connect_service, QA TC-127) or in Settings › Connectors; one made from a team template on the
+ * template's card; a team connection by an admin */
+const fixWhere = (row: Pick<Row, 'google_app' | 'scope' | 'template_id' | 'id'>) => (row.google_app && row.scope === 'team' ? `Admin › Connectors › ${APP_NAMES[row.google_app]}, the shared account's Reconnect (only an owner or admin can: tell the user to ask one)`
+  : row.google_app ? `Settings › Connectors › ${APP_NAMES[row.google_app]} (Reconnect)`
   : row.scope === 'team' ? 'Admin › Connected apps (only an admin can: tell the user to ask one)'
-  : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Connectors in the sidebar`
-  : `a card in this chat: call connect_service with connection "${row.id}" (not in a scheduled run), or Connectors in the sidebar`)
+  : row.template_id ? `a card in this chat: call connect_service with template "${row.template_id}" (not in a scheduled run), or Settings › Connectors`
+  : `a card in this chat: call connect_service with connection "${row.id}" (not in a scheduled run), or Settings › Connectors`)
 
 /** the audit summary's word for a failed call */
 function kindOf(e: unknown): string {

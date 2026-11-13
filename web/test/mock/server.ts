@@ -29,7 +29,9 @@
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/team-address {address: string | null} (GET /api/me team.address, the team's
-// address for its members, until the next reset; none by default), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// address for its members, until the next reset; none by default), POST /__test/slack {admin?: Partial<SlackAdmin>,
+// mine?: Partial<MySlack>} (Admin › Connected apps › Slack and the person's Slack line in Connectors show that, over a
+// connected own app with nobody linked, until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
 // POST /__test/speech {provider, key?: boolean, chosen?: false}
@@ -67,6 +69,10 @@ import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 import type { MemberWelcome } from '@mycel/shared/api'
+import { activityTabHas } from '@mycel/shared/api'
+import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
+import { MySlack, SlackAdmin } from '@mycel/shared/api'
+import { MOCK_ANSWER_HEADER } from '../e2e/coverage-report'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -258,6 +264,10 @@ export class MockServer {
    * (someone else typing, as server/src/rooms/typing.ts relays it) */
   typingSent: { user: string; roomId: string; threadRootId: string | null; typing: boolean; at: number }[] = []
   sessions = new Map<string, string>() // token -> user id
+  /** one-time password reset links made in Admin › Members (createResetLink): token → whose, until when, used when */
+  resetLinks = new Map<string, { userId: string; expiresAt: string; usedAt: string | null }>()
+  /** open account deletion requests (Settings › 계정 삭제 요청): user id → when asked */
+  deletionRequests = new Map<string, string>()
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
   users: User[] = []
@@ -302,7 +312,7 @@ export class MockServer {
   /** a member's asks to add an app the team has not set up (server/src/integrations/service-requests.ts) */
   serviceRequests: { id: string; userId: string; service: RequestableService; createdAt: string; closedAt: string | null; reason: 'added' | 'left' | null }[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
-  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
+  teamLink: { id: string; token: string; groupIds: string[]; groupsChosen?: boolean; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
@@ -336,7 +346,7 @@ export class MockServer {
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
   closedSuggestions = new Set<string>()
   /** team skill drafts (server/src/onboarding/skill-draft.ts, short): the source chat, reads so far, where it was saved */
-  skillDrafts = new Map<string, { userId: string; sourceChatId: string; reads: number; saved: string | null }>()
+  skillDrafts = new Map<string, { userId: string; sourceChatId: string; reads: number; saved: string | null; form?: string }>()
   /** who made a team skill (server/src/skills/author.ts: its file's first version); pack skills have none */
   skillMakers = new Map<string, string>()
   folders: Folder[] = []
@@ -377,16 +387,23 @@ export class MockServer {
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
   notifyPrefs = MockServer.notifyPrefsDefault()
   static notifyPrefsDefault() {
-    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, chatAnswers: true, phoneWhen: 'away' as 'away' | 'always', quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
   }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
+  /** a file whose content now is an AI save (/__test/ai-version current): the chat named, or null */
+  aiCurrent = new Map<string, string | null>()
   connection: ConnectionStatus = defaultConnection()
   /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
   teamAddress: string | null = null
+  /** Slack's state over the default (a connected own app, nobody linked): POST /__test/slack, until the next reset */
+  slackOver: { admin: Partial<SlackAdmin>; mine: Partial<MySlack> } = { admin: {}, mine: {} }
   /** GET /api/admin/backups' lastRestore (POST /__test/last-restore): none until a test sets it */
   lastRestore: import('@mycel/shared/api').LastRestore | null = null
+  /** the Move picker's "최근" per person (folders moved into, newest first) and its ✕ (person|folder|name pattern) */
+  moveRecent = new Map<string, string[]>()
+  moveDismissed = new Set<string>()
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -417,6 +434,9 @@ export class MockServer {
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
+  /** the contract endpoints the API requests reached since the server started, with how often (docs/FEATURES.md):
+   * never reset by /__test/reset, so a whole e2e run adds up; GET /__test/coverage reads it */
+  coverage = new Map<string, number>()
   /** team skills: suggestions, changes under skills/ (who manages them is the folder rules: skillGrants) */
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
@@ -450,6 +470,11 @@ export class MockServer {
   plugins = new MockPlugins()
   /** Gmail, Google Calendar, Google Docs, Google Sheets (test/mock/googleApps.ts): nothing set up until a test does */
   googleApps = new MockGoogleApps()
+  /** whom the account shared with the team includes, and how many active people (googleApps.ts) */
+  readonly googleAppsWired = (() => {
+    this.googleApps.covers = (access, userId) => { const u = this.users.find((x) => x.id === userId); return !!u && this.templateCovers({ access }, u) }
+    this.googleApps.countOf = (access) => this.users.filter((u) => u.status === 'active' && this.templateCovers({ access }, u)).length
+  })()
   /** after-update to-dos an admin dismissed (server/src/system/after-update.ts) */
   afterDismissed: string[] = []
   integrationSecrets = new Map<string, string>()
@@ -515,6 +540,14 @@ export class MockServer {
    * the entries each pick was sent (names and metadata only) */
   fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
   fileRankCalls: { entries: unknown[] }[] = []
+  /** the setup's folder plan (server/src/onboarding/files-organize.ts, short): `ai` as the AI would answer (done: the
+   * name rules plus a project of the files whose names match `project.match`), each status call reads one more file */
+  organize: { ai: 'done' | 'none' | 'failed' | 'timeout'; project: { name: string; match: string } | null } = { ai: 'done', project: null }
+  organizeJobs = new Map<string, { userId: string; paths: string[]; read: number; total: number; plan: OrganizePlan | null; applied?: { moved: { from: string; to: string }[]; failed: string[] } }>()
+  organizeCalls: { paths: string[] }[] = []
+  /** the forms a draft was asked for (startFormSkillDraft) */
+  formSkillCalls: string[] = []
+  filesOrganized = false
 
   /** Admin › Team settings › File list (server/src/file-list/): POST /__test/file-list {status fields} sets what the
    * status says (a problem, the sign-in, counts); Run now runs at once and is done by the next status read */
@@ -530,6 +563,14 @@ export class MockServer {
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.fileRankCalls = []
+    this.moveRecent = new Map()
+    this.moveDismissed = new Set()
+
+    this.organize = { ai: 'done', project: null }
+    this.organizeJobs = new Map()
+    this.organizeCalls = []
+    this.formSkillCalls = []
+    this.filesOrganized = false
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -586,7 +627,6 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
-    this.roomAiMentions = true
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -600,10 +640,13 @@ export class MockServer {
     this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
+    this.aiCurrent = new Map()
     this.trash = []
     this.uploads.clear()
     this.attachments.clear()
     this.jobs.clear()
+    this.resetLinks.clear()
+    this.deletionRequests.clear()
     this.files.clear()
     this.log = []
     this.engineRequests = []
@@ -649,6 +692,7 @@ export class MockServer {
     this.pluginManaged.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
+    this.slackOver = { admin: {}, mine: {} }
     this.lastRestore = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
@@ -722,8 +766,6 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
-  /** POST /__test/room-ai-mentions {on}: "@트리나" in a room (Me.server.roomAiMentions); on in the mock, off on a real server */
-  roomAiMentions = true
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   access(path: string, user: User): 'none' | 'read' | 'write' {
@@ -978,7 +1020,7 @@ export class MockServer {
     const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
     const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
     return {
-      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
+      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const, groupsChosen: !!l.groupsChosen },
       seats: { used, limit: null },
     }
   }
@@ -1003,6 +1045,16 @@ export class MockServer {
       files: [{ path: notes.slice(0, notes.lastIndexOf('/')), latest: true }],
     }
     return { title: '견적서 쓰기', description: '팀 양식으로 새 견적서를 만들어요', recurring: false, inputs: [], files: asked.slice(0, 1).map((p) => ({ path: p, latest: false })) }
+  }
+  /** a form's card (server/src/onboarding/form-skill.ts, short): "<kind> 만들기", two questions, the form's folder and "the
+   * newest file whose name has the words" */
+  formSkillCard(form: string): { title: string; description: string; inputs: SkillInput[]; files: { path: string; latest: boolean; like?: string }[]; recurring: boolean } {
+    const like = formStem(form.slice(form.lastIndexOf('/') + 1))
+    return {
+      title: `${formKind(like)} 만들기`, description: `팀 ${like}을 채워 새 문서를 만들어요`, recurring: false,
+      inputs: [{ name: 'customer', label: '고객사', required: true }, { name: 'items', label: '품목' }],
+      files: [{ path: form.slice(0, form.lastIndexOf('/')), latest: true, like }],
+    }
   }
   /** A live team project on exactly projects/<name> has skills of its own (server/src/skills/guard.ts
    * projectLevelPossible): its projects/<name>/skills/, for people who can read the folder. */
@@ -1294,9 +1346,6 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
-        // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions);
-        // POST /__test/room-ai-mentions {on: false} turns it off until the next reset
-        ...(this.roomAiMentions ? { roomAiMentions: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
         // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
@@ -1308,6 +1357,17 @@ export class MockServer {
       passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
+  }
+
+  stubDownload(id: string, key: string, ext: string, type: string) {
+    const a = this.artifacts.find((x) => x.id === id && x.key === key) ?? fail('not_found', 404)
+    return new Response(`mock ${ext}`, { headers: { 'content-type': type, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${a.title ?? key}.${ext}`)}` } })
+  }
+
+  deletionOf(u: User) {
+    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null }
+    const at = this.deletionRequests.get(u.id)
+    return at ? { state: 'pending' as const, requestedAt: at } : { state: 'none' as const, requestedAt: null }
   }
 
   startSession(u: User) {
@@ -1487,6 +1547,16 @@ export class MockServer {
       put({ ...save, status: 'error', endedAt: now() })
     }
     if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
+    if (/devpreview/i.test(prompt)) {
+      // a dev server with a port (Step.devEnvRun kind server): the step's Preview button; "devpreviewgone": it stopped
+      this.devEnv ??= {}
+      const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
+      const id = `dp-${assistant.id.slice(-8)}`
+      if (!/devpreviewgone/i.test(prompt)) srt.running = [...srt.running, { id, kind: 'server', name: 'web', by: { id: user.id, name: user.name }, startedAt: now(), runAt: now(), position: null, memoryMiB: 120, lastLine: '', chatId, projectId: null }]
+      const x = step({ id: 'p1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run dev', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'server', state: 'started', position: null, port: 5173 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } })
+    }
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -1997,20 +2067,15 @@ export class MockServer {
 
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
-    // like server/src/routes/file-list.ts: off clears the counts (the stored lines are deleted); Run now is refused while
-    // off; a run "ends" at the next status read
+    // like server/src/routes/file-list.ts: always on (no switch); Run now is refused only when the host turned it off; a
+    // run "ends" at the next status read
     fileListStatus: () => {
       const s = this.fileList
       if (s.running) this.fileList = { ...s, running: false, listed: s.listed + s.waiting, waiting: 0, lastRun: { ...s.lastRun!, endedAt: new Date().toISOString(), read: s.waiting, stoppedBy: 'done' } }
       return s
     },
-    updateFileList: (c) => {
-      if (c.body.enabled && this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
-      this.fileList = c.body.enabled ? { ...this.fileList, enabled: true, nextRunAt: new Date(Date.now() + 9 * 3600_000).toISOString() } : { ...this.fileList, enabled: false, running: false, listed: 0, waiting: 0, nextRunAt: null, problem: null }
-      return this.fileList
-    },
     runFileList: () => {
-      if (!this.fileList.enabled || this.fileList.forcedOff) throw new Fail('conflict', 409, 'off', undefined, { reason: this.fileList.forcedOff ? 'forced_off' : 'off' })
+      if (this.fileList.forcedOff) throw new Fail('conflict', 409, 'forced off', undefined, { reason: 'forced_off' })
       this.fileList = { ...this.fileList, running: true, lastRun: { startedAt: new Date().toISOString(), endedAt: null, trigger: 'now', read: 0, stoppedBy: null } }
       return this.fileList
     },
@@ -2075,12 +2140,13 @@ export class MockServer {
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
     listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
-    // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
-    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
+    // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
+    // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false, ...this.slackOver.mine }),
     slackAdmin: () => ({
       mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
-      signIn: false, redirectUrl: null,
+      signIn: false, redirectUrl: null, readScopes: null, missingScopes: [], ...this.slackOver.admin,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
@@ -2153,6 +2219,38 @@ export class MockServer {
       }
     },
     mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
+    // a reset link (server/src/auth/password-reset.ts): whose account while unused; a new password ends every other session
+    // of that person and signs in here
+    passwordResetInfo: (c) => {
+      const l = this.resetLinks.get(c.params.token!) ?? fail('not_found', 404)
+      const u = this.users.find((x) => x.id === l.userId)
+      // used, expired or its person gone: nothing about the account
+      if (!u || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) return { valid: false, username: null, name: null, expiresAt: null }
+      return { valid: true, username: u.username, name: u.name, expiresAt: l.expiresAt }
+    },
+    completePasswordReset: (c) => {
+      const l = this.resetLinks.get(c.params.token!)
+      if (!l || l.usedAt || Date.parse(l.expiresAt) <= Date.now()) fail('gone', 410)
+      const u = this.users.find((x) => x.id === l!.userId) ?? fail('not_found', 404)
+      this.passwords.set(u.username, c.body.newPassword)
+      u.mustChangePassword = false
+      this.tempLogins.delete(u.id)
+      l!.usedAt = now()
+      for (const [token, id] of this.sessions) if (id === u.id) this.sessions.delete(token)
+      u.lastSeenAt = now()
+      return { cookie: this.startSession(u), body: { me: this.me(u, '') } }
+    },
+    // account deletion requests (server/src/auth/deletion-requests.ts): the owner cannot ask; asking again changes nothing
+    myDeletionRequest: (c) => this.deletionOf(c.user),
+    requestAccountDeletion: (c) => {
+      if (c.user.role === 'owner') fail('conflict', 409)
+      if (!this.deletionRequests.has(c.user.id)) this.deletionRequests.set(c.user.id, now())
+      return this.deletionOf(c.user)
+    },
+    cancelAccountDeletion: (c) => {
+      this.deletionRequests.delete(c.user.id)
+      return this.deletionOf(c.user)
+    },
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)
@@ -2338,7 +2436,6 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
     },
-    getRoomAi: (c) => (this.rooms.some((r) => r.id === c.params.id) ? { answering: 0, mine: [] } : fail('not_found', 404)),
     // "팀 파일" in a room's box (server/src/routes/rooms.ts attachRoomTeamFile, short): a team file I may read becomes my
     // upload in a room of POST /__test/rooms; the room's other people (its peers) who cannot open it are counted
     attachRoomTeamFile: (c) => {
@@ -2561,7 +2658,8 @@ export class MockServer {
       for (const [k, v] of [...this.files.entries()]) if (k.startsWith(p.folderPath + '/')) this.files.set(to + k.slice(p.folderPath.length), { ...v })
       this.projectMembers.set(to, { creator: c.user.id, participants: c.body.participants ?? [], version: 1 })
       p.folderPath = to
-      return p
+      // the project as the server answers it (routes/chats.ts projectOut): its audience counted, as GET reads it
+      return this.sharedProjectOut(p, c.user)
     },
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on needs the
     // current warning accepted
@@ -2603,6 +2701,12 @@ export class MockServer {
       srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
       srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
       return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
+    // a preview link of the caller's running dev server ("devpreview" turns): about:blank stands in for the preview origin
+    previewMyDevEnvRun: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt || !srt.running.some((r) => r.id === c.params.runId && r.kind === 'server' && r.by?.id === c.user.id)) throw new Fail('not_found', 404, 'The dev server is not running. Ask the AI to start it again.', undefined, { reason: 'dev_env_preview_not_running' })
+      return { url: `about:blank#preview-${c.params.runId}-${(c.body as { port: number }).port}`, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/rooms.ts (rooms/ai-grants.ts): the person's own; an unknown id is 404
@@ -2786,6 +2890,8 @@ export class MockServer {
           this.files.set(to + p.slice(from.length), v)
         }
       }
+      const into = parentOf(to)
+      if (into !== parentOf(from)) this.moveRecent.set(c.user.id, [into, ...(this.moveRecent.get(c.user.id) ?? []).filter((x) => x !== into)].slice(0, 10))
       return { entry: this.entry(to, n, c.user) }
     },
     // share by copying (server/src/team-files/service.ts copy): files only; dryRun counts who would see it in addition
@@ -2819,7 +2925,8 @@ export class MockServer {
     history: (c) => {
       const f = this.files.get(c.query.path!)
       const items = this.versions.filter((v) => v.path === c.query.path)
-      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: null, at: f.mtime } : null
+      const ai = this.aiCurrent.get(c.query.path!)
+      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: ai === undefined ? null : uuidv7(), at: f.mtime, ...(ai ? { chatId: ai } : {}) } : null
       const events = current ? [{ id: 1, at: f!.mtime, kind: 'edited' as const, by: current.author, turnId: null, path: c.query.path!, from: null, size: current.size }] : []
       return { path: c.query.path, items, currentSha256: current?.sha256 ?? null, canRestore: this.access(c.query.path!, c.user) === 'write', current, events }
     },
@@ -2900,6 +3007,28 @@ export class MockServer {
       }
       return { items, truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
     },
+    // the Move picker's suggestions (server/src/team-files/move-suggest.ts), short: a folder the person can write whose
+    // name is in the file's name; recent = folders they moved into here
+    moveSuggestions: (c) => {
+      const paths: string[] = c.body.paths
+      for (const p of paths) if (!this.files.has(p) || this.access(p, c.user) === 'none') fail('not_found', 404)
+      const from = new Set(paths.map(parentOf))
+      const pattern = (p: string) => p.slice(p.lastIndexOf('/') + 1).toLowerCase().replace(/\d+/g, '#')
+      const writable = (p: string) => this.files.get(p)?.type === 'folder' && this.access(p, c.user) === 'write' && !from.has(p) && !p.startsWith('skills')
+      const suggested = [...this.files.keys()]
+        .filter((p) => writable(p) && p.slice(p.lastIndexOf('/') + 1).length >= 2)
+        .filter((p) => { const n = p.slice(p.lastIndexOf('/') + 1).toLowerCase(); return paths.every((f) => this.files.get(f)?.type === 'file' && f.slice(f.lastIndexOf('/') + 1).toLowerCase().includes(n)) })
+        .filter((p) => !paths.some((f) => this.moveDismissed.has(`${c.user.id}|${p}|${pattern(f)}`)))
+        .slice(0, 3).map((p) => ({ path: p, confidence: 0.9 }))
+      const recent = (this.moveRecent.get(c.user.id) ?? []).filter((p) => writable(p) && !suggested.some((s) => s.path === p)).slice(0, 3).map((p) => ({ path: p }))
+      return { suggested, recent }
+    },
+    dismissMoveSuggestion: (c) => {
+      for (const p of c.body.paths as string[]) {
+        if (!this.files.has(p) || this.access(p, c.user) === 'none') fail('not_found', 404)
+        this.moveDismissed.add(`${c.user.id}|${c.body.folder}|${p.slice(p.lastIndexOf('/') + 1).toLowerCase().replace(/\d+/g, '#')}`)
+      }
+    },
     recentFiles: (c) => {
       const items = [...this.files.entries()]
         .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && this.access(p, c.user) !== 'none' && !p.startsWith('users/'))
@@ -2968,6 +3097,11 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
     },
+    // a deck's files and a promo video's MP4: a few bytes under the file's name (the mock never builds them; the specs
+    // that download first turn the info to "can be made", test/e2e/intro-deck.spec.ts, promo-video.spec.ts)
+    downloadIntroDeckPptx: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+    downloadIntroDeckPdf: (c) => this.stubDownload(c.params.id!, DECK_ARTIFACT_KEY, 'pdf', 'application/pdf'),
+    downloadPromoVideo: (c) => this.stubDownload(c.params.id!, PROMO_ARTIFACT_KEY, 'mp4', 'video/mp4'),
     // intro decks being built (round 2): the chat's builds, newest first, and a finished slide's small picture
     listDeckBuilds: (c) => {
       if (!this.chats.some((x) => x.id === c.query.chatId)) fail('not_found', 404)
@@ -2990,9 +3124,11 @@ export class MockServer {
       return { status: 202, body: { jobId: this.transcribeJob(c.user) } }
     },
     pollCalls: () => ({ calls: [] }),
-    postResult: () => undefined,
+    // like server/src/routes/browser.ts: a result for a call this server is not waiting for is 404 (the mock never makes calls)
+    postResult: () => fail('not_found', 404),
 
-    listUsers: () => ({ items: this.users }),
+    // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
+    listUsers: (c) => ({ items: this.users, deletionRequested: this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member')).map((u) => u.id) }),
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
@@ -3008,6 +3144,7 @@ export class MockServer {
     },
     deleteUser: (c) => {
       const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      this.deletionRequests.delete(target.id)
       const me = c.user
       // as the server: an admin removes a member only, with their password again
       if (me.role === 'admin') {
@@ -3083,7 +3220,11 @@ export class MockServer {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role === 'owner') fail('forbidden', 403)
       const token = 'rst' + uuidv7().replace(/-/g, '')
-      return { token, url: `/reset-password/${token}`, expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString() }
+      const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString()
+      // only the newest link of a person works
+      for (const [k, l] of this.resetLinks) if (l.userId === u.id) this.resetLinks.delete(k)
+      this.resetLinks.set(token, { userId: u.id, expiresAt, usedAt: null })
+      return { token, url: `/reset-password/${token}`, expiresAt }
     },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
@@ -3120,14 +3261,16 @@ export class MockServer {
       this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
       return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
     },
-    // like the server: the open link's skill changes and groups are added; its address stays
+    // like the server: the open link's skill changes and groups are added or replaced (`groupIds`); its address stays
     updateTeamLink: (c) => {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
-      const b = c.body as { skillPath?: string | null; addGroupIds?: string[] }
+      const b = c.body as { skillPath?: string | null; addGroupIds?: string[]; groupIds?: string[] }
       if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
+      if ((b.groupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
-      l!.groupIds = [...new Set([...l!.groupIds, ...(b.addGroupIds ?? [])])]
+      l!.groupIds = [...new Set([...(b.groupIds ?? l!.groupIds), ...(b.addGroupIds ?? [])])]
+      if (b.groupIds) l!.groupsChosen = true
       return this.teamLinkResponse(c.req, c.user)
     },
     revokeTeamLink: () => {
@@ -3280,7 +3423,8 @@ export class MockServer {
     // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the general pack once
     getWelcome: () => ({ progress: this.welcome }),
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
-    getMemberWelcome: () => ({ welcome: this.memberWelcome }),
+    // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
+    getMemberWelcome: () => ({ welcome: this.memberWelcome && { ...this.memberWelcome, ...(this.memberWelcome.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) } }),
     updateMemberWelcome: (c) => {
       if (c.body.hide) this.memberWelcome = null
       else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
@@ -3379,6 +3523,64 @@ export class MockServer {
       const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
       return { ai: 'done', picks }
     },
+    // the setup's folder plan (server/src/onboarding/files-organize.ts, short): owners and admins; the plan is the shared
+    // organizePlan over the name rules (the AI's folders are the kinds' folders here), a project when a test sets one
+    startOrganize: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const paths = (c.body.paths as string[]).filter((p) => p.startsWith('shared/') && this.files.get(p)?.type === 'file')
+      this.organizeCalls.push({ paths })
+      const id = uuidv7()
+      const total = Math.min(paths.length, ORGANIZE_LIMITS.read)
+      this.organizeJobs.set(id, { userId: c.user.id, paths, read: 0, total, plan: null })
+      return { id, total }
+    },
+    organizeStatus: (c) => {
+      const j = this.organizeJobs.get(c.params.id)
+      if (!j || j.userId !== c.user.id) fail('not_found', 404)
+      if (j!.read < j!.total) { j!.read++; return { state: 'reading', read: j!.read, total: j!.total, plan: null } }
+      if (!j!.plan) {
+        const existing = [...this.files.entries()].filter(([p, v]) => v.type === 'folder' && /^shared\/[^/]+$/.test(p)).map(([p]) => p.slice(7))
+        const locale = (this.settings.defaultLocale as Locale) ?? 'ko'
+        const m = this.organize.project ? new RegExp(this.organize.project.match) : null
+        const ai: AiOrganize | null = this.organize.ai !== 'done' ? null : {
+          files: new Map(j!.paths.slice(0, ORGANIZE_LIMITS.read).map((p) => { const r = nameReason(p.slice(p.lastIndexOf('/') + 1)); return [p, { folder: r ? REASON_FOLDER[r][locale] : null, reason: r, form: r === 'form' }] })),
+          project: m && this.organize.project ? { name: this.organize.project.name, paths: j!.paths.filter((p) => m.test(p)) } : null,
+        }
+        const made = organizePlan({ paths: j!.paths, existing, locale, ai })
+        // a form whose name holds a company's name is a filled-in copy (the server's specifics, short: a company mark)
+        j!.plan = { ai: this.organize.ai, existing, ...made, rows: made.rows.map((r) => (r.form && /㈜|\(주\)|주식회사/.test(r.path) ? { ...r, form: false } : r)) }
+        return { state: 'thinking', read: j!.read, total: j!.total, plan: null }
+      }
+      return { state: 'done', read: j!.read, total: j!.total, plan: j!.plan }
+    },
+    applyOrganize: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      // bound to the caller's plan; the same plan again answers the first result
+      const job = this.organizeJobs.get(c.body.id as string)
+      if (!job || job.userId !== c.user.id || !job.plan) return fail('not_found', 404)
+      if (job.applied) return job.applied
+      const moved: { from: string; to: string }[] = []
+      const failed: string[] = []
+      for (const m of c.body.moves as { from: string; folder: string }[]) {
+        const n = this.files.get(m.from)
+        if (!n || n.type !== 'file' || !m.from.startsWith('shared/') || !job.plan.rows.some((r) => r.path === m.from)) { failed.push(m.from); continue }
+        const dir = `shared/${m.folder}`
+        if (!this.files.has(dir)) this.files.set(dir, { type: 'folder', mtime: now() })
+        let to = `${dir}/${m.from.slice(m.from.lastIndexOf('/') + 1)}`
+        if (to === m.from) continue
+        if (this.files.has(to)) to = this.freePath(to)
+        this.files.delete(m.from)
+        this.files.set(to, n)
+        moved.push({ from: m.from, to })
+      }
+      // the folders the moves emptied (not shared/ itself)
+      for (const [p, v] of [...this.files.entries()].sort((a, b) => b[0].length - a[0].length)) {
+        if (v.type === 'folder' && p.startsWith('shared/') && moved.some((x) => x.from.startsWith(p + '/')) && ![...this.files.keys()].some((k) => k.startsWith(p + '/'))) this.files.delete(p)
+      }
+      if (moved.length) this.filesOrganized = true
+      job.applied = { moved, failed }
+      return job.applied
+    },
     // the step's upload run landed a file (server/src/onboarding/team-files.ts, short): 팀 파일 done, once, for a file
     // in a group's folder
     teamFilesLanded: (c) => {
@@ -3404,19 +3606,36 @@ export class MockServer {
       this.skillDrafts.set(id, { userId: c.user.id, sourceChatId: c.body.chatId, reads: 0, saved: null })
       return { status: 201, body: { draftChatId: id } }
     },
+    // a team skill from a form (server/src/onboarding/skill-draft.ts startFormSkillDraft, short): owners and admins, a
+    // Hangul, Excel or Word file in the team folder, not one named for a company; the same form again: its draft
+    startFormSkillDraft: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const path = c.body.path as string
+      if (!formSkillType(path)) fail('validation', 400)
+      if (this.files.get(path)?.type !== 'file') fail('not_found', 404)
+      // the forms folder only (the server also takes a form its plan just put elsewhere)
+      if (!/^shared\/(양식|templates|templat|テンプレート|plantillas)\/[^/]+$/i.test(path)) fail('validation', 400)
+      if (/㈜|\(주\)|주식회사/.test(path)) fail('conflict', 409)
+      this.formSkillCalls.push(path)
+      const had = [...this.skillDrafts].find(([, d]) => d.form === path && d.userId === c.user.id && !d.saved)
+      if (had) return { status: 201, body: { draftChatId: had[0] } }
+      const id = uuidv7()
+      this.skillDrafts.set(id, { userId: c.user.id, sourceChatId: '', reads: 0, saved: null, form: path })
+      return { status: 201, body: { draftChatId: id } }
+    },
     getSkillDraft: (c) => {
       const d = this.skillDrafts.get(c.params.chatId)
       if (!d || d.userId !== c.user.id) fail('not_found', 404)
       const saved = d!.saved ? { path: d!.saved, name: d!.saved.split('/').at(-2)!, title: this.skillsFor(c.user).find((x) => x.path === d!.saved)?.title ?? '' } : null
       if (++d!.reads < 2) return { status: 'running', draft: null, problem: null, saved }
-      return { status: 'done', draft: this.skillCard(d!.sourceChatId), problem: null, saved }
+      return { status: 'done', draft: d!.form ? this.formSkillCard(d!.form) : this.skillCard(d!.sourceChatId), problem: null, saved }
     },
     saveSkillDraft: (c) => {
       const d = this.skillDrafts.get(c.params.chatId)
       if (!d || d.userId !== c.user.id) fail('not_found', 404)
       if (d!.saved) return { path: d!.saved, name: d!.saved.split('/').at(-2)!, title: c.body.title }
-      const card = this.skillCard(d!.sourceChatId)
-      const name = card.inputs.length ? 'juganhoeui-hal-il' : 'gyeonjeokseo-sseugi'
+      const card = d!.form ? this.formSkillCard(d!.form) : this.skillCard(d!.sourceChatId)
+      const name = d!.form ? `form-${[...this.skillDrafts.values()].filter((x) => x.saved).length + 1}` : card.inputs.length ? 'juganhoeui-hal-il' : 'gyeonjeokseo-sseugi'
       const rel = `skills/general/${name}/SKILL.md`
       for (const dir of ['skills', 'skills/general', `skills/general/${name}`]) this.files.set(dir, this.files.get(dir) ?? { type: 'folder', mtime: now() })
       const inputs = card.inputs.length ? `  inputs: |\n    ${JSON.stringify(card.inputs)}\n` : ''
@@ -3745,6 +3964,18 @@ export class MockServer {
       void c
       return { status: 202, body: { jobId: id } }
     },
+    // the export (server/src/system/export.ts): a job that ends with where the archive was written (the owner's folder)
+    startExport: (c) => {
+      const id = uuidv7()
+      const job: Job = { id, kind: 'export', status: 'running', progress: 0, message: 'Exporting', result: null, error: null, createdAt: now(), finishedAt: null }
+      this.jobs.set(id, job)
+      const path = `users/${c.user.id}/exports/mycel-export-20261113-0900.tar.zst${c.body.password ? '.age' : ''}`
+      setTimeout(() => {
+        Object.assign(job, { status: 'done', progress: 1, result: { path, size: 4096 }, finishedAt: now() })
+        this.publish({ type: 'job.done', data: { job } })
+      }, 200)
+      return { status: 202, body: { jobId: id } }
+    },
     // the restore: owner-reauth like the server (a wrong password is 403 with fields['body.password']); the job only
     // stages it (the server applies it at its next start)
     startRestore: (c) => {
@@ -3947,6 +4178,26 @@ export class MockServer {
       }
       this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
+    },
+    // the account shared with the team (owners and admins; the route checks the role)
+    authorizeGoogleAppTeam: (c) => this.googleApps.authorizeTeam(this.gappId(c.params.app), c.user.id) ?? fail('conflict', 409, 'google_app_not_set_up'),
+    googleAppTeamFlow: (c) => this.googleApps.pollTeam(this.gappId(c.params.app), c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    cancelGoogleAppTeamFlow: (c) => { this.googleApps.cancel(c.params.id!); return undefined },
+    completeGoogleAppTeamFlow: (c) => {
+      const app = this.gappId(c.params.app)
+      if (c.body.create && this.googleApps.app(app)!.team) fail('conflict', 409, 'google_app_team_exists', undefined, { reason: 'team_exists' })
+      if (!this.googleApps.completeTeam(app, c.params.id!, { id: c.user.id, name: c.user.name })) fail('not_found', 404, 'google_app_flow_not_found')
+      return this.googleApps.adminStatus(app, this.driveClient !== 'none')
+    },
+    setGoogleAppTeam: (c) => {
+      const app = this.gappId(c.params.app)
+      if (!this.googleApps.setTeamAccess(app, c.body.access)) fail('not_found', 404, 'google_app_not_connected')
+      return this.googleApps.adminStatus(app, this.driveClient !== 'none')
+    },
+    removeGoogleAppTeam: (c) => {
+      const app = this.gappId(c.params.app)
+      if (c.query.id && c.query.id !== `team-${app}`) return { removed: false, revocation: 'not_needed' as const }
+      return this.googleApps.removeTeam(app)
     },
     setGoogleAppMembers: (c) => {
       this.googleApps.app(c.params.app) ?? fail('not_found', 404)
@@ -4287,10 +4538,27 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none
-      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length, roomUnreadCount: 0 }
+      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none,
+      // only=notices all of them
+      const unread = mine.filter((n) => !n.readAt).length
+      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: unread, roomUnreadCount: 0, noticeUnreadCount: unread }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
+    markAllNotificationsRead: (c) => {
+      let read = 0
+      for (const n of this.inbox) {
+        if (n.userId !== c.user.id || n.readAt) continue
+        const item = this.inboxItem(n)
+        if (c.body.only === 'rooms' && !item.room) continue
+        if (c.body.only === 'notices' && item.room) continue
+        if (!activityTabHas(item, c.body.tab)) continue
+        n.readAt = now()
+        read++
+      }
+      if (read) this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return { read }
+    },
     markNotificationRead: (c) => {
       const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
       n.readAt ??= now()
@@ -4622,6 +4890,8 @@ export class MockServer {
   driveShareCovers(x: MockDriveShare, u: User): boolean {
     return x.access.everyone || x.access.users.includes(u.id) || x.access.groups.some((g) => u.groupIds.includes(g))
   }
+  /** the Google app in the path, or not found */
+  gappId(raw: string | undefined): GoogleAppId { return this.googleApps.app(raw ?? '') ? raw as GoogleAppId : fail('not_found', 404) }
   driveShareUsers(x: MockDriveShare): number {
     return this.users.filter((u) => u.status === 'active' && this.driveShareCovers(x, u)).length
   }
@@ -4711,11 +4981,13 @@ export class MockServer {
     const keyed = x.auth === 'bearer' || x.auth === 'header'
     const secret = this.integrationSecrets.get(x.id)
     x.checks++
-    const set = (status: Integration['status'], lastError: string | null) => Object.assign(x, { status, lastError })
-    if (new URL(x.url).hostname.startsWith('down.')) set('error', '서비스가 응답하지 않아요(502). 잠시 뒤 다시 확인해 주세요.')
+    // like the server: the reason in words (text.ts reasonText) and its code (lastErrorReason)
+    const set = (status: Integration['status'], lastError: string | null, lastErrorReason: string | null = null) => Object.assign(x, { status, lastError, lastErrorReason })
+    if (new URL(x.url).hostname.startsWith('down.')) set('error', '서비스가 오류로 답했어요(HTTP 502).', 'http_status')
+    else if (new URL(x.url).hostname.startsWith('slow.')) set('error', '서비스가 30초 안에 답하지 않았어요.', 'timeout')
     else if (x.auth === 'oauth' && !secret) set('needs_auth', null)
-    else if (keyed && !secret) set('error', '키가 없어요. 수정에서 키를 넣어 주세요.')
-    else if (keyed && secret === 'wrong-key') set('error', '서비스가 키를 거절했어요(401). 키를 확인해 주세요.')
+    else if (keyed && !secret) set('error', '키가 아직 없어요. 키를 넣어 주세요.', 'no_secret')
+    else if (keyed && secret === 'wrong-key') set('error', '서비스가 키나 로그인을 받아 주지 않았어요(HTTP 401). 키를 다시 넣거나 다시 로그인해 주세요.', 'refused')
     else {
       set('connected', null)
       const host = new URL(x.url).hostname
@@ -4800,6 +5072,10 @@ export class MockServer {
   // ---------------- HTTP ----------------
   routes = listEndpoints().map(({ name, ep }) => ({ name, ep, re: new RegExp('^' + ep.path.replace(/:([A-Za-z_]+)/g, '(?<$1>[^/]+)') + '$') }))
 
+  routeOf(method: string, p: string) {
+    return this.routes.filter((r) => r.ep.method === method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
+  }
+
   async handle(req: Request, dist: string): Promise<Response> {
     const url = new URL(req.url)
     const p = url.pathname
@@ -4811,11 +5087,12 @@ export class MockServer {
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
-    const route = this.routes.filter((r) => r.ep.method === req.method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
+    const route = this.routeOf(req.method, p)
     try {
       if (!route) return fail('not_found', 404)
       const h = this.handlers[route.name]
       if (!h) return fail('not_found', 404, `mock: ${route.name} not implemented`)
+      this.coverage.set(route.name, (this.coverage.get(route.name) ?? 0) + 1)
       if (req.method !== 'GET' && !req.headers.get(CSRF_HEADER)) fail('csrf', 403)
       const ep = route.ep as Endpoint
       const user = this.userOf(req)
@@ -4867,6 +5144,13 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
+    if (p === '/__test/coverage') {
+      // {method, path}: a request the page's own route answered in the browser (an e2e spec's page.route, rooms-mock.ts),
+      // reported by test/e2e/coverage-report.ts so its endpoint counts too; without them: the counts so far
+      const route = typeof body.method === 'string' && typeof body.path === 'string' ? this.routeOf(body.method, body.path) : undefined
+      if (route) this.coverage.set(route.name, (this.coverage.get(route.name) ?? 0) + 1)
+      return body.path === undefined ? Response.json(Object.fromEntries(this.coverage)) : new Response(null, { status: route ? 204 : 404 })
+    }
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/file-list') this.fileList = { ...this.fileList, ...(body as Partial<FileListStatus>) }
@@ -4905,6 +5189,8 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
+    else if (p === '/__test/organize' && req.method === 'GET') return Response.json({ calls: this.organizeCalls, organized: this.filesOrganized, formSkills: this.formSkillCalls })
+    else if (p === '/__test/organize') this.organize = { ai: (body.ai as typeof this.organize.ai | undefined) ?? 'done', project: (body.project as typeof this.organize.project | undefined) ?? null }
     else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)
@@ -4935,6 +5221,7 @@ export class MockServer {
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
+    else if (p === '/__test/slack') this.slackOver = { admin: SlackAdmin.partial().parse(body.admin ?? {}), mine: MySlack.partial().parse(body.mine ?? {}) }
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
@@ -4974,7 +5261,6 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
-    else if (p === '/__test/room-ai-mentions') this.roomAiMentions = body.on !== false
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
@@ -4982,6 +5268,22 @@ export class MockServer {
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000), queuedMs: Number(body.queuedMs ?? 0) }
+    else if (p === '/__test/ai-version') {
+      // a stored version of a file that an AI answer saved (POST {path, by, chatId?}): `chatId` only where the server would
+      // name the chat (the viewer may open it now: server/src/chat/version-chats.ts); without it, "by AI" alone.
+      // `current: true`: the file as it is now is that AI save (its history's current entry)
+      const path = String(body.path)
+      if (body.current) {
+        this.aiCurrent.set(path, typeof body.chatId === 'string' ? body.chatId : null)
+        return Response.json({ ok: true })
+      }
+      const by = this.users.find((u) => u.id === String(body.by)) ?? this.users[0]!
+      this.versions.push({
+        id: uuidv7(), path, version: this.versions.filter((v) => v.path === path).length + 1, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), size: 30,
+        author: { id: by.id, name: by.name }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: by.id, name: by.name }, savedTurnId: uuidv7(),
+        ...(typeof body.chatId === 'string' ? { savedChatId: body.chatId } : {}),
+      })
+    }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)
@@ -5083,6 +5385,141 @@ export class MockServer {
   sharedHolds = new Map<string, () => void>()
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
+
+  // ---------------- list folders (server/src/chat/nav-folders.ts) ----------------
+  /** my list folders (each person's own; nobody else's is ever listed, counted or changed: 404) */
+  navFolders: { id: string; userId: string; kind: 'chats' | 'rooms'; name: string; position: number }[] = []
+  /** `${userId}:${chat or room id}` → the folder it is in, for that person */
+  navItems = new Map<string, string>()
+  readonly navFoldersInstalled = this.installNavFolders()
+
+  private installNavFolders() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.navFolders = []
+      this.navItems = new Map()
+      baseReset(o)
+    }
+    const mine = (c: Ctx, kind?: 'chats' | 'rooms') => this.navFolders.filter((f) => f.userId === c.user.id && (!kind || f.kind === kind)).sort((a, b) => a.position - b.position)
+    const folderOf = (c: Ctx, id: string) => this.navFolders.find((f) => f.id === id && f.userId === c.user.id) ?? fail('not_found', 404)
+    const key = (userId: string, id: string) => `${userId}:${id}`
+    const withFolder = <X extends { id: string }>(userId: string, x: X): X & { folderId?: string } => {
+      const f = this.navItems.get(key(userId, x.id))
+      const { folderId: _, ...rest } = x as X & { folderId?: string }
+      return (f ? { ...rest, folderId: f } : rest) as X & { folderId?: string }
+    }
+    const fileable = (x: Chat) => !x.deletedAt && !x.projectId && !x.sideRoomId
+    const inFolder = (c: Ctx, f: { id: string; kind: string }) =>
+      f.kind === 'chats'
+        ? this.chats.filter((x) => fileable(x) && this.navItems.get(key(c.user.id, x.id)) === f.id && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
+        : this.rooms.filter((r) => !r.hidden && this.navItems.get(key(c.user.id, r.id)) === f.id)
+    const newest = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+    const out = (c: Ctx, f: (typeof this.navFolders)[number]) => {
+      const items = f.kind === 'chats' ? newest(inFolder(c, f) as Chat[]) : inFolder(c, f)
+      return { id: f.id, kind: f.kind, name: f.name, position: f.position, count: items.length, top: f.kind === 'chats' ? (items as Chat[]).filter((x) => !x.pinnedAt).slice(0, 3).map((x) => withFolder(c.user.id, x)) : [] }
+    }
+    const changed = (c: Ctx, kind: 'chats' | 'rooms') => this.sharedSend((uid) => (uid === c.user.id ? { type: 'navFolders.changed', data: { kind } } : null))
+    const renumber = (c: Ctx, kind: 'chats' | 'rooms') => mine(c, kind).forEach((f, i) => (f.position = i))
+    const nameKey = (s: string) => s.normalize('NFC').trim().toLowerCase()
+    const checkName = (c: Ctx, kind: 'chats' | 'rooms', name: string, except?: string) => {
+      const n = String(name ?? '').normalize('NFC').trim()
+      if (!n || [...n].length > 40) fail('validation', 400, undefined, { 'body.name': 'invalid' })
+      if (mine(c, kind).some((f) => f.id !== except && nameKey(f.name) === nameKey(n))) fail('conflict', 409, '이미 같은 이름의 폴더가 있어요.', { 'body.name': 'nav_folder_name_taken' }, { reason: 'nav_folder_name_taken' })
+      return n
+    }
+
+    h.listNavFolders = (c) => ({ items: mine(c).map((f) => out(c, f)) })
+    h.createNavFolder = (c) => {
+      const kind = c.body.kind as 'chats' | 'rooms'
+      if (mine(c, kind).length >= 30) fail('conflict', 409, '폴더는 30개까지 만들 수 있어요.', undefined, { reason: 'nav_folders_full' })
+      const f = { id: uuidv7(), userId: c.user.id, kind, name: checkName(c, kind, c.body.name), position: mine(c, kind).length }
+      this.navFolders.push(f)
+      changed(c, kind)
+      return { status: 201, body: out(c, f) }
+    }
+    h.updateNavFolder = (c) => {
+      const f = folderOf(c, c.params.id!)
+      f.name = checkName(c, f.kind, c.body.name, f.id)
+      changed(c, f.kind)
+      return out(c, f)
+    }
+    h.deleteNavFolder = (c) => {
+      const f = folderOf(c, c.params.id!)
+      this.navFolders = this.navFolders.filter((x) => x !== f)
+      for (const [k, v] of [...this.navItems]) if (v === f.id) this.navItems.delete(k)
+      renumber(c, f.kind)
+      changed(c, f.kind)
+      return { status: 204, body: null }
+    }
+    h.orderNavFolders = (c) => {
+      const kind = c.body.kind as 'chats' | 'rooms'
+      const list = mine(c, kind)
+      const ids = (c.body.ids as string[]).filter((id) => list.some((f) => f.id === id))
+      const ordered = [...ids.map((id) => list.find((f) => f.id === id)!), ...list.filter((f) => !ids.includes(f.id))]
+      ordered.forEach((f, i) => (f.position = i))
+      changed(c, kind)
+      return { items: mine(c).map((f) => out(c, f)) }
+    }
+    h.setChatFolder = (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id) ?? fail('not_found', 404)
+      if (chat.projectId) fail('conflict', 409, '프로젝트 기록은 프로젝트 안에 있어요. 폴더에는 넣을 수 없어요.', undefined, { reason: 'folder_project_chat' })
+      const to = c.body.folderId as string | null
+      if (to && folderOf(c, to).kind !== 'chats') fail('not_found', 404)
+      if (to) this.navItems.set(key(c.user.id, chat.id), to)
+      else this.navItems.delete(key(c.user.id, chat.id))
+      const v = withFolder(c.user.id, chat)
+      this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: v } } : null))
+      changed(c, 'chats')
+      return v
+    }
+    h.setRoomFolder = (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      if (room.hidden) fail('conflict', 409, undefined, undefined, { reason: 'room_hidden' })
+      const to = c.body.folderId as string | null
+      if (to && folderOf(c, to).kind !== 'rooms') fail('not_found', 404)
+      if (to) this.navItems.set(key(c.user.id, room.id), to)
+      else this.navItems.delete(key(c.user.id, room.id))
+      changed(c, 'rooms')
+      return withFolder(c.user.id, room)
+    }
+    // each person's copy carries their own folder
+    over('listRooms', (c, base) => {
+      const r = base(c) as { items: Room[] }
+      return { ...r, items: r.items.map((x) => withFolder(c.user.id, x)) }
+    })
+    over('listChats', (c, base) => {
+      const r = base({ ...c, query: { ...c.query, folderId: '' } }) as { items: Chat[]; nextCursor: string | null }
+      let items = r.items.map((x) => withFolder(c.user.id, x))
+      if (c.query.folderId) items = items.filter((x) => x.folderId === c.query.folderId)
+      return { ...r, items }
+    })
+    over('listChatGroups', (c, base) => {
+      const g = base(c) as { pinned: Chat[]; other: { items: Chat[]; nextCursor: string | null }; projects: unknown[] }
+      const filed = (x: Chat) => !!this.navItems.get(key(c.user.id, x.id))
+      return {
+        ...g,
+        pinned: g.pinned.map((x) => withFolder(c.user.id, x)),
+        folders: mine(c, 'chats').map((f) => {
+          const o = out(c, f)
+          return { id: o.id, name: o.name, position: o.position, count: o.count, top: o.top, marked: [] }
+        }),
+        other: { ...g.other, items: g.other.items.filter((x) => !filed(x)) },
+      }
+    })
+    // a room's update carries each person's own folder (rooms/service.ts roomEvent)
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const room = ev.type === 'room.updated' ? (ev.data as { room?: Room | null }).room : null
+      if (!room || ![...this.navItems.keys()].some((k) => k.endsWith(`:${room.id}`))) return basePublish(ev)
+      return this.sharedSend((uid) => ({ ...ev, data: { ...ev.data, room: withFolder(uid, room) } }) as ServerEventInput)
+    }
+    return true
+  }
 
   /** A project the caller reads, or with `manage` one they manage (routes/chats.ts projectFor): else 404, the same
    * answer as no project */
@@ -5329,11 +5766,34 @@ export class MockServer {
       })
       return { ...out, items }
     })
+    // the Trina list's groups (server/src/chat/chat-groups.ts), from the viewer's own list: pinned › project › other (the
+    // mock has no list folders); the projects with activity in the last 14 days, at most 8; `marked` the rows that mark
+    h.listChatGroups = (c) => {
+      const all = (h.listChats!({ ...c, query: {} }) as { items: Chat[] }).items.filter((x) => !(!x.title && x.createdAt === x.updatedAt && x.runState === 'idle'))
+      const sees = (id: string | null) => { const p = id ? this.projects.find((x) => x.id === id) : undefined; return p && !p.inTrash && this.projectSees(p, c.user) ? p : undefined }
+      const newest = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+      const pinned = all.filter((x) => x.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
+      const rest = newest(all.filter((x) => !x.pinnedAt))
+      const by = new Map<string, Chat[]>()
+      const other: Chat[] = []
+      for (const x of rest) { const p = sees(x.projectId); if (p) (by.get(p.id) ?? by.set(p.id, []).get(p.id)!).push(x); else other.push(x) }
+      const since = new Date(Date.now() - 14 * 86_400_000).toISOString(), fold = new Date(Date.now() - 7 * 86_400_000).toISOString()
+      const marks = (list: Chat[]) => list.filter((x) => x.waiting || x.unseen || x.runState !== 'idle').map((x) => ({ id: x.id, runState: x.runState, ...(x.waiting ? { waiting: x.waiting } : {}), ...(x.unseen ? { unseen: x.unseen } : {}), ...(x.lastOutcome ? { lastOutcome: x.lastOutcome } : {}) }))
+      const projects = [...by.entries()].filter(([, l]) => l[0]!.updatedAt >= since).sort((a, b) => b[1][0]!.updatedAt.localeCompare(a[1][0]!.updatedAt)).slice(0, 8)
+        .map(([id, l]) => ({ projectId: id, name: sees(id)!.name, lastActivityAt: l[0]!.updatedAt, folded: l[0]!.updatedAt < fold, count: l.length, top: l.slice(0, 3), marked: marks(l) }))
+      const visible = this.projects.filter((p) => !p.inTrash && this.projectSees(p, c.user)).length
+      return { pinned, folders: [], projects, projectsMore: Math.max(0, visible - projects.length), other: { items: other.slice(0, 50), nextCursor: null } }
+    }
     over('createChat', (c, base) => {
       const out = base(c) as { status: number; body: Chat }
       this.chatOwners.set(out.body.id, c.user.id)
       const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
-      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
+      // a new chat is told to my windows, as the server does (routes/chats.ts createChat: publishChat 'created'), so the
+      // 트리나 list reads its groups again and shows the chat while its first answer runs
+      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) {
+        this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
+        return out
+      }
       this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
       this.publish({ type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } })
       return { ...out, body: view(out.body, c.user) }
@@ -5654,7 +6114,12 @@ export class MockServer {
           const ok = server.upgrade(req, { data, headers: { 'sec-websocket-protocol': 'mycel.v1' } })
           return ok ? undefined : new Response('upgrade failed', { status: 400 })
         }
-        return self.handle(req, dist)
+        const res = await self.handle(req, dist)
+        if (!url.pathname.startsWith('/api/')) return res
+        // marks an answer of this server: an /api answer without it was given in the browser (test/e2e/coverage-report.ts)
+        const marked = new Response(res.body, res)
+        marked.headers.set(MOCK_ANSWER_HEADER, '1')
+        return marked
       },
       websocket: {
         open(ws) {

@@ -11,15 +11,15 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 const t = DICTS.en
 const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
+  // Slack is not a menu item (owner 2026-11-12): the owner finds it in Connected apps (Integrations.tsx)
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 const SETTINGS: [string, MessageKey[]][] = [
   ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory', 'settings.allowances']],
-  // Connectors is not here: it is its own item of the main sidebar
-  ['connections', ['settings.providers', 'aiApps.title']],
+  // Connectors first (QA TC-400: it left the main sidebar for Settings)
+  ['connections', ['integrations.title', 'settings.providers', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]
 
@@ -93,7 +93,7 @@ test('old addresses: AI engines and AI connections open Providers (with the prov
   await expect(page.getByTestId('my-providers')).toBeVisible()
 })
 
-test('Settings: named groups Account, Connections, App (Providers first in Connections); every section says it is just for you', async ({ page }) => {
+test('Settings: named groups Account, Connections, App (Connectors, then Providers in Connections); every section says it is just for you', async ({ page }) => {
   await start(page)
   await page.goto('/settings/profile')
   const list = page.getByTestId('settings-menu')
@@ -108,12 +108,12 @@ test('Settings: named groups Account, Connections, App (Providers first in Conne
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
   }
-  // Connectors is its own page in the sidebar: the older addresses lead there
-  for (const path of ['/settings/integrations', '/settings/connectors']) {
+  // Connectors is a section of Settings (QA TC-400): the older addresses lead there
+  for (const path of ['/settings/integrations', '/connectors', '/settings/connectors']) {
     await page.goto(path)
-    await expect(page).toHaveURL(/\/connectors$/)
+    await expect(page).toHaveURL(/\/settings\/connectors$/)
+    await expect(page.getByTestId('settings-content').getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeAttached()
   }
-  await expect(page.getByTestId('connectors-header').getByRole('heading', { name: t['integrations.title'], exact: true })).toBeAttached()
 })
 
 test('phone width: the Admin list and the Settings list keep every item without sideways page scroll', async ({ page }) => {

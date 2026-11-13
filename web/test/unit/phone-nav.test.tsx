@@ -1,13 +1,14 @@
-// The phone's navigation (below 768 px; docs/DECISIONS.md "Phone navigation: four tabs"), rendered and pressed:
+// The phone's navigation (below 768 px; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나"), rendered and pressed:
 // - lib/tabs.ts: which tab an address belongs to, the tab the app opens on (START_TAB, one constant), the page names the
 //   top bar shows, the AI's one name;
 // - the tab bar: 트리나 · 대화 · 파일 · 나 in that order, the tab on screen marked, one count per kind of thing (unread room
 //   messages on 대화, unread Inbox notices on 나), none at 0;
-// - the top bar: ☰ only on the 트리나 tab's Home, ⊕ (a new conversation) only on 대화, no bar on 파일 or in a chat or a
-//   room, ‹ and the page's name below a tab;
+// - the top bar: ⊕ (a new conversation) only on 대화, no bar on 트리나's list, on 파일 or in a chat or a room, ‹ and the
+//   page's name below a tab;
 // - ‹ goes back in the history when the entry before is the app's own and otherwise replaces this entry with the tab's
 //   list, never pushes (the phone's own back would loop between the two);
-// - the 나 list starts with 활동 (Activity, with the count) and, for admins, 관리자; 알림 (the settings) stays in its group.
+// - the 나 list starts with the team (for admins 팀원 초대 and 관리자), then 활동 (Activity, with the count); 알림 (the
+//   settings) stays in its group.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -27,7 +28,6 @@ import { useInbox } from '../../src/store/inbox'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
-import { useUi } from '../../src/store/ui'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 import { room } from './rooms-fixtures'
 
@@ -46,10 +46,9 @@ const sessionBefore = useSession.getState().status
 const roomsBefore = useRooms.getState()
 const chatsBefore = { chats: useChats.getState().chats, requests: useChats.getState().requests }
 const inboxBefore = useInbox.getState().unread
-// the setup row (onboarding/SetupRow.tsx, in the sidebar and the drawer) reads these: put them back as they were
+// the setup row (onboarding/SetupRow.tsx, on top of every list panel) reads these: put them back as they were
 const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
 const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
-const drawerBefore = useUi.getState().drawerOpen
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
 let inboxCount = 0
 beforeAll(() => {
@@ -80,7 +79,6 @@ afterEach(() => {
   useRooms.setState(roomsBefore, true)
   useChats.setState(chatsBefore)
   useInbox.setState({ unread: inboxBefore })
-  useUi.setState({ drawerOpen: drawerBefore })
   inboxCount = 0
   if (historyBefore) Object.defineProperty(globalThis, 'history', historyBefore)
   else delete (globalThis as Record<string, unknown>).history
@@ -99,13 +97,14 @@ async function rendered(ui: ReactNode): Promise<string> {
 const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: { state: { usr: null, key: 'k', idx } } })
 
 describe('which tab an address belongs to', () => {
-  test('the four tabs and their lists', async () => {
-    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', me: '/settings' })
-    for (const p of ['/', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/connectors', '/trash']) expect(tabOf(p)).toBe('ai')
+  test('the five tabs and their lists', async () => {
+    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', files: '/files', me: '/settings' })
+    for (const p of ['/', '/new', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/trash', '/connectors/authorize']) expect(tabOf(p)).toBe('ai')
+    for (const p of ['/projects', '/projects/p1', '/projects/p1/files']) expect(tabOf(p)).toBe('projects')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
-    // 프로젝트 (QA TC-255): the projects and the team folder with its Trash
-    for (const p of ['/projects', '/projects/p1', '/projects/p1/files', '/files', '/files/view']) expect(tabOf(p)).toBe('projects')
-    for (const p of ['/settings', '/settings/notifications', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
+    for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
+    // Connectors is a section of Settings (its old /connectors addresses lead there)
+    for (const p of ['/settings', '/settings/notifications', '/settings/connectors/gmail', '/connectors', '/connectors/gmail', '/admin', '/admin/members', '/activity']) expect(tabOf(p)).toBe('me')
     for (const p of ['/welcome', '/skillsx', '/roomsy', '/nothing']) expect(tabOf(p)).toBeNull()
   })
 
@@ -142,37 +141,41 @@ describe('the tab bar', () => {
   const tabs = (html: string) => [...html.matchAll(/data-testid="(tab-[a-z]+)"/g)].map((m) => m[1])
   const current = (html: string) => /<a [^>]*aria-current="page"[^>]*data-testid="(tab-[a-z]+)"/.exec(html)?.[1] ?? null
 
-  test('four tabs in order, each to its list', async () => {
+  test('five tabs in order, each to its list', async () => {
     const html = await bar('/')
-    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-projects', 'tab-me'])
-    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-projects', '/projects'], ['tab-me', '/settings']]) {
+    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-projects', 'tab-files', 'tab-me'])
+    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-projects', '/projects'], ['tab-files', '/files'], ['tab-me', '/settings']]) {
       expect(new RegExp(`<a [^>]*data-testid="${id}"[^>]*>`).exec(html)?.[0]).toContain(`href="${to}"`)
     }
     expect(html).toContain(`>${aiName(ko)}</span></a>`)
     // each label on one line, cut at the tab's width (QA TC-255)
     const labels = [...html.matchAll(/<span class="([^"]*)" data-testid="bottom-tab-label">([^<]*)</g)]
-    expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('tabs.projects'), ko('tabs.me')])
+    expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('projects.title'), ko('sidebar.files'), ko('tabs.me')])
     for (const m of labels) expect(m[1]).toContain('whitespace-nowrap')
     for (const m of labels) expect(m[1]).toContain('truncate')
   })
 
-  test('트리나\'s icon: Trina\'s own star (the room header\'s ✦) in the tab\'s colours where the product is named after its AI, the sparkle elsewhere', async () => {
-    const named = renderToStaticMarkup(<AiTabIcon named />)
-    // the star's path, filled with the text colour (ink on the tab on show, faint on the others), no gradient
+  test('트리나\'s icon: Trina\'s own orange star (the room header\'s ✦) where the product is named after its AI, dimmed off its tab; the sparkle elsewhere', async () => {
+    const named = renderToStaticMarkup(<AiTabIcon named active />)
+    // the star's path in its own orange gradient (the owner: 'AI 아이콘은 색넣는게 좋지 않을까?'), whole on its tab
     expect(named).toContain(`d="${TRINA_STAR}"`)
-    expect(named).toContain('fill="currentColor"')
-    expect(named).toContain('data-trina-star="mono"')
-    expect(named).not.toContain('linearGradient')
+    expect(named).toContain('linearGradient')
+    expect(named).toContain('data-trina-star="true"')
+    expect(named).not.toContain('opacity-55')
+    // another tab on show: the same orange star, dimmed, so the bar still marks where you are
+    const off = renderToStaticMarkup(<AiTabIcon named />)
+    expect(off).toContain('linearGradient')
+    expect(off).toContain('opacity-55')
     // drawn 26 px (the star is thin) in the 22 px slot of the other icons
     expect(named).toContain('width="26" height="26"')
     expect(named).toContain('-m-0.5')
     const plain = renderToStaticMarkup(<AiTabIcon named={false} />)
     expect(plain).toContain('lucide-sparkles')
     expect(plain).toContain('width="22"')
-    expect(renderToStaticMarkup(<AiTabIcon />)).toBe(PRODUCT_NAMED_AFTER_AI ? named : plain)
+    expect(renderToStaticMarkup(<AiTabIcon active />).replace(/trina-star[^"]*/g, 'g')).toBe((PRODUCT_NAMED_AFTER_AI ? named : plain).replace(/trina-star[^"]*/g, 'g'))
     // in the bar: the tab's colour class is on its link, the icon follows it
     const html = await bar('/rooms')
-    expect(new RegExp(`data-testid="tab-ai"[^]*?${PRODUCT_NAMED_AFTER_AI ? 'data-trina-star="mono"' : 'lucide-sparkles'}`).test(html)).toBe(true)
+    expect(new RegExp(`data-testid="tab-ai"[^]*?${PRODUCT_NAMED_AFTER_AI ? 'opacity-55[^]*?data-trina-star="true"' : 'lucide-sparkles'}`).test(html)).toBe(true)
   })
 
   test('the tab on screen is marked', async () => {
@@ -180,7 +183,8 @@ describe('the tab bar', () => {
     expect(current(await bar('/skills'))).toBe('tab-ai')
     expect(current(await bar('/rooms'))).toBe('tab-chats')
     expect(current(await bar('/projects'))).toBe('tab-projects')
-    expect(current(await bar('/files'))).toBe('tab-projects')
+    expect(current(await bar('/projects/p1'))).toBe('tab-projects')
+    expect(current(await bar('/files'))).toBe('tab-files')
     expect(current(await bar('/trash'))).toBe('tab-ai')
     expect(current(await bar('/admin'))).toBe('tab-me')
     expect(current(await bar('/welcome'))).toBeNull()
@@ -192,38 +196,20 @@ describe('the tab bar', () => {
   })
 
   // the stores' current state needs a client render (a server render reads their first state)
-  test('one count per kind: unread room messages on 대화 (muted rooms left out), unread Inbox notices on 나', async () => {
+  test('one count per kind: conversations with unread messages on 대화 (muted rooms left out, as the rail), unread Inbox notices on 나', async () => {
     useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
     inboxCount = 4
     const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
     try {
       await m.until(() => m.find('tab-me-unread'), 'the Inbox count')
-      expect(m.get('tab-chats-unread').textContent).toBe(`99+${ko('rooms.unread', { n: 123 })}`)
+      // two conversations, not 123 messages: the rail's number (rail/railBadges.ts chatsMark)
+      expect(m.get('tab-chats-unread').textContent).toBe(`2${ko('rail.unreadRooms', { n: 2 })}`)
       expect(m.get('tab-me-unread').textContent).toBe(`4${ko('notifications.unread', { count: 4 })}`)
-      // no count on 트리나 or 프로젝트
+      // no count on 트리나 (no AI chat wants me) or 파일
       expect(m.get('tab-ai').textContent).toBe(aiName(ko))
-      expect(m.get('tab-projects').textContent).toBe(ko('tabs.projects'))
+      expect(m.get('tab-files').textContent).toBe(ko('sidebar.files'))
     } finally {
       await m.unmount()
-    }
-  })
-
-  test('a room whose @트리나 waits on me: 대화\'s pill is an amber "?" (its count unchanged, said to a screen reader), the count again after', async () => {
-    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 0, aiWaits: true })] })
-    const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
-    try {
-      await m.until(() => m.find('tab-chats-unread'), 'the 대화 pill')
-      const pill = m.get('tab-chats-unread')
-      expect(pill.getAttribute('data-ai-waits')).toBe('')
-      expect(pill.className).toContain('bg-warn')
-      expect(pill.textContent).toBe(`?${ko('rooms.aiWaits')}, ${ko('rooms.unread', { n: 3 })}`)
-      // the wait ends: the same count as before
-      useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 0 })] })
-      await m.until(() => m.find('tab-chats-unread')?.getAttribute('data-ai-waits') === null, 'the count back')
-      expect(m.get('tab-chats-unread').textContent).toBe(`3${ko('rooms.unread', { n: 3 })}`)
-    } finally {
-      await m.unmount()
-      useRooms.setState({ rooms: [] })
     }
   })
 
@@ -256,42 +242,37 @@ const withBar = (entries: InitialEntry[], index = entries.length - 1) => (
 describe('the top bar', () => {
   const html = (path: string) => rendered(withBar([path]))
 
-  test('트리나 (Home): ☰ for the AI\'s history and the AI\'s name; no new-chat icon, no product name', async () => {
+  test('트리나 (/), Home: ☰ (the history drawer) and the AI\'s name, no ‹', async () => {
     const h = await html('/')
     expect(h).toContain('data-testid="menu-open"')
-    expect(h).toContain(`aria-label="${ko('sidebar.open')}"`)
+    expect(h).not.toContain('data-testid="topbar-back"')
     expect(h).toMatch(new RegExp(`data-testid="topbar-title">${aiName(ko)}<`))
-    expect(h).not.toContain('topbar-new')
-    expect(h).not.toContain('topbar-back')
     if (PRODUCT_NAMED_AFTER_AI) expect(h).not.toContain(PRODUCT.displayName)
   })
 
-  test('대화: its name and ⊕ a new conversation; no ☰', async () => {
+  test('대화: its name and ⊕ a new conversation', async () => {
     const h = await html('/rooms')
     expect(h).toContain('data-testid="topbar-new-dm"')
     expect(h).toMatch(new RegExp(`data-testid="topbar-title">${ko('tabs.chats')}<`))
-    expect(h).not.toContain('menu-open')
   })
 
   test('the team folder, a room and an AI chat: no bar (their own header is the bar)', async () => {
     for (const p of ['/files', '/files/view', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
   })
 
-  test('프로젝트 (/projects), a tab\'s root: its name, no ‹ and no ☰ (QA TC-255)', async () => {
+  test('프로젝트 (/projects), its tab\'s list: no ‹, its name', async () => {
     const h = await html('/projects')
-    expect(h).not.toContain('topbar-back')
-    expect(h).not.toContain('menu-open')
+    expect(h).not.toContain('data-testid="topbar-back"')
     expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko('projects.title')}<`))
   })
 
-  test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading); no ☰', async () => {
+  test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading)', async () => {
     for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects/p1', 'projects.title', ko('projects.title')], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
       expect(h).toContain(`aria-label="${ko('tabs.backTo', { page: up })}"`)
       expect(h).toContain(`data-testid="topbar-back-label">${up}<`)
       expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko(key)}<`))
-      expect(h).not.toContain('menu-open')
     }
   })
 
@@ -299,14 +280,14 @@ describe('the top bar', () => {
     for (const p of ['/admin', '/admin/members']) expect(await html(p)).toBe('')
   })
 
-  test('a project\'s new chat (/?project=) has ‹ back to the project instead of ☰', async () => {
+  test('a project\'s new chat (/?project=) has ‹ back to the project, not ☰', async () => {
     const h = await html('/?project=p1')
     expect(h).toContain('topbar-back')
     expect(h).not.toContain('menu-open')
   })
 
   test('the buttons are 44 px', async () => {
-    for (const p of ['/', '/rooms', '/skills']) {
+    for (const p of ['/', '/?project=p1', '/rooms', '/skills']) {
       // ‹ with its label: 44 px tall and at least as wide
       for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toMatch(/size-11|h-11 [^"]*min-w-11/)
     }
@@ -426,15 +407,15 @@ describe('the 나 tab\'s list on a phone', () => {
     }
   })
 
-  test('관리자 right below 알림함 for owners and admins', async () => {
+  test('the team on top: 팀원 초대 and 관리자 for owners and admins', async () => {
     for (const role of ['owner', 'admin'] as const) {
       useSession.setState({ status: { kind: 'signed-in', me: me(role) } } as never)
       const m = await dialog()
       try {
-        const top = m.get('settings-phone-top')
-        const links = top.querySelectorAll('a').map((a) => a.getAttribute('data-testid'))
-        expect(links).toEqual(['settings-inbox', 'settings-admin'])
+        expect(m.get('settings-team').textContent).toContain('Acme')
+        expect(m.find('settings-invite')).not.toBeNull()
         expect(m.get('settings-admin').getAttribute('href')).toBe('/admin')
+        expect(m.get('settings-team-group').querySelector('[data-testid="settings-admin"]')).not.toBeNull()
         expect(m.find('settings-inbox-unread')).toBeNull()
       } finally {
         await m.unmount()

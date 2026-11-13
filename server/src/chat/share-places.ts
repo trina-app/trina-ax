@@ -1,5 +1,5 @@
 // Where content that some people cannot see came from, as a "confirm" before it reaches more people names it
-// ("대화방에 보내기" chat/answer-share.ts, posting a room AI preview rooms/ai.ts share): only where the person may look
+// ("대화방에 보내기" chat/answer-share.ts): only where the person may look
 // themselves (a folder they may read, their own folder, a team connection or shared Drive by its name, a team room by its
 // group's name, the everyone room). Never who: a 1:1 or group conversation is never named (its name is people's names).
 import type { Database } from 'bun:sqlite'
@@ -8,7 +8,7 @@ import { getRow } from '../integrations/connections/store'
 import { shareRow } from '../integrations/google-drive/shares'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { groupName, roomRow } from '../rooms/store'
-import { sourceOf, type ReadSource } from './read-scope'
+import { slackPlaceName, sourceOf, type ReadSource } from './read-scope'
 
 /** The place of one source as `userId` (`me`, their principal now) may be told it, or null: not named. */
 export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: Principal | null, s: ReadSource): AnswerSharePlace | null {
@@ -20,6 +20,8 @@ export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: P
     case 'user': return s.id === userId ? { kind: 'mine' } : null
     case 'integration': { const name = getRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
     case 'drive_share': { const name = shareRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
+    // Slack messages the person read themselves (their own Slack token): named as they saw them (a channel's name)
+    case 'slack': return s.userId === userId ? { kind: 'service', name: slackPlaceName(s) } : null
     case 'room': {
       const r = roomRow(db, s.id)
       const team = r?.kind === 'team' ? groupName(db, r) : null

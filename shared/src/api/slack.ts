@@ -5,7 +5,8 @@
 // server keeps one Socket Mode connection to Slack (no public address needed). Or, where the hosting service serves
 // the server, the owner adds the official app with "Add to Slack" and copies nothing (mode 'official': the hosting
 // service holds the app's secrets and its one connection, and hands this server only its workspace's envelopes and
-// bot token). People link their Slack account to their
+// bot token). Admins manage Slack too (state, "Add to Slack", on/off, Remove); the team's own app (its tokens: save,
+// replace, remove) stays the owner's (docs/DECISIONS.md "Admins manage Slack", 2026-11-13). People link their Slack account to their
 // own account here with a one-time link they get in Slack; asking @app in Slack then runs a normal chat turn as them.
 // No response of this API ever carries a token: they come in sealed in the browser ('slack.token') and the screen
 // only learns whether they are saved.
@@ -55,6 +56,12 @@ export const SlackAdmin = z.object({
   signIn: z.boolean(),
   /** where Slack sends people back after "Sign in with Slack" (in the manifest); null: the team has no https address */
   redirectUrl: z.string().nullable(),
+  /** whether the bot may read threads and channels (docs/SLACK.md "Marketplace-safe reading": the bot scopes
+   * channels:history and groups:history): ok, missing (an app from before them: "Update Slack permissions"), null (no
+   * tokens, or Slack has not said yet) */
+  readScopes: z.enum(['ok', 'missing']).nullable(),
+  /** the bot scopes to add for reading (own app: OAuth & Permissions › Bot Token Scopes); empty when none is missing */
+  missingScopes: z.array(z.string()),
 })
 export type SlackAdmin = z.infer<typeof SlackAdmin>
 
@@ -80,6 +87,9 @@ export const MySlack = z.object({
   signIn: z.boolean(),
   /** someone else set this account's e-mail in the last 7 days: the e-mail proves nothing until then */
   emailSetByOther: z.boolean(),
+  /** the AI may read Slack threads and channels for me: linked, and the Slack app has the reading permissions (only
+   * conversations the app was invited to and I am in) */
+  read: z.boolean(),
 })
 export type MySlack = z.infer<typeof MySlack>
 
@@ -107,15 +117,16 @@ export const SlackLinkPreview = z.object({
 export type SlackLinkPreview = z.infer<typeof SlackLinkPreview>
 
 export const SLACK = {
-  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'owner', owner: 'C', query: z.object({ origin: z.string().max(200).optional() }), response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
-  saveSlackTokens: endpoint({ method: 'PUT', path: '/api/admin/slack/tokens', auth: 'owner', owner: 'C', body: SlackTokensBody, response: SlackAdmin, summary: 'Check and save the bot and app-level tokens (sealed in the browser). Another workspace than before removes every link.' }),
-  setSlackEnabled: endpoint({ method: 'POST', path: '/api/admin/slack/enabled', auth: 'owner', owner: 'C', body: z.object({ enabled: z.boolean() }), response: SlackAdmin, summary: 'Turn the connector on (needs saved tokens) or off.' }),
-  removeSlack: endpoint({ method: 'DELETE', path: '/api/admin/slack', auth: 'owner', owner: 'C', response: SlackAdmin, summary: 'Remove the tokens and every link; the connector is off.' }),
+  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'admin', owner: 'C', query: z.object({ origin: z.string().max(200).optional() }), response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
+  saveSlackTokens: endpoint({ method: 'PUT', path: '/api/admin/slack/tokens', auth: 'owner', owner: 'C', body: SlackTokensBody, response: SlackAdmin, summary: 'Check and save the bot and app-level tokens (sealed in the browser). The owner only. Another workspace than before removes every link.' }),
+  setSlackEnabled: endpoint({ method: 'POST', path: '/api/admin/slack/enabled', auth: 'admin', owner: 'C', body: z.object({ enabled: z.boolean() }), response: SlackAdmin, summary: 'Turn the connector on (needs saved tokens) or off.' }),
+  removeSlack: endpoint({ method: 'DELETE', path: '/api/admin/slack', auth: 'admin', owner: 'C', response: SlackAdmin, summary: 'Remove the tokens and every link; the connector is off. The team\'s own Slack app (mode own, tokens saved): the owner only (an admin: 403 owner_only).' }),
   mySlack: endpoint({ method: 'GET', path: '/api/slack/me', auth: 'user', owner: 'C', response: MySlack, summary: 'Whether the team uses Slack and the Slack account linked to me.' }),
   unlinkSlack: endpoint({ method: 'DELETE', path: '/api/slack/me', auth: 'user', owner: 'C', response: MySlack, summary: 'Unlink my Slack account.' }),
   previewSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/preview', auth: 'user', owner: 'C', body: SlackLinkBody, response: SlackLinkPreview, summary: 'What confirming this one-time link would link: the Slack account and me. Changes nothing.' }),
   confirmSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/confirm', auth: 'user', owner: 'C', body: SlackLinkBody, response: MySlack, summary: 'Link the Slack account of this one-time link to me (used up).' }),
   startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only).' }),
-  startSlackInstall: endpoint({ method: 'POST', path: '/api/admin/slack/official/install', auth: 'owner', owner: 'C', body: z.object({ origin: z.string().max(200).optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: '"Add to Slack": Slack\'s install page of the hosting service\'s official app (10 minutes, this owner only). `origin`: the address the page is open at, where links in Slack open.' }),
+  recheckSlackReadScopes: endpoint({ method: 'POST', path: '/api/admin/slack/read-scopes/recheck', auth: 'admin', owner: 'C', body: z.object({}), response: SlackAdmin, summary: '"I updated them": asks Slack again now which permissions the Slack app\'s bot has (reading threads and channels).' }),
+  startSlackInstall: endpoint({ method: 'POST', path: '/api/admin/slack/official/install', auth: 'admin', owner: 'C', body: z.object({ origin: z.string().max(200).optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: '"Add to Slack": Slack\'s install page of the hosting service\'s official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open.' }),
   cancelSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/cancel', auth: 'user', owner: 'C', body: SlackLinkBody, response: empty, status: 204, summary: 'Throw this one-time link away without linking.' }),
 } as const

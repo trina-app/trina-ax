@@ -10,11 +10,14 @@ import { audit } from '../admin/audit'
 import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
+import { runIdOfUnit } from '../devenv/srt/config'
 import { devEnvFlag, mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
-import { findRun, fullAvailable, networkNow, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
+import { findRun, fullAvailable, networkNow, planState, previewPortProblem, previewRow, previewSupported, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
 import { pollSrt, startJobTracker } from '../devenv/jobs'
+import { issuePreview, startPreviewGateway } from '../devenv/preview'
+import { devEnvMsg, siteProblemMessage } from '../devenv/messages'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
@@ -31,6 +34,9 @@ export const devEnvRoutes: RouteModule = {
     if (!devEnvFlag()) return
     const jobs = startJobTracker(ctx)
     ctx.onClose(() => jobs.stop())
+    // the preview gateway: its own listener for the separate preview origin (devenv/preview.ts)
+    const g = startPreviewGateway(ctx)
+    if (g) ctx.onClose(() => g.stop())
   },
   register(kit, ctx: AppContext) {
     const project = (id: string, userId: string) => {
@@ -101,6 +107,21 @@ export const devEnvRoutes: RouteModule = {
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.stop', target: null, detail: { run: params.runId, runner: 'srt' } })
       return mine(auth.user.id)
     })
+    // a preview link to a port of the caller's own running dev server (devenv/preview.ts). Only the person who started
+    // it: the run has that person's folder access, so nobody else may see what it serves
+    kit.handle(API.previewMyDevEnvRun, async ({ c, params, body, auth }) => {
+      await mine(auth.user.id)
+      if (!mayUseDevEnv(ctx.db, ctx.files, auth.user.id)) fail('forbidden')
+      const row = previewRow(ctx, { rowId: params.runId, userId: auth.user.id })
+      if (!row) fail('not_found', 'The dev server is not running. Ask the AI to start it again.', { params: { reason: 'dev_env_preview_not_running' } })
+      const why = previewPortProblem(body.port)
+      if (why) fail('validation', `Port ${body.port}: ${why}.`, { params: { reason: 'dev_env_preview_port' } })
+      if (!previewSupported()) fail('conflict', 'Preview is not available on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
+      const runId = runIdOfUnit(row!.unit)
+      const r = issuePreview(ctx, { rowId: row!.id, runId, port: body.port, userId: auth.user.id, projectId: row!.project_id, appHost: c.req.header('host') ?? null })
+      if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'Preview is not set up on this server (no preview origin). Ask the AI to test the dev server with curl in one command.', { params: { reason: `dev_env_preview_${r.error}` } })
+      return r as { url: string; expiresAt: string }
+    })
 
     // the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
     // person allows"). Only her own: no admin sees or changes them here, and nobody else's runs get them.
@@ -125,13 +146,14 @@ export const devEnvRoutes: RouteModule = {
       await narrowNow(auth.user.id)
       return mySites(auth.user.id)
     })
-    kit.handle(API.setMyDevEnvFullInternet, async ({ body, auth }) => {
+    kit.handle(API.setMyDevEnvFullInternet, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
       const now = mySites(auth.user.id)
       if (body.on) {
         // the person turns it on for herself: no admin step, but the warning first; never with No network
-        if (now.state !== 'on') fail('conflict', 'The dev environment has no network for you now.', { params: { reason: 'dev_env_no_network' } })
-        if (!fullAvailable()) fail('conflict', 'This server cannot run Full internet.', { params: { reason: 'dev_env_full_unavailable' } })
-        if (body.acceptWarning !== DEV_ENV_FULL_WARNING_VERSION) fail('conflict', 'Accept the Full internet warning first.', { params: { reason: 'dev_env_full_warning', warningVersion: DEV_ENV_FULL_WARNING_VERSION } })
+        if (now.state !== 'on') fail('conflict', devEnvMsg('noNetwork', locale), { params: { reason: 'dev_env_no_network' } })
+        if (!fullAvailable()) fail('conflict', devEnvMsg('fullUnavailable', locale), { params: { reason: 'dev_env_full_unavailable' } })
+        if (body.acceptWarning !== DEV_ENV_FULL_WARNING_VERSION) fail('conflict', devEnvMsg('fullWarning', locale), { params: { reason: 'dev_env_full_warning', warningVersion: DEV_ENV_FULL_WARNING_VERSION } })
       }
       const before = fullInternet(ctx.db, auth.user.id)
       setFullInternet(ctx.db, auth.user.id, body.on)
@@ -152,25 +174,26 @@ export const devEnvRoutes: RouteModule = {
       if (!devEnvFlag()) fail('not_found')
       return teamView()
     })
-    kit.handle(API.updateDevEnvTeam, async ({ body, auth }) => {
+    kit.handle(API.updateDevEnvTeam, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
       if (!devEnvFlag()) fail('not_found')
       const before = teamSetting(ctx.db)
       const after = { ...before, limits: { ...before.limits, ...(body.limits ?? {}) } }
       if (body.extraDomains) {
         const list = cleanExtraDomains(body.extraDomains)
-        if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
+        if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', devEnvMsg('maxSites', locale, { n: DEV_ENV_MAX_EXTRA_DOMAINS }))
         const hosts = teamHosts(ctx)
         for (const d of list) {
           const why = extraDomainProblem(d, hosts)
-          if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
+          if (why) fail('validation', siteProblemMessage(d, why, locale), { fields: { 'body.extraDomains': `${d}: ${why}` } })
         }
         after.extraDomains = list
       }
       if (body.scope) {
         const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
-        if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', 'Unknown group.', { fields: { 'body.scope.groupIds': 'unknown group' } })
+        if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', devEnvMsg('unknownGroup', locale), { fields: { 'body.scope.groupIds': 'unknown group' } })
         const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
-        if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', 'Unknown person.', { fields: { 'body.scope.userIds': 'unknown person' } })
+        if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', devEnvMsg('unknownPerson', locale), { fields: { 'body.scope.userIds': 'unknown person' } })
         after.scope = body.scope
       }
       if (body.network) after.network = body.network
@@ -178,9 +201,9 @@ export const devEnvRoutes: RouteModule = {
       // turning on: the server must run srt, and the current warning must be accepted
       if (after.enabled && !teamInForce(before)) {
         const a = await availability()
-        if (!a.available) fail('conflict', 'This server cannot run the dev environment.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
+        if (!a.available) fail('conflict', devEnvMsg('unavailable', locale), { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
         if (after.consent?.warningVersion !== DEV_ENV_SRT_WARNING_VERSION) {
-          if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
+          if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', devEnvMsg('warning', locale), { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
           after.consent = newConsent({ id: auth.user.id, name: auth.user.name })
           audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: null, detail: { warningVersion: DEV_ENV_SRT_WARNING_VERSION, team: true } })
         }

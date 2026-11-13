@@ -11,7 +11,8 @@
 // team's creator never gets a row: their start is the welcome steps.
 //
 // welcomeOf is the card on Home, for the caller only: who invited them, how many people are here, their rooms and four
-// rows (the rooms: done; hi: any message of theirs in a room; photo: optional; asked: the "what can I do here" chat).
+// rows (the rooms: done; hi: any message of theirs in a room; photo: optional; asked: the "what can I do here" chat),
+// and for an admin "팀 파일 정리하기" while no folder plan was applied (files-organize.ts; not counted).
 // It shows for MEMBER_WELCOME_DAYS after joining, until hidden or done; once every counted row is done it says "You're
 // all set" for ALL_SET_MS, then it is gone for good.
 //
@@ -25,6 +26,8 @@ import { getTeamSettings } from '../admin/settings'
 import { profileOf } from '../auth/profiles'
 import { notifyTeamJoined } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
+import { filesOrganized } from './files-organize'
+import { readWelcome } from './welcome'
 
 export type JoinVia = 'team_link' | 'invite' | 'admin'
 const DAY_MS = 86_400_000
@@ -103,6 +106,8 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
     rooms: roomsFor(ctx, userId),
     owner,
     steps,
+    // an admin who joined later can sort the team's files while nobody has (the step needs the team's steps row)
+    organizeFiles: me.role === 'admin' && !filesOrganized(ctx) && readWelcome(ctx) !== null,
     allSet,
   }
 }

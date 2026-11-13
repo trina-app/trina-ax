@@ -10,17 +10,22 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { sharesNewChats } from '../../lib/sharedChat'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
+import { fileChat } from '../../store/navFolders'
 import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine } from './WhoSees'
 
-export function NewChatComposer({ projectId, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
+export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, resetKey = 0, autoFocus, focusKey, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
+  /** one of my chat folders the new chat goes in (a folder's +; docs/DECISIONS.md "List folders on
+   * screen"): filed once it is made, before it opens */
+  folderId?: string | null
   /** the project, when known: who will see its new chat (whether it is shared, and with how many people) */
   project?: Project | null
   /** opens the project's members dialog (the project page's): the line under the box does, while the new chat will be
@@ -30,6 +35,8 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
   /** a new value starts the box again with `initialText` (a chosen example or question) */
   resetKey?: number
   autoFocus?: boolean
+  /** a new value takes the focus again (Composer `focusKey`) */
+  focusKey?: string
   placeholder?: string
   /** the first message went out (its chat opens next) */
   onSent?: (chatId: string) => void
@@ -73,16 +80,20 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
       }),
     )
 
+  const fromProjects = useRailHere() === 'projects'
   const onSend = async (text: string, attachments: Attachment[]) => {
     const pending = draftChatIfAny(me.user.id, draftId)
     const chatId = pending ? await pending : null
     const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
     forgetDraftChat(me.user.id, draftId)
+    // into the folder asked for (a refusal leaves it in the list's other chats: nothing is lost)
+    if (folderId && !projectId) await fileChat(r.chatId, folderId).catch(() => {})
     onSent?.(r.chatId)
     // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
     // file screen was missing when the person went there that quickly (e2e team-files, flaky)
     rememberChat(me.user.id, r.chatId)
-    navigate(`/c/${r.chatId}`)
+    // started on a project's page: the chat opens with 프로젝트 still lit (lib/rail.ts railState)
+    navigate(`/c/${r.chatId}`, fromProjects ? { state: { [RAIL_STATE_KEY]: 'projects' } } : undefined)
   }
 
   return (
@@ -102,6 +113,7 @@ export function NewChatComposer({ projectId, project, onMembers, initialText, re
       initialText={initialText}
       skill={skill}
       autoFocus={autoFocus}
+      focusKey={focusKey}
       placeholder={placeholder}
       who={who}
       sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}

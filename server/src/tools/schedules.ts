@@ -184,16 +184,17 @@ export const TEXT = {
   } satisfies L5,
   /** the person's own connections and the recipients the card pins */
   sendsLine: { ko: '보낼 수 있는 곳: {list}', en: 'Where it may send: {list}', id: 'Tempat yang boleh dikirimi: {list}', ja: '送信してよい先：{list}', es: 'Adónde puede enviar: {list}' } satisfies L5,
-  sourceMine: { ko: '내 폴더', en: 'my folder', id: 'folder saya', ja: '自分のフォルダー', es: 'mi carpeta' } satisfies L5,
+  /** the person's own folder, as the app names it (web scheduled.sourceMineFiles; shared/folder-labels.ts OWN_FILES_LABEL) */
+  sourceMine: { ko: '내 파일', en: 'my files', id: 'file saya', ja: '自分のファイル', es: 'mis archivos' } satisfies L5,
   sourceRoom: { ko: '#{name} 대화', en: '#{name} conversation', id: 'percakapan #{name}', ja: '#{name}のトーク', es: 'conversación #{name}' } satisfies L5,
   sourceRoot: { ko: '팀 폴더 맨 위', en: 'the top of the team folder', id: 'bagian atas folder tim', ja: 'チームフォルダーの最上位', es: 'la raíz de la carpeta del equipo' } satisfies L5,
   /** "다시 확인" after the save permission lapsed (chat/schedule-review.ts) */
   recheckQuestion: {
-    ko: '이 예약 작업의 저장 허용을 멈춰 뒀어요: {why}. 그동안 결과는 내 폴더에 저장해요. 아래 폴더에 다시 새 파일을 저장해도 될지 골라 주세요.\n\n제목: {title}\n일정: {when}',
-    en: 'Saving for this scheduled task is paused: {why}. Meanwhile its results go to your own folder. Choose whether it may save new files in the folder below again.\n\nTitle: {title}\nSchedule: {when}',
-    id: 'Penyimpanan untuk tugas terjadwal ini dijeda: {why}. Sementara itu hasilnya masuk ke folder Anda sendiri. Pilih apakah tugas ini boleh menyimpan file baru di folder di bawah lagi.\n\nJudul: {title}\nJadwal: {when}',
-    ja: 'この定期タスクの保存の許可を一時停止しています：{why}。その間、結果は自分のフォルダーに保存されます。下のフォルダーに再び新しいファイルを保存してよいか選んでください。\n\nタイトル：{title}\n予定：{when}',
-    es: 'El guardado de esta tarea programada está en pausa: {why}. Mientras tanto, sus resultados van a su propia carpeta. Elija si puede volver a guardar archivos nuevos en la carpeta de abajo.\n\nTítulo: {title}\nHorario: {when}',
+    ko: '이 예약 작업의 저장 허용을 멈춰 뒀어요: {why}. 그동안 결과는 내 파일에 저장해요. 아래 폴더에 다시 새 파일을 저장해도 될지 골라 주세요.\n\n제목: {title}\n일정: {when}',
+    en: 'Saving for this scheduled task is paused: {why}. Meanwhile its results go to My files. Choose whether it may save new files in the folder below again.\n\nTitle: {title}\nSchedule: {when}',
+    id: 'Penyimpanan untuk tugas terjadwal ini dijeda: {why}. Sementara itu hasilnya masuk ke File saya. Pilih apakah tugas ini boleh menyimpan file baru di folder di bawah lagi.\n\nJudul: {title}\nJadwal: {when}',
+    ja: 'この定期タスクの保存の許可を一時停止しています：{why}。その間、結果は自分のファイルに保存されます。下のフォルダーに再び新しいファイルを保存してよいか選んでください。\n\nタイトル：{title}\n予定：{when}',
+    es: 'El guardado de esta tarea programada está en pausa: {why}. Mientras tanto, sus resultados van a Mis archivos. Elija si puede volver a guardar archivos nuevos en la carpeta de abajo.\n\nTítulo: {title}\nHorario: {when}',
   } satisfies L5,
   lapse_folder: { ko: '저장 폴더가 옮겨졌거나, 이름이 바뀌었거나, 지워졌어요', en: 'the save folder was moved, renamed or deleted', id: 'folder simpan dipindahkan, diganti namanya, atau dihapus', ja: '保存先フォルダーが移動、名前変更、または削除されました', es: 'la carpeta de guardado se movió, se renombró o se eliminó' } satisfies L5,
   lapse_rules: { ko: '저장 폴더의 권한 설정이 바뀌었어요', en: 'the save folder\'s permissions changed', id: 'izin folder simpan berubah', ja: '保存先フォルダーの権限が変わりました', es: 'cambiaron los permisos de la carpeta de guardado' } satisfies L5,
@@ -420,7 +421,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     const p = zonedParts(new Date(iso), rt.timeZone)
     return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')} ${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')} (${rt.timeZone})`
   }
-  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again in Scheduled tasks in the sidebar (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
+  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again on the Scheduled page (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
 
   reg.register({
     name: 'schedule_create',
@@ -480,7 +481,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, scope.save, scope.sources, own)
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Scheduled tasks in the sidebar.${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

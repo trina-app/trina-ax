@@ -2,15 +2,17 @@
 // (diagnostics, update, backup / restore, export, connection) is the owner's; admins see the storage use there, and in
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 //
-// From 768 px (tablets and computers): the menu in its own column beside the page, staying where it is while the page
-// scrolls. From 1024 px it has the names beside the icons; between 768 and 1023 px (a tablet, beside the app's own
-// sidebar) it is a narrow rail with each name small under its icon (no tips: a finger has no hover), so the page keeps
-// room (a column of the full width there left it 280 to 330 px). Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// From 768 px (tablets and computers): the menu in its own 240 px column beside the page (the app's rail is beside it
+// already, so the menu is a list with the names at every computer width and two rails never stand side by side:
+// docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), staying where it is while the page scrolls. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
 // connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
 // (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team:
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
+// Slack is one of the connected apps, not a menu item (owner, 2026-11-12): /admin/slack (its menu item until then, and
+// where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same query, for the
+// owner and admins alike (admins manage Slack too since 2026-11-13).
 //
 // Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
@@ -18,7 +20,7 @@
 // phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); System too, at /admin/system/<group> under
 // "‹ System" (systemGroups.ts). Computers keep each one page.
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
@@ -33,7 +35,7 @@ import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
 import { systemGroup, systemRedirect } from './systemGroups'
-import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
+import { APP_CONNECTORS, CONNECTORS, SLACK_ADMIN_PATH, SLACK_APP } from '../../lib/connectors'
 import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
@@ -48,11 +50,13 @@ const Engines = lazy(() => import('./Engines'))
 const Integrations = lazy(() => import('./Integrations'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
-const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
 const System = lazy(() => import('./System'))
+
+/** the pages that are a form: one narrow column (centred) on a computer */
+const NARROW = new Set(['settings', 'system'])
 
 type Section = { id: string; label: MessageKey; icon: typeof Users; ownerOnly?: boolean }
 
@@ -74,8 +78,6 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'connectors', label: 'admin.integrations', icon: Cable },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
-      // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
-      { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
     ],
   },
   {
@@ -97,7 +99,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
 
 /** A phone's names of the pages that the 나 list has for the person too (AI accounts, Connected apps, AI apps): the
  * team's are "Team …" there, so the two lists never show the same name for different things. Computers keep the
- * sidebar's names (its title says whose they are). */
+ * Admin list's names (its title says whose they are). */
 const PHONE_LABEL: Partial<Record<string, MessageKey>> = { providers: 'admin.team.providers', connectors: 'admin.team.integrations', 'ai-apps': 'admin.team.aiApps' }
 const phoneLabel = (s: Section): MessageKey => PHONE_LABEL[s.id] ?? s.label
 
@@ -129,8 +131,11 @@ const DETOURS = ['/files', '/projects']
 
 /** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
  * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
-function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
+export function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
   const q = new URLSearchParams(search)
+  // Slack's menu item until 2026-11-12: its page in Connected apps, with the query "Add to Slack" came back with
+  // (?slack=installed)
+  if (section === 'slack') return `${SLACK_ADMIN_PATH}${search}`
   if (sub && !phone) {
     const desktop = adminDesktopOf(section, sub)
     if (desktop) return desktop
@@ -143,8 +148,8 @@ function redirectOf(section: string, sub: string | undefined, search: string, ph
     if (q.get('drive') === '1') return '/admin/connectors/google-drive'
   }
   // a connector this app does not list (a typo, an old link): the list
-  // (a team connection's page is /admin/connectors/mcp/<id>)
-  if (section === 'connectors' && sub && sub !== 'mcp' && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
+  // (a team connection's page is /admin/connectors/mcp/<id>; Slack's is its own)
+  if (section === 'connectors' && sub && sub !== 'mcp' && sub !== SLACK_APP.id && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
@@ -184,8 +189,6 @@ export default function AdminLayout() {
   const { search, hash } = location
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
-  // tablets: the menu as a rail of icons (names in tips); computers: with the names
-  const wide = useMediaQuery('(min-width: 1024px)')
   const content = useRef<HTMLDivElement>(null)
   // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
   // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
@@ -244,7 +247,6 @@ export default function AdminLayout() {
       {section === 'connectors' && <Integrations />}
       {section === 'ai-apps' && <AiApps />}
       {section === 'plugins' && <Plugins />}
-      {section === 'slack' && <Slack />}
       {section === 'usage' && <Usage />}
       {section === 'audit' && <Audit />}
       {section === 'settings' && <TeamSettingsPage />}
@@ -277,14 +279,14 @@ export default function AdminLayout() {
 
   return (
     <div className="flex h-full min-h-0 flex-row">
-      <div className={clsx('flex shrink-0 flex-col border-r border-line', wide ? 'w-60' : 'w-[5.5rem]')} data-testid="admin-sidebar" data-rail={wide ? undefined : ''}>
-        {/* whose admin this is: the team's logo and "<team> admin", as the main sidebar shows the team (its logo, else the
-            product's mark); the rail shows the logo and keeps the words for screen readers */}
-        <h1 className={clsx('flex items-center gap-2 pt-6 pb-4 text-lg font-semibold tracking-tight', wide ? 'px-5' : 'justify-center px-2')} data-testid="admin-title">
+      <div className="flex w-60 shrink-0 flex-col border-r border-line" data-testid="admin-sidebar">
+        {/* whose admin this is: the team's logo and "<team> admin", as the rail shows the team (its logo, else the
+            product's mark) */}
+        <h1 className="flex items-center gap-2 px-5 pt-6 pb-4 text-lg font-semibold tracking-tight" data-testid="admin-title">
           <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-6 shrink-0 rounded-md object-cover" data-testid="admin-team-logo" />
-          <span className={wide ? 'min-w-0 truncate' : 'sr-only'}>{t('admin.teamTitle', { team: me.team.name })}</span>
+          <span className="min-w-0 truncate">{t('admin.teamTitle', { team: me.team.name })}</span>
         </h1>
-        <nav aria-label={t('admin.title')} className={clsx('scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto pb-6', wide ? 'gap-5 px-3' : 'items-center gap-3 px-2')} data-testid="admin-menu">
+        <nav aria-label={t('admin.title')} className="scroll-thin flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-6" data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink
@@ -293,16 +295,16 @@ export default function AdminLayout() {
                 // an item's own page (/admin/connectors/<id>, /admin/plugins/<id>) keeps its page marked
                 end={!s.id}
                 className={({ isActive }) =>
-                  clsx('flex rounded-lg hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', wide ? 'items-center gap-2.5 px-3 py-1.5 text-sm' : 'w-full flex-col items-center gap-1 px-1 py-2 text-center text-micro leading-tight', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
+                  clsx('flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm hover:bg-hover hover:text-ink focus-visible:-outline-offset-2', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')
                 }
               >
-                <s.icon size={wide ? 15 : 18} className="shrink-0" aria-hidden /> <span className={wide ? undefined : 'line-clamp-2 break-words'}>{t(s.label)}</span>
+                <s.icon size={15} className="shrink-0" aria-hidden /> <span>{t(s.label)}</span>
               </NavLink>
             ))
             if (!g.label) return <div key="home" className="flex flex-col">{links}</div>
             return (
-              <div key={g.label} role="group" aria-labelledby={`admin-menu-${g.label}`} className={clsx('flex flex-col gap-0.5', !wide && 'items-center border-t border-line pt-3')}>
-                <p id={`admin-menu-${g.label}`} className={wide ? 'px-3 pb-1 text-xs text-faint' : 'sr-only'}>
+              <div key={g.label} role="group" aria-labelledby={`admin-menu-${g.label}`} className="flex flex-col gap-0.5">
+                <p id={`admin-menu-${g.label}`} className="px-3 pb-1 text-xs text-faint">
                   {t(g.label)}
                 </p>
                 {links}
@@ -314,8 +316,12 @@ export default function AdminLayout() {
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="admin-content">
         <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:px-8 lg:py-7">
           {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
-          <AdminScope />
-          {page}
+          {/* the form pages (Team settings, System) are one narrow column in the middle of the area, the others use the
+              whole width; both are centred, so the page does not shift from one to the next */}
+          <div className={clsx('w-full', NARROW.has(section) && 'mx-auto max-w-3xl')} data-testid="admin-column">
+            <AdminScope />
+            {page}
+          </div>
         </div>
       </div>
     </div>

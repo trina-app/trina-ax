@@ -118,7 +118,9 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   // order: the key moves above the subscription
   const labels = () => page.getByTestId('credentials-claude').getByTestId('credential-row').evaluateAll((rows) => rows.map((r) => r.querySelector('.font-medium')?.textContent))
   expect(await labels()).toEqual(['대표 Max', '회사 키'])
-  await page.getByTestId('credentials-claude').getByRole('button', { name: '위로' }).click()
+  // move up is in the account's ⋯ menu
+  await page.getByTestId('credentials-claude').getByTestId('credential-row').nth(1).getByTestId('credential-menu').click()
+  await page.getByTestId('credentials-claude').getByRole('menuitem', { name: '위로' }).click()
   await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
 
   // ChatGPT: Codex's Add account; the address and the one-time code, then connected
@@ -190,8 +192,9 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.goto('/admin/settings#ai')
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
-  // Settings › Connections: Providers (one's own accounts, by provider), first in the group
-  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('AI 계정')
+  // Settings › Connections: Connectors first (everyone has it), then Providers (one's own accounts, by provider)
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toContainText('커넥터')
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 계정')
   await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 계정', exact: true }).click()
   await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
@@ -379,4 +382,48 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   await expect(page.getByTestId('login-busy')).toHaveCount(0)
   await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('claude-open')).toBeVisible()
+})
+
+// A member's own ChatGPT sign-in (Settings › AI accounts) asked them to sign in "with the account the team will use":
+// it is their own account, so the step says so; the team's sign-in in Admin keeps the team wording (test above).
+test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/settings/providers')
+  await page.getByTestId('my-credential-add-codex').click()
+  await page.getByTestId('kind-chatgpt').check()
+  await page.getByTestId('credential-label').fill('내 ChatGPT')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('chatgpt-code')).toContainText(DICTS.ko['credentials.chatgpt.step3Own'])
+  await expect(page.getByTestId('chatgpt-code')).not.toContainText(DICTS.ko['credentials.chatgpt.step3'])
+})
+
+// A member's own API key (Settings › AI accounts; QA TC-519): the advice is about their own key, not "a key just for
+// this team in the company's console"; a key the provider refused, then edited, shows only the new key's problem.
+test('my own API key: advice for my own key; the provider\'s refusal goes when I change the key', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/settings/providers')
+  await page.getByTestId('my-credential-add-claude').click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(DICTS.ko['credentials.apiKey.hintOwn'])
+  await expect(dialog).not.toContainText(DICTS.ko['credentials.apiKey.hint'])
+  // the provider refuses the key (as the server answers when the provider says 401)
+  await page.route('**/api/me/credentials', (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'validation', message: '공급자가 이 키를 받지 않았어요. 키를 다시 확인해 주세요.' } }) })
+    : route.fallback())
+  await page.getByTestId('credential-label').fill('내 키')
+  await page.getByTestId('credential-secret').fill(KEY)
+  await page.getByTestId('credential-submit').click()
+  await expect(dialog.getByTestId('dialog-error')).toHaveText('공급자가 이 키를 받지 않았어요. 키를 다시 확인해 주세요.')
+  await page.getByTestId('credential-secret').fill('not-a-key')
+  await expect(dialog).toContainText(DICTS.ko['credentials.apiKey.invalidFormat'])
+  await expect(dialog.getByTestId('dialog-error')).toHaveCount(0)
+  // the team's own dialog keeps the team advice
+  await page.goto('/admin/providers')
+  await page.getByTestId('provider-accounts-claude').getByRole('button', { name: '계정 추가' }).click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  await expect(page.getByRole('dialog')).toContainText(DICTS.ko['credentials.apiKey.hint'])
 })

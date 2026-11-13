@@ -199,6 +199,8 @@ export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops'] as c
 export const LINUX_ROOT_COPIES = ['native/mycel-safeops', 'bin/pandoc'] as const
 /** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
 export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
+/** scripts/dev-env/srt files the server kit carries (root/dev-env-srt/): the install files of the image's stage */
+export const LINUX_DEV_ENV_SRT_FILES = ['install-srt.sh', 'uninstall-srt.sh', 'package.json', 'package-lock.json', 'run-wrap', 'srt-full.mjs', 'devenv.rules.in', 'devenv.slice.in', 'devenv-run.service.in', 'README.md'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
 export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/account.sh', 'mycel-account'],
@@ -211,6 +213,13 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   // packages.json is written as the list's Linux copy (packages.ts linuxList), so a Mac-only change is not
   ['scripts/system/packages.json', 'packages.json'],
   ['scripts/system/packages.sh', 'packages.sh'],
+  // the dev environment on srt (scripts/dev-env/srt): install-linux.sh runs root's copy <base>/root/dev-env-srt/install-srt.sh
+  // on a self-hosted Debian 13 server, and `mycel-ctl update` runs the new copy when srt is on. The same files as the
+  // image's stage (scripts/image/build-ami.sh SRT_FILES), and the list and its reader in dev-env-srt/system/, where
+  // install-srt.sh looks first (its system/ next to it). Root runs them, so they are root files, never the app's.
+  ...LINUX_DEV_ENV_SRT_FILES.map((f) => [`scripts/dev-env/srt/${f}`, `dev-env-srt/${f}`] as const),
+  ['scripts/system/packages.json', 'dev-env-srt/system/packages.json'],
+  ['scripts/system/packages.sh', 'dev-env-srt/system/packages.sh'],
 ]
 /** executables among the root files (the rest are read: templates, sourced helpers, the catalog locker run by bun) */
 const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])
@@ -385,6 +394,7 @@ export async function buildLinuxBundle(o: {
   fs.mkdirSync(path.join(root, 'systemd'), { recursive: true })
   for (const b of LINUX_ROOT_NATIVE) fs.copyFileSync(path.join(nativeDir, b), path.join(root, b))
   for (const [src, dst] of LINUX_ROOT_SCRIPTS) {
+    fs.mkdirSync(path.dirname(path.join(root, dst)), { recursive: true })
     if (fs.existsSync(path.join(REPO, src))) fs.copyFileSync(path.join(REPO, src), path.join(root, dst))
     else missing.push(src)
   }
@@ -393,11 +403,17 @@ export async function buildLinuxBundle(o: {
     fs.writeFileSync(path.join(root, 'packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts', 'system', 'packages.json'), 'utf8')))
     fs.writeFileSync(path.join(root, 'packages.flat'), flatFile(fs.readFileSync(path.join(root, 'packages.json'), 'utf8')))
   }
+  // install-srt.sh's copy of the list: the same Linux copy as root/packages.json
+  if (fs.existsSync(path.join(root, 'dev-env-srt', 'system', 'packages.json'))) {
+    fs.writeFileSync(path.join(root, 'dev-env-srt', 'system', 'packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts', 'system', 'packages.json'), 'utf8')))
+  }
   const unitDir = path.join(REPO, 'scripts', 'linux', 'systemd')
   const units = fs.existsSync(unitDir) ? fs.readdirSync(unitDir).filter((f) => f.endsWith('.in')).sort() : []
   if (!units.length) missing.push('scripts/linux/systemd/*.in')
   for (const u of units) fs.copyFileSync(path.join(unitDir, u), path.join(root, 'systemd', u))
   for (const f of fs.readdirSync(root)) if (fs.statSync(path.join(root, f)).isFile()) fs.chmodSync(path.join(root, f), LINUX_ROOT_EXEC.has(f) ? 0o755 : 0o644)
+  // the srt files are read or run with bash by root (install-linux.sh, mycel-ctl update): no exec bit needed
+  for (const d of [path.join(root, 'dev-env-srt'), path.join(root, 'dev-env-srt', 'system')]) if (fs.existsSync(d)) for (const f of fs.readdirSync(d)) if (fs.statSync(path.join(d, f)).isFile()) fs.chmodSync(path.join(d, f), 0o644)
   for (const u of units) fs.chmodSync(path.join(root, 'systemd', u), 0o644)
 
   // engines (downloaded by the installer, never bundled: D11), notes, web (the system packages: root/packages.json)

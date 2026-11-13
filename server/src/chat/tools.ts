@@ -19,10 +19,11 @@ import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
-import { addSources, sourceOf } from './read-scope'
+import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
+import { withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -40,11 +41,10 @@ import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { ROOM_TOOLS, SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
+import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { roomReadTools, roomSessionTools } from './room-tools'
+import { roomReadTools } from './room-tools'
 import { skillFilesTool } from './skill-files'
-import { projectChatTools } from './room-project-chats'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
@@ -92,6 +92,8 @@ export const B_TOOL_DESCRIPTIONS = {
 export interface ChatToolSet extends TurnToolSet {
   /** sections for the AI's instructions from per-person tools (connected services) */
   prompt: string[]
+  /** outside content those sections carry (TurnToolProvider seen): marked by the turn once its session starts */
+  seen: ReadSource[]
   /** the same for a resumed session's turn context (shorter where a provider says so) */
   context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
@@ -102,8 +104,6 @@ export interface ChatToolSet extends TurnToolSet {
   readsOnly(name: string, input: unknown): boolean
   /** ...and that may go without the room card after a room read (the service's own mark, not api_request's method) */
   readsFree(name: string, input: unknown): boolean
-  /** in a team chat room's session: one of the asker's own Google apps' tools (the only connection tools a room gets) */
-  roomConnection?(name: string): boolean
   /** a per-person tool's own words for the room card (TurnTool.card), or null for the shared ones */
   card?(name: string, input: unknown, locale: Locale): ToolCard | null
 }
@@ -137,7 +137,6 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const roomConnections = new Set<string>()
   const add = (t: Tool): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
@@ -147,9 +146,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // or for a merge only on its team skills)
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
-    // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
-    if (exec.room && !ROOM_TOOLS.has(t.name) && !roomConnections.has(t.name)) return false
-    // a shared project chat (chat/shared.ts): the same allowlist without the room's own tools
+    // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)
     if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
@@ -158,25 +155,20 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
-  // the team trash behind the server's card (chat/delete-files.ts): not offered in rooms, shared, confidential or draft
+  // the team trash behind the server's card (chat/delete-files.ts): not offered in shared, confidential or draft
   // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
   // person's own chat with the person there
   if (!exec.templateRun) add(deleteFilesTool(exec))
   // a team project's members behind the server's card (chat/project-members.ts): like delete_files, not offered in
-  // rooms, shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
+  // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
   // everywhere else but the person's own chat with the person there
   if (!exec.templateRun) add(projectMembersTool(exec))
-  // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
-  // in a confidential or draft chat (add() above keeps those to their own tools)
-  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
-  // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file) and its threads
-  // (room_thread: one thread of that room)
-  if (!exec.templateRun && !exec.shared) for (const t of exec.room ? roomSessionTools(exec) : roomReadTools(exec)) add(t)
-  // a room's own session also finds and reads the shared project chats the asker may view (chat/room-project-chats.ts;
-  // ROOM_TOOLS lists them, SHARED_TOOLS does not, and a person's own chat never gets them)
-  if (!exec.templateRun && !exec.shared && exec.room) for (const t of projectChatTools(exec)) add(t)
+  // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
+  // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
+  // them anyway)
+  if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
   // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
-  // (chat/post-to-room.ts): only in their own chat, never in a room's session, a shared, confidential, draft or template
+  // (chat/post-to-room.ts): only in their own chat, never in a shared, confidential, draft or template
   // chat, a scheduled run or a question from Slack (postToRoomOff)
   if (!postToRoomOff(exec)) add(postToRoomTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
@@ -210,25 +202,24 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
+  const seen: ReadSource[] = []
   // the connections' tools by name, with whether a call only reads (integrations/connections/tools.ts): after a room
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
-  // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS) but the asker's own Google apps (owner decision 10:
-  // what they find goes through the room's private answer, rooms/ai.ts decide), so "Connected services" lists only those
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
-  for (const p of confidential || exec.restricted || exec.shared ? [] : exec.room ? providers.filter((x) => x.name === 'integrations') : providers) {
+  for (const p of confidential || exec.restricted || exec.shared ? [] : providers) {
     let built: ReturnType<typeof p.build>
-    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule', room: !!exec.room }) }
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
-      if (exec.room) roomConnections.add(t.name)
       if (!add(wrapRegistered(exec, t))) continue
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
     }
     if (built.prompt) prompt.push(built.prompt)
+    if (built.seen?.length) seen.push(...built.seen)
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
   }
@@ -239,13 +230,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   const set: ChatToolSet = {
     prompt,
+    seen,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
-    roomConnection: (name) => !!exec.room && roomConnections.has(name) && connections.has(name),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {
@@ -278,12 +269,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       exec.noteTaint(name, args)
-      exec.noteRoomTool(name, args)
-      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
+      exec.noteRoomTool(name)
+      // after a room read: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
       // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
       // saves, what it copies, where its bytes come from)
       const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files, send: t.sendsTo?.(args) ?? null })
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (after a room read)` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -317,12 +308,6 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const roText = out.isError ? out.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : ''
       const ro = readOnlyFor(exec, roText)
       if (ro) out.content = [...out.content, { type: 'text', text: ro }]
-      // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
-      // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
-      if (exec.room && name === 'share_file' && !out.isError) {
-        const p = (args as { path?: unknown } | null)?.path
-        try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
-      }
       // what the call read (search passages, make_file's sources) counts now, as the file tools' reads do (afterFileTool):
       // a file of the person's own folder may carry outside content (turn.ts noteOwnReads) before the next card or memory
       exec.noteReads()
@@ -332,14 +317,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
-      return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
+      return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
     },
     afterFileTool: (name, isError, args, text) => {
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
       exec.releaseScheduleCover(name, args)
-      exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
@@ -348,10 +333,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       return exec.placementNote(tools.has('move_files'))
     },
-    // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
+    // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
       const no = await exec.confirmRoomChange(name, args)
-      return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (${exec.room ? 'room' : 'after a room read'})` } : null
+      return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
@@ -372,10 +357,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)
-      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
+      // after a room read: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
       // also needs the wider-audience card below gets that one card
       const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args, (x) => exec.hwpTarget(x)), main: !caller || caller.files === exec.files })
-      if (roomNo) return { refusal: roomNo, summary: `${name} -> ${roomShort(roomNo)} (${exec.room ? 'room' : 'after a room read'})` }
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> ${roomShort(roomNo)} (after a room read)` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -426,12 +411,12 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
 
 /** B2's note after a policy refusal "Access denied: read-only…" (only that: never another tool's or a connection's
  * text that happens to say so). A project's creator is mentioned only when the person may read that project folder, and
- * named only where everyone who sees the answer may: in a room or a shared chat the answer reaches all of them, so only
- * when every one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
-export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'room' | 'shared' | 'roomReadable'>, text: string): string | null {
+ * named only where everyone who sees the answer may: in a shared chat the answer reaches all of them, so only when every
+ * one of them may read that folder (roomReadable; none known: never), else "the project's creator". */
+export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'shared' | 'roomReadable'>, text: string): string | null {
   if (!text.startsWith('Access denied: read-only')) return null
   const rules = exec.rt.files.rules(), me = exec.livePrincipal()
-  const group = !!exec.room || !!exec.shared
+  const group = !!exec.shared
   return readOnlyNote(exec.rt.db, text, exec.spec.locale, {
     userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !group,
     nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
@@ -462,8 +447,16 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
   const choose = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null> => (await pick(question, options, extra)).value
   const confirmWhy = async (question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> => {
-    const r = await pick(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)
-    return r.value === 'allow' ? 'yes' : r.missing ?? 'declined'
+    // "Always allow" for this kind of card (chat/always-allow.ts): on, no card; else the card offers it
+    let missing: CardAnswer['missing'] | undefined
+    const ask = async (options: { label: string; value: string }[], more: { buttons?: true; note?: string }) => {
+      const r = await pick(question, options, { ...extra, ...more })
+      missing = r.missing
+      return r.value
+    }
+    const options = [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }]
+    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask) : await ask(options, {})
+    return v === 'allow' ? 'yes' : missing ?? 'declined'
   }
   return {
     locale: exec.spec.locale,
@@ -647,7 +640,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const verb = copy ? 'copied' : 'moved'
       if (a.data.name !== undefined && !copy) return bad('Not moved: name is only for a copy (keep: true). A moved skill keeps its name; to rename one, edit its SKILL.md and folder (the user confirms on a card).', 'refused: name without keep')
       if (spec.clientKind === 'schedule') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
-      if (exec.room || exec.shared || exec.restricted || exec.templateRun) return bad(`Not ${verb}: a skill is moved or copied only from the user's own chat, where they answer the card (not from a room, a shared chat or a run limited to one task). Tell the user to ask in one of their own chats.${copy ? '' : ' ' + toPage}`, 'refused: not here')
+      if (exec.shared || exec.restricted || exec.templateRun) return bad(`Not ${verb}: a skill is moved or copied only from the user's own chat, where they answer the card (not from a shared chat or a run limited to one task). Tell the user to ask in one of their own chats.${copy ? '' : ' ' + toPage}`, 'refused: not here')
       let user: Principal
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
       const L = spec.locale
@@ -751,13 +744,16 @@ function moveSkillTool(exec: TurnExec): Tool {
         { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true },
       ]
       const base = plan.source.split('/').pop()!
-      const answer = await exec.waitForPerson({
-        kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
-        options: copy ? [{ label: skillText('copyYes', L), value: 'copy' }, { label: skillText('copyNo', L), value: 'skip' }] : [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
-        details,
-        ...(!copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? { note: skillText('moveNarrowHint', L, { name: base }).slice(0, 300) } : {}),
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+      const narrowHint = !copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? skillText('moveNarrowHint', L, { name: base }).slice(0, 300) : null
+      // "Always allow" for skill moves and copies (chat/always-allow.ts)
+      const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files',
+        copy ? [{ label: skillText('copyYes', L), value: 'copy' }, { label: skillText('copyNo', L), value: 'skip' }] : [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
+        copy ? 'copy' : 'move', (options, more) => exec.waitForPerson({
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
+          options, details, ...more,
+          ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
+          expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
       const yesValue = copy ? 'copy' : 'move'
       const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
@@ -831,10 +827,11 @@ function bTools(exec: TurnExec): Tool[] {
           const notKept = (answered: boolean) => settle({ label: tr('notRemembered', L, { text: value }).slice(0, 500), ...(answered ? {} : { detail: tr('notAnswered', L) }) })
           let answer: unknown
           try {
-            answer = await exec.waitForPerson({
+            // "Always allow" for memories (chat/always-allow.ts): on, kept without the card
+            answer = await withAlways(exec.alwaysPlace?.(), 'remember', [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
               kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
-              options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
-            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+              options, multiple: false, allowText: false, ...more,
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
           } catch (e) { notKept(false); throw e }
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
             // "답하지 않음" only when the card ran out; a "no" is an answer
@@ -890,7 +887,7 @@ function bTools(exec: TurnExec): Tool[] {
       call: (args) => connectService(exec, args),
     },
   ]
-  // the answering AI names a new chat (title.ts): no extra model call. The title shows in the sidebar and the header
+  // the answering AI names a new chat (title.ts): no extra model call. The title shows in the Trina list and the header
   // at once (chat.updated); the call is not a step under the answer (turn.ts). The audit keeps no title text.
   if (titleToolOffered(rt.db, spec.chatId, spec.clientKind)) tools.push({
     name: 'set_title', description: B_TOOL_DESCRIPTIONS.set_title, inputSchema: schema(SetTitleInput),

@@ -5,6 +5,7 @@
 // Back returns to the list instead of leaving Settings. From 768 px Admin is a sidebar (a rail of icons on a tablet).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -14,7 +15,7 @@ const historyLength = (page: Page) => page.evaluate(() => history.length)
 const scrollTop = (page: Page) => page.getByTestId('admin-content').evaluate((el) => el.scrollTop)
 
 async function openAdmin(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
@@ -33,11 +34,13 @@ test('the list: whose admin it is, what needs attention, then the groups with va
   await expect(page.getByTestId('admin-home')).toHaveCount(0)
   // the bar: ‹ named after the 나 list it came from, no title (the list has its own)
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['settings.title'])
-  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
     const row = page.getByTestId(`admin-row-${id}`)
     await expect(row).toBeAttached()
     expect(Math.round((await row.boundingBox())!.height)).toBeGreaterThanOrEqual(48)
   }
+  // Slack is one of the connected apps, not a row of its own (owner, 2026-11-12)
+  await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
   await expect(page.getByTestId('admin-row-members')).toContainText('2')
   await expect(page.getByTestId('admin-row-providers')).toContainText('Claude Code')
   // the fixture's disk is 82% full: one attention row, and System's badge counts exactly that
@@ -104,7 +107,7 @@ test('a pasted address: the page with the lists under it, its query still doing 
 })
 
 test('a link from inside the app (Settings › Usage → Admin › Usage): the list goes under it; Back → list → where it was', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-usage').click()
   await expect(page).toHaveURL(/\/settings\/usage$/)
   await page.getByTestId('my-usage-team-link').click()
@@ -147,7 +150,7 @@ test('Folder permissions: By folder ↔ By person adds no history on a phone', a
 })
 
 test('Settings: a section pushes, so Back returns to the list (it left Settings before); its list keeps its place', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await expect(page).toHaveURL(/\/settings$/)
   const menu = page.getByTestId('settings-menu')
   await menu.evaluate((el) => { el.scrollTop = el.scrollHeight })
@@ -174,7 +177,7 @@ test('Settings: a section pushes, so Back returns to the list (it left Settings 
 })
 
 test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, and Back returns there (no list put between)', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-inbox').click()
   await expect(page).toHaveURL(/\/activity$/)
   await page.getByTestId('activity-settings-phone').click()
@@ -188,7 +191,7 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
 })
 
 test('a member: /admin says it is for admins; Back never shows the Admin list', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-logout').click()
   // signing out asks first on a phone
   await page.getByTestId('dialog-confirm').click()
@@ -202,21 +205,20 @@ test('a member: /admin says it is for admins; Back never shows the Admin list', 
   await expect(page.getByTestId('admin-only').or(page.getByTestId('settings-logout'))).toBeVisible()
 })
 
-test('an admin who is not the owner: Slack\'s address goes to the list, one entry', async ({ page }) => {
+test('an admin who is not the owner: Slack\'s old address opens its page in Connected apps, no menu row of its own', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
   await signIn(page, { username: 'dana', password: 'dana password 1' })
   await page.goto('/admin/slack')
-  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page).toHaveURL(/\/admin\/connectors\/slack$/)
+  await expect(page.getByTestId('slack-status')).toBeVisible()
   await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
-  await page.goBack()
-  await expect(page).not.toHaveURL(/\/admin/)
 })
 
 test('nothing is wider than the screen on any Admin page, in Spanish too', async ({ page }) => {
   for (const locale of ['en', 'es'] as const) {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
-    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'connectors/slack', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(id ? `/admin/${id}` : '/admin')
       await expect(page.getByTestId('admin-content')).toBeVisible()
       await page.waitForTimeout(300)
@@ -228,20 +230,22 @@ test('nothing is wider than the screen on any Admin page, in Spanish too', async
 
 test.describe('from 768 px', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: false, isMobile: false })
-  test('a tablet: the sidebar as a rail of icons with their names beside the page, no strip, no list', async ({ page }) => {
+  // the app's rail stands beside it already: the menu is the 240 px list with its names at every computer width, never a
+  // second rail (Navigation P7, docs/AGENTS/plan/20261112-1839-nav-rail.md)
+  test('a tablet: the menu as a list with its names beside the page, no second rail, no strip, no phone list', async ({ page }) => {
     await page.goto('/admin/members')
     const side = page.getByTestId('admin-sidebar')
     await expect(side).toBeVisible()
-    await expect(side).toHaveAttribute('data-rail', '')
+    await expect(side).not.toHaveAttribute('data-rail', '')
     await expect(page.getByTestId('admin-phone-root')).toHaveCount(0)
     await expect(page.getByTestId('phone-page-bar')).toHaveCount(0)
     // a column, never a sideways strip
     const menu = page.getByTestId('admin-menu')
     expect(await menu.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await expect(menu.getByRole('link', { name: t['admin.members'] })).toHaveAttribute('aria-current', 'page')
-    // the names show under the icons (a finger has no hover for a tip)
+    // the names show (a finger has no hover for a tip)
     await expect(menu.getByText(t['admin.folders'], { exact: true })).toBeVisible()
-    // the page keeps room beside the app's sidebar and the rail
+    // the page keeps room beside the app's rail and the menu
     expect((await page.getByTestId('admin-content').boundingBox())!.width).toBeGreaterThan(420)
     await menu.getByRole('link', { name: t['admin.groups'] }).click()
     await expect(page).toHaveURL(/\/admin\/groups$/)

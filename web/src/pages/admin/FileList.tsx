@@ -1,11 +1,10 @@
 // Admin › Team settings › File list (#file-list; server/src/file-list/, docs/DECISIONS.md "File list"): every night the
 // team's AI reads new and changed files and the server keeps one line per file; the AI's file tools show them as a
-// _FILES.md in each folder, which the in-app AI greps first. One switch (on by default) and a short status: files
-// listed and waiting, the last and next run, whose team AI account the runs use (they count against its limit), and why
-// it cannot run. "Run now" starts a capped run at once. Lean: no list of folders, no per-file view. Saves at once, like
-// the AI groups above. While a run goes, the status is read again every few seconds. A Run now from a screen that is
-// out of date (someone else, or the host, turned it off since) says so plainly and reads the status again, so the
-// button goes away. On a phone (below 768 px; QA TC-382) Run now is a list row across the screen under the status.
+// _FILES.md in each folder, which the in-app AI greps first. Always on, no switch (docs/DECISIONS.md "File list: always
+// on"); a short status: files listed and waiting, the last and next run, whose team AI account the runs use (they count
+// against its limit), and why it cannot run. "Run now" starts a capped run at once. Lean: no list of folders, no
+// per-file view. While a run goes, the status is read again every few seconds. A Run now from a screen that is out of
+// date (the host turned it off since) says so plainly and reads the status again, so the button goes away. On a phone (below 768 px; QA TC-382) Run now is a list row across the screen under the status.
 import { Loader2, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileListSignIn, FileListStatus, Locale } from '@mycel/shared/api'
@@ -13,9 +12,9 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime, formatNumber } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Button, confirmDialog, Switch, useMediaQuery } from '../../components/ui'
+import { Button, useMediaQuery } from '../../components/ui'
 import { PhoneListRow } from '../../components/phone/PhoneList'
-import { Loadable, SettingsSection, useAction, useLoad } from './common'
+import { Loadable, SettingsSection, useLoad } from './common'
 
 const POLL_MS = 4000
 
@@ -28,31 +27,12 @@ export default function FileListSettings() {
     const id = setInterval(() => void api.call(API.fileListStatus).then(state.setData, () => {}), POLL_MS)
     return () => clearInterval(id)
   }, [running, state.setData])
-  const d = state.data
   return (
-    <SettingsSection id="file-list" title={t('fileList.title')} desc={t('fileList.desc')} testId="file-list"
-      actions={d ? <FileListToggle d={d} onData={state.setData} /> : undefined}>
+    <SettingsSection id="file-list" title={t('fileList.title')} desc={t('fileList.desc')} testId="file-list">
       <Loadable state={state} lines={2}>
         {(data) => <FileListStatusLines d={data} onData={state.setData} />}
       </Loadable>
     </SettingsSection>
-  )
-}
-
-export function FileListToggle({ d, onData }: { d: FileListStatus; onData: (d: FileListStatus) => void }) {
-  const t = useT()
-  const act = useAction()
-  const [saving, setSaving] = useState(false)
-  const toggle = async (on: boolean) => {
-    if (!on && !(await confirmDialog({ title: t('fileList.offTitle'), body: t('fileList.offBody'), confirm: t('fileList.offConfirm'), danger: true }))) return
-    setSaving(true)
-    const r = await act(() => api.call(API.updateFileList, { body: { enabled: on } }), t(on ? 'fileList.onSaved' : 'fileList.offSaved'))
-    setSaving(false)
-    if (r) onData(r)
-  }
-  return (
-    <Switch id="file-list-enabled" checked={d.enabled && !d.forcedOff} disabled={saving || d.forcedOff} onChange={(v) => void toggle(v)}
-      label={t('fileList.title')} hideLabel describedBy="file-list-status" testId="file-list-enabled" />
   )
 }
 
@@ -62,11 +42,10 @@ function engineName(s: FileListSignIn): string {
   return s.model ? `ChatGPT (${s.model})` : 'ChatGPT'
 }
 
-/** The message for a refused Run now: the server's 409 says the file list is off (`off`) or the host turned it off
- * (`forced_off`); any other error keeps its own text. `refused` tells the screen to read the status again. */
+/** The message for a refused Run now: the server's 409 says the host turned it off (`forced_off`); any other error keeps
+ * its own text. `refused` tells the screen to read the status again. */
 export function runNowError(e: unknown, locale: Locale, t: ReturnType<typeof useT>): { text: string; refused: boolean } {
   const reason = isApiError(e, 'conflict') ? e.body.params?.reason : undefined
-  if (reason === 'off') return { text: t('fileList.runOff'), refused: true }
   if (reason === 'forced_off') return { text: t('fileList.problem.forced_off'), refused: true }
   return { text: errorText(e, locale, t('error.network')), refused: false }
 }
@@ -75,7 +54,7 @@ export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: 
   const t = useT()
   const locale = useLocale()
   const [starting, setStarting] = useState(false)
-  const on = d.enabled && !d.forcedOff
+  const on = !d.forcedOff
   const phone = useMediaQuery('(max-width: 767.98px)')
   const runNow = async () => {
     setStarting(true)
@@ -86,7 +65,7 @@ export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: 
     } catch (e) {
       const err = runNowError(e, locale, t)
       toast({ level: 'error', text: err.text })
-      // the screen was out of date: show it as it is now (off, so Run now goes away)
+      // the screen was out of date: show it as it is now (turned off by the host, so Run now goes away)
       if (err.refused) await api.call(API.fileListStatus).then(onData, () => {})
     } finally {
       setStarting(false)
@@ -97,7 +76,6 @@ export function FileListStatusLines({ d, onData }: { d: FileListStatus; onData: 
       : s.by ? t('fileList.account.teamBy', { label: s.label ?? '', name: s.by }) : t('fileList.account.team', { label: s.label ?? '' })
   const lines: { key: string; text: string; tone?: 'warn' }[] = []
   if (d.forcedOff) lines.push({ key: 'forced', text: t('fileList.problem.forced_off'), tone: 'warn' })
-  else if (!on) lines.push({ key: 'off', text: t('fileList.off') })
   else {
     lines.push({ key: 'counts', text: d.waiting ? t('fileList.countsWaiting', { listed: formatNumber(d.listed, locale), waiting: formatNumber(d.waiting, locale) }) : t('fileList.counts', { listed: formatNumber(d.listed, locale) }) })
     const last = d.lastRun ? t('fileList.lastRun', { time: formatDateTime(d.lastRun.startedAt, locale), n: formatNumber(d.lastRun.read, locale) }) : t('fileList.never')

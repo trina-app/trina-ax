@@ -12,7 +12,7 @@ import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, R
 import clsx from 'clsx'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import type { ConnectionMode, LastRestore } from '@mycel/shared/api'
+import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -28,6 +28,8 @@ import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
+import { noPurchaseLinks } from '../../lib/desktop'
+import { teamAddressShown } from '../../lib/team-address'
 import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
@@ -386,11 +388,17 @@ const supportHref = (v: string) => (/^[^\s@/]+@[^\s@/]+$/.test(v) ? `mailto:${v}
 /** The plan (plan.json; the hosted service or a self-hosted plan file): "Plan: Team · up to 3 answers at the same time ·
  * 7 of 12 members · 50 GB storage · [Manage plan]". Nothing without a plan file (GET /api/admin/plan answers null). */
 function PlanCard() {
-  const t = useT()
   const state = useLoad(() => api.call(API.plan))
   const p = state.data?.plan
   if (!p) return null
-  const manage = safeHref(p.links?.account)
+  return <PlanDetails plan={p} store={noPurchaseLinks()} />
+}
+
+/** The plan card's content. `store`: a store app (lib/desktop.ts noPurchaseLinks), which has no "Manage plan" link and
+ * says a full plan as a fact, with no "change the plan"; the status and support links stay. */
+export function PlanDetails({ plan: p, store }: { plan: NonNullable<PlanStatus['plan']>; store: boolean }) {
+  const t = useT()
+  const manage = store ? null : safeHref(p.links?.account)
   const status = safeHref(p.links?.status)
   const support = p.links ? supportHref(p.links.support) : null
   return (
@@ -406,7 +414,7 @@ function PlanCard() {
           {t('plan.disk', { gb: p.diskGiB })}
         </p>
         <p className="text-xs text-faint">{t('plan.details', { days: p.localBackupRetentionDays })}</p>
-        {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t('plan.membersFull')}</p>}
+        {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t(store ? 'plan.membersFullStore' : 'plan.membersFull')}</p>}
         {(manage || status || support) && (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
             {manage && <a className="font-medium text-accent-text underline" href={manage} target="_blank" rel="noreferrer">{t('plan.manage')}</a>}
@@ -452,6 +460,10 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   // the Health relay line says the same, server/src/system/ops.ts)
   const pub = state.data?.publicAddress ?? null
   const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
+  // the office network only: the address the team types, as Settings › 앱 shows it (GET /api/me team.address, the
+  // office address with its port; QA TC-485)
+  const me = useMeStrict()
+  const officeAddress = state.data?.mode === 'direct-only' && !pub ? teamAddressShown(me.team.address) : null
   // a phone: the mode is changed on a computer (a relay's address, the claim code from the account console; QA TC-270)
   const phone = useMediaQuery(PHONE)
   const changes = canChange && modes.length > 1
@@ -468,8 +480,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             <Rows>
               <Row label={t('system.mode')} long>
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
-                  {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
+                  {/* no relay (the office network, or a public address): nothing is off for the team, so no "Off" badge
+                      (QA TC-485) */}
+                  {c.mode !== 'direct-only' && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
                   <span data-testid="connection-mode-name">{modeName(c.mode)}</span>
                 </span>
                 {c.connectedSince && <span className="block text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</span>}
@@ -480,9 +493,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
                   <code>{c.teamName}</code>
                 </Row>
               )}
-              {c.address && (
+              {(c.address ?? officeAddress) && (
                 <Row label={t('system.address')} long>
-                  <code className="break-all">{c.address}</code>
+                  <code className="break-all" data-testid="connection-address">{c.address ?? officeAddress}</code>
                 </Row>
               )}
               {pub && (
@@ -492,7 +505,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               )}
             </Rows>
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
-            {c.direct.fingerprintSha256 && <p className="font-mono text-[0.6875rem] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
+            {c.direct.fingerprintSha256 && <p className="font-mono text-code-sm break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
             {changes && phone && <OnComputer text={t('admin.onComputerConnection')} testId="connection-on-computer" />}
           </>
         )}

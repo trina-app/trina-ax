@@ -56,9 +56,10 @@ export class SlackApi {
   get testing(): boolean { return this.deps.base !== undefined }
 
   /** One Web API method. `scopes`: the token's scopes as Slack lists them in X-OAuth-Scopes (when it does). */
-  /** `noAuth`: no Authorization header (openid.connect.token takes the app's client id and secret in the body) */
-  async call(method: string, token: string, body: Record<string, unknown> = {}, o: { noAuth?: boolean } = {}): Promise<CallResult & { scopes: string[] | null }> {
-    if (!/^[a-z]+(\.[a-zA-Z]+)+$/.test(method)) throw new SlackApiError('invalid_method')
+  /** `noAuth`: no Authorization header (openid.connect.token and oauth.v2.access take the app's client id and secret in
+   * the body). `noWait`: a 429 is not waited out (an AI's read: it says so at once and goes on) */
+  async call(method: string, token: string, body: Record<string, unknown> = {}, o: { noAuth?: boolean; noWait?: boolean } = {}): Promise<CallResult & { scopes: string[] | null }> {
+    if (!/^[a-z]+(\.[a-zA-Z0-9]+)+$/.test(method)) throw new SlackApiError('invalid_method')
     let retries = 0
     for (;;) {
       let r: Response
@@ -73,7 +74,7 @@ export class SlackApi {
       if (r.status === 429) {
         const wait = Number(r.headers.get('retry-after') ?? '1')
         try { await r.body?.cancel() } catch {}
-        if (retries < 2 && Number.isFinite(wait) && wait <= MAX_WAIT_S) { retries++; await Bun.sleep(Math.max(0, wait) * 1000); continue }
+        if (!o.noWait && retries < 2 && Number.isFinite(wait) && wait <= MAX_WAIT_S) { retries++; await Bun.sleep(Math.max(0, wait) * 1000); continue }
         throw new SlackApiError('ratelimited', 429, Number.isFinite(wait) ? wait : undefined)
       }
       if (r.status >= 500 && retries < 1) { retries++; try { await r.body?.cancel() } catch {}; await Bun.sleep(1000); continue }

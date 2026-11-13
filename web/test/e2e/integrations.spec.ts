@@ -4,16 +4,20 @@
 // team connection an admin gives to a group and a person that a member then sees read-only.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole, adv } from './helpers'
+import { realErrors, reset, signIn, watchConsole, adv, choose } from './helpers'
+import { activityRows, openNotice } from './nav'
 
 const KEY = 'pm-secret-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
-const row = (page: Page, name: string) => page.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })
-/** a row is one line: its address, key, tools and buttons open on a click */
-const openRow = async (r: Locator) => {
-  const toggle = r.getByTestId('integration-toggle')
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+/** a connection's page (components/integrations/ConnectionPage.tsx), by its name */
+const row = (page: Page, name: string) => page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name, exact: true }) })
+/** what a connection's row offered is in ⋯ on its page: Check again, Sign in again, Edit, Ask every time, Delete */
+const menu = async (r: Locator, id: string) => {
+  await r.getByTestId('connection-menu').click()
+  await r.getByTestId(id).click()
 }
+/** its tools with their switches, in a dialog over the page */
+const tools = (page: Page) => page.getByTestId('integration-tool')
 
 /** Connectors lists the person's own connections as icons; each opens its page with its row (pages/Connectors.tsx) */
 const openMine = async (page: Page, name: string) => {
@@ -29,7 +33,7 @@ const openTeam = async (page: Page, name: string) => {
   await expect(page.getByTestId('connector-detail')).toBeVisible()
 }
 /** from a connection's page back to the list */
-const toList = (page: Page) => page.getByTestId('connector-back').click()
+const toList = (page: Page) => page.getByTestId('app-breadcrumb-connectors').click()
 
 async function signInPage(page: Page) {
   await page.context().route('https://auth.example.test/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Sign in</title><p>Synthetic sign-in page</p>' }))
@@ -40,7 +44,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/connectors')
-  await expect(page.getByRole('heading', { name: '커넥터', level: 1, exact: true })).toBeVisible()
+  await expect(page.getByTestId('settings-dialog').getByRole('heading', { name: '커넥터', level: 2, exact: true })).toBeVisible()
   // nothing connected yet: Popular right under the title (no empty box, no heading for the empty list)
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
@@ -49,13 +53,13 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '주소로 서비스 추가' })).toBeVisible()
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   // an API starts with a key; signing in there needs your own app (its fields show only then)
-  await expect((await adv(page, 'integration-auth-key'))).toBeChecked()
+  await expect(await adv(page, 'integration-auth-key')).toHaveJSProperty('selected', true)
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
-  await (await adv(page, 'integration-auth-oauth')).check()
+  await choose(page, 'integration-auth-oauth')
   await expect(page.getByTestId('integration-app-auth-url')).toBeVisible()
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
   await page.getByTestId('integration-name').fill('AI PM')
   await page.getByTestId('integration-url').fill('http://pm.example.com/api')
@@ -71,24 +75,22 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   // "run without asking" is for team connections only (an admin chooses it); a personal one asks or refuses
   await expect((await adv(page, 'integration-write-allow'))).toHaveCount(0)
   await expect(page.getByTestId('integration-allow-team-only')).toContainText('팀 연결에서만')
-  await (await adv(page, 'integration-write-deny')).check()
-  await (await adv(page, 'integration-write-ask')).check()
+  await choose(page, 'integration-write-deny')
+  await choose(page, 'integration-write-ask')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toEqual({ kind: 'http', name: 'AI PM', url: 'https://pm.example.com/api', auth: 'bearer', authHeader: null, secret: KEY, notes: '프로젝트 목록은 GET /projects', writePolicy: 'ask' })
   await expect(dialog).toHaveCount(0)
   const pm = row(page, 'AI PM')
-  await expect(pm).toHaveAttribute('data-status', 'connected')
+  await expect(pm).toHaveAttribute('data-state', 'connected')
   await expect(pm).toContainText('연결됨')
-  await expect(pm.getByTestId('integration-meta')).toHaveCount(0)
-  await openRow(pm)
-  await expect(pm.getByTestId('integration-meta')).toContainText('키 저장됨')
+  await expect(pm.getByTestId('app-info')).toContainText('키 저장됨')
   // the key is never shown again, and no response carries it
   await expect(page.locator('body')).not.toContainText(KEY)
   expect(await (await page.request.get('/api/integrations')).text()).not.toContain(KEY)
 
   // edit: "key saved" with replace / remove, no key field and no key in any field
-  await pm.getByTestId('integration-edit').click()
+  await menu(pm, 'integration-edit')
   await expect(page.getByTestId('integration-key-saved')).toContainText('저장된 키 있음')
   await expect(dialog.locator('input[type="password"]')).toHaveCount(0)
   for (const v of await dialog.locator('input, textarea').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))) expect(v).not.toContain(KEY)
@@ -109,32 +111,31 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await page.getByTestId('integration-save').click()
   expect((await patched).postDataJSON()).toEqual({ secret: 'wrong-key' })
   // the service refused it: the row says why
-  await expect(pm).toHaveAttribute('data-status', 'error')
-  await expect(pm.getByTestId('integration-error')).toContainText('키를 거절했어요')
-  // ... without opening it
-  await expect(pm.getByTestId('integration-toggle')).toContainText('키를 거절했어요')
+  await expect(pm).toHaveAttribute('data-state', 'error')
+  // ... once, in one line of the page's own words, with the one thing to do
+  await expect(pm.getByTestId('integration-error')).toHaveText('서비스가 키나 로그인을 받아 주지 않았어요. ⋯ › 수정을 열어 키를 다시 넣어 주세요.')
+  await expect(pm.getByText(/받아 주지 않았어요/)).toHaveCount(1)
 
   // the server's own refusal shows at its field (Add is on the list)
   await toList(page)
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   await page.getByTestId('integration-name').fill('Local')
   await page.getByTestId('integration-url').fill('https://localhost/api')
-  await (await adv(page, 'integration-auth-none')).check()
+  await choose(page, 'integration-auth-none')
   await page.getByTestId('integration-save').click()
   await expect(dialog.getByRole('alert')).toContainText('사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.')
   await expect(page.getByTestId('integration-url')).toHaveAttribute('aria-invalid', 'true')
   await dialog.getByRole('button', { name: '취소' }).click()
   await openMine(page, 'AI PM')
-  await openRow(pm)
 
   // delete asks first
-  await pm.getByTestId('integration-delete').click()
+  await menu(pm, 'integration-delete')
   await expect(page.getByRole('dialog')).toContainText('AI PM 연결을 삭제할까요?')
   await page.getByTestId('dialog-confirm').click()
   // its page is gone: back on the list, with nothing connected
   await expect(page).toHaveURL(/\/connectors$/)
-  await expect(page.getByTestId('integration-row')).toHaveCount(0)
+  await expect(page.getByTestId('connector-detail')).toHaveCount(0)
   await expect(page.getByTestId('connected-apps')).toHaveCount(0)
   // (the 400 is the refused local address above)
   expect(realErrors(errors).filter((e) => !/status of 400/.test(e))).toEqual([])
@@ -148,8 +149,8 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await page.goto('/connectors')
   await page.getByTestId('integration-add').click()
   // an MCP server that signs in is the default
-  await expect((await adv(page, 'integration-kind-mcp'))).toBeChecked()
-  await expect((await adv(page, 'integration-auth-oauth'))).toBeChecked()
+  await expect(await adv(page, 'integration-kind-mcp')).toHaveJSProperty('selected', true)
+  await expect(await adv(page, 'integration-auth-oauth')).toHaveJSProperty('selected', true)
   await page.getByTestId('integration-name').fill('Notion')
   await page.getByTestId('integration-url').fill('https://mcp.notion.example/mcp')
   await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
@@ -161,35 +162,38 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await expect(notion.getByTestId('integration-signin')).toContainText('새 창에서 로그인을 마쳐 주세요')
   // the flow completes: the account shows. (The window went to another site: with this server's
   // Cross-Origin-Opener-Policy the page cannot close it any more; the service's return page says it can be closed.)
-  await expect(notion).toHaveAttribute('data-status', 'connected')
-  await openRow(notion)
-  await expect(notion.getByTestId('integration-meta')).toContainText('olga@example.test')
+  await expect(notion).toHaveAttribute('data-state', 'connected')
+  await expect(notion.getByTestId('app-info')).toContainText('olga@example.test')
   await expect(notion.getByTestId('integration-signin')).toHaveCount(0)
-  await expect(notion.getByTestId('integration-signin-start')).toHaveText('다시 로그인')
+  await notion.getByTestId('connection-menu').click()
+  await expect(notion.getByTestId('integration-signin-again')).toHaveText('다시 로그인')
+  await page.keyboard.press('Escape')
 
   // a server without sign-in: two tools at the first check, a third after checking again
   await toList(page)
   await page.getByTestId('integration-add').click()
   await page.getByTestId('integration-name').fill('Linear')
   await page.getByTestId('integration-url').fill('https://mcp.linear.example/mcp')
-  await (await adv(page, 'integration-auth-none')).check()
+  await choose(page, 'integration-auth-none')
   await expect(page.getByTestId('integration-save')).toHaveText('저장')
   await page.getByTestId('integration-save').click()
   const linear = row(page, 'Linear')
-  await expect(linear).toHaveAttribute('data-status', 'connected')
-  await openRow(linear)
+  await expect(linear).toHaveAttribute('data-state', 'connected')
+  // the tools as chips; their switches and what each does in a dialog
+  await expect(linear.getByTestId('app-tool')).toHaveCount(2)
   const toggle = linear.getByTestId('integration-tools-toggle')
-  await expect(toggle).toHaveText('도구 2개')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle).toHaveText('도구 켜고 끄기')
   await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(linear.getByTestId('integration-tool')).toHaveCount(2)
-  await expect(linear.getByTestId('integration-tool').filter({ hasText: '읽기 전용' })).toHaveCount(1)
-  await linear.getByTestId('integration-refresh').click()
-  await expect(toggle).toHaveText('도구 3개')
-  await expect(linear.getByTestId('integration-tool')).toHaveCount(3)
-  await expect(linear.locator('[data-testid="integration-tool"][data-read-only="true"]')).toHaveCount(2)
-  await expect(linear.getByTestId('integration-tool').filter({ hasText: 'Create page' })).not.toContainText('읽기 전용')
+  await expect(tools(page)).toHaveCount(2)
+  await expect(tools(page).filter({ hasText: '읽기 전용' })).toHaveCount(1)
+  await page.getByTestId('integration-tools-done').click()
+  await menu(linear, 'integration-refresh')
+  await expect(linear.getByTestId('app-tool')).toHaveCount(3)
+  await toggle.click()
+  await expect(tools(page)).toHaveCount(3)
+  await expect(page.locator('[data-testid="integration-tool"][data-read-only="true"]')).toHaveCount(2)
+  await expect(tools(page).filter({ hasText: 'Create page' })).not.toContainText('읽기 전용')
+  await page.getByTestId('integration-tools-done').click()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -204,7 +208,7 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   await page.getByTestId('integration-name').fill('Gmail')
   await page.getByTestId('integration-url').fill('https://gmailmcp.googleapis.com/mcp/v1')
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
-  await (await adv(page, 'integration-app-use')).check()
+  await (await adv(page, 'integration-app-use')).check({ force: true }) // a switch: its box is drawn over the input
   await expect(page.getByTestId('integration-app-redirect')).toHaveText(/^http:\/\/127\.0\.0\.1:\d+\/api\/integrations\/oauth\/callback$/)
   // an MCP server finds its addresses: only the client ID, secret and scopes
   await expect(page.getByTestId('integration-app-auth-url')).toHaveCount(0)
@@ -219,10 +223,9 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   expect((await sent).postDataJSON()).toMatchObject({ kind: 'mcp', auth: 'oauth', oauthClient: { clientId: 'gmail-app.apps.example', clientSecret: 'gmail-client-secret-1', scope: 'https://www.googleapis.com/auth/gmail.readonly' } })
   await popup
   const gmail = row(page, 'Gmail')
-  await expect(gmail).toHaveAttribute('data-status', 'connected')
+  await expect(gmail).toHaveAttribute('data-state', 'connected')
   // editing: the secret is saved, never shown; the same app sends nothing about it
-  await openRow(gmail)
-  await gmail.getByTestId('integration-edit').click()
+  await menu(gmail, 'integration-edit')
   await expect(await adv(page, 'integration-app-use')).toBeChecked()
   await expect(page.getByTestId('integration-app-secret-saved')).toContainText('저장됨')
   await expect(page.getByTestId('integration-app-client-id')).toHaveValue('gmail-app.apps.example')
@@ -232,8 +235,8 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   // an API that signs in (NAVER WORKS style): the app with both addresses, in the main form
   await toList(page)
   await page.getByTestId('integration-add').click()
-  await (await adv(page, 'integration-kind-http')).check()
-  await (await adv(page, 'integration-auth-oauth')).check()
+  await choose(page, 'integration-kind-http')
+  await choose(page, 'integration-auth-oauth')
   await page.getByTestId('integration-name').fill('Works')
   await page.getByTestId('integration-url').fill('https://www.worksapis.com/v1.0')
   await page.getByTestId('integration-app-client-id').fill('works-app')
@@ -250,7 +253,7 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   await page.getByTestId('integration-save').click()
   expect((await sentApi).postDataJSON()).toMatchObject({ kind: 'http', auth: 'oauth', oauthClient: { clientId: 'works-app', clientSecret: 'works-secret', authorizationUrl: 'https://auth.worksmobile.com/oauth2/v2.0/authorize', tokenUrl: 'https://auth.worksmobile.com/oauth2/v2.0/token', scope: 'calendar' } })
   await popupApi
-  await expect(row(page, 'Works')).toHaveAttribute('data-status', 'connected')
+  await expect(row(page, 'Works')).toHaveAttribute('data-state', 'connected')
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -263,7 +266,7 @@ test('a sign-in address that is not https is never opened', async ({ page }) => 
     await page.route('**/api/integrations/*/authorize', (r) => r.fulfill({ json: { flowId: 'f1', authorizationUrl: bad, expiresAt: '2099-01-01T00:00:00.000Z' } }))
     await page.goto(`/connectors/mcp/${(await created.json()).id}`)
     const gh = row(page, 'GitHub')
-    await expect(gh).toHaveAttribute('data-status', 'needs_auth')
+    await expect(gh).toHaveAttribute('data-state', 'needs_auth')
     const popup = page.waitForEvent('popup')
     await gh.getByTestId('integration-signin-start').click()
     const win = await popup
@@ -289,7 +292,7 @@ test('a connection added but never signed in says "로그인 필요" on its line
   await expect(line('Linear')).toHaveAttribute('data-state', 'connected')
   // its page says the same
   await line('Notion').getByTestId('connector-row-status').click()
-  await expect(row(page, 'Notion')).toHaveAttribute('data-status', 'needs_auth')
+  await expect(row(page, 'Notion')).toHaveAttribute('data-state', 'needs_auth')
 })
 
 test('the team turns personal connections off: no adding, and the ones there are marked unused', async ({ page }) => {
@@ -313,8 +316,7 @@ test('the team turns personal connections off: no adding, and the ones there are
   await expect(page.getByTestId('connector-custom')).toHaveCount(0)
   await openMine(page, 'AI PM')
   await expect(page.getByTestId('connector-connect')).toHaveCount(0)
-  await openRow(row(page, 'AI PM'))
-  await row(page, 'AI PM').getByTestId('integration-delete').click()
+  await menu(row(page, 'AI PM'), 'integration-delete')
   await page.getByTestId('dialog-confirm').click()
   await expect(page).toHaveURL(/\/connectors$/)
   await expect(page.getByTestId('integrations-personal-off')).toHaveCount(0)
@@ -324,6 +326,8 @@ test('the team turns personal connections off: no adding, and the ones there are
 
 test('an admin gives a team connection to a group and a person; a member sees it read-only', async ({ page }) => {
   await reset(page)
+  // Slack not added yet (the mock's default is a connected app, a row of Connected for the owner): a card in Discover
+  expect((await page.request.post('/__test/slack', { data: { admin: { tokens: false, enabled: false, state: 'off', workspace: null, botName: null } } })).ok()).toBeTruthy()
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/connectors')
@@ -334,6 +338,8 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(page.getByTestId('team-connected')).toHaveCount(0)
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 서비스 추가' })).toBeVisible()
   const access = (await adv(page, 'integration-access'))
@@ -348,10 +354,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   // the admin is in the finance group: giving it to the group includes them
   await access.getByRole('checkbox', { name: '재무팀' }).check()
   await expect((await adv(page, 'integration-access-not-me'))).toHaveCount(0)
-  await (await adv(page, 'integration-kind-http')).check()
+  await choose(page, 'integration-kind-http')
   await page.getByTestId('integration-name').fill('Company PM')
   await page.getByTestId('integration-url').fill('https://pm.example.com/api')
-  await page.getByTestId('integration-header-custom').check()
+  await choose(page, 'integration-header-custom')
   await page.getByTestId('integration-header-name').fill('X API Key')
   await page.getByTestId('integration-header-name').blur()
   await expect(dialog).toContainText('헤더 이름은 영문, 숫자, -만 쓸 수 있어요.')
@@ -359,9 +365,9 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await page.getByTestId('integration-key').fill(KEY)
   // a team connection may "run without asking" (the admin's choice), and it says plainly what that allows
   await expect(page.getByTestId('integration-allow-team-only')).toHaveCount(0)
-  await (await adv(page, 'integration-write-allow')).check()
+  await choose(page, 'integration-write-allow')
   await expect(page.getByTestId('integration-allow-warning')).toContainText('묻지 않고 이 서비스로 보낼 수 있어요')
-  await (await adv(page, 'integration-write-deny')).check()
+  await choose(page, 'integration-write-deny')
   await expect(page.getByTestId('integration-allow-warning')).toHaveCount(0)
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
@@ -371,33 +377,30 @@ test('an admin gives a team connection to a group and a person; a member sees it
   // one line in the list; the admin is in the finance group: nothing to warn about on it
   await expect(page.getByTestId('team-connected').getByRole('heading', { name: '연결됨', exact: true })).toBeVisible()
   await expect(teamLine(page, 'Company PM').getByTestId('integration-access-warning')).toHaveCount(0)
-  // its page: who may use it, in one chip after the name
+  // its page: who may use it, under Team settings
   await openTeam(page, 'Company PM')
   const pm = row(page, 'Company PM')
-  await expect(pm.getByTestId('integration-audience')).toHaveText('재무팀 +1')
-  await expect(pm.getByTestId('integration-audience')).toHaveAttribute('title', '사용할 사람: 재무팀, Bob')
-  await expect((await adv(pm, 'integration-access-warning'))).toHaveCount(0)
-  await openRow(pm)
-  await expect((await adv(pm, 'integration-access-line'))).toContainText('사용할 사람: 재무팀, Bob')
-  await expect(pm).toContainText('쓰기 막기')
+  await expect(pm.getByTestId('integration-access-warning')).toHaveCount(0)
+  await expect(pm.getByTestId('integration-access-line')).toContainText('사용할 사람: 재무팀, Bob')
+  // writing blocked: the line on what the AI may do says it only reads
+  await expect(pm.getByTestId('app-abilities')).toHaveAttribute('data-can-change', 'no')
   await expect(page.locator('body')).not.toContainText(KEY)
 
   // edit: who may use it (the whole team), nothing about the key changes
-  await pm.getByTestId('integration-edit').click()
+  await menu(pm, 'integration-edit')
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   await (await adv(page, 'integration-access-everyone')).check()
   const patched = page.waitForRequest((r) => /\/api\/integrations\/[^/]+$/.test(r.url()) && r.method() === 'PATCH')
   await page.getByTestId('integration-save').click()
   expect((await patched).postDataJSON()).toEqual({ access: { everyone: true, groups: [], users: [] } })
-  await expect((await adv(pm, 'integration-access-line'))).toContainText('사용할 사람: 팀 전체')
-  await expect(pm.getByTestId('integration-audience')).toHaveText('모두')
+  await expect(pm.getByTestId('integration-access-line')).toContainText('사용할 사람: 팀 전체')
   // back to the group and Bob
-  await pm.getByTestId('integration-edit').click()
+  await menu(pm, 'integration-edit')
   await (await adv(page, 'integration-access-pick')).check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: '재무팀' }).check()
   await page.getByTestId('integration-save').click()
-  await expect((await adv(pm, 'integration-access-line'))).toContainText('사용할 사람: 재무팀, Bob')
+  await expect(pm.getByTestId('integration-access-line')).toContainText('사용할 사람: 재무팀, Bob')
 
   // one only for the admin, one for nobody yet, one only for Bob: the line says what needs the admin's attention
   // before anything is opened
@@ -410,19 +413,17 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(warning('Sales MCP')).toHaveText('아직 아무도 못 씀')
   await expect(warning('Bob MCP')).toHaveText('내 대화에서는 못 씀')
   await expect(warning('Design MCP')).toHaveCount(0)
-  // on each page one chip: one person by name, none for nobody (the warning says it)
-  for (const [name, chip] of [['Bob MCP', 'Bob'], ['Design MCP', 'Olga'], ['Sales MCP', null]] as const) {
+  // on each page, Team settings says who may use it: one person by name, nobody (once, as a warning)
+  for (const [name, who] of [['Bob MCP', /^사용할 사람: Bob/], ['Design MCP', /^사용할 사람: Olga/], ['Sales MCP', /^아직 아무도 못 씀/]] as const) {
     await openTeam(page, name)
-    if (chip) await expect(row(page, name).getByTestId('integration-audience')).toHaveText(chip)
-    else await expect(row(page, name).getByTestId('integration-audience')).toHaveCount(0)
-    await expect(row(page, name).getByTestId('integration-toggle')).toHaveAttribute('aria-expanded', 'false')
-    await expect(row(page, name).getByTestId('integration-details')).toHaveCount(0)
+    await expect(row(page, name).getByTestId('integration-access-line')).toHaveText(who)
     await page.goto('/admin/connectors')
   }
-  // opened, the details say who may use it, without the warning a second time
+  await openTeam(page, 'Sales MCP')
+  await expect(row(page, 'Sales MCP').getByText('아직 아무도 못 씀')).toHaveCount(1)
+  // and that it is not in the admin's chats, once
+  await page.goto('/admin/connectors')
   await openTeam(page, 'Bob MCP')
-  await openRow(row(page, 'Bob MCP'))
-  await expect(row(page, 'Bob MCP').getByTestId('integration-access-line')).toHaveText(/^사용할 사람: Bob/)
   await expect(row(page, 'Bob MCP').getByText('내 대화에서는 못 씀')).toHaveCount(1)
 
   // the admin's own Connectors: the team's connections the admin may use, one line each with the Team label (the ones
@@ -439,10 +440,13 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await teamRow('Design MCP').click()
   await expect(page.getByTestId('connector-detail')).toBeVisible()
   const design = row(page, 'Design MCP')
-  await openRow(design)
-  await design.getByTestId('integration-tools-toggle').click()
-  for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start', 'integration-tool-switch']) await expect(design.getByTestId(id)).toHaveCount(0)
+  await expect(design.getByTestId('connection-menu')).toHaveCount(0)
+  await expect(design.getByTestId('integration-signin-start')).toHaveCount(0)
   await expect(page.getByTestId('connector-privacy')).toBeVisible()
+  await design.getByTestId('integration-tools-toggle').click()
+  await expect(tools(page)).not.toHaveCount(0)
+  await expect(page.getByTestId('integration-tool-switch')).toHaveCount(0)
+  await page.getByTestId('integration-tools-done').click()
 
   // Bob sees the team connections he was given read-only, and not the others
   await page.context().clearCookies()
@@ -453,12 +457,11 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await expect(teamRow('Company PM').getByTestId('connector-row-status')).toHaveText('연결됨')
   await teamRow('Company PM').click()
   const shared = row(page, 'Company PM')
-  await openRow(shared)
-  await expect(shared).toContainText('쓰기 막기')
-  for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
+  await expect(shared.getByTestId('app-abilities')).toHaveAttribute('data-can-change', 'no')
+  for (const id of ['connection-menu', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
   // he may add his own: Discover is under the team's. Not by its address: no Add, and "Not listed?" says to ask an
   // admin (docs/DECISIONS.md "Plain words for members")
-  await page.getByTestId('connector-back').click()
+  await page.getByTestId('app-breadcrumb-connectors').click()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
   await expect(page.getByTestId('connector-custom')).toHaveCount(0)
@@ -499,10 +502,11 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await expect(asked).toHaveText('요청을 보냈어요')
   await expect(asked).toBeFocused()
   await expect(detail.getByTestId('service-asked-note')).toHaveText('Gmail 준비가 끝나면 알려 드릴게요.')
-  // opened again: "already asked", and asking again (another window) sends nothing new
+  // opened again: the same "Request sent" (one word for an open request, QA final), and asking again (another window)
+  // sends nothing new
   await page.reload()
   await expect(asked).toHaveAttribute('data-state', 'already')
-  await expect(asked).toHaveText('이미 요청했어요')
+  await expect(asked).toHaveText('요청을 보냈어요')
   expect((await (await ask('gmail')).json()).state).toBe('already')
   // only the ids of the apps and listed services (request-connector.spec.ts): anything else is refused by the server
   for (const s of ['https://mcp.notion.com/mcp', 'Notion', 'slack']) expect((await ask(s)).status()).toBe(400)
@@ -515,9 +519,12 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   // the owner: one notice in Activity, whose row opens Gmail's setup
   await page.context().clearCookies()
   await signIn(page)
+  // (a computer: its row in the 활동 panel opens it beside the list, as itself while it has its button)
   await page.goto('/activity')
-  const notice = page.getByTestId('notification-service-request-link')
+  await expect((await activityRows(page)).filter({ hasText: 'Gmail' })).toHaveCount(1)
+  const notice = (await openNotice(page, 'Bob님이 Gmail 추가를 요청했어요')).getByTestId('notification-service-request-link')
   await expect(notice).toHaveCount(1)
+  const opened = page.url()
   await expect(notice.getByTestId('notification-text')).toHaveText('Bob님이 Gmail 추가를 요청했어요')
   await expect(notice.getByTestId('notification-service-setup')).toHaveText('Gmail 설정하기')
   await notice.click()
@@ -532,7 +539,7 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await page.getByTestId('gapp-setup-save').click()
   await expect(page.getByTestId('gapp-admin-state')).toHaveAttribute('data-state', 'on')
   // the notice is done: it says added and opens nothing any more
-  await page.goto('/activity')
+  await page.goto(opened)
   await expect(page.getByTestId('notification-service-added')).toHaveText('추가됨')
   await expect(page.getByTestId('notification-service-request-link')).toHaveCount(0)
 
@@ -540,8 +547,9 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/activity')
-  const ready = page.getByTestId('notification-service-ready-link')
-  await expect(ready.getByTestId('notification-text')).toHaveText('Gmail 준비가 끝났어요. 지금 연결할 수 있어요.')
+  const ready = (await activityRows(page)).filter({ hasText: 'Gmail 준비가 끝났어요' })
+  await expect(ready).toHaveCount(1)
+  await expect(ready).toContainText('Gmail 준비가 끝났어요. 지금 연결할 수 있어요.')
   await expect(ready).not.toContainText('Olga')
   await ready.click()
   await expect(page).toHaveURL(/\/connectors\/gmail$/)
@@ -578,53 +586,56 @@ test('single tools on and off: a switch each for whoever manages the connection;
   expect((await page.request.post('/api/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none' } })).status()).toBe(201)
   await openMine(page, 'Linear')
   const linear = row(page, 'Linear')
-  await openRow(linear)
   await linear.getByTestId('integration-tools-toggle').click()
-  const create = linear.getByTestId('integration-tool').filter({ hasText: 'Create page' })
+  const create = tools(page).filter({ hasText: 'Create page' })
   const sw = create.getByRole('checkbox', { name: 'AI가 Create page 쓰기' })
   await expect(sw).toBeChecked()
-  await expect(linear).toContainText('끈 도구는 AI에게 보이지 않고 쓸 수도 없어요. 서비스에 나중에 새로 생긴 도구는 켜진 채로 추가돼요.')
+  const tdialog = page.getByRole('dialog')
+  await expect(tdialog).toContainText('끈 도구는 AI에게 보이지 않고 쓸 수도 없어요. 서비스에 나중에 새로 생긴 도구는 켜진 채로 추가돼요.')
   const sent = page.waitForRequest((r) => /\/api\/integrations\/[^/]+\/tools$/.test(r.url()) && r.method() === 'POST')
   await create.locator('label').click()
   expect((await sent).postDataJSON()).toEqual({ name: 'create_page', enabled: false })
   await expect(sw).not.toBeChecked()
   await expect(create).toHaveAttribute('data-enabled', 'false')
-  await expect(linear.getByTestId('integration-tools-off')).toHaveText(' · 1개 꺼짐')
   // the keyboard works too (a real checkbox): Space turns it back on, and off again
   await sw.focus()
   await page.keyboard.press('Space')
   await expect(sw).toBeChecked()
   await page.keyboard.press('Space')
   await expect(sw).not.toBeChecked()
+  // on the page: the chip shows it is off, and how many are
+  await page.getByTestId('integration-tools-done').click()
+  await expect(linear.getByTestId('integration-tools-off')).toHaveText('1개 꺼짐')
+  await expect(linear.locator('[data-testid="app-tool"][data-name="create_page"]')).toHaveAttribute('data-off', 'true')
   // checking again brings a new tool: it is on, the one turned off stays off
-  await linear.getByTestId('integration-refresh').click()
-  await expect(linear.getByTestId('integration-tool')).toHaveCount(3)
-  await expect(linear.getByTestId('integration-tool').filter({ hasText: 'get_page' })).toHaveAttribute('data-enabled', 'true')
+  await menu(linear, 'integration-refresh')
+  await expect(linear.getByTestId('app-tool')).toHaveCount(3)
+  await linear.getByTestId('integration-tools-toggle').click()
+  await expect(tools(page)).toHaveCount(3)
+  await expect(tools(page).filter({ hasText: 'get_page' })).toHaveAttribute('data-enabled', 'true')
   await expect(create).toHaveAttribute('data-enabled', 'false')
   await page.reload()
-  await openRow(row(page, 'Linear'))
   await row(page, 'Linear').getByTestId('integration-tools-toggle').click()
-  await expect(row(page, 'Linear').getByTestId('integration-tool').filter({ hasText: 'Create page' }).getByRole('checkbox')).not.toBeChecked()
+  await expect(tools(page).filter({ hasText: 'Create page' }).getByRole('checkbox')).not.toBeChecked()
 
   // a team connection: the admin's switches in Admin › External services; Bob, who uses it, sees "Off" and no switch
   const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Team wiki', url: 'https://mcp.wiki.example/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } } })
   expect(made.status()).toBe(201)
   await openTeam(page, 'Team wiki')
   const wiki = row(page, 'Team wiki')
-  await openRow(wiki)
   await wiki.getByTestId('integration-tools-toggle').click()
-  await wiki.getByTestId('integration-tool').filter({ hasText: 'Search pages' }).locator('label').click()
-  await expect(wiki.getByTestId('integration-tool').filter({ hasText: 'Search pages' })).toHaveAttribute('data-enabled', 'false')
+  await tools(page).filter({ hasText: 'Search pages' }).locator('label').click()
+  await expect(tools(page).filter({ hasText: 'Search pages' })).toHaveAttribute('data-enabled', 'false')
+  await page.getByTestId('integration-tools-done').click()
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/connectors')
   await openMine(page, 'Team wiki')
   const seen = row(page, 'Team wiki')
-  await openRow(seen)
   await seen.getByTestId('integration-tools-toggle').click()
-  await expect(seen.getByTestId('integration-tool-switch')).toHaveCount(0)
-  await expect(seen.getByTestId('integration-tool').filter({ hasText: 'Search pages' })).toContainText('꺼짐')
-  await expect(seen).toContainText('꺼진 도구는 AI가 쓰지 않아요. 켜고 끄는 것은 이 연결을 관리하는 사람이 해요.')
+  await expect(page.getByTestId('integration-tool-switch')).toHaveCount(0)
+  await expect(tools(page).filter({ hasText: 'Search pages' })).toContainText('꺼짐')
+  await expect(page.getByRole('dialog')).toContainText('꺼진 도구는 AI가 쓰지 않아요. 켜고 끄는 것은 이 연결을 관리하는 사람이 해요.')
   const refused = await page.request.post(`/api/integrations/${(await made.json()).id}/tools`, { headers: { [CSRF_HEADER]: '1' }, data: { name: 'search_pages', enabled: true } })
   expect(refused.status()).toBe(403)
   expect(realErrors(errors).filter((e) => !/status of 40[34]/.test(e))).toEqual([])
@@ -680,12 +691,14 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   const notion = cards.filter({ hasText: 'Notion' })
   await notion.getByRole('button', { name: 'Notion 추가' }).click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
-  // in Admin it says it becomes a team connection
-  await expect(dialog.getByRole('heading', { name: 'Notion 팀 연결 추가' })).toBeVisible()
+  // the app's icon and "Notion 추가" in the title (QA TC-190); that it is for the team is the "For" line's
+  await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
+  await expect(dialog.getByTestId('integration-title-app').locator('img')).toHaveAttribute('src', '/icons/connectors/notion.svg')
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
   // what the list answers is not asked; who may use it and what the AI may change still are
   for (const id of ['integration-name', 'integration-url', 'integration-kind-http', 'integration-auth-oauth']) await expect(page.getByTestId(id)).toHaveCount(0)
-  await expect((await adv(page, 'integration-write-ask'))).toBeChecked()
+  await expect(await adv(page, 'integration-write-ask')).toHaveJSProperty('selected', true)
   await expect((await adv(page, 'integration-access')).getByTestId('integration-access-everyone')).toBeChecked()
   await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
@@ -727,8 +740,8 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   // any other MCP server or API by its address
   await page.getByTestId('connector-custom').click()
   await expect(page.getByTestId('integration-url')).toHaveValue('')
-  await expect((await adv(page, 'integration-kind-mcp'))).toBeChecked()
-  await expect((await adv(page, 'integration-kind-http'))).toBeVisible()
+  await expect(await adv(page, 'integration-kind-mcp')).toHaveJSProperty('selected', true)
+  await expect(await adv(page, 'integration-kind-http')).toHaveCount(1)
   await page.keyboard.press('Escape')
 
   // a team connection the member may use counts as connected: Discover no longer offers that service to him
@@ -750,16 +763,15 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await page.getByTestId('integration-save').click()
   expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Figma', url: 'https://mcp.figma.com/mcp', auth: 'oauth', writePolicy: 'ask' })
   await ownSignIn
-  // his new connection's page, with its row
+  // his new connection's page: his own, so ⋯ manages it
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
-  const mine = page.getByTestId('integrations-mine').getByTestId('integration-row')
+  const mine = row(page, 'Figma')
   await expect(mine).toHaveCount(1)
-  await expect(mine).toHaveAttribute('data-name', 'Figma')
-  await expect(mine).toHaveAttribute('data-scope', 'personal')
+  await expect(mine.getByTestId('connection-menu')).toHaveCount(1)
   // signed in at the service with his own account
-  await expect(mine).toHaveAttribute('data-status', 'connected')
+  await expect(mine).toHaveAttribute('data-state', 'connected')
   // the list: his own and the team's Linear (with the Team label) in Your connectors; neither is offered in Discover
-  await page.getByTestId('connector-back').click()
+  await page.getByTestId('app-breadcrumb-connectors').click()
   const rows = page.getByTestId('connected-apps').locator('[data-testid="connected-app"]')
   await expect(rows.filter({ hasText: 'Figma' })).toHaveCount(1)
   await expect(rows.filter({ hasText: 'Figma' }).getByTestId('connector-row-team')).toHaveCount(0)
@@ -768,10 +780,10 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await page.getByTestId('connector-show-all').click()
   for (const id of ['figma', 'linear']) await expect(page.locator(`[data-testid="connector-card"][data-id="${id}"]`)).toHaveCount(0)
   await linear.click()
-  const shared = page.getByTestId('integration-row')
+  // the team's: read-only for him, nothing to manage
+  const shared = row(page, 'Linear')
   await expect(shared).toHaveCount(1)
-  await expect(shared).toHaveAttribute('data-name', 'Linear')
-  await expect(shared).toHaveAttribute('data-scope', 'team')
+  await expect(shared.getByTestId('connection-menu')).toHaveCount(0)
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
@@ -799,23 +811,23 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-settings-list${suffix}.png`, fullPage: true })
     await openMine(page, 'Linear')
-    await openRow(row(page, 'Linear'))
     await row(page, 'Linear').getByTestId('integration-tools-toggle').click()
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-settings-row${suffix}.png`, fullPage: true })
+    await page.keyboard.press('Escape')
     await toList(page)
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
+    await choose(page, 'integration-kind-http')
     await page.getByTestId('integration-name').fill('AI PM')
     await page.getByTestId('integration-url').fill('https://pm.example.com/api')
-    await (await adv(page, 'integration-write-deny')).check()
+    await choose(page, 'integration-write-deny')
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-add-dialog${suffix}.png` })
     await page.keyboard.press('Escape')
     // your own app: an API that signs in, and an MCP server's choice in Advanced
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
-    await (await adv(page, 'integration-auth-oauth')).check()
+    await choose(page, 'integration-kind-http')
+    await choose(page, 'integration-auth-oauth')
     await page.getByTestId('integration-advanced').click()
     await page.getByTestId('integration-name').fill('NAVER WORKS')
     await page.getByTestId('integration-url').fill('https://www.worksapis.com/v1.0')
@@ -826,14 +838,13 @@ test('screenshots', async ({ page }) => {
     await page.getByTestId('integration-add').click()
     await page.getByTestId('integration-name').fill('Gmail')
     await page.getByTestId('integration-url').fill('https://gmailmcp.googleapis.com/mcp/v1')
-    await (await adv(page, 'integration-app-use')).check()
+    await (await adv(page, 'integration-app-use')).check({ force: true }) // a switch: its box is drawn over the input
     await page.getByTestId('integration-app-use').scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-own-app-mcp${suffix}.png` })
     await page.keyboard.press('Escape')
     await openMine(page, 'AI PM')
-    await openRow(row(page, 'AI PM'))
-    await row(page, 'AI PM').getByTestId('integration-edit').click()
+    await menu(row(page, 'AI PM'), 'integration-edit')
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-edit-dialog${suffix}.png` })
     await page.keyboard.press('Escape')
@@ -841,6 +852,8 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-admin-list${suffix}.png`, fullPage: true })
     await page.getByTestId('integration-add').click()
+    // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+    await page.getByTestId('integration-pick-custom').click()
     await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
     await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
     await (await adv(page, 'integration-access')).scrollIntoViewIfNeeded()
@@ -856,8 +869,8 @@ test('screenshots', async ({ page }) => {
     await page.screenshot({ path: `${dir}/int-phone-add${suffix}.png` })
     await page.keyboard.press('Escape')
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-kind-http')).check()
-    await (await adv(page, 'integration-auth-oauth')).check()
+    await choose(page, 'integration-kind-http')
+    await choose(page, 'integration-auth-oauth')
     await page.getByTestId('integration-advanced').click()
     await page.getByTestId('integration-app-client-id').scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)

@@ -1,5 +1,7 @@
-// App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
-// which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
+// App frame: on a computer the rail and its one list panel (components/rail/RailColumns.tsx; docs/DECISIONS.md
+// "Computers: an icon rail with labels"), on a phone the tab bar (components/BottomTabs.tsx); the page, and the
+// right-hand panel (artifact / file preview / browser), which is a full-screen sheet below 768 px. Also: connection
+// banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -10,6 +12,7 @@ import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
+import { newChatPath } from '../lib/newChat'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -19,10 +22,10 @@ import OfficeUpdateBanner from './OfficeUpdateBanner'
 import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
-import Sidebar from './Sidebar'
 import { TeamInviteDialog } from './TeamMenu'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
+import { TrinaDrawer } from './phone/TrinaDrawer'
 import { PhonePushAsk } from './settings/PushNotifications'
 import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
@@ -30,24 +33,24 @@ import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
+import { RailColumns } from './rail/RailColumns'
+import { PANEL_ID } from './panels/PanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
 const BrowserPanel = lazy(() => import('./BrowserPanel'))
 
 export default function Layout() {
   const t = useT()
-  const drawer = useUi((s) => s.drawerOpen)
-  const setDrawer = useUi((s) => s.setDrawer)
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const panel = useSidePanel()
-  // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the sidebar; the page stays mounted, hidden
+  // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the rail; the page stays mounted, hidden
   const big = usePanelExpanded() && expandable(panel)
   // the image and file viewer (components/ImageViewer.tsx, over the whole window): the app under it is out of reach
   const viewerOpen = !!useImageViewer()
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
-  // the team chat rooms: the list (sidebar group, the phone tab's count) stays loaded while the app is open
+  // the team chat rooms: the list (the 대화 panel, the rail's and the phone tab's count) stays loaded while the app is open
   useRoomsSync()
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
@@ -65,17 +68,16 @@ export default function Layout() {
         setSearchOpen(true)
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
-        navigate('/')
+        navigate(newChatPath())
       } else if (e.key === 'Escape') {
-        const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]:not([data-drawer])'), drawer: useUi.getState().drawerOpen, expanded: panelExpandedNow() })
-        if (step === 'drawer') setDrawer(false)
-        else if (step === 'side-by-side') setPanelExpanded(false)
+        const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]'), expanded: panelExpandedNow() })
+        if (step === 'side-by-side') setPanelExpanded(false)
         else if (step === 'close') closeSidePanel()
       }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [navigate, setSearchOpen, setDrawer])
+  }, [navigate, setSearchOpen])
 
   // the AI started writing an artifact in the chat on screen, or saved an intro deck, a promo video or a card news: open
   // it (Claude parity). A new chat's first answer (the welcome steps' intro deck) can start before its page is on
@@ -111,11 +113,13 @@ export default function Layout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  useEffect(() => setDrawer(false), [location.pathname, setDrawer])
-  // phones: Back closes the drawer, then a full-screen side panel (file preview, artifact, browser), and only then
-  // leaves the page (QA TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the
-  // new page
+  // phones: Back closes a full-screen side panel (file preview, artifact, browser), and only then leaves the page (QA
+  // TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the new page
   const phone = !useMediaQuery('(min-width: 768px)')
+  // a computer: the rail and its list panel; a phone: the tab bar
+  const rail = !phone
+  // whether the rail's list panel shows (RailColumns sets it while the rail is on): the skip link "목록으로" goes there
+  const [listShown, setListShown] = useState(false)
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
   // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
   const covered = phone && !!panel
@@ -128,9 +132,8 @@ export default function Layout() {
     const back = lastFocus.current
     if (back?.isConnected && (document.activeElement === document.body || !document.activeElement)) back.focus({ preventScroll: true })
   }, [covered])
-  useOverlayEntry(drawer, () => setDrawer(false))
   useOverlayEntry(!!panel, closeSidePanel, { at: location.key })
-  // any move (the sidebar's Files, a folder link, a link to the page already open): side by side again, so the page
+  // any move (the rail's 파일, a folder link, a link to the page already open): side by side again, so the page
   // shows beside a panel it keeps. The image viewer's own history entry is not a move (lib/imageViewer.ts)
   useEffect(() => setPanelExpanded(false), [location.key])
 
@@ -146,25 +149,19 @@ export default function Layout() {
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
+      {rail && listShown && (
+        <a href={`#${PANEL_ID}`} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow" data-testid="skip-list">
+          {t('rail.skipList')}
+        </a>
+      )}
       <DemoOrDevBanner />
       <ConnectionBanner />
       <OfficeUpdateBanner />
       <ManagedNoticesBanner />
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
-        {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
-            one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
-        <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
-          <Sidebar />
-        </div>
-        {drawer && (
-          <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
-            <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
-            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs bg-subtle pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl">
-              <Sidebar />
-            </div>
-          </div>
-        )}
+        {/* a computer: the rail and its list panel (a phone has the tab bar at the bottom instead) */}
+        {rail && <RailColumns onList={setListShown} />}
         {/* phones: a side panel (a file's preview, an artifact, the browser) is a full-screen sheet over the page, and the
             page behind it is out of reach (no tap, scroll or focus goes there) until it closes */}
         <main id="main" tabIndex={-1} onFocus={(e) => { if (e.target instanceof HTMLElement) lastFocus.current = e.target }} inert={covered || undefined} aria-hidden={covered || undefined} className={clsx('flex min-w-0 flex-1 flex-col outline-none', big && 'md:hidden')}>
@@ -173,7 +170,7 @@ export default function Layout() {
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
           <PhoneTopBar />
           <div className="min-h-0 flex-1">
-            {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
+            {/* a page that cannot be loaded after a server update: here, with the rail still there (another page resets it) */}
             <ChunkErrorBoundary resetKey={location.pathname}>
               <Outlet />
             </ChunkErrorBoundary>
@@ -184,6 +181,8 @@ export default function Layout() {
           <WebPushAsk at="bottom" />
           {/* phones: 트리나 · 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
+          {/* phones: the 트리나 tab's ☰ drawer (the AI's history) */}
+          <TrinaDrawer />
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums

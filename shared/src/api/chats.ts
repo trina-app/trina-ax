@@ -73,7 +73,53 @@ export const ListChatsQuery = PageQuery.extend({
   trash: QueryBool.optional(),
   /** only my chats opened from this room's side panel (✦ Trina), newest first */
   sideRoomId: Uuid7.optional(),
+  /** only my chats in this list folder of mine (docs/DECISIONS.md "List folders"), newest first; another person's
+   * folder answers 404. Not with projectId or trash. */
+  folderId: Uuid7.optional(),
+  /** only the Trina list's "Other chats" (GET /api/chats/groups `other`, its next pages): my list's chats in no project
+   * I can see and in none of my list folders, pinned ones left out. Not with q, projectId, folderId, sideRoomId or trash. */
+  other: QueryBool.optional(),
 })
+
+// ---------------- the Trina list's groups (GET /api/chats/groups) ----------------
+/** Project groups in the Trina list: the projects with my activity in the last CHAT_GROUPS_RECENT_DAYS days, at most
+ * this many, the most recent first (the rest are behind "All projects"). */
+export const CHAT_GROUPS_PROJECTS_MAX = 8
+export const CHAT_GROUPS_RECENT_DAYS = 14
+/** a project group with no activity of mine for this many days starts folded */
+export const CHAT_GROUPS_FOLD_DAYS = 7
+/** rows of each group that come with it (`top`), the most recently active first */
+export const CHAT_GROUPS_TOP = 3
+/** A chat of a group that shows a session marker now (docs/DECISIONS.md "Session markers"): what the marker is made of,
+ * so a folded header or a group's "N more" shows the strongest mark of rows that are not in `top`. */
+export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true })
+export type ChatMark = z.infer<typeof ChatMark>
+const GroupHead = {
+  /** every chat of the group I can open now (never one I cannot), pinned ones left out (they are under `pinned`) */
+  count: z.number().int().nonnegative(),
+  /** its first CHAT_GROUPS_TOP chats, the most recently active first */
+  top: z.array(Chat),
+  /** the chats of the group that show a marker now, `top`'s included */
+  marked: z.array(ChatMark),
+}
+export const ChatGroups = z.object({
+  /** my pinned chats (the most recently pinned first), as the first page of GET /api/chats has them */
+  pinned: z.array(Chat),
+  /** my chat list folders in their order (docs/DECISIONS.md "List folders"), each with what I can open in it now */
+  folders: z.array(z.object({ id: Uuid7, name: z.string(), position: z.number().int().nonnegative(), ...GroupHead })),
+  /** the projects I can see with my activity in the last 14 days, the most recent first, at most 8. A project I cannot
+   * see now is never named: my chats in it are in `other`. */
+  projects: z.array(z.object({ projectId: Uuid7, name: z.string(), lastActivityAt: IsoTime, folded: z.boolean(), ...GroupHead })),
+  /** the projects I can see that are not in `projects` (behind "All projects") */
+  projectsMore: z.number().int().nonnegative(),
+  /** page 1 of my other chats: in no project I can see and in no folder of mine (the next pages: GET /api/chats?other=1) */
+  other: page(Chat),
+  /** every project I can see that holds chats of my list (pinned ones too), the most recent first: how many and when the
+   * latest was active (the 프로젝트 panel's "2시간 전 · 대화 5"). A project with none is not here. Absent from older
+   * servers. */
+  projectActivity: z.array(z.object({ projectId: Uuid7, count: z.number().int().nonnegative(), lastActivityAt: IsoTime })).optional(),
+})
+export type ChatGroups = z.infer<typeof ChatGroups>
 export const CreateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
   /** a side chat of this room (✦ Trina, docs/DECISIONS.md "Trina side chat"): I must be in the room; never with a
@@ -233,11 +279,6 @@ export type TurnConnectResult = z.infer<typeof TurnConnectResult>
  * browser_site requests are listed only for the window that sent the turn (X-Mycel-Window). */
 export const OpenTurnRequest = z.object({ turnId: Uuid7, chatId: Uuid7, messageId: Uuid7, request: TurnRequest })
 export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
-/** A room's card as its asker reads it again (GET /api/rooms/:id/ai/requests): no chat id. The room's AI session is a
- * chat of its own that is never listed or opened as a chat (GET /api/chats leaves out chats with a room), and the room
- * finds a card by its turn (web RoomAiStatus). */
-export const RoomTurnRequest = OpenTurnRequest.omit({ chatId: true })
-export type RoomTurnRequest = z.infer<typeof RoomTurnRequest>
 
 // ---------------- projects ----------------
 /** Who works in a team project (each gets read and write; nobody else but the creator, the owner and admins). */
@@ -377,6 +418,7 @@ export const PutProjectParticipantsBody = z.object({ participants: z.array(Proje
 export const CHATS = {
   oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
+  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1); projectActivity: for every project I can see, how many chats of my list it holds and when the latest was active. Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
@@ -398,7 +440,6 @@ export const CHATS = {
   selectBranch: endpoint({ method: 'POST', path: '/api/chats/:id/branch', auth: 'user', owner: 'B', body: SelectBranchBody, response: MessagesPage, summary: 'Switch the visible branch ("< 2/3 >"); returns the newest page of the new path.' }),
   listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
   // here, not in rooms.ts: ws.ts (TurnRequest) and this file import rooms.ts
-  listRoomAiRequests: endpoint({ method: 'GET', path: '/api/rooms/:id/ai/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomTurnRequest) }), summary: "Open cards (the AI's questions, confirmations) of the caller's own questions to the AI in a room I am in, its threads included; never anyone else's." }),
   connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
@@ -414,6 +455,6 @@ export const CHATS = {
   getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
-  shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it (the personal folder stays).' }),
+  shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it; then the personal folder goes to the caller\'s trash (the files moved; a refusal leaves it).' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const

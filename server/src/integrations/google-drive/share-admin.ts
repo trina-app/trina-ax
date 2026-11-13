@@ -12,6 +12,7 @@ import { audit } from '../../admin/audit'
 import { setSetting } from '../../admin/settings'
 import { googleDriveOf, type DriveConn } from './oauth'
 import { DriveError } from './store'
+import { googleAccountInUse, googleEmailOf } from '../connections/store'
 import { notifyDriveShareReconnect } from '../../notifications/service'
 import { foldersOf, shareByName, shareRow, shareRows, setShareAccess, shareAccess, shareView, shareWorks } from './shares'
 
@@ -143,6 +144,8 @@ export async function stopShare(ctx: AppContext, actor: string, id: string) {
   })()
   svc.abort(`share:${id}`)
   audit(ctx.db, { actor, action: 'drive.share_stopped', target: id })
+  // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account
+  if (googleAccountInUse(ctx.db, googleEmailOf(r.account), { share: id })) return { stopped: true as const, revocation: 'not_needed' as const }
   return { stopped: true as const, revocation: await svc.revoke(token) }
 }
 
@@ -163,6 +166,8 @@ export async function endShareSignIn(ctx: AppContext, actor: string, id: string)
   ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
   svc.abort(`share:${id}`)
   notifyDriveShareReconnect(ctx, id, `${id}.v${r.version + 1}`)
+  // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account (a shared Gmail …)
+  if (googleAccountInUse(ctx.db, googleEmailOf(r.account), { share: id })) return 'not_needed'
   const first = await svc.revoke(token).catch(() => 'unavailable' as const)
   return first === 'unavailable' ? await svc.revoke(token).catch(() => 'unavailable' as const) : first
 }

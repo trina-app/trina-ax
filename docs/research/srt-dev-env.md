@@ -189,7 +189,11 @@ slice (section 4) gives a hard ceiling that the server cannot raise.
 
 ### 2.2 The call
 
-For each run the server spawns this (one argv, no shell):
+Since 2026-11-13 a run is an instance `trina-dev@<runId>.service` of a root-installed template, started with
+`systemctl set-property --runtime` (the limits) and `systemctl start --wait`; run-wrap reads the argv below (after
+`run-wrap <exit-file> --`) from an arguments file (docs/DECISIONS.md "Dev environment on srt: runs as template units").
+The scope call below stays only for a server whose root files are older. Before that change, for each run the server
+spawned this (one argv, no shell):
 
 ```
 systemd-run --scope --quiet --collect
@@ -489,6 +493,13 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
   rules.
 - Fallback (one line): v1 ships with no preview, and the AI tests with curl in one command (Q2).
 
+  **Built 2026-11-12** (feat/srt-preview, `docs/DECISIONS.md` "Dev environment on srt: preview"). What differs: Go cannot
+  setns into a user namespace (more than one thread), so `port-forward` does the checks, opens the namespaces and hands
+  them to util-linux `nsenter`, which execs `port-forward-inner`. The user namespace is the owner of the network namespace
+  (`NS_GET_USERNS`), not the command's own (srt's seccomp helper nests one). The target is the namespace of the run's scope
+  cgroup where the port listens. Ports 3128 and 1080 (srt's relays) are refused. A link belongs to the person who started
+  the dev server. S2 and A26 are checked by `scripts/dev-env/srt/vm-check.sh REPO preview`.
+
 ## 6. Output, logs and the jobs list
 
 - Run folder: `<base>/devenv/logs/<userId>/`. The server owns it. The sandbox of that person's runs can only read it.
@@ -662,7 +673,7 @@ no canary comes back and the action fails.
 | A22 | a fork bomb | stopped at TasksMax; the server answers |
 | A23 | `dd` in the project folder up to the disk floor | the run stops with `disk` |
 | A24 | chromium `--headless --no-sandbox` opens `file:///var/lib/<ID>/secrets/...` | not found |
-| A25 | as the server account outside the sandbox: start `trina-dev-x.service` or `other.scope` | polkit says no |
+| A25 | as the server account outside the sandbox: start a transient `.service`, `trina-dev@x.service`, another template or `other.scope`; restart a run unit; set `User=`, `Slice=` or `ExecStart=` of a run unit | polkit or systemd says no |
 | A26 | preview of job A's port through job B's socket; the sandbox opens a preview socket | fails |
 
 CI: lines A1-A20 and A24 run in the existing Docker job (bwrap works there), with a delegated cgroup in place of
@@ -731,7 +742,8 @@ Verified after the scope change (2026-11-04):
   throttled it at 1471 MiB until `RuntimeMaxSec` ended it. The scope now has no `MemoryHigh`. On the second VM run
   (same checks, 0 failed) the bomb ended with `Result=oom-kill` at 1536 MiB, and the server lived.
 - A25b (info): polkit allows a `trina-dev-<16>.scope` in another slice. Only the server account can ask (the sandbox
-  cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1).
+  cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1). Closed by the
+  template units (2026-11-13): `Slice=` is in the root-installed template, and set-property refuses it.
 
 Code: `server/src/devenv/srt/` (`config.ts` settings, environment and argv; `plan.ts`; `system.ts`; `runner.ts`), the
 forks in `tool.ts`, `jobs.ts`, `setting.ts` and `routes/dev-env.ts`, migration `222_b_dev_env_run_state.sql`, install in
@@ -763,12 +775,12 @@ project folder (srt makes the parents of an allowed path).
 
 Not done:
 
-- Preview (S2, `port-forward`).
+- Preview (S2, `port-forward`): built 2026-11-12, see section 5.
 - UI after the scope change: no page lists or stops the runs of a chat with no project (the API is there:
   `GET /api/dev-env/runs`); the team setting is turned on only from a project page's modal (no admin settings block
   yet), so a team with no project cannot turn it on in the UI.
 - The tool rename; Ubuntu 24.04 (S6); the public IPv6 of the VM (IMDS gives only IPv4 here).
-- Not verified on systemd: A23 (the disk floor) and A26 (preview). The rest of the VM list passed (see above).
+- Not verified on systemd: A23 (the disk floor). A26 (preview): see section 5 (2026-11-12). The rest of the VM list passed (see above).
 - The devenv slice is a child of `<ID>.slice`: when 1A limits are on, the runs share that ceiling with the server.
 
 

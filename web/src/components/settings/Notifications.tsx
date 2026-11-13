@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
@@ -20,8 +21,9 @@ import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
 import { requestableName } from '../../lib/googleApps'
 
-/** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
-const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+/** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
+ * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림") */
+const workKeys = ['chatAnswers', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -45,11 +47,11 @@ export const credentialChangeText = (c: NonNullable<InboxNotification['credentia
 export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId' | 'contribution'>) =>
   `/skills?${item.code === 'skill.suggested' ? (item.contribution ? 'batch' : 'review') : 'mine'}=${encodeURIComponent(item.sourceId)}`
 
-/** Settings › MCP: a request opens as ?request=, a connection template (its notice, or a scheduled run that needed it)
- * opens its Connect as ?template=. */
+/** Settings › Connectors: a request opens as ?request=, a connection template (its notice, or a scheduled run that
+ * needed it) opens its Connect as ?template=. */
 export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'template' | 'needsKey'>) => {
   const template = item.template?.id ?? item.needsKey?.templateId
-  return template ? `/connectors?template=${encodeURIComponent(template)}` : `/connectors?request=${encodeURIComponent(item.sourceId)}`
+  return template ? `${CONNECTORS_HOME}?template=${encodeURIComponent(template)}` : `${CONNECTORS_HOME}?request=${encodeURIComponent(item.sourceId)}`
 }
 
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
@@ -133,8 +135,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
     : t('notifications.event.schedule.projectGone')
   // a task whose save folder lapsed: check it again on the Scheduled page (its runs save in the own folder meanwhile)
   if (item.code === 'schedule.failure' && item.saveLapsed) return title
-    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamed', { title }, ['title'])
-    : t('notifications.event.schedule.saveLapsed')
+    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamedFiles', { title }, ['title'])
+    : t('notifications.event.schedule.saveLapsedFiles')
   if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
   if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
     const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'
@@ -152,10 +154,10 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
-  if (item.link === 'connections') return { to: '/connectors/google-drive', testId: 'notification-connections-link' }
+  if (item.link === 'connections') return { to: connectorHref('google-drive'), testId: 'notification-connections-link' }
   // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
   if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
-  if (item.code === 'service.ready' && item.serviceRequest) return { to: `/connectors/${encodeURIComponent(item.serviceRequest.service)}`, testId: 'notification-service-ready-link' }
+  if (item.code === 'service.ready' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-ready-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
@@ -171,7 +173,7 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
-  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole
@@ -243,7 +245,13 @@ export function Notifications() {
     {preferences && <PrefSection title={t('notifications.section.work')} desc={t('notifications.preferenceHint')} testId="notifications-work">
       {/* a server from before a preference existed leaves it out: no row for it */}
       {workKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <PrefRow key={key} id={`np-${key}`} title={t(`notifications.${key}`)} desc={t(`notifications.${key}Desc`)}
-        control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key]} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
+        control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
+    </PrefSection>}
+    {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
+        device; a server from before it leaves it out (no row) */}
+    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

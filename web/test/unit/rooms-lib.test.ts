@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -55,33 +55,23 @@ describe('@mentions', () => {
     const cy = { start: 3, end: 11, id: CY.id, name: CY.name }
     const ben = { start: 16, end: 20, id: BEN.id, name: BEN.name }
     const text = 'hi @Cy Park and @Ben'
-    expect(mentionTokens(text, [cy, ben], false)).toEqual([{ start: 3, end: 11, kind: 'person', id: CY.id }, { start: 16, end: 20, kind: 'person', id: BEN.id }])
-    expect(tokenMentions(mentionTokens(text, [cy, ben, { ...ben }], false))).toEqual([CY.id, BEN.id])
+    expect(mentionTokens(text, [cy, ben])).toEqual([{ start: 3, end: 11, kind: 'person', id: CY.id }, { start: 16, end: 20, kind: 'person', id: BEN.id }])
+    expect(tokenMentions(mentionTokens(text, [cy, ben, { ...ben }]))).toEqual([CY.id, BEN.id])
     // the text there changed (the range no longer holds "@Ben"): not a mention
-    expect(mentionTokens('hi @Cy Park and @Bex', [cy, ben], false).map((x) => x.id)).toEqual([CY.id])
+    expect(mentionTokens('hi @Cy Park and @Bex', [cy, ben]).map((x) => x.id)).toEqual([CY.id])
     // a letter right before the "@" pauses it (the message would show it as text, as mentionParts does)
-    expect(mentionTokens('hi x@Cy Park', [{ ...cy, start: 4, end: 12 }], false)).toEqual([])
-    expect(mentionTokens('hi (@Cy Park)', [{ ...cy, start: 4, end: 12 }], false)).toHaveLength(1)
+    expect(mentionTokens('hi x@Cy Park', [{ ...cy, start: 4, end: 12 }])).toEqual([])
+    expect(mentionTokens('hi (@Cy Park)', [{ ...cy, start: 4, end: 12 }])).toHaveLength(1)
     // text that only looks like a mention (pasted, typed) is none
-    expect(mentionTokens('hi @Cy Park', [], false)).toEqual([])
+    expect(mentionTokens('hi @Cy Park', [])).toEqual([])
   })
 
-  test('"@트리나" stands out where the server takes it as a call, unless a picked person has that name', () => {
-    expect(mentionTokens('@트리나 정리해 줘', [], true)).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
-    expect(mentionTokens('@트리나 정리해 줘', [], false)).toEqual([])
-    expect(mentionTokens('@트리나야 안녕', [], true)).toEqual([])
-    expect(mentionTokens('메일 a@트리나', [], true)).toEqual([])
-    expect(mentionTokens('ask @trina, please', [], true)).toEqual([{ start: 4, end: 10, kind: 'ai', id: '@ai' }])
-    // a person called 트리나 was picked: the server asks no AI for any "@트리나" of this message
+  test('"@트리나" is text: no token, whoever is picked', () => {
+    expect(mentionTokens('@트리나 정리해 줘', [])).toEqual([])
     const person = { start: 0, end: 4, id: 'tri', name: '트리나' }
-    expect(mentionTokens('@트리나 @트리나', [person], true)).toEqual([{ start: 0, end: 4, kind: 'person', id: 'tri' }])
-    // a person whose name goes on from an AI name keeps it (the server asks no AI there either)
-    expect(mentionTokens('@Trina Kim hi', [{ start: 0, end: 10, id: 'tk', name: 'Trina Kim' }], true).map((x) => x.kind)).toEqual(['person'])
-    // a shorter name an AI name runs past: the call wins and the person is not sent
-    const tri = mentionTokens('@트리나 hi', [{ start: 0, end: 3, id: 'tri', name: '트리' }], true)
-    expect(tri).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
-    expect(tokenMentions(tri)).toEqual([])
+    expect(mentionTokens('@트리나 @트리나', [person])).toEqual([{ start: 0, end: 4, kind: 'person', id: 'tri' }])
   })
+
 
   test('a text\'s mentions as picked ones again (an edit, a send that came back), as the message marks them', () => {
     expect(mentionsIn('hi @Cy Park and @Ben', [CY, BEN])).toEqual([{ start: 3, end: 11, id: CY.id, name: CY.name }, { start: 16, end: 20, id: BEN.id, name: BEN.name }])
@@ -125,44 +115,6 @@ test("an AI answer's Markdown is one plain line in the rooms list", () => {
   expect(plainLine('**광고비 합계는 3,0')).toBe('광고비 합계는 3,0')
   // not Markdown: snake_case and 2*3 stay
   expect(plainLine('file_name_here 2*3*4')).toBe('file_name_here 2*3*4')
-})
-
-// ---------------- the AI in a room ----------------
-describe('the AI in a room', () => {
-  test('its "@" entry fits the start of any of its names, and an empty query', () => {
-    expect(aiMatches('')).toBe(true)
-    expect(aiMatches('트')).toBe(true)
-    expect(aiMatches('tri')).toBe(true)
-    expect(aiMatches('bo')).toBe(false)
-    expect(aiMentionNames('@트리나 hi').length).toBeGreaterThan(0)
-    expect(aiMentionNames('no call here')).toEqual([])
-  })
-  test('runs: a state change keeps the steps, a step goes in its place, the queue moves a waiting run', () => {
-    const base = { turnId: uuidv7(), roomId: uuidv7(), questionId: uuidv7(), state: 'queued' as const, position: 2, steps: [], error: null, createdAt: '2026-11-05T09:00:00.000Z' }
-    const step = { id: 's1', kind: 'tool' as const, label: 'Read · a.md', status: 'running' as const, startedAt: base.createdAt, endedAt: null }
-    let runs = withRun([], base)
-    runs = withRunPosition(runs, base.turnId, 1)
-    expect(runs[0]).toMatchObject({ state: 'queued', position: 1 })
-    runs = withRunStep(runs, base.turnId, step)
-    expect(runs[0]).toMatchObject({ state: 'running', position: 0, steps: [step] })
-    runs = withRunStep(runs, base.turnId, { ...step, status: 'ok' })
-    expect(runs[0]!.steps).toEqual([{ ...step, status: 'ok' }])
-    runs = withRun(runs, { ...base, state: 'stopped', position: 0 })
-    expect(runs[0]).toMatchObject({ state: 'stopped', steps: [{ ...step, status: 'ok' }] })
-    expect(runActive(runs[0]!)).toBe(false)
-  })
-})
-
-test('what my question is doing, in plain words: no search pattern or path, a document by its name only', () => {
-  const s = (tool: string, label: string, kind: 'tool' | 'web_search' | 'thinking' = 'tool') => roomStepWords({ kind, tool, label })
-  expect(s('glob', 'Find files "**/*경쟁*"')).toEqual({ kind: 'find' })
-  expect(s('grep', 'Search "budget" · groups/marketing')).toEqual({ kind: 'find' })
-  expect(s('read', '파일 읽기 · groups/마케팅팀/경쟁사/경쟁사-동향.md')).toEqual({ kind: 'read', name: '경쟁사-동향' })
-  expect(s('read', 'Read · 예산.xlsx')).toEqual({ kind: 'read', name: '예산' })
-  expect(s('read', 'Read')).toEqual({ kind: 'find' })
-  expect(s('web_fetch', 'Fetch page · https://example.com/a')).toEqual({ kind: 'web' })
-  expect(s('', 'Web search: q', 'web_search')).toEqual({ kind: 'web' })
-  expect(s('make_file', 'Make file · users/a/x.docx')).toEqual({ kind: 'work' })
 })
 
 // ---------------- group chats and room names (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------

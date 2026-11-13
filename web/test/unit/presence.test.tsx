@@ -43,16 +43,44 @@ class FakeTimers implements Timers {
   }
 }
 
-function tracker(phone: boolean) {
+function tracker(phone: boolean, desktop = false) {
   const timers = new FakeTimers()
   let visible = true
   const sent: WindowActivity[] = []
-  const env: ActivityEnv = { now: () => timers.now(), setTimeout: (f, ms) => timers.setTimeout(f, ms), clearTimeout: (id) => timers.clearTimeout(id), visible: () => visible, phone }
+  const env: ActivityEnv = { now: () => timers.now(), setTimeout: (f, ms) => timers.setTimeout(f, ms), clearTimeout: (id) => timers.clearTimeout(id), visible: () => visible, phone, desktop }
   const t = new ActivityTracker((s) => sent.push(s), env)
   return { t, timers, sent, show: (v: boolean) => { visible = v; t.visibility() } }
 }
 
 describe('this window\'s activity (lib/presence.ts)', () => {
+  test('the desktop app: the computer\'s own input keeps the window in use; a locked screen makes it idle at once', () => {
+    const a = tracker(false)
+    // 9 minutes without input in the page, but the computer was used a minute ago (Excel in front of Trina)
+    a.timers.advance(9 * 60_000)
+    a.t.system({ locked: false, idleMs: 60_000 })
+    a.timers.advance(5 * 60_000)
+    expect(a.t.current).toBe('active')
+    expect(a.sent).toEqual([])
+    // locked: idle at once, and stays so while the computer reports locked
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    a.t.system({ locked: true, idleMs: 30_000 })
+    expect(a.t.current).toBe('idle')
+    // unlocked and used: in use again
+    a.t.system({ locked: false, idleMs: 1000 })
+    expect(a.sent).toEqual(['idle', 'active'])
+    // a long-idle computer is idle (its last input is older than 10 minutes)
+    a.timers.advance(IDLE_AFTER_MS + 100)
+    a.t.system({ locked: false, idleMs: IDLE_AFTER_MS + 200 })
+    expect(a.t.current).toBe('idle')
+  })
+
+  test('a phone ignores the computer\'s word (its own rule: visible is in use)', () => {
+    const a = tracker(true)
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.t.current).toBe('active')
+  })
+
   test('a computer: idle after 10 minutes without input, in use at the next input; only changes are sent', () => {
     const a = tracker(false)
     expect(a.t.current).toBe('active')
@@ -71,14 +99,55 @@ describe('this window\'s activity (lib/presence.ts)', () => {
     expect(a.sent).toEqual(['idle', 'active'])
   })
 
-  test('a computer: a hidden page is not idle by itself; 10 minutes on it is; coming back is in use', () => {
+  test('a browser tab: hidden is idle at once (it must not keep the phone quiet); coming back is in use', () => {
     const a = tracker(false)
     a.show(false)
-    a.timers.advance(60_000)
-    expect(a.sent).toEqual([])
+    expect(a.sent).toEqual(['idle'])
     a.timers.advance(IDLE_AFTER_MS)
     expect(a.sent).toEqual(['idle'])
     a.show(true)
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('an older desktop app (no word on the computer): a hidden window keeps the 10-minute rule, not idle at once (TC-834)', () => {
+    const a = tracker(false, true)
+    // covered by other windows (macOS says hidden): still in use
+    a.timers.advance(60_000)
+    a.show(false)
+    expect(a.t.current).toBe('active')
+    expect(a.sent).toEqual([])
+    // idle 10 minutes after the last input (the hidden page gets none)
+    a.timers.advance(IDLE_AFTER_MS - 60_000 - 1000)
+    expect(a.sent).toEqual([])
+    a.timers.advance(2000)
+    expect(a.sent).toEqual(['idle'])
+    // shown again: in use
+    a.show(true)
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('a desktop app that tells about the computer: the same as before (the flag changes nothing once it speaks)', () => {
+    const a = tracker(false, true)
+    a.t.system({ locked: false, idleMs: 0 })
+    a.show(false)
+    expect(a.sent).toEqual([])
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    a.t.system({ locked: false, idleMs: 1000 })
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('the desktop app: once it tells about the computer, a hidden page follows the computer, not its visibility; focus does not unlock', () => {
+    const a = tracker(false)
+    a.t.system({ locked: false, idleMs: 0 })
+    a.show(false)
+    expect(a.sent).toEqual([])
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    // a focus or a pointer event while locked changes nothing; the desktop app's unlock does
+    a.t.input()
+    expect(a.t.current).toBe('idle')
+    a.t.system({ locked: false, idleMs: 0 })
     expect(a.sent).toEqual(['idle', 'active'])
   })
 

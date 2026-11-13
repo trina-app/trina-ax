@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { openAdmin, showPanel, teamHeader, teamMenuButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
@@ -9,8 +10,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   const errors = watchConsole(page)
   await signIn(page)
   // Admin is in the team menu on top of the sidebar (docs/DECISIONS.md "The team menu")
-  await page.getByTestId('team-menu').click()
-  await page.getByRole('menuitem', { name: '관리자' }).click()
+  await openAdmin(page)
   // Admin opens on Home; members are first in the menu after it
   await expect(page.getByTestId('admin-home')).toBeVisible()
   await page.getByRole('navigation', { name: '관리자' }).getByRole('link', { name: DICTS.ko['admin.members'], exact: true }).click()
@@ -110,7 +110,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(result).toHaveAttribute('data-ready', 'true')
   await result.getByTestId('edit-show-people').click()
   await expect(result.getByTestId('edit-more')).toContainText('Bob')
-  await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
+  await expect(panel.getByTestId('edit-save')).toContainText(translate('ko', 'accessEdit.outGainOpen', { n: 2 }))
   await panel.getByTestId('edit-save').click()
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 볼 수 있음')
@@ -206,17 +206,22 @@ test('system: the relay connection asks for the team name; the official relay is
 test('system: without the relay the Connection card names the public address the server has, not "office network only"', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
+  // the office network only (QA TC-485): no red "꺼짐" (nothing is off for the team) and the team address people type,
+  // as Settings › 앱 shows it (GET /api/me team.address)
+  expect((await page.request.post('/__test/team-address', { data: { address: 'http://192.168.1.2:19300' } })).ok()).toBeTruthy()
   await signIn(page)
   expect((await page.request.post('/__test/connection', { data: { mode: 'direct-only', address: null, state: 'disabled', detail: null, teamName: null, publicAddress: null } })).ok()).toBeTruthy()
   await page.goto('/admin/system')
   const line = page.getByTestId('connection-mode-name').locator('..')
   await expect(page.getByTestId('connection-mode-name')).toHaveText('사무실 안 직접 연결만')
-  await expect(line).toContainText('꺼짐')
+  await expect(page.getByTestId('connection-address')).toHaveText('http://192.168.1.2:19300')
+  await expect(line).not.toContainText('꺼짐')
   // a public address set up (tunnel.host / --public-host, or the server's own domain): the team connects from outside
   expect((await page.request.post('/__test/connection', { data: { publicAddress: 'team.example.com' } })).ok()).toBeTruthy()
   await page.reload()
   await expect(page.getByTestId('connection-mode-name')).toHaveText('공개 주소로 직접 연결')
   await expect(page.getByText('https://team.example.com')).toBeVisible()
+  await expect(page.getByTestId('connection-address')).toHaveCount(0)
   await expect(line).not.toContainText('꺼짐')
   await page.getByRole('button', { name: '연결 방식 바꾸기' }).click()
   await expect(page.getByTestId('connection-mode').locator('option')).toHaveText(['직접 운영하는 중계 서버', '공개 주소로 직접 연결'])
@@ -228,8 +233,8 @@ test('members cannot open admin screens', async ({ page }) => {
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.getByRole('link', { name: '관리자' })).toHaveCount(0)
   // no team menu either: a member's header is the team's name only
-  await expect(page.getByTestId('team-header')).toBeVisible()
-  await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  await expect(teamHeader(page)).toBeVisible()
+  await expect(teamMenuButton(page)).toHaveCount(0)
   // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
   await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')
@@ -238,6 +243,29 @@ test('members cannot open admin screens', async ({ page }) => {
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
   // and the API itself refuses (the hidden screens are only a convenience)
   expect((await page.request.get('/api/admin/users')).status()).toBe(403)
+})
+
+test('system: the Mac App Store build shows the plan with no Manage plan link (App Review 3.1.1)', async ({ page }) => {
+  await reset(page)
+  // the Mac App Store build's desktop bridge, as far as this page reads it (the store flag)
+  await page.addInitScript(() => {
+    const noop = () => {}
+    ;(window as unknown as { mycelDesktop: unknown }).mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.4.0', platform: 'darwin', store: true,
+      browser: { run: async () => ({ ok: false, content: [] }), cancel: noop },
+      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
+      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
+      notify: noop, openTeams: noop, setLocale: noop,
+    }
+  })
+  await signIn(page)
+  expect((await page.request.post('/__test/cloud', { data: { on: true } })).ok()).toBeTruthy()
+  await page.goto('/admin/system')
+  const plan = page.getByTestId('plan-card')
+  await expect(plan).toContainText('12명 중')
+  await expect(plan.getByRole('link', { name: '요금제 관리' })).toHaveCount(0)
+  await expect(plan.locator('a[href*="billing"]')).toHaveCount(0)
+  await expect(plan.getByRole('link', { name: '지원' })).toHaveAttribute('href', 'mailto:support@teamax.example')
 })
 
 test('system: storage use with what uses it; Team AX Cloud shows the plan and leaves out what TreeSoop manages', async ({ page }) => {
@@ -682,7 +710,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await page.getByTestId('delete-member-bob').click()
     await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
-    const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
+    // the chat's row in the 트리나 panel (the rail: Admin shows its own panel; the switch is in-app, no reload)
+    const item = (await showPanel(page, 'trina')).getByRole('listitem').filter({ hasText: 'Retention chat' })
     await item.hover()
     await item.getByRole('button', { name: t['chat.menu'], exact: true }).click()
     await item.getByRole('menuitem', { name: t['common.delete'] }).click()

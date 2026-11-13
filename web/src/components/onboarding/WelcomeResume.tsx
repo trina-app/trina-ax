@@ -1,13 +1,13 @@
 // Home's quiet setup row on a phone (docs/DECISIONS.md "W5 — Onboarding v5", "W6"): "설정 이어서 하기 · 2/5" (or, with one step
-// left, "남은 일: 팀 파일") under the message box, the same words and count as the setup row in the ☰ drawer (SetupRow.tsx,
+// left, "남은 일: 팀 파일") under the message box, the same words and count as the setup row (SetupRow.tsx,
 // both from lib/welcome.ts setupRowWords), which hides on Home so the two never show together. On a computer the
-// sidebar's setup row replaces it (Home shows the goal card). Nothing shows for anyone
+// list panel's setup row replaces it (Home shows the goal card). Nothing shows for anyone
 // else, before the steps were started, or while no AI answers the owner (Home's connect card stands in its place, so the
 // row never leads back to the AI step). On a landing the owner goes to the steps themselves (useResumeOnLanding). A phone
 // whose only step left is 내 스킬, put off for a computer, shows one quiet line instead (SkillsOnComputer); 도구 연결 is
 // never what a phone resumes on (it walks past it and records it as put off, lib/welcome.ts phoneSkips).
 import { Sparkles, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { markStepsSeen, resumesOnLanding, setupRowWords, showResume, skillsWaitForComputer, stepsSeen } from '../../lib/welcome'
 import { useT } from '../../i18n'
@@ -15,6 +15,7 @@ import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
+import { leadCardWaiting, useHandover } from '../../store/handover'
 import { IconButton, useMediaQuery } from '../ui'
 
 export function WelcomeResume() {
@@ -31,7 +32,7 @@ export function WelcomeResume() {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
   if (!owner || !loaded || !progress || !showResume(progress, computer)) return null
-  // the words, the count and the total come from lib/welcome.ts (the drawer's row says the same), never a number here
+  // the words, the count and the total come from lib/welcome.ts (the setup row says the same), never a number here
   const words = setupRowWords(t, progress, aiReady, computer)
   const hide = () => void useWelcome.getState().update({ dismissed: true }).then(
     () => toast({ level: 'info', text: t('setupRow.hidden'), action: { label: t('common.undo'), run: () => void useWelcome.getState().update({ dismissed: false }).catch(() => toast({ level: 'error', text: t('error.network') })) } }),
@@ -58,9 +59,11 @@ export function WelcomeResume() {
  * or a sign-in sent it here), an owner whose steps are started, unfinished and not hidden goes to /welcome, which opens
  * at its resume step; once per tab session (the steps mark it), never for anyone else. Decided when the page opens: a
  * later change of the progress never sends anyone away. True while that is being decided, so the page shows nothing
- * first (a failed read decides "stay").
+ * first (a failed read decides "stay"). `leadFirst` (Home): while the card of someone who joined with the owner's lead
+ * link waits there (HandoverCard.tsx useLeadCard), the owner stays on Home to see it (QA TC-477); the steps are not
+ * marked seen, so the next landing after it resumes them.
  */
-export function useResumeOnLanding(landing: boolean): boolean {
+export function useResumeOnLanding(landing: boolean, leadFirst = false): boolean {
   const me = useMe()
   const navigate = useNavigate()
   const userId = me?.user.id ?? ''
@@ -68,17 +71,25 @@ export function useResumeOnLanding(landing: boolean): boolean {
   const computer = !useMediaQuery('(max-width: 767.98px)')
   const loaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
+  const holds = armed && leadFirst
+  const leadLoaded = useHandover((s) => s.loaded)
+  const leadWaits = useHandover((s) => leadCardWaiting(s.state))
   useEffect(() => {
     if (armed) void useWelcome.getState().load().catch(() => {})
-  }, [armed])
-  const go = armed && loaded && resumesOnLanding(progress, computer)
+    if (holds) void useHandover.getState().load().catch(() => {})
+  }, [armed, holds])
+  const leadKnown = !holds || leadLoaded
+  // decided once, when both are known: closing the card (or a realtime reload that drops it) never sends the owner away
+  const held = useRef<boolean | null>(null)
+  if (held.current === null && loaded && leadKnown) held.current = holds && leadWaits
+  const go = armed && loaded && leadKnown && !held.current && resumesOnLanding(progress, computer)
   useEffect(() => {
     if (!go) return
     markStepsSeen(userId)
     navigate('/welcome', { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [go])
-  return armed && (!loaded || go)
+  return armed && (!loaded || !leadKnown || go)
 }
 
 /** One quiet line on a phone's Home while 내 스킬 waits for a computer (lib/welcome.ts skillsWaitForComputer): the
