@@ -33,8 +33,8 @@ Admins manage team connections but do not use them unless a rule names them. Who
 
 :::steps
 #### Open Connectors or Connected apps
-**Settings › Connectors** for yourself (your name or photo at the bottom left › **Settings**; on a phone the **나**
-tab), or **Admin › Connected apps** for the team. Earlier versions had Connectors in the menu on the left.
+**Settings › Connectors** for yourself (your photo at the bottom of the bar on the left › **Settings**; on a phone the **나**
+tab), or **Admin › Connected apps** for the team. Earlier versions had Connectors in the list on the left.
 
 ![Connectors: nothing connected yet, with Discover under it on the same page](../images/mcp/connected.webp "Connectors")
 
@@ -84,7 +84,7 @@ The members it is for see it in **Settings › Connectors** under **Your connect
 | Whose rights the AI uses | The key owner's, for everyone | Each member's own |
 | What the admin sees | The connection | Who connected it and when, and whose key stopped working; never a key |
 
-The people it is for get a notice in their **Inbox** that opens its **Connect**. In a chat, the AI offers a card to connect your own key when you ask for that service. On the template's line in Admin › Connected apps, **N connected** shows who it is for: **Connected** (with the date), **Not connected** or **Key stopped working**. A scheduled task that needs a template doesn't run without your own key: its result says "Needs your own key for …" and links to **Connect**.
+The people it is for get a notice in **활동** (Activity) that opens its **Connect**. In a chat, the AI offers a card to connect your own key when you ask for that service. On the template's line in Admin › Connected apps, **N connected** shows who it is for: **Connected** (with the date), **Not connected** or **Key stopped working**. A scheduled task that needs a template doesn't run without your own key: its result says "Needs your own key for …" and links to **Connect**.
 
 A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again; a new name or note keeps everyone connected. If a template changes while a member is connecting, they're asked to check it and connect again. Deleting the template, or removing someone from it, deletes their connections.
 

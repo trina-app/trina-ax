@@ -3,20 +3,23 @@ title: Settings and search
 description: Your account menu, the Settings window, and ⌘K search across chats, conversations and people, messages, projects, files, skills and more.
 ---
 
-Everything about your own account is one click away, at the bottom left.
+Everything about your own account is one click away: your photo at the bottom of the bar on the left.
 
 ## The account menu
 
-Click your name or photo at the bottom left. On a phone, open the **나** tab.
+Click your photo at the bottom of the bar on the left. On a phone, open the **나** tab.
 
-![The account menu: the signed-in user, then Settings, Usage, Deleted chats and Sign out](../images/settings/account-menu.webp "The account menu")
+![The account menu: your name, email and role, then Show me as away, your status, Settings and Sign out](../images/settings/account-menu.webp "The account menu")
 
-| Item | Opens |
+| Item | Does |
 |---|---|
-| **Settings** | The Settings window, at your profile |
-| **Usage** | Your own usage and limits |
-| **Deleted chats** | Chats you deleted, to bring back |
+| **Show me as away** (자리 비움으로 표시) | Others see you as away until you turn it back |
+| **Set your status** (상태 설정) | A short status with an emoji, shown next to your name |
+| **Settings** | Opens the Settings window, at your profile |
 | **Sign out** | Ends this session |
+
+Your usage is in **Settings › Usage**, and chats you deleted are in **삭제한 기록** (Deleted history) at the end of your
+Trina list.
 
 ## The Settings window
 
@@ -57,7 +60,7 @@ On a phone, Settings fills the screen. The section list comes first, and **←**
 
 Press **⌘K** (Ctrl+K on Windows), or choose **Search** (검색) under **Ask Trina**.
 
-![The search window: a search box, type tabs from All to MCP, recent items and quick actions](../images/search/palette.webp "Search")
+![The search window: a search box, type tabs from All to Apps, and quick actions](../images/search/palette.webp "Search")
 
 - **Tabs** narrow the search: All, Chats, Projects, Files, Skills, Scheduled and MCP.
 - **With nothing typed**, it shows what needs your attention, your recent chats and projects, and quick actions such as **New chat**.

@@ -11596,7 +11596,7 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 `roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
 시작해서 끝까지 해줘"; committed here).
 
-- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
+- **One switch per server, off by default until P6 (below).** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
   `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
   for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
   computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
@@ -11615,6 +11615,15 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
   `web/test/e2e/nav-rail-flag.spec.ts`.
 - Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+- **On by default since P6** (feat/nav-rail-p6-on, 2026-11-13, owner: finish the redesign now): absent = on, so every
+  server shows the rail and the new phone tabs; `"navRail": false` in `server.json` is the kill switch for one release
+  (Me then has no `navRail` and the web draws the old sidebar and tabs), and P7 removes it with the old path. The wire
+  stays `Me.server.navRail: z.literal(true).optional()`: a web app older than the server still reads "on" from it, and
+  the server's `AppConfig.navRail` is `false` only when the file says so. The mock follows (on after every reset;
+  `POST /__test/nav-rail {on:false}` for the old layout). User docs, the phone's "company profile" line (the 트리나 tab,
+  no ☰), `docs/DESIGN-SYSTEM.md` and the docs screenshots (`scripts/docs/screenshots.ts`: the navigation's shots also
+  run with `--mock`, `mockToo`, on English made-up files and tasks) changed with it; one `changes/nav-rail.md` fragment
+  for the whole redesign. Tests: `tests/unit/b-nav-rail-flag.test.ts` (on by default, `false` off).
 
 ## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
 

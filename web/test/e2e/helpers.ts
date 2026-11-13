@@ -47,7 +47,7 @@ export async function adv(root: Page | Locator, testId: string): Promise<Locator
 }
 
 /** The new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1): `POST /__test/nav-rail` turns the server's
- * `navRail` switch on or off in the mock (off after every reset, as on a real server). Sign in, or reload, after it:
+ * `navRail` switch on or off in the mock (on after every reset since P6, as on a real server). Sign in, or reload, after it:
  * the app reads it from GET /api/me. */
 export async function navRail(page: Page, on = true) {
   const r = await page.request.post('/__test/nav-rail', { data: { on } })

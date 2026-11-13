@@ -4792,7 +4792,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.profile.savedPlain": "Company profile saved",
   "welcome.done.title": "You're all set",
   "welcome.done.deck": "Your company profile is in {name}: 'Our company profile'",
-  "welcome.done.deckPhone": "Your company profile is in ☰ menu › {name}: 'Our company profile'",
+  "welcome.done.deckPhone": "Your company profile is in the {name} tab: 'Our company profile'",
   "welcome.done.try": "Try '{skill}' first",
   "welcome.done.home": "Go Home",
   "welcome.done.later": "You put these steps off. You can do them now.",

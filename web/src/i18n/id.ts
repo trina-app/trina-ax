@@ -4792,7 +4792,7 @@ export const id: Record<MessageKey, string> = {
   "welcome.profile.savedPlain": "Profil perusahaan tersimpan",
   "welcome.done.title": "Semua siap",
   "welcome.done.deck": "Profil perusahaan ada di {name}: 'Profil perusahaan kami'",
-  "welcome.done.deckPhone": "Profil perusahaan ada di menu ☰ › {name}: 'Profil perusahaan kami'",
+  "welcome.done.deckPhone": "Profil perusahaan ada di tab {name}: 'Profil perusahaan kami'",
   "welcome.done.try": "Coba '{skill}' dulu",
   "welcome.done.home": "Ke Beranda",
   "welcome.done.later": "Langkah ini Anda tunda. Anda bisa mengerjakannya sekarang.",

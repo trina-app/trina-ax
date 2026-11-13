@@ -484,7 +484,7 @@ export const OWNER_ONLY_SETTINGS = ['updateChannel', 'auditRetentionDays', 'file
 /** PUT /api/admin/team-icon?type=image/png: the type the file is (PNG, JPEG or WebP; its first bytes must match). The
  * server refuses anything else in words (params.reason: type, mismatch, too_big, too_small, too_large). */
 export const TeamIconQuery = z.object({ type: z.string().min(1).max(100) })
-/** The team's logo (the computer's sidebar header, shared/src/team-icon.ts). `version` names it in /team-icon?v=<version>. */
+/** The team's logo (the top of the computer's rail, shared/src/team-icon.ts). `version` names it in /team-icon?v=<version>. */
 export const TeamIconInfo = z.object({
   version: z.string().regex(TEAM_ICON_VERSION_RE),
   type: z.enum(TEAM_ICON_TYPES),

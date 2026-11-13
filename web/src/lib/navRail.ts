@@ -1,5 +1,5 @@
 // Is the new navigation on (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1): one switch per server, `navRail` in
-// server.json (Me.server.navRail), off by default until every phase is in. It turns on both layouts at once, the
+// server.json (Me.server.navRail), on by default since P6 (`false` is the operator's kill switch). It sets both layouts at once, the
 // computer's rail (lib/rail.ts) and the phone's new tabs; there is no per-browser override, so nobody sees half of it.
 // Read by the computer's rail (components/Layout.tsx, rail/, panels/, phase P1) and the phone's tabs (lib/tabs.ts
 // phoneTabsV2, phase P5: the tables of lib/tabs.ts and lib/screens.ts are plain functions, so the switch is set there).

@@ -3,7 +3,7 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** (관리자) is for the owner and admins. On a computer it is in the team menu under your team's logo at the top left, and ⌘K finds it; on a phone it is in the **나** tab. Every page in it is for the whole team: the menu's title is your
+**Admin** (관리자) is for the owner and admins. On a computer it is in the team menu under your team's logo at the top of the bar on the left, and ⌘K finds it; on a phone it is in the **나** tab. Every page in it is for the whole team: the menu's title is your
 team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
 the same names as in Settings. Admin › Connected apps is the team's connections; yours are in **Settings › Connectors**. It opens on
 **Home**, which lists what needs attention first.

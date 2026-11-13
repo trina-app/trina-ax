@@ -4748,7 +4748,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.profile.savedPlain": "Perfil de la empresa guardado",
   "welcome.done.title": "Todo listo",
   "welcome.done.deck": "La presentación corporativa está en {name}: 'Presentación corporativa'",
-  "welcome.done.deckPhone": "La presentación corporativa está en menú ☰ › {name}: 'Presentación corporativa'",
+  "welcome.done.deckPhone": "La presentación corporativa está en la pestaña {name}: 'Presentación corporativa'",
   "welcome.done.try": "Probar '{skill}' primero",
   "welcome.done.home": "Ir al inicio",
   "welcome.done.later": "Dejó estos pasos para más tarde. Puede hacerlos ahora.",

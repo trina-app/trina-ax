@@ -254,6 +254,7 @@ test("another person never sees my folders (switching accounts in the same windo
 test('with the switch off nothing of it shows', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await reset(page)
+  await navRail(page, false)
   await signIn(page)
   await chat(page, 'Weekly notes')
   let asked = false

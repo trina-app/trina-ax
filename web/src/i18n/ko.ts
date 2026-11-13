@@ -4792,7 +4792,7 @@ export const ko = {
   "welcome.profile.savedPlain": "회사 소개를 저장했어요",
   "welcome.done.title": "준비 끝났어요",
   "welcome.done.deck": "회사 소개서는 {name}의 '우리 회사 소개서'에 있어요",
-  "welcome.done.deckPhone": "회사 소개서는 ☰ 메뉴의 {name} › '우리 회사 소개서'에 있어요",
+  "welcome.done.deckPhone": "회사 소개서는 {name} 탭의 '우리 회사 소개서'에 있어요",
   "welcome.done.try": "'{skill}' 먼저 써 보기",
   "welcome.done.home": "홈으로",
   "welcome.done.later": "나중에 하기로 남겨 둔 단계예요. 지금 이어서 할 수 있어요.",

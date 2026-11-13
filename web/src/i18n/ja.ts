@@ -4748,7 +4748,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.profile.savedPlain": "会社紹介を保存しました",
   "welcome.done.title": "準備ができました",
   "welcome.done.deck": "会社紹介資料は{name}の「会社紹介資料」にあります",
-  "welcome.done.deckPhone": "会社紹介資料は ☰ メニュー › {name} の「会社紹介資料」にあります",
+  "welcome.done.deckPhone": "会社紹介資料は{name}タブの「会社紹介資料」にあります",
   "welcome.done.try": "まず「{skill}」を使ってみる",
   "welcome.done.home": "ホームへ",
   "welcome.done.later": "あとで行うことにした手順です。今すぐ続けられます。",

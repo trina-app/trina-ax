@@ -20,7 +20,7 @@ const SHOTS = process.env.SHOTS ?? ''
 async function start(page: Page, who?: typeof MEMBER, on = true) {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
-  if (!on) return signIn(page, who)
+  if (!on) { await navRail(page, false); return signIn(page, who) }
   await navRail(page)
   // a phone with the new tabs lands on 트리나's list (no box there: helpers.ts signIn waits for the box)
   await page.goto('/login')

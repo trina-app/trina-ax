@@ -288,7 +288,7 @@ if (import.meta.main) {
   }
   const log = createLogger({ level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY })
   // the new navigation names the person's own folder "내 파일" (shared/src/folder-labels.ts): the AI says what the screen says
-  if (cfg.navRail) setOwnFolderWord('files')
+  if (cfg.navRail !== false) setOwnFolderWord('files')
   let started: Started
   try {
     started = await start(cfg, log)
