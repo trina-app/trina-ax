@@ -186,7 +186,7 @@ export default function Audit() {
       ) : (
         <StickyHeader className="-mt-3 mb-1 py-3" testId="activity-header">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">{t('admin.audit')}</h2>
+            <h2 className="text-title font-semibold tracking-tight">{t('admin.audit')}</h2>
             <p className="text-xs text-faint">{t('audit.desc')}</p>
             {active && clearButton}
           </div>

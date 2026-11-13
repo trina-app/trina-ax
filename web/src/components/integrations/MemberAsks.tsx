@@ -45,7 +45,7 @@ export function MemberAsks({ asks, onAdd }: { asks: ReturnType<typeof useMemberA
   }
   return (
     <section aria-labelledby="member-asks-title" data-testid="member-asks">
-      <h3 id="member-asks-title" className="mb-1 text-sm font-semibold text-ink">{t('serviceRequest.admin.title')}</h3>
+      <h3 id="member-asks-title" className="mb-1 text-title-sm font-semibold text-ink">{t('serviceRequest.admin.title')}</h3>
       <ul className="-mx-2 divide-y divide-line">
         {asks.items.map((r) => {
           const name = requestableName(r.service)

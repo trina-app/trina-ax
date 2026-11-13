@@ -96,7 +96,7 @@ function RoomNotFound() {
   const backLink = useBackLink()
   return (
     <div className="flex h-full flex-col justify-center" data-testid="room-not-found">
-      <EmptyState title={t('rooms.notFound')}>
+      <EmptyState screen title={t('rooms.notFound')}>
         <p>{t('rooms.notFoundHint')}</p>
         <Link to="/rooms" replace onClick={backLink} className="mt-3 inline-block font-medium text-accent-text underline">
           {t('rooms.back')}
@@ -403,7 +403,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {/* the name opens the room's info (its name, 초대하기, the members); beside it how many are in it, and
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0 flex-1">
-          <h1 className="flex min-w-0 text-base font-medium text-ink">
+          <h1 className="flex min-w-0 text-title-sm font-semibold text-ink">
             {/* a phone: the count on its own line under the name (the name keeps the whole width) */}
             <button type="button" disabled={!room} onClick={() => setShowMembers(true)} aria-haspopup="dialog" className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] max-md:flex-wrap max-md:gap-x-1 max-md:gap-y-0" data-testid="room-members-button">
               {peerId && peerState !== 'offline' && <PresenceDot state={peerState} className="self-center md:hidden" />}

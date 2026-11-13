@@ -108,7 +108,7 @@ function Reading({ read, total }: { read: number; total: number }) {
   const t = useT()
   return (
     <div className="space-y-3" data-testid="organize-reading">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-ink" role="status" data-testid="organize-reading-title">
+      <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="organize-reading-title">
         <Loader2 size={16} className="shrink-0 animate-spin text-accent-text" aria-hidden />
         {t('welcome.organize.reading', { k: Math.min(read, total), n: total })}
       </h2>
@@ -161,7 +161,7 @@ function Proposal({ id, plan, edit, applying, error, uploaded, teamGroupId, busy
   return (
     <div className="space-y-4" data-testid="organize-proposal" data-ai={plan.ai}>
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-ink">{t('welcome.organize.title')}</h2>
+        <h2 className="text-display font-semibold text-ink">{t('welcome.organize.title')}</h2>
         <p className="text-sm text-balance text-muted" data-testid="organize-desc">{t('welcome.organize.desc', { n: rows.length, k: groups.length, shared })}</p>
       </div>
       {plan.ai !== 'done' && <p className="text-sm text-ink" role="status" data-testid="organize-no-ai">{t('welcome.organize.noAi')}</p>}
@@ -284,7 +284,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
   return (
     <div className="space-y-4" data-testid="organize-result">
       <div className="space-y-1">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-ink" role="status" data-testid="organize-result-title">
+        <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="organize-result-title">
           <Check size={18} className="shrink-0 text-ok" aria-hidden />
           {t('welcome.organize.done', { n: inFolders.length, k: folders.length })}
         </h2>

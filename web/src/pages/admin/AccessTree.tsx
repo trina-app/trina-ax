@@ -674,7 +674,7 @@ export default function AccessTree() {
         <div className="flex items-start gap-2.5 py-2">
           <FolderSearch size={18} className="mt-0.5 shrink-0 text-faint" aria-hidden />
           <div className="min-w-0">
-            <h3 id="folder-detail-missing-title" ref={detailHeading} tabIndex={-1} className="text-sm font-semibold text-ink outline-none">
+            <h3 id="folder-detail-missing-title" ref={detailHeading} tabIndex={-1} className="text-title-sm font-semibold text-ink outline-none">
               {t('accessTree.notFound')}
             </h3>
             <p className="mt-1 text-xs [overflow-wrap:anywhere] text-muted">{t('accessTree.notFoundHint', { path: lookup?.path ?? selected })}</p>
@@ -1352,7 +1352,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   return (
     <section aria-labelledby={id} data-testid="folder-detail" data-path={n.path}>
       {back}
-      <h3 id={id} ref={headingRef} tabIndex={-1} className="text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none">
+      <h3 id={id} ref={headingRef} tabIndex={-1} className="text-title-sm font-semibold [overflow-wrap:anywhere] text-ink outline-none">
         {name}
       </h3>
       {kind && <p className="mt-0.5 text-xs [overflow-wrap:anywhere] text-muted">{personal ? `${kind} · ${t('accessTree.personal.count', { n: n.people ?? 0 })}` : kind}</p>}

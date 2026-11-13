@@ -120,7 +120,7 @@ function DrawerBody({ close }: { close: () => void }) {
       >
         <SetupRow onNavigate={close} />
         <div className="flex items-center gap-1 pt-2 pr-1 pl-3" data-testid="recents-head">
-          <h2 className="shrink-0 text-sm font-bold whitespace-nowrap text-ink">
+          <h2 className="shrink-0 text-sm font-semibold whitespace-nowrap text-ink">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
               {t('sidebar.aiChats', { name: aiName(t) })}
               <ChevronDown size={14} className={clsx('text-faint transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />

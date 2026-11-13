@@ -174,7 +174,7 @@ export function AdminPageHeader({ title, desc, actions, children, controls, test
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="flex items-center text-title font-semibold tracking-tight">{title}</h2>
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -271,7 +271,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat,
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">
-              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium', inBar && 'sr-only')}>{title}</h2>}
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-title-sm font-semibold', inBar && 'sr-only')}>{title}</h2>}
               {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
             </div>
             {actions}
@@ -288,7 +288,7 @@ export function Card({ title, actions, children, desc, headingRef, testId, flat,
           {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
               to a few words */}
           <div className="min-w-0 flex-1 max-sm:basis-full">
-            {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>}
+            {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-title-sm font-semibold">{title}</h2>}
             {desc && <OneLine className="mt-0.5 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
           </div>
           {actions}
@@ -436,7 +436,7 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
     <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-base font-medium focus:outline-none', inBar && 'sr-only')}>{title}</h2>
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className={clsx('text-title-sm font-semibold focus:outline-none', inBar && 'sr-only')}>{title}</h2>
           {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
         </div>
         {actions}

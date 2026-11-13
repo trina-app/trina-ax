@@ -298,7 +298,7 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
               </p>
             )}
             <section className="mt-6" aria-labelledby={addId}>
-              <h3 id={addId} className="text-sm font-semibold text-ink">
+              <h3 id={addId} className="text-title-sm font-semibold text-ink">
                 {t('skillMgr.add')}
               </h3>
               <AddNamed inline inputRef={search} users={people} groups={groups.data ?? []} taken={taken} onAdd={setPicked} saidOf={(o) => t('skillMgr.picked', { name: o.name })} />

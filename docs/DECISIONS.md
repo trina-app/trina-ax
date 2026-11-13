@@ -13107,6 +13107,37 @@ English at the same px; Slack's computer sizes are 15 / 13.
 - **Not in this step:** headings (title-sm 17 / title 20 / display 24), the weight and grey rules, token names and the
   icon, radius and spacing clean-up (the audit's steps 2–4). The list panels' own sizes are a separate change.
 
+## Headings: four levels (feat/heading-levels, 2026-11-13, design system P2)
+
+넣을 곳: trina-ax web/src/index.css + the shared pieces in web/src/components/ui.tsx and pages/admin/common.tsx +
+docs/DESIGN-SYSTEM.md, 이유: after P1 a page's titles were the body's size or only 1–2px over it (a card's or an admin
+home section's title 15px bold next to 15px rows, a dialog's 16px, a settings section's 16px), and the rest were one-off
+sizes (`text-lg` 18px, `text-2xl`, `text-[1.625rem] sm:text-[1.875rem]`). The level did not show; Slack and Notion keep
+3–4px between levels.
+
+- **Four tokens, 600 each, own line height:** `text-title-sm` 17/24, `text-title` 20/28, `text-display` 24/32 (22/30 on
+  phones), `text-hero` 30/38 (26/34 on phones). The weight is the token's (`--text-*--font-weight`), the classes still
+  say `font-semibold`. The phone steps are in the same `max-width: 767.98px` block as the other sizes, not
+  `sm:text-*` per element: the greeting and a project's name change at 768px now, not at 640px.
+- **Through the shared pieces first.** PageHeader and AdminPageHeader → title; Modal and Settings' window → title-sm;
+  the admin `Card` (framed 15px bold and flat 16px medium, now one) and `SettingsSection`, Settings' `Section` and
+  `PrefSection` → title-sm, but a Settings page's own title over h3 sections (알림, 커넥터, 사용량, 다른 AI 앱에서 쓰기,
+  트리나에게 허용한 것) → title: at title-sm it was the size of the sections under it, so the level was lost. Pages
+  of sibling sections (프로필 · 언어 · 테마, 보안·기기, 앱) keep every section at title-sm; `EmptyState`'s line → display when it is the whole page (`screen`: an empty folder, no projects, trash, activity,
+  schedules, not found) and title-sm elsewhere (a search miss, an empty list in a card, a pane or a dialog: 24px there
+  was a shout and long lines wrapped to three); the home greeting → hero; a project's, a schedule's, a
+  plugin's and a connector's page name and the setup steps (Welcome, onboarding, member welcome) → display.
+- **Then the one-offs**, about 50 headings: section titles at 15px bold or 16px (Connectors, Plugins, folder access,
+  Admin home, usage, browser, AI allowances, the deck progress card) → title-sm; the room's, thread's and side chat's
+  header name (16px medium) → title-sm 600; page titles at 18px (`text-lg`: trash, recent files, a person's and a
+  group's page, plugins, 활동 기록, the sign-in card) → title. The phone drawer's one `font-bold` is 600.
+- **Kept:** the list panels' title stays `text-lg` 18px as #697 set it (PanelFrame and Admin's side list): a panel's
+  name sits one step over its 15px headers, between title-sm and title. Labels over a group of rows (dates, 고정,
+  최근 기록, a skill list's group) keep the list and meta sizes: they head rows, not a part of the page. Ask-card and
+  home-card headers stay 15px bold, as one card's header. The chat's own title in its top bar and the phone top bar keep
+  their size (not in this step).
+- **Not in this step:** the weight and grey rules, token names, icons, radius and spacing (the audit's steps 3–4).
+
 ## Hosted speech-to-text hours per plan (feat/speech-hours-per-plan, 2026-11-07, product owner)
 
 넣을 곳: trina-ax shared/src/cloud-protocol (PlanFile) + native/internal/plan + server/src/credentials/hosted-speech.ts,

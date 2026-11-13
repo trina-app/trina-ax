@@ -260,7 +260,7 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   }
   return (
     <div className="rounded-xl border border-line p-4">
-      <h4 className="text-sm font-medium">{t('engines.api.title')}</h4>
+      <h4 className="text-title-sm font-semibold">{t('engines.api.title')}</h4>
       <p className="mt-0.5 mb-3 text-xs text-muted">{t('engines.api.desc')}</p>
       {form && (
         <div className="grid gap-3 sm:grid-cols-2" data-testid="api-engine-form">

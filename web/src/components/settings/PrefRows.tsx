@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 export function PrefSection({ title, desc, children, testId, className }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; className?: string }) {
   return (
     <section className={clsx('border-t border-line pt-5', className)} data-testid={testId}>
-      <h3 className="text-base font-semibold">{title}</h3>
+      <h3 className="text-title-sm font-semibold">{title}</h3>
       {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
       <div className="mt-1">{children}</div>
     </section>

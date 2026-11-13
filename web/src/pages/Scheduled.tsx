@@ -259,7 +259,7 @@ export function ScheduledList() {
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
           <div data-testid="scheduled-empty">
-            <EmptyState icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
+            <EmptyState screen icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
               <p>{t('scheduled.emptyBody')}</p>
               {/* the same two ways to start as the "New task" menu, shown as buttons so the first step is visible; the
                   one primary button on the page stays "New task" */}
@@ -369,7 +369,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="min-w-0 flex-[1_1_18rem]">
-          <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{name}</h1>
+          <h1 className="text-display font-semibold tracking-tight break-words">{name}</h1>
           {(status || badOutcome) && (
             <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">
               {status}
@@ -421,7 +421,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
       {/* phone: what it is first, then its runs; wide: the runs on the left, what it is beside them */}
       <div className="mt-8 grid gap-x-12 gap-y-8 border-t border-line pt-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-labelledby={`${base}-history`} className="order-2 min-w-0 lg:order-1" data-testid="schedule-history">
-          <h2 id={`${base}-history`} className="text-sm font-medium">{t('scheduled.lastRunTitle')}</h2>
+          <h2 id={`${base}-history`} className="text-title-sm font-semibold">{t('scheduled.lastRunTitle')}</h2>
           {ran ? (
             <ul className="mt-2 divide-y divide-line">
               <li>
@@ -625,7 +625,7 @@ export function ScheduledTask() {
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={5} />}
         {items && !s && (
-          <EmptyState title={t('scheduled.notFound')}>
+          <EmptyState screen title={t('scheduled.notFound')}>
             <Link to="/scheduled" className="text-sm text-accent-text hover:underline">{t('settings.schedules')}</Link>
           </EmptyState>
         )}

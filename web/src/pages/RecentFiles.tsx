@@ -49,7 +49,7 @@ export default function RecentFiles() {
         <PhonePageBar onBack={back} backLabel={backLabel} title={t('filesPanel.recent')} heading backTestId="files-back" titleTestId="files-title" />
       ) : (
         <div className="flex items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
-          <h1 className="text-lg font-semibold">{t('filesPanel.recent')}</h1>
+          <h1 className="text-title font-semibold">{t('filesPanel.recent')}</h1>
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-4">

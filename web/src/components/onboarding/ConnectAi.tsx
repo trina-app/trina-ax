@@ -200,7 +200,7 @@ export function NoAiCard() {
       // phones (below 768px): no frame, centred like the greeting under it
       <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
         {trialNote}
-        <h2 id="no-ai-title" className="font-semibold text-ink">{t('welcome.ai.title')}</h2>
+        <h2 id="no-ai-title" className="text-title-sm font-semibold text-ink">{t('welcome.ai.title')}</h2>
         <p className="mt-1 mb-4 text-sm text-balance text-muted">{t('welcome.ai.why')}</p>
         <ConnectAiPanel />
       </section>

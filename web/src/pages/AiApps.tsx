@@ -64,7 +64,7 @@ export default function AiApps() {
   return (
     <section className="space-y-4" data-testid="ai-apps" data-on={items ? String(on) : undefined}>
       {/* a phone: Settings' bar says the name, so the title is for screen readers only there */}
-      <div><h2 className="text-base font-semibold max-md:sr-only">{t('aiApps.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('aiApps.lead')}</p></div>
+      <div><h2 className="text-title font-semibold max-md:sr-only">{t('aiApps.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('aiApps.lead')}</p></div>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={2} />}
       {items && !on && (phone ? <p className="text-sm text-muted" data-testid="ai-apps-off">{t(isAdmin ? 'aiApps.offOnComputer' : 'aiApps.off')}</p> : <ConnectorOff admin={isAdmin} />)}

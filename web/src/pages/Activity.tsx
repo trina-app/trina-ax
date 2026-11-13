@@ -316,7 +316,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         <div className={clsx(pageColumn, 'px-4 pt-4 sm:px-6 sm:pt-5 max-md:pt-1')}>
           <div className="flex items-center justify-between gap-3 max-md:block">
             {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
+            <h1 className="text-title font-semibold tracking-tight max-md:sr-only">{title}</h1>
             <Tooltip label={t('feed.settings')}>
               <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings">
                 <Settings size={18} aria-hidden />
@@ -388,7 +388,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
