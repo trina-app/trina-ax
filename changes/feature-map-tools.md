@@ -1,0 +1,1 @@
+- **CI**: the feature map's e2e shards install pandoc, bubblewrap and fontconfig and turn on converter isolation as the main CI job does, so the Hangul page previews and the docx/pptx samples run there as they do locally.
