@@ -31,20 +31,23 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   await page.getByTestId('connector-show-all').click()
   await expect(top).not.toHaveCount(10)
 
-  // a card opens its page: big logo, the line, Connect, what it does, and its tools once connected
+  // a card opens its page, laid out like the Google connectors' (QA TC-197): logo, name, the line, Connect, what it
+  // does, its tools and the details; the keyboard starts on its name
   await card(page, 'notion').getByTestId('connector-open').click()
   const detail = page.getByTestId('connector-detail')
   await expect(detail.getByRole('heading', { name: 'Notion' })).toBeVisible()
-  await expect(detail.getByTestId('connector-back')).toBeFocused()
+  await expect(detail.getByRole('heading', { name: 'Notion' })).toBeFocused()
+  await expect(detail.getByTestId('app-by')).toHaveText('제공: Notion · 페이지와 데이터베이스를 찾고 읽고 고쳐요')
   // before connecting (QA TC-132): the tools Notion lists on its own page, and its privacy, terms and help pages
-  await expect(detail.getByTestId('connector-tools-listed').locator('li').first()).toHaveText('notion-search')
+  await expect(detail.getByTestId('app-tool').first()).toHaveText('notion-search')
   await expect(detail.getByTestId('connector-tools-link')).toHaveAttribute('href', 'https://developers.notion.com/guides/mcp/mcp-supported-tools')
-  await expect(detail.getByTestId('connector-privacy-link')).toHaveAttribute('href', 'https://www.notion.com/trust/privacy-policy')
+  await expect(detail.getByTestId('app-privacy')).toHaveAttribute('href', 'https://www.notion.com/trust/privacy-policy')
+  await expect(detail.getByTestId('connector-docs-link')).toBeVisible()
   // the rest of the listed tools in place (QA final), the service's page still linked
-  await expect(detail.getByTestId('connector-tools-listed').locator('li')).toHaveCount(12)
+  await expect(detail.getByTestId('app-tool')).toHaveCount(12)
   await detail.getByTestId('connector-tools-more').click()
   await expect(detail.getByTestId('connector-tools-more')).toHaveAttribute('aria-expanded', 'true')
-  await expect(detail.getByTestId('connector-tools-listed').locator('li').last()).toHaveText('notion-calendar-cancel-events')
+  await expect(detail.getByTestId('app-tool').last()).toHaveText('notion-calendar-cancel-events')
   await expect(detail.getByTestId('connector-tools-link')).toBeVisible()
   await detail.getByTestId('connector-connect').click()
   const dialog = page.getByRole('dialog')
@@ -56,7 +59,7 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   await expect(dialog.getByTestId('integration-advanced')).toHaveText('고급')
   await dialog.getByRole('button', { name: '취소' }).click()
   // back: the list again
-  await detail.getByTestId('connector-back').click()
+  await detail.getByTestId('app-breadcrumb-connectors').click()
   await expect(page).toHaveURL(/\/connectors$/)
   await discover(page)
   expect(realErrors(errors)).toEqual([])
@@ -80,7 +83,7 @@ test('Add custom connector: Name and Server URL, the rest under Advanced; an API
   await dialog.getByTestId('integration-key').fill('synthetic-key-' + 'k'.repeat(20))
   await dialog.getByTestId('integration-save').click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('integrations-mine').getByText('Sample Wiki', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('connector-detail').getByRole('heading', { name: 'Sample Wiki', exact: true })).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -149,7 +152,7 @@ test('Connectors is in Settings, not in the sidebar; the old addresses lead to i
   await settings.locator('[data-testid="connector-card"][data-id="notion"]').getByTestId('connector-open').click()
   await expect(page).toHaveURL(/\/settings\/connectors\/notion$/)
   await expect(item).toHaveClass(/font-medium/)
-  await settings.getByTestId('connector-back').click()
+  await settings.getByTestId('app-breadcrumb-connectors').click()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
   // closing Settings goes back to the page under it, Admin's Connectors (unchanged)
   await page.getByTestId('settings-close').click()
@@ -205,7 +208,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await card(page, 'notion').getByTestId('connector-open').click()
     await expect(page.getByTestId('connector-detail')).toBeVisible()
     expect(await audit()).toEqual([])
-    await page.getByTestId('connector-back').click()
+    await page.getByTestId('app-breadcrumb-connectors').click()
     await header(page).getByTestId('integration-add').click()
     await page.getByRole('dialog').getByTestId('integration-advanced').click()
     expect(await audit()).toEqual([])

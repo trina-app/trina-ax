@@ -15,32 +15,34 @@
 //   the Google ones. Until 2026-11-12 it was an Admin menu item of its own (/admin/slack leads to its page now).
 // Pages, each its own address: a Google connector's (/admin/connectors/<id>, GoogleAdminPage.tsx: the member's page with
 // Team settings; the old ?drive=1 and ?app=gmail lead there, AdminLayout.tsx), Slack's (/admin/connectors/slack,
-// Slack.tsx: Add to Slack or its own app's steps, its status, Turn off, Remove), a listed service's (ConnectorDetail:
-// Connect ⌄ for the team or as a template) and a team connection's (/admin/connectors/mcp/<id>: its row with who may use
-// it, test, edit, delete and its tools). Members' personal connections are not listed (nobody but the owner can use
+// Slack.tsx: Add to Slack or its own app's steps, its status, Turn off, Remove), a listed service's
+// (ConnectionPage.tsx ListedServicePage: Connect ⌄ for the team or as a template; once the team has a connection to it,
+// that connection's page) and a team connection's (/admin/connectors/mcp/<id>, ConnectionPage: check again, edit and
+// delete in ⋯, its tools, and Team settings with who may use it). Members' personal connections are not listed (nobody but the owner can use
 // those).
-import { Plus, Send } from 'lucide-react'
+import { Check, Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { CONNECTOR_DOCS, connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
+import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { builtInLogo, builtInName, BUILT_IN_ORDER, fits, isGoogleApp, type BuiltInId } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, useMediaQuery } from '../../components/ui'
-import { ConnectorDetail, ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem, type RowStatus } from '../../components/integrations/ConnectorsView'
+import { ConnectorRow, ConnectorsHeader, DiscoverCard, DISCOVER_FIRST, goToSection, matchesQuery, sectionTitleCls, SplitAction, useSectionIds, type DiscoverItem, type RowStatus } from '../../components/integrations/ConnectorsView'
 import { driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
 import { googleAppAdminLine, googleAppAdminOn, GoogleAppSetupDialog } from '../../components/integrations/GoogleAppAdmin'
 import { DriveAdminPage, GoogleAppAdminPage } from '../../components/integrations/GoogleAdminPage'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
-import { AudienceChip, IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
+import { useIntegrationActions } from '../../components/integrations/IntegrationRow'
+import { ConnectionPage, ListedServicePage } from '../../components/integrations/ConnectionPage'
 import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
-import { Loadable, useLoad } from './common'
+import { Loadable, SettingRow, SettingsSection, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 import AdminSlack from './Slack'
@@ -124,7 +126,8 @@ export default function AdminIntegrations() {
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
   const ids = useSectionIds()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const back = () => setOpen(null)
+  // a connector's page: its way back to this list
+  const adminList = { to: '/admin/connectors', name: t('admin.integrations') }
   // added from Discover (or from Add over a connector's page): the search is cleared (it was looking for what the new
   // row may not match) and the keyboard goes to the list the new row is in (once it is there: a template comes with the
   // list loaded again), since the button that opened the dialog is gone
@@ -165,13 +168,27 @@ export default function AdminIntegrations() {
           if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} />
           const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
           if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} />
+          /** a team connection's page: ⋯ (check again, edit, delete), its tools, and Team settings with who may use it */
+          const teamPage = (i: Integration) => (
+            <ConnectionPage list={adminList} i={i} actions={actions} onEdit={() => setDialog({ existing: i })}
+              about={t('connectors.mcp.aboutTeam', { name: i.name })}>
+              <div className="border-t border-line" data-testid="team-settings">
+                <SettingsSection title={t('connectors.teamSettings')}>
+                  <SettingRow heading title={t('connectors.whoCanUse')} testId="team-who"
+                    desc={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} notMe={!covers(i.access, person)} />} />
+                </SettingsSection>
+              </div>
+            </ConnectionPage>
+          )
           if (open?.kind === 'listed') {
             const c = open.c
-            const have = [...list, ...tpls].find((i) => servesAt(c, i.url))
-            const tools = list.find((i) => servesAt(c, i.url))?.tools.map((x) => x.name)
+            // the team's own connection to it: its page; a template only: Connected
+            const conn = list.find((i) => servesAt(c, i.url))
+            if (conn) return teamPage(conn)
+            const have = tpls.find((i) => servesAt(c, i.url))
             return (
-              <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={back}
-                action={have ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span> : (
+              <ListedServicePage list={adminList} c={c} state={have ? 'template' : 'available'}
+                actions={have ? <span className="flex items-center gap-1 text-xs text-ok" data-testid="connector-detail-added"><Check size={14} aria-hidden />{t('drive.status.connected')}</span> : (
                   // QA TC-134: one click for the team (one shared key, the admin picks who), or a template each member
                   // connects, or the admin's own connection (their Settings › Connectors)
                   <SplitAction label={t('connectors.connectTeam')} menuLabel={t('connectors.connectMore')} testId="connector-connect" onPrimary={() => setDialog({ connector: c, toList: true })}
@@ -180,24 +197,10 @@ export default function AdminIntegrations() {
                       ...(personal.data !== false ? [{ label: t('connectors.justForMe'), onSelect: () => navigate(connectorHref(c.id)), testId: 'connector-connect-mine' }] : []),
                     ]} />
                 )}
-                description={t('connectors.mcp.aboutForTeam', { name: c.name })} address={have ? undefined : c.url} docs={have ? undefined : CONNECTOR_DOCS[c.id]} tools={tools} />
+                about={t('connectors.mcp.aboutForTeam', { name: c.name })} />
             )
           }
-          if (open?.kind === 'team') {
-            if (!teamOpen) return null
-            const c = connectorFor(teamOpen.url)
-            return (
-              <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={teamOpen.name} line={c ? t(`integrations.catalog.${c.id}`) : teamOpen.url} official={!!c} onBack={back}
-                description={t('connectors.mcp.aboutTeam', { name: teamOpen.name })} noTools>
-                <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="team-integrations">
-                  <IntegrationRow i={teamOpen} actions={actions} onEdit={() => setDialog({ existing: teamOpen })}
-                    audience={<AudienceChip access={teamOpen.access ?? NOBODY} groups={groups.data} users={users.data} />}
-                    alert={accessWarning(teamOpen)}
-                    extra={<AccessLine i={teamOpen} groups={groups.data ?? []} users={users.data ?? []} />} />
-                </ul>
-              </ConnectorDetail>
-            )
-          }
+          if (open?.kind === 'team') return teamOpen ? teamPage(teamOpen) : null
 
           const q = query.trim()
           // Google Drive and the Google apps this server knows: on (set up: everyone may connect their own; Connected) or
@@ -346,19 +349,21 @@ export default function AdminIntegrations() {
 }
 
 /** "Used by: Finance, Bob" and who added it, in the details. Whether nobody or not the admin may use it is on the line. */
-function AccessLine({ i, groups, users }: { i: Integration; groups: Group[]; users: User[] }) {
+/** Who may use a team connection (or "Nobody can use it yet"), who added it, and when the admin looking at it is not
+ * among them, that it is not in their chats. Changed in Edit. */
+function AccessLine({ i, groups, users, notMe }: { i: Integration; groups: Group[]; users: User[]; notMe: boolean }) {
   const t = useT()
   const a = i.access ?? NOBODY
-  if (isEmptyAccess(a) && !i.createdBy) return null
   const names = [
     ...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'),
     ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?'),
   ]
   const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
   return (
-    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="integration-access-line">
-      {!isEmptyAccess(a) && <span className="text-muted">{t('integrations.users', { who })}</span>}
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="integration-access-line">
+      {isEmptyAccess(a) ? <span className="text-warn" data-testid="integration-access-warning">{t('integrations.users.nobody')}</span> : <span>{t('integrations.users', { who })}</span>}
       {i.createdBy && <span className="text-faint">{t('integrations.createdBy', { name: i.createdBy.name })}</span>}
-    </p>
+      {!isEmptyAccess(a) && notMe && <span className="text-warn" data-testid="integration-not-me">{t('integrations.users.notMe')}</span>}
+    </span>
   )
 }

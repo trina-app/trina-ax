@@ -1,15 +1,14 @@
 // What Admin › Connectors and Settings › Connectors (pages/Connectors.tsx) share, like Claude's Connectors: the
 // title row of Admin's page (the title, the search and Add with its ⌄ menu), which stays at the top while the page
-// scrolls; one line of the connected ones (ConnectorRow); one row of Discover (DiscoverCard); and a listed service's
-// or a connection's page (ConnectorDetail: a big logo, the main action, what it does and its tools).
-import { ArrowLeft, BadgeCheck, Check, ExternalLink, Plus, Search } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+// scrolls; one line of the connected ones (ConnectorRow); and one row of Discover (DiscoverCard). A listed service's or a
+// connection's page is ConnectionPage.tsx.
+import { Check, Plus, Search } from 'lucide-react'
+import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
-import { connectorLogo, type Connector, type ConnectorDocs } from '../../lib/connectors'
+import { connectorLogo, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
-import { Tooltip } from '../Tooltip'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
 // the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
@@ -107,109 +106,6 @@ export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) 
         </IconButton>
       )}
     </li>
-  )
-}
-
-/** A connector's page inside the same window, like Claude's: back to the list, a big logo, the name and one line with the
- * main action on the right, a short description, and the tools the AI gets from it. */
-export function ConnectorDetail({ logo, name, line, official, action, description, address, docs, tools, toolsNote, noTools, onBack, children, testId }: {
-  logo: string
-  name: string
-  line: string
-  official?: boolean
-  action?: ReactNode
-  description: string
-  /** before it is connected: the address it signs in at (QA TC-132) */
-  address?: string
-  /** before it is connected: the service's own links and, where it lists them, its tools (lib/connectors.ts) */
-  docs?: ConnectorDocs
-  /** the tool names (once connected, the service's own list) */
-  tools?: string[]
-  /** instead of tools: why there are none to show yet */
-  toolsNote?: string
-  /** no tools section: the connection's own row (children) lists them with their switches */
-  noTools?: boolean
-  onBack: () => void
-  children?: ReactNode
-  testId: string
-}) {
-  const t = useT()
-  const titleId = useId()
-  const back = useRef<HTMLButtonElement>(null)
-  // the listed tools past the first ones, shown in place (QA final: Figma's weave_* tools)
-  const [allTools, setAllTools] = useState(false)
-  const toolsListId = useId()
-  // the card that opened this page is gone: the keyboard starts on the way back
-  useEffect(() => { back.current?.focus() }, [])
-  return (
-    <section aria-labelledby={titleId} className="space-y-6" data-testid={testId}>
-      <div className="rounded-2xl bg-subtle p-5 sm:p-6">
-        {/* a phone: the bar's ‹ above is the way back (the page has its own address), so not a second one here */}
-        <button ref={back} type="button" className="mb-4 flex items-center gap-1.5 text-sm text-muted hover:text-ink max-md:hidden" onClick={onBack} data-testid="connector-back">
-          <ArrowLeft size={15} aria-hidden /> {t('integrations.title')}
-        </button>
-        <div className="flex flex-wrap items-center gap-4">
-          <LogoTile src={logo} className="size-16 rounded-xl p-2.5" />
-          <div className="min-w-0 flex-1">
-            <h3 id={titleId} className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-              <span className="truncate">{name}</span>
-              {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={18} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
-            </h3>
-            <p className="mt-0.5 text-sm text-muted" data-testid={`${testId}-line`}>{line}</p>
-          </div>
-          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
-        </div>
-        {children && <div className="mt-4">{children}</div>}
-      </div>
-      <p className="max-w-3xl text-sm leading-relaxed text-ink/90">{description}</p>
-      {!noTools && <div>
-        <h4 className="mb-3 text-base font-semibold">{t('connectors.tools')}</h4>
-        {tools?.length ? (
-          <ul className="flex flex-wrap gap-2" data-testid="connector-tools">
-            {tools.map((x) => <li key={x} className={`rounded-full border border-line px-3 py-1 text-xs${/^[\w.-]+$/.test(x) ? ' font-mono' : ''}`}>{x}</li>)}
-          </ul>
-        ) : docs?.tools?.length ? (
-          // before it is connected: the tools the service lists on its own page, the first ones and the rest in place
-          // behind "Show all"; the service's own page too
-          <>
-            <ul id={toolsListId} className="flex flex-wrap gap-2" data-testid="connector-tools-listed">
-              {(allTools ? docs.tools : docs.tools.slice(0, LISTED_TOOLS)).map((x) => <li key={x} className="rounded-full border border-line px-3 py-1 font-mono text-xs">{x}</li>)}
-            </ul>
-            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-              {docs.tools.length > LISTED_TOOLS && (
-                <button type="button" aria-expanded={allTools} aria-controls={toolsListId} onClick={() => setAllTools((v) => !v)}
-                  className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="connector-tools-more">
-                  {allTools ? t('connectors.showLess') : t('connectors.toolsShowAll', { count: docs.tools.length })}
-                </button>
-              )}
-              {docs.toolsUrl && <a href={docs.toolsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11" data-testid="connector-tools-link">{t('connectors.toolsAll', { name })} <ExternalLink size={12} aria-hidden /></a>}
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-muted" data-testid="connector-tools-note">{toolsNote ?? t('connectors.toolsAfter')}</p>
-        )}
-        {address && <p className="mt-2 text-xs break-all text-faint" data-testid="connector-address">{t('connectors.addressLine', { address })}</p>}
-        {docs && (
-          <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="connector-links">
-            <DocLink href={docs.privacy} name={t('connectors.linkPrivacyName', { name })} testId="connector-privacy-link">{t('connectors.linkPrivacy')}</DocLink>
-            <DocLink href={docs.terms} name={t('connectors.linkTermsName', { name })} testId="connector-terms-link">{t('connectors.linkTerms')}</DocLink>
-            <DocLink href={docs.docs} name={t('connectors.linkDocsName', { name })} testId="connector-docs-link">{t('connectors.linkDocs')}</DocLink>
-          </p>
-        )}
-      </div>}
-    </section>
-  )
-}
-
-/** How many tools a listed service's page shows before it is connected; the rest are on the service's page. */
-const LISTED_TOOLS = 12
-
-/** One of a service's own pages (privacy, terms, help), in a new tab; a phone: a 44 px tap */
-function DocLink({ href, name, testId, children }: { href: string; name: string; testId: string; children: ReactNode }) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer" aria-label={name} className="inline-flex items-center gap-1 text-accent-text hover:underline max-md:min-h-11" data-testid={testId}>
-      {children} <ExternalLink size={12} aria-hidden />
-    </a>
   )
 }
 
