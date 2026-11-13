@@ -271,7 +271,8 @@ function SkillSection({ title, hint, items, folders, onRun, onMove, testId }: { 
         <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums max-md:bg-transparent max-md:px-0 max-md:font-normal" data-testid="skill-count">{items.length}</span>
       </ListHeading>
       {hint && <p className="-mt-0.5 mb-1 text-xs text-muted" data-testid="skill-section-hint">{hint}</p>}
-      <ul className="-mx-3">
+      {/* a page's list (ListRow scale="page"): its rows' words flush with the heading, their fill reaching out past them */}
+      <ul>
         {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} onMove={onMove} />)}
       </ul>
     </section>
@@ -304,6 +305,7 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
     // the lists' row (components/list/List.tsx): the icon, the name (at medium weight, as the "/" menu's: `strong`) and its
     // line, the uses at its end; 실행 and "…" beside it, outside its button
     <ListRow
+      scale="page"
       onClick={use}
       strong
       icon={<ScrollText aria-hidden />}

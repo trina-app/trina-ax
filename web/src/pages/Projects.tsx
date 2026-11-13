@@ -502,7 +502,8 @@ export function ProjectList() {
 }
 
 /** A project page's chat list rows (a chat, a scheduled task's runs folded into one) are the lists' rows
- * (components/list/List.tsx ListRow) built the same way, so every title starts at one x in one size, weight and colour,
+ * (components/list/List.tsx ListRow) built the same way, at a page's density (`scale="page"`: 48px, the titles flush
+ * with the heading above them, docs/DECISIONS.md "Page lists: page density"), so every title starts at one x in one size, weight and colour,
  * every row has one height, and every time ends at one x (QA TC-990): each keeps the "···" slot at its end whether it
  * has a menu or not (`rowMenu`, `menuSpace`), so the menu showing on hover moves nothing. What a row is (pinned, shared,
  * a scheduled task's clock) is a small mark after the title, never before it, so no mark moves a title off the list's
@@ -540,6 +541,7 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
   const name = c.title || t('chat.untitled')
   return (
     <ListRow
+      scale="page"
       to={`/c/${c.id}`}
       state={{ [RAIL_STATE_KEY]: 'projects' }}
       rowRef={row}
@@ -577,6 +579,7 @@ function ProjectTaskRow({ runs }: { runs: Run[] }) {
   const unread = runsUnread(runs, here)
   return (
     <ListRow
+      scale="page"
       to={taskRunsPath(runs)}
       unread={unread}
       menuSpace

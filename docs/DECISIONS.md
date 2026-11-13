@@ -26315,3 +26315,23 @@ so its time ended 24 px further right.
   single-source rows for kinds ListRow is not (ConnectionRow, SettingRow, CompactRow) are listed there as SHARED.
 - **The project page's chats** keep #752's rule (QA TC-990: marks after the title, the "···" slot always kept, the time
   at one edge) on ListRow: a chat and a task's folded runs are both ListRows built the same way.
+
+## Page lists: page density (fix/page-list-density, 2026-11-13, product owner, QA TC-1050)
+
+넣을 곳: `web/src/components/list/List.tsx` (`ListRow`'s `scale`, `pageRowBox` beside `rowBox`/`headBox`) and the token
+`--spacing-row-page` in `web/src/index.css`. 이유: the owner, 2026-11-13, at 1440 on a project page: "isn't the row height
+too short? is it supposed to be like that?" #752 had given 트리나 기록 48 px rows with the titles flush with its heading;
+#753 put them on ListRow, which has the panels' density (30 px rows, a 12 px inset), so they shrank and moved in.
+
+- **A page's main list uses page density**, not the sidebar's: `ListRow scale="page"` is at least 48 px on a computer
+  and a phone (`--spacing-row-page`), its words start at the section heading's x (the row's 12 px inset is a negative
+  margin, so the hover fill reaches out past the words, as the files box's and the old skills list's `-mx-3` did), its
+  "···" and `actions` move out with it so every time and tag still ends at one x, and a read name is ink at 400 (a
+  panel's read rows stay muted). Type stays the list tokens' (15 px on a computer, 16 px on a phone).
+- **Where**: the project page's chats and folded scheduled task (ProjectChatRow, ProjectTaskRow), 팀 스킬's skills
+  (AvailableSkills) and its share reviews. The panels, the phone tabs, the drawer and the dialogs' lists keep the
+  default (`rowBox`: 30 px, 48 px on a phone). The task page's runs (two-line rows, already about 50 px) and the project
+  files box (a side panel) are unchanged.
+- **Checked by** `web/test/e2e/project-schedule-row.spec.ts`: row heights, every title at the h2's x within 1 px, the
+  times' right edges, a shared chat's faces one size and centred on their row, at 1440 and 390, light and dark, an owner
+  and a member, with own, shared, pinned and scheduled rows.

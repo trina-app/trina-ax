@@ -125,6 +125,8 @@
      phone's values are in the block after the phone sizes below, so every list (the panels, the phone tabs 대화 · 프로젝트
      · 파일 · 나 and the drawer) changes in one place */
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
+  --spacing-row-page: 3rem; /* a page's main list (ListRow scale="page": a project's 트리나 기록, 팀 스킬): 48px on a
+     computer and a phone, not the panels' 30px (docs/DECISIONS.md "Page lists: page density") */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
   --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
