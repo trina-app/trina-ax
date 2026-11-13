@@ -21,7 +21,7 @@
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); System too, at /admin/system/<group> under
 // "‹ System" (systemGroups.ts). Computers keep each one page.
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
-import { lazy, Suspense, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
@@ -190,6 +190,12 @@ export default function AdminLayout() {
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const content = useRef<HTMLDivElement>(null)
+  // the menu scrolls on its own: on a short window the current page's row is brought into it (the least scroll, none
+  // when it already shows), so where I am is never below the menu's fold
+  const menuRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    menuRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' })
+  }, [location.pathname, phone])
   // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
   // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
   const firstWidth = useRef<{ key: string; phone: boolean } | null>(null)
@@ -286,7 +292,7 @@ export default function AdminLayout() {
           <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-6 shrink-0 rounded-md object-cover" data-testid="admin-team-logo" />
           <span className="min-w-0 truncate">{t('admin.teamTitle', { team: me.team.name })}</span>
         </h1>
-        <nav aria-label={t('admin.title')} className="scroll-thin flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-6" data-testid="admin-menu">
+        <nav ref={menuRef} aria-label={t('admin.title')} className="scroll-thin flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-6" data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink
