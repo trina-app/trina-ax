@@ -21,7 +21,7 @@ import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
-import { reloadInboxCount } from '../../store/inbox'
+import { keepPendingReads, markAllNoticesRead, markNoticeRead } from '../../store/inbox'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
@@ -141,7 +141,8 @@ export function ActivityPanel() {
       const r = await api.call(API.listNotifications, { query: { limit, only: 'notices', ...(after ? { cursor: after } : {}) } })
       if (generation !== life.current || seq !== sequence.current) return
       if (!after) pages.current = 0
-      const next = after ? [...new Map([...(itemsRef.current ?? []), ...r.items].map((x) => [x.id, x])).values()] : r.items
+      // (a row being marked read here keeps its mark: this read may be from before it)
+      const next = keepPendingReads(after ? [...new Map([...(itemsRef.current ?? []), ...r.items].map((x) => [x.id, x])).values()] : r.items, itemsRef.current)
       itemsRef.current = next
       setItems(next)
       setCursor(r.nextCursor)
@@ -168,37 +169,37 @@ export function ActivityPanel() {
     void load(cursor)
   }, [cursor, paging, loadedUnread, unread, load])
 
+  /** the rows through `f`, on screen and for the reads after */
+  const patch = (f: (x: InboxNotification) => InboxNotification) => {
+    const next = itemsRef.current?.map(f) ?? null
+    itemsRef.current = next
+    setItems(next)
+  }
+  // read at once, with the rail's number (store/inbox.ts); a failure puts it back with a toast
   const read = (item: InboxNotification) => {
     if (item.readAt) return
     sequence.current++
-    const next = itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null
-    itemsRef.current = next
-    setItems(next)
-    setUnread((n) => Math.max(0, n - 1))
-    // the rail's number with it at once (the server's "changed" signal reads it again too); not read: as the server has it
-    void api.call(API.markNotificationRead, { params: { id: item.id } }).then(reloadInboxCount, (e) => {
-      setError(errorText(e, locale, t('error.network')))
-      void load()
+    let shown = false
+    void markNoticeRead(item, (readAt) => {
+      patch((x) => (x.id === item.id ? { ...x, readAt } : x))
+      if (!!readAt === shown) return
+      shown = !!readAt
+      setUnread((n) => Math.max(0, n + (readAt ? -1 : 1)))
     })
   }
   const markAll = async () => {
     if (marking) return
     setMarking(true)
     sequence.current++
-    const at = new Date().toISOString()
-    const next = itemsRef.current?.map((x) => (x.readAt ? x : { ...x, readAt: at })) ?? null
-    itemsRef.current = next
-    setItems(next)
-    setUnread(0)
-    try {
-      await api.call(API.markAllNotificationsRead, { body: { tab: 'all', only: 'notices' } })
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      notificationsChanged.emit()
-      reloadInboxCount()
-      setMarking(false)
-    }
+    const was = unread
+    const marked = new Set(itemsRef.current?.filter((x) => !x.readAt).map((x) => x.id))
+    await markAllNoticesRead('all', 'notices', (readAt) => {
+      patch((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x))
+      setUnread(readAt ? 0 : was)
+    })
+    // the server says so to every window too; this one reads again now
+    notificationsChanged.emit()
+    setMarking(false)
   }
 
   // the row open on the right: its own view (?n=), or its page opened from here (활동 still lit)

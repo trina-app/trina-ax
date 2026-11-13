@@ -24410,6 +24410,37 @@ under 고정; meanwhile it had already left 최근 기록 for a moment. A room's
   member or someone's access, roles, sign-out of a session, keys, budgets, billing). Those keep their confirm, then
   wait for the server. The audit of the other actions and the batches that apply the helper next are in the PR.
 
+## Optimistic changes in rooms and Activity (feat/optimistic-rooms, 2026-11-13)
+
+The helper of "Optimistic changes: the screen first, the server after" applied to rooms and Activity (batch B of the
+audit). Each shows at once, goes back on a refusal and ignores an answer that is no longer the newest.
+- **A room's notification level** (the bell, ⋯ › 알림 설정, Settings › 알림's muted rooms; `room:<id>:notify`): the
+  level, the bell and the grey badge at 끄기 change before the answer; what my default gives the room stays as the
+  server said. A refusal: the old level and one toast.
+- **Rename a room** (⋯ › 이름 바꾸기, the members dialog; `room:<id>:name`): the trimmed name shows at once and the
+  dialog's field closes; a refusal: the old name and one toast, and the field (or the 이름 바꾸기 prompt) opens again
+  with the name typed (the owner, on the PR).
+- **Edit my message** (`room:<id>:message:<mid>:edit`): the text, its mentions and the edited mark show at once and the box
+  closes; a refusal puts the old text back with one toast and opens the box again with the words typed (only when no
+  other message's box is open), so nothing typed is lost. A `room.message.updated` from before it is ignored while
+  it is on its way (a deletion still goes through).
+- **My read place in a room or a thread** (`room:<id>:read`, `room:<id>:thread:<root>:read`): read to the room's end,
+  the badge goes at once (to a place before the end the count waits for the server); a thread's news mark and the
+  room's count of followed threads with news go at once. These come from looking at the room, not a tap: a refusal
+  puts them back **without a toast** (as before, silent) and reads the room again; the same place is asked again
+  with the next read.
+- **Activity** (`notice:<id>:read`, `notice:all:<tab>:<only>:read`, store/inbox.ts): a notice read from the list, the
+  panel or as it opens on the right, and "Mark all as read", show read at once, with the 활동 number (one notice: one
+  less; Mark all of All: its part at zero; another tab's part waits for the read after). A refusal puts the rows back
+  with one toast (it used to show the error line, or nothing), and every list reads again. The list and the opened
+  view marking the same notice are one change (counted once). The opened view asks once: a refusal is not asked
+  again by the reads that follow it.
+- **Reads from before a change**: a room list read, a room read or a `room.updated` keeps my level, the name and my
+  read place on screen while their change is on its way (`keepPending`, which replaces `keepPendingPin`). A notices
+  read keeps a row read on screen while a read of mine is on its way (`keepPendingReads`); a count read that lands
+  then writes nothing (its change's answer reads again).
+- Not here: `setMuted` (no caller) is unchanged; there is no "mark as unread" in rooms or Activity.
+
 ## Optimistic chats, history and list folders (feat/optimistic-chats, 2026-11-13)
 
 Batch A of the audit after "Optimistic changes: the screen first, the server after": the same helper

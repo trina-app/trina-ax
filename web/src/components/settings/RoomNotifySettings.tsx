@@ -9,11 +9,9 @@ import { Check } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NotificationPreferences, QuietHours, RoomNotifyDefault, RoomNotifyLevel } from '@mycel/shared/api'
 import { QUIET_HOURS_DEFAULT } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
-import { useLocale, useT } from '../../i18n'
+import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
-import { toast } from '../../store/ui'
 import { inputCls, Switch, useMediaQuery } from '../ui'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { roomNotify } from '../rooms/RoomNotifyMenu'
@@ -115,7 +113,7 @@ function QuietHoursRow({ quiet, onChange }: { quiet: QuietHours; onChange: (q: Q
 /** The rooms I turned off (끄기), each with its level to change back. A room changed here stays in the list until the
  * page is left, so nothing jumps under the pointer. */
 function MutedRooms() {
-  const t = useT(), locale = useLocale()
+  const t = useT()
   const rooms = useRooms((s) => s.rooms)
   const title = useRoomTitle()
   useEffect(() => { if (!useRooms.getState().loaded) void useRooms.getState().loadRooms() }, [])
@@ -128,8 +126,8 @@ function MutedRooms() {
   const set = async (roomId: string, level: RoomNotifyLevel | null) => {
     touched.current.add(roomId)
     bump((n) => n + 1)
-    try { await useRooms.getState().setNotifyLevel(roomId, level) }
-    catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
+    // on screen at once; a failure puts it back with its own toast (store/rooms.ts setNotifyLevel)
+    await useRooms.getState().setNotifyLevel(roomId, level)
   }
   return (
     <div className="py-3.5" data-testid="notification-muted-rooms">
