@@ -1,0 +1,1 @@
+- **Release: desktop downloads when the Mac build has no runner**: a release run can now be started for the Windows installer and the Mac office zip only, without touching the Linux server release, and the Mac build can use another hosted runner. Self-hosted servers see no change.

@@ -33,6 +33,16 @@ on:
         default: tag
         type: choice
         options: [tag, staged, all]
+      office_only:
+        description: "Only the desktop downloads (office zip + Windows installer) of a release whose Linux server release is already out: no tests, no Linux build, the server feed is not touched. For a tag whose build-office got no runner and whose run can no longer be re-run (docs/RELEASE-CI.md 6)."
+        required: false
+        default: false
+        type: boolean
+      mac_runner:
+        description: "The hosted macOS runner for the office zip; empty = the repository variable RELEASE_MAC_RUNNER, else macos-15. macos-15-intel draws from another pool when the arm64 Macs have no capacity."
+        required: false
+        default: ""
+        type: string
 
 # one release at a time (the feed's "never back" check reads what the previous one published)
 concurrency:
@@ -165,6 +175,8 @@ jobs:
   test:
     name: Tests
     needs: prepare
+    # office_only: the tagged commit was tested by the release's first run
+    if: ${{ !inputs.office_only }}
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
@@ -172,6 +184,7 @@ jobs:
   build-linux:
     name: Linux kit (${{ matrix.arch }})
     needs: prepare
+    if: ${{ !inputs.office_only }}
     strategy:
       fail-fast: true
       matrix:
@@ -225,7 +238,10 @@ jobs:
   build-office:
     name: Office zip (macOS, universal)
     needs: prepare
-    runs-on: macos-15 # macos-14 images were retired ("macos-14-arm64-us-default is not supported", v0.4.0-beta.9 on 2026-11-06); macos-15 had no runner on 2026-11-02 and 03
+    # macos-14 images were retired ("macos-14-arm64-us-default is not supported", v0.4.0-beta.9 on 2026-11-06); macos-15
+    # (arm64) had no runner on 2026-11-02, 03, 12 and 13 (v0.5.2, v0.5.3). The zip is universal either way: Go and swiftc
+    # cross-build both Mac processors (native/build.sh), so an Intel runner builds the same zip.
+    runs-on: ${{ inputs.mac_runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -293,7 +309,8 @@ jobs:
     needs: [prepare, test, build-linux, build-office, build-windows]
     # the server release goes out without the office zip or the Windows installer (macOS runners got none on
     # 2026-11-02..04); !cancelled(): a person who cancels the run still stops it
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.test.result == 'success' && needs.build-linux.result == 'success' }}
+    # office_only: no tests and no Linux build in this run (skipped); the server feed is left alone below
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.office_only || (needs.test.result == 'success' && needs.build-linux.result == 'success')) }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -329,6 +346,7 @@ jobs:
           pattern: release-*
           path: in
       - name: Unpack the Linux builds
+        if: ${{ !inputs.office_only }}
         run: |
           for a in amd64 arm64; do
             mkdir -p "build/linux-$a"
@@ -342,6 +360,24 @@ jobs:
           echo "windows=$WINDOWS_OK" >> "$GITHUB_OUTPUT"
           if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
           if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows; else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
+      # office_only: the Linux files the release already has (its GitHub Release), checked against the release's signed
+      # SHA256SUMS and then listed again in the new one; they are not signed or published again. Before anything is
+      # published: a tag whose server release never went out (no GitHub Release, no kits) stops here.
+      - name: The published Linux files (office_only)
+        if: ${{ inputs.office_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$OFFICE_OK" != true ] || [ "$WINDOWS_OK" != true ]; then echo "::error::office_only needs both desktop builds (build-office $OFFICE_OK, build-windows $WINDOWS_OK)"; exit 1; fi
+          mkdir -p published build/server
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.tar.gz' --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.sig' --dir published
+          bun scripts/release/release-ci.ts verify-sums published/SHA256SUMS
+          for a in amd64 arm64; do ls published/*-linux-"$a".tar.gz > /dev/null || { echo "::error::$TAG has no linux-$a kit on its GitHub Release"; exit 1; }; done
+          for f in published/*.tar.gz; do
+            grep -q "  $(basename "$f")\$" published/SHA256SUMS || { echo "::error::$(basename "$f") is not in the release's SHA256SUMS"; exit 1; }
+            mv "$f" build/server/
+          done
+          ls -l build/server
       - name: Release key (from the secret, never printed)
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
@@ -351,6 +387,7 @@ jobs:
           echo "TEAMAX_RELEASE_KEY=$RUNNER_TEMP/release-key.pem" >> "$GITHUB_ENV"
           bun scripts/release/release-ci.ts check-key "$RUNNER_TEMP/release-key.pem"
       - name: Sign the Linux builds (manifest.sig; update archive and install kit)
+        if: ${{ !inputs.office_only }}
         run: |
           mkdir -p build/server
           for a in amd64 arm64; do
@@ -374,7 +411,7 @@ jobs:
         if: needs.prepare.outputs.feed == 'true' && !(needs.build-office.result == 'success' && needs.build-windows.result == 'success')
         run: echo "::warning::office and Windows were not published to the update feed (build-office $OFFICE_OK, build-windows $WINDOWS_OK); the office feed keeps the previous release"
       - name: Server feed (Linux)
-        if: needs.prepare.outputs.feed == 'true'
+        if: needs.prepare.outputs.feed == 'true' && !inputs.office_only
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -432,6 +469,14 @@ jobs:
           if [ "$got" != "$SHA" ]; then echo "::error::$TAG now names $got, not the published $SHA"; exit 1; fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            # every download is there now: the first run's "not in this release yet" line goes
+            if [ "$OFFICE_OK" = true ] && [ "$WINDOWS_OK" = true ]; then
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes/old.md
+              if head -1 notes/old.md | grep -q '^\*\*Downloads not in this release yet:\*\*'; then
+                tail -n +3 notes/old.md > notes/new.md
+                gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes/new.md
+              fi
+            fi
             exit 0
           fi
           missing=()
