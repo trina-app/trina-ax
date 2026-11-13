@@ -146,3 +146,20 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, `team settings with Learn more open and the save bar (${scheme})`)
   })
 }
+
+test('on a wide screen the admin column sits in the middle of the area: Team settings and a wide page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await open(page)
+  const gaps = async () => {
+    const col = (await page.getByTestId('admin-column').boundingBox())!
+    const area = (await page.getByTestId('admin-content').boundingBox())!
+    return { left: col.x - area.x, right: area.x + area.width - (col.x + col.width) }
+  }
+  const narrow = await gaps()
+  expect(Math.abs(narrow.left - narrow.right)).toBeLessThanOrEqual(2)
+  expect(narrow.left).toBeGreaterThan(100)
+  await page.goto('/admin/members')
+  await expect(page.getByTestId('admin-column')).toBeVisible()
+  const wide = await gaps()
+  expect(Math.abs(wide.left - wide.right)).toBeLessThanOrEqual(2)
+})

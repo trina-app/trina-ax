@@ -55,6 +55,9 @@ const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
 const System = lazy(() => import('./System'))
 
+/** the pages that are a form: one narrow column (centred) on a computer */
+const NARROW = new Set(['settings', 'system'])
+
 type Section = { id: string; label: MessageKey; icon: typeof Users; ownerOnly?: boolean }
 
 /** The menu, in groups; Home's id is '' (/admin). */
@@ -313,8 +316,12 @@ export default function AdminLayout() {
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="admin-content">
         <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:px-8 lg:py-7">
           {/* every page here applies to the whole team (Settings says "Just for you" the same way) */}
-          <AdminScope />
-          {page}
+          {/* the form pages (Team settings, System) are one narrow column in the middle of the area, the others use the
+              whole width; both are centred, so the page does not shift from one to the next */}
+          <div className={clsx('w-full', NARROW.has(section) && 'mx-auto max-w-3xl')} data-testid="admin-column">
+            <AdminScope />
+            {page}
+          </div>
         </div>
       </div>
     </div>
