@@ -131,7 +131,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
           {/* the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to
               show it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row */}
           <PanelLabel id="files-panel-team" testId="files-panel-label">
-            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className={clsx('rounded hover:text-ink', phone ? 'flex min-h-11 w-full items-center gap-0.5' : 'hover:underline')} data-testid="files-panel-root">
+            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className={clsx('rounded hover:text-ink', phone ? 'flex min-h-11 w-full items-center gap-0.5' : 'hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center')} data-testid="files-panel-root">
               {t('filesPanel.team')}
               {phone && <ChevronRight size={14} aria-hidden />}
             </Link>

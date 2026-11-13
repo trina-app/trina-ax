@@ -158,11 +158,11 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
-  // the phone: the 대화 tab's pill counts every unread message of rooms not muted (18); the ☰ dot is for the AI chats in
-  // the drawer only, and none wants me
+  // the phone: the 대화 tab's pill is the rail's number, the conversations with something unread (4, not 18 messages);
+  // the AI's mark is for the AI chats only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(tabMark(page, 'chats')).toContainText('18')
+  await expect(tabMark(page, 'chats')).toContainText('4')
   await expect(phoneAiMark(page)).toHaveCount(0)
 })
 
