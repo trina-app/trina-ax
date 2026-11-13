@@ -18,6 +18,7 @@ import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { useLoad } from './common'
 import { InFolderHeader, takePeopleRefocus } from './folder-slots'
 import { useAdminBar } from './phoneBar'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 /** the "someone new" option of the list (not a person id: those are [a-z0-9_-]) */
 const NEW = '+new'
@@ -29,8 +30,8 @@ const fold = (s: string) => s.normalize('NFC').toLocaleLowerCase()
 export default function AccessPeople() {
   const t = useT()
   const [params, setParams] = useSearchParams()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
   const location = useLocation()
   const picker = useRef<HTMLDivElement>(null)
@@ -158,7 +159,7 @@ export default function AccessPeople() {
       <>
         {sideNote}
         <div className="mb-4" data-testid="access-new-setup">
-          <h3 className="text-base font-semibold text-ink">{t('accessView.newPerson')}</h3>
+          <h3 className="text-title-sm font-semibold text-ink">{t('accessView.newPerson')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('accessView.newNote')}</p>
           <div className="mt-3 flex flex-col gap-3">
             <div className="max-w-60">
@@ -184,7 +185,7 @@ export default function AccessPeople() {
         {sideNote}
         <div className="mb-4" data-testid="access-person">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="min-w-0 text-base font-semibold break-words text-ink">{u.name}</h3>
+            <h3 className="min-w-0 text-title-sm font-semibold break-words text-ink">{u.name}</h3>
             <Badge>{t(`role.${u.role}`)}</Badge>
             {u.status === 'disabled' && <Badge>{t('members.disabled')}</Badge>}
           </div>
@@ -292,7 +293,7 @@ function PersonPicker({ users, groups, value, onPick }: { users: User[] | null; 
       >
         {icon && <UserPlus size={15} className={clsx('mt-0.5 shrink-0', on ? 'text-accent-text' : 'text-muted')} aria-hidden />}
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-ink">{label}</span>
+          <span className="block truncate text-row font-medium text-ink">{label}</span>
           <span className="block truncate text-xs text-muted">{meta}</span>
         </span>
       </div>

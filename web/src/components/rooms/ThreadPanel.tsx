@@ -129,7 +129,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
           </IconButton>
         )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="shrink-0 text-base font-medium text-ink">{t('rooms.thread')}</span>
+          <span className="shrink-0 text-title-sm font-semibold text-ink">{t('rooms.thread')}</span>
           <span className="truncate text-xs text-faint" data-testid="thread-room">{roomTitle}</span>
         </h2>
         <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className={clsx('touch-hit', !closeX && 'max-md:hidden')} data-testid="thread-close">

@@ -130,7 +130,7 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         let items: Schedule[] = [
           base,
           { ...base, id: 'deferred', title: 'Deferred once', nextRunAt: '2026-10-28T14:00:00Z', pendingDueAt: '2026-10-28T14:00:00Z', retryAt: '2026-10-28T15:10:00Z' },
-          { ...base, id: 'completed', title: 'Completed once', enabled: false, nextRunAt: null, lastRunAt: '2026-10-28T13:00:00Z', lastChatId: chat.id, resumeBlockedReason: 'completed' },
+          { ...base, id: 'completed', title: 'Completed once', enabled: false, nextRunAt: null, lastRunAt: '2026-10-28T13:00:00Z', lastChatId: chat.id, lastOutcome: 'done', resumeBlockedReason: 'completed' },
           { ...base, id: 'expired', title: 'Expired once', date: '2026-10-27', enabled: false, nextRunAt: null, resumeBlockedReason: 'expired' },
           { ...base, id: 'future', title: 'Future once', enabled: false, nextRunAt: null },
           { ...base, id: 'daily', title: 'Recurring task', repeat: 'daily', date: null, enabled: false, nextRunAt: null },

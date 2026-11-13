@@ -109,7 +109,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {PRODUCT.displayName}
         </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
-          <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
+          <h1 className={clsx('text-title font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>

@@ -529,7 +529,7 @@ function OrganizeLine() {
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-lg font-semibold text-ink">{title}</h2>
+      <h2 className="text-display font-semibold text-ink">{title}</h2>
       {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
     </div>
   )
@@ -544,7 +544,7 @@ function Looking({ phase, count }: { phase: Draft['phase']; count: number }) {
       {phase === 'ranking' && (
         <p className="flex items-center gap-1.5 text-sm text-muted"><Check size={14} className="text-ok" aria-hidden /> {t('welcome.teamFiles.looking', { n: count })}</p>
       )}
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-ink" role="status" data-testid="welcome-team-files-looking-title">
+      <h2 className="flex items-center gap-2 text-display font-semibold text-ink" role="status" data-testid="welcome-team-files-looking-title">
         <Loader2 size={16} className="shrink-0 animate-spin text-accent-text" aria-hidden />
         {phase === 'reading' ? t('welcome.teamFiles.reading') : phase === 'looking' ? t('welcome.teamFiles.looking', { n: count }) : t('welcome.teamFiles.ranking', { n: count })}
       </h2>
@@ -749,7 +749,7 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
   const pct = (r: (typeof rows)[number]) => (r.state === 'done' ? 100 : r.size ? Math.min(99, Math.round((r.loaded / r.size) * 100)) : 0)
   return (
     <div className="space-y-4" data-testid="welcome-team-files-run" data-status={v.status}>
-      <h2 className="text-lg font-semibold text-ink" role="status" data-testid="welcome-team-files-run-title">
+      <h2 className="text-display font-semibold text-ink" role="status" data-testid="welcome-team-files-run-title">
         {running ? t('welcome.teamFiles.uploading', { k: v.done, n: v.total }) : t('welcome.teamFiles.done', { folder, n: v.done })}
       </h2>
       {(running || left.length > 0) && (

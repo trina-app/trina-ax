@@ -9,14 +9,13 @@ import { Smile, X } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
-import { addDays, isStatusEmoji, STATUS_DAYS_AHEAD, STATUS_TEXT_MAX, statusTextOk } from '@mycel/shared'
+import { addDays, isStatusEmoji, STATUS_DAYS_AHEAD, STATUS_DEFAULT_EMOJI, STATUS_TEXT_MAX, statusTextOk } from '@mycel/shared'
 import type { MyStatus, SetStatusBody, StatusMessage } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import { api, API } from '../lib/api'
 import { CLEAR_CHOICES, CLEAR_LABEL, dayIn, formatDay, STATUS_EMOJI, SUGGESTIONS, untilWords, type ClearChoice } from '../lib/statusMessage'
 import { useLocale, useT } from '../i18n'
 import { useMe, useMeStrict } from '../store/session'
-import { applyMyStatus, useStatusOf } from '../store/statusMessages'
-import { toast } from '../store/ui'
+import { changeMyStatus, useStatusOf } from '../store/statusMessages'
 import { EmojiPicker } from './EmojiPicker'
 import { placeTip, Tooltip } from './Tooltip'
 import { Button, Field, IconButton, inputCls, Modal, useMediaQuery } from './ui'
@@ -150,6 +149,20 @@ export function StatusDialogHost() {
 
 type Choice = ClearChoice | 'keep'
 
+const AFTER_MS: Partial<Record<SetStatusBody['clear'], number>> = { '30m': 30 * 60_000, '1h': 60 * 60_000, '2h': 2 * 60 * 60_000 }
+
+/** What a save will look like, shown until the server answers with its own (server/src/auth/status-plan.ts): the ends of
+ * a day or a week are the team's and come with the answer. */
+export function statusPreview(body: SetStatusBody, cur: MyStatus | null, today: string, now: number): MyStatus {
+  const emoji = body.emoji ?? (body.text ? STATUS_DEFAULT_EMOJI : '')
+  if (body.clear === 'keep' && cur) return { ...cur, emoji, text: body.text }
+  if (body.clear === 'keep' || body.clear === 'never') return { emoji, text: body.text, clear: 'never' }
+  const after = AFTER_MS[body.clear]
+  if (after) return { emoji, text: body.text, clear: body.clear, until: new Date(now + after).toISOString() }
+  if (body.clear === 'dates') return { emoji, text: body.text, clear: 'dates', ...(body.to ? { untilDay: body.to } : {}), ...(body.from && body.from > today ? { fromDay: body.from } : {}) }
+  return { emoji, text: body.text, clear: body.clear, ...(body.clear === 'today' ? { untilDay: today } : {}) }
+}
+
 function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HTMLElement | null }) {
   const t = useT()
   const locale = useLocale()
@@ -167,7 +180,6 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
   const [from, setFrom] = useState(cur?.fromDay ?? today)
   const [to, setTo] = useState(cur?.clear === 'dates' && cur.untilDay ? cur.untilDay : today)
   const [picking, setPicking] = useState(false)
-  const [busy, setBusy] = useState<'save' | 'clear' | null>(null)
   const input = useRef<HTMLInputElement>(null)
   // a touch screen: the box does not take the keyboard on opening (most people tap a suggestion, and the keyboard
   // covered them and the buttons); it comes up when the box is tapped
@@ -179,7 +191,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
   const empty = !emoji && !text.trim()
   const textOk = statusTextOk(text.trim())
   const datesOk = clear !== 'dates' || (!!to && to >= (from > today ? from : today) && to <= last && (!from || from <= last))
-  const canSave = !empty && textOk && datesOk && !busy
+  const canSave = !empty && textOk && datesOk
 
   const pick = (s: (typeof SUGGESTIONS)[number]) => {
     setEmoji(s.emoji)
@@ -195,46 +207,34 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
     setPicking(false)
     focusBox()
   }
-  const save = async () => {
+  // saving and clearing show at once and close the dialog (store/statusMessages.ts changeMyStatus)
+  const change = (to: MyStatus | null, send: () => Promise<MyStatus | null>) => {
+    void changeMyStatus(me.user.statusMessage ?? null, to, send)
+    onClose()
+  }
+  const save = () => {
     if (!canSave) return
-    setBusy('save')
     const body: SetStatusBody = {
       ...(emoji && isStatusEmoji(emoji) ? { emoji } : {}),
       text: text.trim(),
       clear,
       ...(clear === 'dates' ? { from: from > today ? from : today, to } : {}),
     }
-    try {
-      applyMyStatus(await api.call(API.setMyStatus, { body }))
-      onClose()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(null)
-    }
+    change(statusPreview(body, cur, today, now), () => api.call(API.setMyStatus, { body }))
   }
-  const remove = async () => {
-    setBusy('clear')
-    try {
-      await api.call(API.clearMyStatus)
-      applyMyStatus(null)
-      onClose()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(null)
-    }
-  }
+  const remove = () => change(null, async () => { await api.call(API.clearMyStatus); return null })
 
   const chip = (on: boolean) => clsx('h-8 rounded-lg border px-2.5 text-sm max-sm:h-9', on ? 'border-accent bg-accent-soft font-medium text-ink' : 'border-line text-ink hover:bg-hover')
   const keepWords = cur && keepable ? untilWords(cur, locale, t, tz) : null
   const footer = (
     <>
       {cur && (
-        <Button variant="ghost" className="mr-auto" busy={busy === 'clear'} disabled={!!busy} onClick={() => void remove()} data-testid="status-clear">
+        <Button variant="ghost" className="mr-auto" onClick={remove} data-testid="status-clear">
           {t('status.clear')}
         </Button>
       )}
-      <Button onClick={onClose} disabled={!!busy} data-testid="status-cancel">{t('common.cancel')}</Button>
-      <Button variant="primary" disabled={!canSave} busy={busy === 'save'} onClick={() => void save()} data-testid="status-save">{t('common.save')}</Button>
+      <Button onClick={onClose} data-testid="status-cancel">{t('common.cancel')}</Button>
+      <Button variant="primary" disabled={!canSave} onClick={save} data-testid="status-save">{t('common.save')}</Button>
     </>
   )
   return (

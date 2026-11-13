@@ -17,6 +17,7 @@ import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
 import { readProjectList } from '../../store/projects'
 import { cardChats, useWaitingChats } from '../../store/sessionMarkers'
@@ -25,6 +26,7 @@ import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
+import { foldRuns } from '../nav/TaskRunsRow'
 import { PanelSection, panelRow } from './PanelFrame'
 
 export { useFolds } from './folds'
@@ -32,13 +34,22 @@ export { useFolds } from './folds'
 /** how long a window coming back to the front waits before the groups are read again */
 const REFOCUS_READ_MS = 60_000
 
+/** how old a read of the groups may be when the list shows again (the rail's 트리나 after another place, the phone's
+ * tab): a change of my chats or folders meanwhile marks it stale (store/chatGroups.ts), so the list reads at once then */
+export const SHOW_AGAIN_READ_MS = 60_000
+/** the server asked for a reload, or access changed, while no list was on screen: the next one reads at once */
+let missed = false
+reloadAsked.on(() => { missed = true })
+accessChanged.on(() => { missed = true })
+
 /** Keep the groups read: on first show, after a change of my chats or folders, a reload the server asked for, a change
  * of access, and the window back in front after a minute. Also 프로젝트's list (each project's count and last activity). */
 export function useGroupsRead() {
   const groups = useChatGroups((s) => s.groups)
   const error = useChatGroups((s) => s.error)
   useEffect(() => {
-    void readChatGroups({ minAgeMs: 5_000 })
+    void readChatGroups(missed ? {} : { minAgeMs: SHOW_AGAIN_READ_MS })
+    missed = false
     // a change of a chat in my list (someone else's shared chat I never wrote in is not: its project's page has it)
     const offs = [chatChanged.on((d) => { if (!d.chat?.shared || d.chat.shared.mine || d.change !== 'updated') chatGroupsChanged() }), navFoldersChanged.on((k) => k === 'chats' && chatGroupsChanged()), reloadAsked.on(() => void readChatGroups()), accessChanged.on(chatGroupsChanged)]
     const again = () => document.visibilityState !== 'hidden' && void readChatGroups({ minAgeMs: REFOCUS_READ_MS })
@@ -62,8 +73,9 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const loadChats = useChats((s) => s.loadChats)
   const [moreLoading, setMoreLoading] = useState(false)
   useEffect(() => {
-    if (!loaded) void loadChats(true).catch(() => {})
-  }, [loaded, loadChats])
+    // the first read is shared with the rail's marks (lib/chatListLoad.ts)
+    if (!loaded) void loadChatList().catch(() => {})
+  }, [loaded])
   // a chat that joined my list on another screen (a shared project chat I just wrote in, its event telling only its
   // maker's view) is in the server's heads: put it in the list, so 최근 기록 has it without a reload
   useEffect(() => {
@@ -105,7 +117,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   return (
     <div ref={listRef} data-testid="trina-list">
       <WaitingRow />
-      {empty && <p className="px-3 py-2 text-row text-faint">{t('sidebar.noChats')}</p>}
+      {empty && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
 
       {groups.pinned.length > 0 && (
         <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
@@ -118,9 +130,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
       {loaded && (
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           <ul>
-            {recent.map((c) => (
-              <ChatItem key={c.id} chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />
-            ))}
+            {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
+            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true })}
           </ul>
           {cursor && (
             <button

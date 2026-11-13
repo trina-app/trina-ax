@@ -91,6 +91,23 @@
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
   --leading-reading: 1.625rem; /* 26px */
+  /* Heading levels (docs/DESIGN-SYSTEM.md "Typography"), each at 600 with its own line: `text-title-sm` 17/24 for a
+     dialog's, a card's and a settings section's title and a room's or a side panel's header name; `text-title` 20/28
+     for a page's title (PageHeader, an admin page's header); `text-display` 24/32 (22/30 on phones) for an empty
+     screen's or a setup step's heading and a project's name; `text-hero` 30/38 (26/34 on phones) for the home
+     greeting only. At least 3px between levels, so the level shows; a heading never takes a px size of its own. */
+  --text-title-sm: 1.0625rem; /* 17/24 */
+  --text-title-sm--line-height: 1.5rem;
+  --text-title-sm--font-weight: 600;
+  --text-title: 1.25rem; /* 20/28 */
+  --text-title--line-height: 1.75rem;
+  --text-title--font-weight: 600;
+  --text-display: 1.5rem; /* 24/32 */
+  --text-display--line-height: 2rem;
+  --text-display--font-weight: 600;
+  --text-hero: 1.875rem; /* 30/38 */
+  --text-hero--line-height: 2.375rem;
+  --text-hero--font-weight: 600;
   /* The list panels' type (the rail's panels: 트리나, 대화, 프로젝트, 파일, 활동; the phone lists and drawer that share
      their rows; docs/DESIGN-SYSTEM.md "Typography": row, list-heading, meta): `text-row` 15px for every row, a section's header and the fixed rows
      on top; `text-meta` 13px for a row's second line and tags (a project's "나만 · 3시간 전", a chat's project); `h-row`
@@ -110,6 +127,8 @@
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
+  --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
+  --text-list-face: 0.75rem; /* a person's letter on a picture that fills that box (Avatar size="fill") */
   --color-list-icon-bg: transparent;
   --color-row-read: var(--c-muted); /* a read row's name */
   --font-weight-row-read: 400;
@@ -217,7 +236,7 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
 }
 
 /* Phones (below 768px, where the phone top bar and the tabs show): the text sizes at the phone floor (xs, sm and micro as
-   on computers, the others one step up; badges stay 11px)
+   on computers, the others one step up; badges stay 11px; display and hero one step down, title-sm and title the same)
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
    reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it
@@ -237,6 +256,10 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --text-nano: 0.6875rem; /* 11px */
     --text-code-sm: 0.8125rem; /* 13px */
     --text-code-file: 0.8125rem; /* 13px */
+    --text-display: 1.375rem; /* 22/30 */
+    --text-display--line-height: 1.875rem;
+    --text-hero: 1.625rem; /* 26/34 */
+    --text-hero--line-height: 2.125rem;
   }
 }
 
@@ -251,6 +274,8 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --spacing-row-min: 3.5rem; /* 56px */
     --spacing-list-icon: 2.5rem; /* 40px */
     --spacing-list-glyph: 1.25rem; /* 20px */
+    --spacing-list-face: 2.5rem; /* 40px, as the icon box */
+    --text-list-face: 1.125rem; /* 18px */
     --color-list-icon-bg: var(--c-hover);
     --color-row-read: var(--c-ink);
     --font-weight-row-read: 500;

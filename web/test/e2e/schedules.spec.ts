@@ -53,7 +53,7 @@ test('run now: a new chat now, the schedule stays; a paused task says it does no
   expect(realErrors(errors)).toEqual([])
 })
 
-test('the Last run block: one heading, the run on its way after Run now, then its result, without a reload; rooms by name', async ({ page }) => {
+test('the Runs list: one heading, the run on its way after Run now, then its result, without a reload; rooms by name', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   // a room the owner is in and one they are not in, named in the instruction by id as the AI writes it
@@ -79,13 +79,15 @@ test('the Last run block: one heading, the run on its way after Run now, then it
   await expect(history).toContainText('아직 실행한 적이 없어요.')
   await item.getByTestId('schedule-run-now').click()
   // on its way: said once, under the one heading, linked to its chat
-  await expect(history.getByTestId('schedule-outcome')).toHaveAttribute('data-outcome', 'running')
+  const run = history.getByTestId('schedule-run-link')
+  await expect(run).toHaveAttribute('data-outcome', 'running')
   await expect(history).toContainText('실행 중')
-  await expect(history.getByTestId('schedule-run-link')).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
-  // it ends: the block follows (the run's chat.updated), no reload
-  await expect(history.getByTestId('schedule-outcome')).toHaveAttribute('data-outcome', 'done')
-  await expect(history.getByTestId('schedule-outcome')).toHaveText(/^성공 · /)
-  expect((await history.innerText()).split('마지막 실행').length - 1).toBe(1)
+  await expect(run).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
+  // it ends: the row follows (the run's chat.updated), no reload; one row, one heading
+  await expect(run).toHaveAttribute('data-outcome', 'done')
+  await expect(run).toContainText(/성공 · \d+/)
+  await expect(run).toHaveCount(1)
+  expect((await history.innerText()).split('실행 기록').length - 1).toBe(1)
   // the list card reads the room by name too
   await page.goto('/scheduled')
   const card = page.getByTestId('schedule-item').filter({ hasText: '영업 대화 요약' })

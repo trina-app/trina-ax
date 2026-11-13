@@ -1,0 +1,1 @@
+- Turning a scheduled task on or off, turning one of a connection's tools on or off, picking your default AI, setting or clearing your status, correcting a memory, and (for admins) turning an AI on or off or turning a plugin off now show at once. Before, each waited for the server. If the change fails, it goes back and a short message says why.

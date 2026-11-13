@@ -14,7 +14,7 @@ import { installDom, mount, removeDom } from './dom-host'
 
 const realFetch = globalThis.fetch
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
-const GONE = { id: '01900000-0000-7000-8000-0000000000aa', name: 'Acme Works' } as Integration
+const GONE = { id: '01900000-0000-7000-8000-0000000000aa', name: 'Acme Works', tools: [{ name: 'search', title: null, description: '', readOnly: true }] } as unknown as Integration
 let calls: string[] = []
 
 beforeAll(() => { installDom() })

@@ -22,9 +22,11 @@ import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
-import { useActivityUnread } from '../store/inbox'
+import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
+import { optimisticPending } from '../lib/optimistic'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
+import { peekCached, rememberCached } from '../store/listCache'
 import { useRooms } from '../store/rooms'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
@@ -34,6 +36,7 @@ import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
+import { rowName } from '../components/list/List'
 
 type T = ReturnType<typeof useT>
 type Filter = ActivityTab
@@ -97,13 +100,22 @@ function ActivityOpened({ id }: { id: string | null }) {
   const [item, setItem] = useState<InboxNotification | null>(null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0)
+  // read as it opens, once: a read that failed is not asked again by the reads after it (each failure reads every list
+  // again), the notice shows unread then
+  const marked = useRef(false)
   const load = useCallback(async () => {
     if (!id) return
     const generation = ++life.current
     try {
-      let got = await api.call(API.getNotification, { params: { id } })
-      if (!got.readAt) got = await api.call(API.markNotificationRead, { params: { id } })
-      if (generation === life.current) (setItem(got), setError(null))
+      const got = await api.call(API.getNotification, { params: { id } })
+      if (generation !== life.current) return
+      setError(null)
+      // the list read it as it opened it (one ask, one answer, one toast at most): shown read while that is on its way
+      if (got.readAt || marked.current || noticeReadAsked(got.id)) return setItem(!got.readAt && optimisticPending(noticeReadKey(got.id)) ? { ...got, readAt: new Date().toISOString() } : got)
+      marked.current = true
+      // on screen at once (a failure puts it back with a toast: store/inbox.ts); a read again of this notice meanwhile
+      // shows its own answer
+      void markNoticeRead(got, (readAt) => { if (generation === life.current) setItem({ ...got, readAt }) })
     } catch (e) {
       if (generation === life.current) setError(errorText(e, locale, t('error.network')))
     }
@@ -138,6 +150,9 @@ function ActivityOpened({ id }: { id: string | null }) {
   )
 }
 
+/** what the page keeps between visits */
+type KeptPage = { items: InboxNotification[]; cursor: string | null; serverUnread: number }
+
 /** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
 function ActivityPage({ chats }: { chats: boolean }) {
   const t = useT(), locale = useLocale()
@@ -151,18 +166,23 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
-  const [items, setItems] = useState<InboxNotification[] | null>(null)
-  const [cursor, setCursor] = useState<string | null>(null)
+  // the list as this window last showed it (store/listCache.ts): a visit after the first shows it at once and reads
+  // it behind it
+  const feedKey = `feed:page:${chats ? 'chats' : 'all'}`
+  const [kept] = useState(() => peekCached<KeptPage>(feedKey))
+  const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
   const [error, setError] = useState<string | null>(null)
   // the server's unread count with the last read (this page's part of it: the conversation rows on 대화's page)
-  const [serverUnread, setServerUnread] = useState(0)
+  const [serverUnread, setServerUnread] = useState(kept?.serverUnread ?? 0)
+  useEffect(() => { rememberCached<KeptPage>(feedKey, items ? { items, cursor, serverUnread } : undefined) }, [feedKey, items, cursor, serverUnread])
   // the older page on its way (its cursor), and how many reads have ended: the reading of older pages looks again
   // after each, so a read that lands meanwhile never leaves it waiting
   const [paging, setPaging] = useState<string | null>(null)
   const [ended, setEnded] = useState(0)
-  const life = useRef(0), sequence = useRef(0), shown = useRef(0)
+  const life = useRef(0), sequence = useRef(0), shown = useRef(items?.length ?? 0)
   // what is on screen, for the reads that land later (a page goes on only where the list still ends)
-  const itemsRef = useRef<InboxNotification[] | null>(null), cursorRef = useRef<string | null>(null), pagingRef = useRef<string | null>(null)
+  const itemsRef = useRef<InboxNotification[] | null>(items), cursorRef = useRef<string | null>(cursor), pagingRef = useRef<string | null>(null)
   const setList = (next: InboxNotification[] | null) => { itemsRef.current = next; shown.current = next?.length ?? 0; setItems(next) }
   const setEnd = (next: string | null) => { cursorRef.current = next; setCursor(next) }
   const searchRef = useRef<HTMLInputElement>(null)
@@ -183,7 +203,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
       try {
         const inbox = await api.call(API.listNotifications, { query: { limit: 30, cursor: after, ...only } })
         if (generation !== life.current || cursorRef.current !== after) return
-        setList([...new Map([...(itemsRef.current ?? []), ...inbox.items].map((item) => [item.id, item])).values()])
+        setList(keepPendingReads([...new Map([...(itemsRef.current ?? []), ...inbox.items].map((item) => [item.id, item])).values()], itemsRef.current))
         setEnd(inbox.nextCursor)
         setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
         setError(null)
@@ -204,7 +224,8 @@ function ActivityPage({ chats }: { chats: boolean }) {
       const from = inbox.nextCursor && tail ? previous.findIndex((x) => x.id === tail.id) : -1
       const ids = new Set(fresh.map((x) => x.id))
       const older = from >= 0 ? previous.slice(from + 1).filter((x) => !ids.has(x.id)) : []
-      setList([...fresh, ...older])
+      // (a row being marked read here keeps its mark: this read may be from before it)
+      setList(keepPendingReads([...fresh, ...older], previous))
       setEnd(older.length ? cursorRef.current : inbox.nextCursor)
       setServerUnread(chats ? inbox.roomUnreadCount ?? 0 : inbox.unreadCount)
       setError(null)
@@ -233,10 +254,9 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const read = async (item: InboxNotification) => {
     if (item.readAt) return
     const generation = life.current
-    // shown read at once; the server's answer follows
-    setList(itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null)
-    try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
-    catch (e) { if (generation === life.current) { setError(errorText(e, locale, t('error.network'))); void load() } }
+    // shown read at once; a failure puts it back with a toast (store/inbox.ts), then the rows are read again
+    await markNoticeRead(item, (readAt) => { if (generation === life.current) setList(itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt } : x)) ?? null) })
+    if (generation === life.current) await load()
   }
 
   /** the words a row can be found by: who, where and the line of a conversation; the text of the app's own notice */
@@ -258,18 +278,21 @@ function ActivityPage({ chats }: { chats: boolean }) {
    * with the counts (the rail's, the tab dots; the rooms' badges follow their room.read events) */
   const markAll = async () => {
     if (marking) return
-    const generation = life.current, tab = filter, at = new Date().toISOString()
+    const generation = life.current, tab = filter
     setMarking(true)
-    setList(itemsRef.current?.map((x) => (!x.readAt && shows(x, tab) ? { ...x, readAt: at } : x)) ?? null)
-    try {
-      await api.call(API.markAllNotificationsRead, { body: { tab, ...(chats ? { only: 'rooms' as const } : {}) } })
-      if (generation === life.current) setError(null)
-    } catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
-    finally {
-      // the server says so to every window too; this one reads again now
-      notificationsChanged.emit()
-      if (generation === life.current) setMarking(false)
-    }
+    // shown read at once; a failure puts the rows back with a toast (store/inbox.ts)
+    const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && shows(x, tab)).map((x) => x.id))
+    const was = serverUnread
+    const r = await markAllNoticesRead(tab, chats ? 'rooms' : undefined, (readAt) => {
+      if (generation !== life.current) return
+      setList(itemsRef.current?.map((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x)) ?? null)
+      // All read: nothing is left beyond the loaded rows either (the button goes)
+      if (tab === 'all') setServerUnread(readAt ? 0 : was)
+    })
+    if (r.ok && generation === life.current) setError(null)
+    // the server says so to every window too; this one reads again now
+    notificationsChanged.emit()
+    if (generation === life.current) setMarking(false)
   }
   const q = query.trim().toLocaleLowerCase()
   const visible = useMemo(() => (items ?? [])
@@ -316,7 +339,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         <div className={clsx(pageColumn, 'px-4 pt-4 sm:px-6 sm:pt-5 max-md:pt-1')}>
           <div className="flex items-center justify-between gap-3 max-md:block">
             {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
-            <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
+            <h1 className="text-title font-semibold tracking-tight max-md:sr-only">{title}</h1>
             <Tooltip label={t('feed.settings')}>
               <Link to="/settings/notifications" className="ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink max-md:hidden" aria-label={t('feed.settings')} data-testid="activity-settings">
                 <Settings size={18} aria-hidden />
@@ -388,7 +411,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
@@ -418,7 +441,7 @@ function RowBody({ face, who, iso, unread, line, context, count }: { face: React
     {face}
     <span className="min-w-0 flex-1">
       <span className="flex min-w-0 items-baseline gap-2">
-        <span className={clsx('min-w-0 truncate text-sm text-ink', unread ? 'font-bold' : 'font-medium')}>{who}</span>
+        <span className={clsx('min-w-0 truncate', rowName({ unread }))}>{who}</span>
         <time dateTime={iso} className="shrink-0 text-xs text-faint">{timeOf(iso, locale)}</time>
       </span>
       <span className={clsx('mt-0.5 block text-sm break-words', unread ? 'text-ink' : 'text-muted')}>{line}</span>

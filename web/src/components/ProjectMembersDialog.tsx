@@ -10,6 +10,9 @@
 // or when the save also writes a rule nobody chose here (the floor rule an older folder lacks, the creator's rule taken
 // out in Admin): the server's dry run says what, and how many lose it; when the only one it adds is the caller, the
 // "Add me" confirm instead. Taking people out alone saves at once.
+// Who is in it (docs/DECISIONS.md "Who is in a project, by face"): every person once at the bottom (ProjectPeople.tsx
+// PeopleList, the creator and "나" marked), and each group row opens to its people. Its members open it too (the faces
+// on the project page): for them only that list, and who changes the members.
 import { X } from 'lucide-react'
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
@@ -21,6 +24,7 @@ import { isAdmin, useMe } from '../store/session'
 import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog } from './ui'
+import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
@@ -96,12 +100,21 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
   const [error, setError] = useState<string | null>(null)
   const shown = (a: ProjectAccess) => { setAccess(a); setParticipants(chosenOf(a)); setRemoving([]) }
   const load = () => api.call(API.getProjectAccess, { params: { id: project.id } })
+  // whoever manages it reads its participants; a member who does not reads only who is in it
+  const manages = !!(project.canManage ?? project.membersEditable)
   useEffect(() => {
+    if (!manages) return
     let live = true
     load().then((a) => live && shown(a), (e) => live && setLoadError(errorText(e, locale, t('error.network'))))
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id])
+  }, [project.id, manages])
+  const people = useProjectPeople(project)
+  const groupPeople = useMemo(() => {
+    if (!people || !people.groups) return undefined
+    const byId = new Map(people.people.map((x) => [x.id, x]))
+    return new Map(people.groups.map((g) => [g.id, g.people.flatMap((id) => byId.get(id) ?? [])]))
+  }, [people])
 
   const removed = useMemo(() => new Set(removing.map(ruleKey)), [removing])
   const current = useMemo(() => (access ? chosenOf(access) : []), [access])
@@ -176,26 +189,31 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
       width={560}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          {/* read only (a member who does not manage it, or members changed elsewhere): 닫기 */}
+          <Button variant="ghost" onClick={onClose}>{editable ? t('common.cancel') : t('common.close')}</Button>
           {editable && <Button variant="primary" busy={busy} disabled={!changed} onClick={() => void save()} data-testid="project-members-save">{t('common.save')}</Button>}
         </>
       }
     >
       <div className="space-y-4" data-testid="project-members-dialog">
         {loadError && <ErrorNote>{loadError}</ErrorNote>}
-        {!access && !loadError && <Skeleton lines={4} />}
+        {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} />
-            <AccessSummary count={count} />
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} />
+            {/* the count after the change; with nothing changed the list of people below says it already */}
+            {(changed || !people || !people.people.length) && <AccessSummary count={count} />}
           </div>
         )}
         {/* changed elsewhere meanwhile (a folder moved), or a project made before outside projects/: who changes it */}
-        {access && !editable && (
+        {(access ? !editable : !manages) && (
           <p className="text-sm break-keep text-muted" data-testid="project-members-locked">
-            {!admin ? t('projects.membersByAdmins') : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote')}
+            {!admin ? (project.creatorChangesMembers && project.createdBy ? t('projects.membersByCreator', { name: project.createdBy.name }) : t('projects.membersByAdmins')) : isProjectsFolder(project.folderPath) ? t('projects.membersFolderMissing') : t('projects.legacyNote')}
           </p>
         )}
+        {!manages && people === null && <Skeleton lines={3} />}
+        {/* a member's list could not be read: say so rather than an empty dialog */}
+        {!manages && people === false && hasPeopleList(project) && <ErrorNote>{t('error.network')}</ErrorNote>}
         {/* the other settings of its folder: those of the folder itself can go (×, undone before the save), those of
             folders inside are shown only; folders inside the caller may not read are counted */}
         {editable && (otherRules.length > 0 || hidden > 0) && (
@@ -230,6 +248,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
             {hidden > 0 && <p className={clsx('text-xs text-faint', otherRules.length > 0 && 'mt-1')} data-testid="project-other-rules-hidden">{t('projects.insideOwn', { n: hidden })}</p>}
           </div>
         )}
+        {/* everyone in it now, each once (a save closes the dialog, so this is always what is saved) */}
+        {people && people.people.length > 0 && <PeopleList people={people.people} />}
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

@@ -33,7 +33,7 @@ import { useLocale, useT } from '../../i18n'
 import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
-import { TeamImage } from '../Markdown'
+import { TeamImage } from '../LazyMarkdown'
 import { Tooltip } from '../Tooltip'
 
 type TFunction = ReturnType<typeof useT>

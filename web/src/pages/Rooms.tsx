@@ -169,7 +169,7 @@ function HiddenRooms({ rooms }: { rooms: Room[] }) {
   return (
     <section className="pt-4 pb-8" data-testid="rooms-hidden">
       <h2>
-        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-sm text-muted hover:text-ink sm:px-6 md:min-h-9 md:text-xs" data-testid="rooms-hidden-toggle">
+        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-xs text-muted hover:text-ink sm:px-6 md:min-h-9" data-testid="rooms-hidden-toggle">
           {t('rooms.hidden.title', { n: rooms.length })}
           <ChevronDown size={14} className={clsx('transition-transform motion-reduce:transition-none', !open && '-rotate-90')} aria-hidden />
         </button>

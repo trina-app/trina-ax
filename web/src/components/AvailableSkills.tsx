@@ -32,6 +32,7 @@ import { namedProduct } from '../lib/tabs'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useT } from '../i18n'
+import { useCachedRead } from '../store/listCache'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
@@ -68,37 +69,33 @@ export const skillSubfolder = (path: string) => {
  * menu shows the same). Never the folder name turned into words. */
 const skillShown = (s: Pick<SkillInfo, 'name' | 'title'>) => { const title = s.title?.trim(); return title && title !== s.name ? title : null }
 
+/** The skills the person can use, the most used first (the counts are a bonus: the list still shows when they don't
+ * load). */
+export const AVAILABLE_KEY = 'skills:available'
+export const readAvailable = (): Promise<Skill[]> =>
+  Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(([list, popular]) => {
+    const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
+    return list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses)
+  })
+
 /** `query`: the page's search box, matched against the name and the description. `catalogOpen`: the ready-made skills'
  * fold starts open ("스킬 넣기" led here). */
 export function AvailableSkills({ query, catalogOpen }: { query: string; catalogOpen?: boolean }) {
   const t = useT()
-  const [items, setItems] = useState<Skill[] | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0)
+  // as this window last read it (store/listCache.ts): a visit after the first shows it at once and reads it behind it
+  // (not when 팀 스킬 read it a moment ago: it asks for it beside its own lists)
+  const { data, failed, reload } = useCachedRead<Skill[]>(AVAILABLE_KEY, readAvailable, { minAgeMs: 10_000 })
+  const items = data ?? null
   useEffect(() => {
-    let active = true, generation = 0
-    const load = () => {
-      const g = ++generation
-      // the counts are a bonus: the list still shows when they don't load
-      Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(
-        ([list, popular]) => {
-          if (!active || g !== generation) return
-          const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
-          setItems(list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses))
-          setFailed(false)
-        },
-        () => { if (active && g === generation) setFailed(true) },
-      )
-    }
-    load()
+    const load = () => void reload()
     const offs = [
       accessChanged.on(load), skillsChanged.on(load), reloadAsked.on(load),
       filesChanged.on((changes) => { if (changes.some((c) => isSkillsPath(c.path) || (c.from && isSkillsPath(c.from)))) load() }),
     ]
-    return () => { active = false; for (const off of offs) off() }
-  }, [attempt])
+    return () => { for (const off of offs) off() }
+  }, [reload])
   // never "no skills" for a list that did not load
-  if (failed && !items) return <ErrorNote onRetry={() => { setFailed(false); setAttempt((n) => n + 1) }}>{t('error.network')}</ErrorNote>
+  if (failed && !items) return <ErrorNote onRetry={() => void reload()}>{t('error.network')}</ErrorNote>
   return <AvailableSkillsList items={items} query={query} catalogOpen={catalogOpen} />
 }
 
@@ -316,7 +313,7 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
           <ScrollText size={16} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-row font-medium">
             <span className="truncate" data-testid="skill-name">{shown}</span>
             {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
             {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}

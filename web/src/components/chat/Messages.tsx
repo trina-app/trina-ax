@@ -21,7 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
-import { answerHtml } from '../../lib/richCopy'
+import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
@@ -40,7 +40,7 @@ import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
-import { Markdown } from '../Markdown'
+import { Markdown } from '../LazyMarkdown'
 import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
@@ -282,7 +282,7 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
     <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
       <SkillChip title={skillLabel(run.skill)} name={run.skill.name} />
       {open ? (
-        <dl className="space-y-1 text-right text-[0.8125rem] leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
+        <dl className="space-y-1 text-right text-xs leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
           {run.answers.map((a, i) => (
             <div key={i}>
               <dt className="text-faint">{a.label}</dt>
@@ -291,7 +291,7 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
           ))}
         </dl>
       ) : (
-        <p className={clsx('text-right text-[0.8125rem] leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
+        <p className={clsx('text-right text-xs leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
           {run.answers.map((a, i) => (
             <span key={i} title={a.label}>
               {i > 0 && <span aria-hidden> · </span>}

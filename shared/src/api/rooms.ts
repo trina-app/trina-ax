@@ -616,7 +616,9 @@ export type RoomThreadReadState = z.infer<typeof RoomThreadReadState>
 export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.boolean() }).strict()
 export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
-export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
+/** `k` with `thumb`: this sign-in's media key (Me.session.mediaKey): the thumbnail may be kept by this browser
+ * (server/src/auth/media-key.ts) */
+export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional(), k: z.string().max(64).optional() })
 /** "팀 파일" in a room's message box (a phone's attach sheet): a team file I may read now, copied as my upload in the
  * room, sent by id like one from POST /api/rooms/:id/files */
 export const RoomTeamFileBody = z.object({ path: RelPath }).strict()

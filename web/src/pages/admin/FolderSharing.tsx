@@ -26,6 +26,7 @@ import { useFaceOf } from '../../store/people'
 import { useMeStrict } from '../../store/session'
 import { AddNamed, type ListControl } from './AddNamed'
 import { useRulesDraft } from './useRulesDraft'
+import { loadAdminGroups, loadAdminUsers, readAdmin } from '../../store/adminPeople'
 
 export interface FolderSharingProps {
   path: string
@@ -61,8 +62,9 @@ export default function FolderSharing(props: FolderSharingProps) {
       try {
         const [folders, users, groups, below] = await Promise.all([
           api.call(API.listFolders),
-          api.call(API.listUsers),
-          api.call(API.listGroups),
+          // people and groups: the admin screens' kept lists (read again after any change made here)
+          readAdmin('users', loadAdminUsers).then((items) => ({ items })),
+          readAdmin('groups', loadAdminGroups).then((items) => ({ items })),
           // folders inside with settings of their own (the tree's "rule folders only" list, the folder itself left out)
           api.call(API.explainAccessTree, { query: { path, rules: '1', limit: 1 } }).then((r) => Math.max(0, (r.levels[0]?.total ?? 0) - (r.self.rules > 0 ? 1 : 0)), () => 0),
         ])
@@ -337,7 +339,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
             <li key={k} className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-row" data-subject={k} data-access={n.access}>
               {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">{label}</p>
+                <p className="truncate text-row font-medium text-ink">{label}</p>
                 {second && <p className="text-xs [overflow-wrap:anywhere] text-faint sm:truncate" data-testid="sharing-row-second">{second}</p>}
               </div>
               {always ? (
@@ -501,7 +503,7 @@ function GeneralAccess({ value, choices, label, hint, except, onChange, from, fr
   const id = useId()
   return (
     <section aria-labelledby={id} data-testid="sharing-general">
-      <h3 id={id} className="text-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
+      <h3 id={id} className="text-title-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
       <select
         value={value}
         aria-labelledby={id}

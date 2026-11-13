@@ -19,7 +19,7 @@ import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
-import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
+import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -771,6 +771,22 @@ export const chatsRoutes: RouteModule = {
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
       if (isPersonalPath(r.folder_path)) fail('conflict', tr('sharedProjectPersonal', c.get('locale')), { params: { reason: 'project_personal' } })
       return projectAccess(ctx, r, p)
+    })
+
+    // who is in a team project, each person once with their photo (its page's faces, the members dialog): its members,
+    // and whoever manages it (the owner, admins, its creator); the groups it was shared with only for the latter.
+    // Anyone else: 404, as for no project (projectFor). Only a project in projects/: one made before elsewhere is seen
+    // by the owner and admins by their role, and its list would tell a member who they are
+    kit.handle(API.getProjectPeople, ({ c, params, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = projectFor(p, params.id, true)
+      if (isPersonalPath(r.folder_path)) fail('conflict', tr('sharedProjectPersonal', locale), { params: { reason: 'project_personal' } })
+      if (!isProjectsFolder(r.folder_path)) fail('conflict', tr('projectPeopleLegacy', locale), { params: { reason: 'project_legacy' } })
+      // the groups: as GET …/access gives its participants (the owner and admins; its creator only while the folder is
+      // theirs to change: an older project on an admin's folder keeps the admin's rules from them)
+      const groups = p.role === 'owner' || p.role === 'admin' || (mayManage(ctx, p, r) && accessEditable(r, ctx.files, p))
+      return projectPeople(ctx, r, { manage: groups })
     })
 
     // change who sees it: the project folder's rules, saved as Admin › Folder permissions saves them

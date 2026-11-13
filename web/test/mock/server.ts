@@ -68,7 +68,7 @@ import type { FileListStatus } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
-import type { MemberWelcome } from '@mycel/shared/api'
+import type { MemberWelcome, ScheduleRun } from '@mycel/shared/api'
 import { activityTabHas } from '@mycel/shared/api'
 import { ORGANIZE_LIMITS, REASON_FOLDER, formKind, formSkillType, formStem, nameReason, organizePlan, type AiOrganize, type OrganizePlan } from '@mycel/shared/api'
 import { MySlack, SlackAdmin } from '@mycel/shared/api'
@@ -382,6 +382,8 @@ export class MockServer {
   aiAllowances: AiAllowance[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** each task's run history, newest first (GET /api/schedules/:id/runs; POST /__test/schedule `runs`, "Run now") */
+  scheduleRuns = new Map<string, ScheduleRun[]>()
   /** how long a "Run now" run takes before it ends (POST /__test/schedule `runMs`) */
   scheduleRunMs = 200
   /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
@@ -637,6 +639,7 @@ export class MockServer {
     this.memories = []
     this.aiAllowances = []
     this.schedules = []
+    this.scheduleRuns = new Map()
     this.scheduleRunMs = 200
     this.budgets = []
     this.versions = []
@@ -2610,6 +2613,24 @@ export class MockServer {
       return this.sharedProjectOut(p, c.user)
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
+    // like server/src/routes/chats.ts getProjectPeople: its members and whoever manages it; the groups for the latter
+    getProjectPeople: (c) => {
+      const p = this.projectFor(c, true)
+      if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
+      if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
+      const creator = p.createdBy?.id
+      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
+        .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))
+      if (!this.projectManages(p, c.user)) return { people }
+      const pm = this.projectMembers.get(p.folderPath)
+      const ids = new Set(people.map((x) => x.id))
+      const groupIds = [...new Set([...(pm?.participants ?? []), ...(pm?.others ?? []).filter((r) => r.path === p.folderPath && r.access !== 'none')].filter((x) => x.subjectType === 'group' && x.subjectId).map((x) => x.subjectId!))]
+      const groups = groupIds.flatMap((id) => {
+        const g = this.groups.find((x) => x.id === id)
+        return g ? [{ id, name: g.name, people: people.filter((x) => this.users.find((u) => u.id === x.id)?.groupIds.includes(id) && ids.has(x.id)).map((x) => x.id) }] : []
+      }).sort((a, b) => a.name.localeCompare(b.name))
+      return { people, groups }
+    },
     // like server/src/chat/project-access.ts previewAccess: members only (docs/DECISIONS.md "Project contents only for
     // members"): a new project counts the caller and the people chosen, for everyone; an existing one its members after
     // the change (`removeRules`: other settings of its folder taken out). Asked by someone who manages it without reading
@@ -4471,8 +4492,11 @@ export class MockServer {
       if (/budget/.test(x.title)) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 내일 오전 12:00부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.')
       // the run is queued (running) when the answer comes and ends a moment later, with the chat.updated of its end, as
       // the server's turn does (chat/turn.ts finish: the result is written before the event)
-      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'queued' }
+      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'queued',
+        schedule: { id: x.id, title: x.title, templateId: x.templateId ?? null, outcome: null } }
       this.chats.push(chat)
+      const run: ScheduleRun = { id: uuidv7(), status: 'running', startedAt: now(), endedAt: null, chatId: chat.id, error: null }
+      this.scheduleRuns.set(x.id, [run, ...(this.scheduleRuns.get(x.id) ?? [])])
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'created', chat } })
       x.lastChatId = chat.id
       x.running = true
@@ -4480,11 +4504,22 @@ export class MockServer {
         // a reset in between (the next test): nothing to end
         if (!this.schedules.includes(x)) return
         Object.assign(x, { running: false, lastOutcome: 'done', lastOutcomeAt: now() })
-        Object.assign(chat, { runState: 'idle', updatedAt: now() })
+        Object.assign(run, { status: 'done', endedAt: now() })
+        // an answer that finished is unseen until the person has the chat on screen (like the server, migration 252)
+        Object.assign(chat, { runState: 'idle', updatedAt: now(), unseen: true, schedule: { ...chat.schedule!, outcome: 'succeeded' } })
         this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
       }, this.scheduleRunMs)
       const { userId: _, ...out } = x
       return { schedule: out, chatId: chat.id }
+    },
+    // like server/src/chat/schedules.ts runs: newest first, keyset paged, only the task's owner
+    listScheduleRuns: (c) => {
+      const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      const all = (this.scheduleRuns.get(x.id) ?? []).map((r) => ({ ...r, chatId: r.chatId && this.chats.some((ch) => ch.id === r.chatId && !ch.deletedAt) ? r.chatId : null }))
+      const from = c.query.cursor ? all.findIndex((r) => `${r.startedAt}|${r.id}` === c.query.cursor) + 1 : 0
+      const limit = Number(c.query.limit ?? 10)
+      const items = all.slice(from, from + limit)
+      return { items, nextCursor: from + limit < all.length ? `${items[items.length - 1]!.startedAt}|${items[items.length - 1]!.id}` : null }
     },
     // like server/src/chat/schedule-edit.ts: the checks of schedule_create, then the same card; only its answer saves
     scheduleEditCard: (c) => {
@@ -5092,7 +5127,9 @@ export class MockServer {
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
     if (!p.startsWith('/api/')) {
-      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      // /sw.js is rewritten below, so it is asked for as plain text (the build's compressed copy is the same file)
+      const plain = p === '/sw.js' ? new Request(req, { headers: withoutHeader(req.headers, 'accept-encoding') }) : req
+      const res = serveWeb(plain, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
       return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
     }
     this.log.push(`${req.method} ${p}`)
@@ -5253,6 +5290,24 @@ export class MockServer {
         ...(typeof body.saveFolder === 'string' ? { saveFolder: body.saveFolder, saveReaders: 30, saveLapsed: body.lapsed === true ? 'rules' as const : null,
           saveSources: [{ key: `user:${owner.id}`, kind: 'mine' as const, name: null }, { key: 'room:r1', kind: 'room' as const, name: '영업팀' }],
           personalSends: body.sends === true ? [{ name: '내 Notion', pins: ['일일 메모'] }] : [] } : {}) })
+      // its run history (`runs`: how many, a run a day back from now, every `failEvery`th one failed; `unread`: the newest
+      // run's answer not seen yet; `projectId`: the runs' chats are in that project), each run with its own chat
+      const made = this.schedules[this.schedules.length - 1]!
+      const n = typeof body.runs === 'number' ? body.runs : 0
+      const runs: ScheduleRun[] = []
+      for (let i = 0; i < n; i++) {
+        const at = new Date(Date.now() - (i + 1) * 86400_000 + 3600_000).toISOString(), end = new Date(Date.parse(at) + (95 + i * 40) * 1000).toISOString()
+        const failed = typeof body.failEvery === 'number' && i % body.failEvery === 0
+        const chat: Chat = { id: uuidv7(), projectId: typeof body.projectId === 'string' ? body.projectId : null, title: `${made.title} · ${at.slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: at, updatedAt: end, deletedAt: null, runState: 'idle',
+          schedule: { id: made.id, title: made.title, templateId: made.templateId ?? null, outcome: failed ? 'failed' : 'succeeded' }, ...(i === 0 && body.unread === true ? { unseen: true as const } : {}), ...(failed ? { lastOutcome: 'error' as const } : {}) }
+        this.chats.push(chat)
+        runs.push({ id: uuidv7(), status: failed ? 'error' : 'done', startedAt: at, endedAt: end, chatId: chat.id, error: failed ? 'AI가 지금 답하지 못했어요. 잠시 뒤 다시 해 주세요.' : null })
+      }
+      if (n) {
+        this.scheduleRuns.set(made.id, runs)
+        const newest = runs[0]!
+        Object.assign(made, { lastRunAt: newest.startedAt, lastChatId: newest.chatId, lastOutcome: newest.status === 'done' ? 'done' : 'error', lastOutcomeAt: newest.endedAt })
+      }
     }
     else if (p === '/__test/schedule-review') {
       // a free-text task made before the schedule card: paused until its owner confirms it again
@@ -6203,6 +6258,12 @@ function pageHeaders(res: Response): Response {
  * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
  * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
 const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
+function withoutHeader(headers: Headers, name: string): Headers {
+  const h = new Headers(headers)
+  h.delete(name)
+  return h
+}
+
 async function withoutWorkerBadge(res: Response): Promise<Response> {
   const h = new Headers(res.headers)
   h.delete('content-length')

@@ -28,6 +28,7 @@ import { badgeText } from '../lib/rooms'
 import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
 import { useChats } from '../store/chats'
+import { loadChatList } from '../lib/chatListLoad'
 import { useNoticeUnread, useRoomNoticeUnread } from '../store/inbox'
 import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
@@ -57,7 +58,7 @@ export function BottomTabs() {
   // 트리나's mark counts the AI chats of the chat list: read it whichever tab opens first, as the rail does
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   useEffect(() => {
-    if (!chatsLoaded) void useChats.getState().loadChats(true).catch(() => {})
+    if (!chatsLoaded) void loadChatList().catch(() => {})
   }, [chatsLoaded])
   // the signed-in app shows its first entry: one opened from outside gets its parents put under it
   useEffect(() => settleOpened(), [])

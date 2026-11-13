@@ -11,6 +11,7 @@ import { dateBucket, type DateBucket } from '../../lib/format'
 import { useT, type MessageKey } from '../../i18n'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
@@ -21,6 +22,7 @@ import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from './ChatItem'
+import { foldRuns } from './TaskRunsRow'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
@@ -112,7 +114,8 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
   // a first read that failed: the calm notice in place of the list, which reads again by itself (components/LoadError.tsx);
   // it spun forever before. The error stays until a read works, so the notice stays while it reads again
   const [chatsError, setChatsError] = useState<unknown>(null)
-  const readChats = useCallback(() => loadChats(true).then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [loadChats])
+  // the first read is shared with the rail's marks (lib/chatListLoad.ts)
+  const readChats = useCallback(() => loadChatList().then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [])
   useEffect(() => {
     if (!loaded) void readChats()
   }, [loaded, readChats])
@@ -161,9 +164,9 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
         {/* the chats, and the projects the person sees for their headers (one read): no flat list first */}
         {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
         {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
-        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-row text-faint">{t('sidebar.noChats')}</p>}
+        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
         {loaded && chats.some((c) => !isUnused(c)) && !filtered.length && !pinnedRows.length && (
-          <p className="px-3 py-2 text-row text-faint" data-testid="recents-no-match">
+          <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
             {t('sidebar.filter.none')}
           </p>
         )}
@@ -172,13 +175,17 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
             {pinnedRows.map(row)}
           </ul>
         )}
-        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
-        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
-          <div key={key || 'all'} className="mb-2">
-            {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
-            <ul>{items.map(row)}</ul>
-          </div>
-        ))}
+        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} />}
+        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => {
+          // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
+          const rows = foldRuns(items, row, { pool: filtered })
+          return rows.length > 0 && (
+            <div key={key || 'all'} className="mb-2">
+              {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
+              <ul>{rows}</ul>
+            </div>
+          )
+        })}
         {cursor && (
           <button
             type="button"

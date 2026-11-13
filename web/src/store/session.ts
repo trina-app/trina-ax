@@ -2,9 +2,10 @@
 import { create } from 'zustand'
 import { SETUP_TOKEN_HEADER, type Locale, type Me, type TextSize, type Theme, type UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
+import { optimistic, optimisticPending, optimisticPendingKeys } from '../lib/optimistic'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
-import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { loadLocale, pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -30,8 +31,9 @@ interface SessionState {
   refreshMe: () => Promise<void>
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
   pickLocale: (l: Locale) => void
-  /** engine / model null = back to the team default */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
+  /** engine / model null = back to the team default. Shown at once; throws when refused (the screen is back to what the
+   * account has); false: a newer pick replaced this one (its answer decides; nothing to say) */
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<boolean>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
@@ -86,42 +88,60 @@ export function setBeforePersonSwitch(fn: () => void) {
   beforePersonSwitch = fn
 }
 
+/** The first read of who is signed in (main.tsx starts it before the first render, the app's Gate asks again on mount):
+ * one request, shared while the screen still waits for it. A later load (Retry, after setup) always asks again. */
+let booting: Promise<void> | null = null
+/** The language a screen is about to show, loaded before the screen changes (index.ts loadLocale): the signed-in app
+ * or the sign-in page comes up in its own words, not English first. A language that cannot load is shown later, or
+ * not at all (the switch then keeps the language on screen). */
+const wordsFor = (l: Locale) => loadLocale(l).catch(() => {})
+
+type PrefsPatch = Partial<Record<keyof UserPrefs, unknown>>
+/** the queues of preference changes: `me:prefs:<field>[,<field>]` */
+const PREFS_KEY = 'me:prefs:'
+/** my status (components/StatusMessage.tsx): its queue's key */
+export const MY_STATUS_KEY = 'me:status'
+
+/** the account with these preferences (null: back to the default, as the server leaves it out) */
+function withPrefs(me: Me, v: PrefsPatch): Me {
+  const prefs = { ...me.user.prefs } as Record<string, unknown>
+  for (const [k, x] of Object.entries(v)) {
+    if (x === null || x === undefined) delete prefs[k]
+    else prefs[k] = x
+  }
+  return { ...me, user: { ...me.user, prefs: prefs as UserPrefs } }
+}
+
+/** A read of my account (or an answer) that may be from before a change still on its way: the preferences and the
+ * status of those changes stay as on screen. */
+function keepPendingPrefs(me: Me, shown: SessionState['status']): Me {
+  if (shown.kind !== 'signed-in' || shown.me.user.id !== me.user.id) return me
+  let out = me
+  for (const key of optimisticPendingKeys((k) => k.startsWith(PREFS_KEY))) {
+    const fields = key.slice(PREFS_KEY.length).split(',') as (keyof UserPrefs)[]
+    out = withPrefs(out, Object.fromEntries(fields.map((k) => [k, shown.me.user.prefs[k] ?? null])))
+  }
+  if (optimisticPending(MY_STATUS_KEY)) {
+    const user = { ...out.user }
+    if (shown.me.user.statusMessage) user.statusMessage = shown.me.user.statusMessage
+    else delete user.statusMessage
+    out = { ...out, user }
+  }
+  return out
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
 
-  async load() {
-    try {
-      const me = await api.call(API.me)
-      get().signedIn(me)
-    } catch (e) {
-      if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
-        storeRecentLocale(null)
-        // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
-        useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-        try {
-          // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
-          // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
-          // setupStatusFor)
-          const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
-          rememberSetupToken(linked)
-          const token = linked ?? keptSetupToken()
-          const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
-          // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
-          // per-address token limit that everyone behind this address shares
-          if (!s.needed) forgetSetupToken()
-          lastTeamDefault = s.defaultLocale ?? null
-          // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
-          useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))
-          set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
-        } catch {
-          set({ status: { kind: 'signed-out' } })
-        }
-        return
-      }
-      // Only the error screen uses the recovery hint. A server response still decides account/team language.
-      useLocaleStore.getState().setLocale(recoveryLocale(recentLocale(), storedLocale()))
-      set({ status: { kind: 'error', error: e } })
+  load() {
+    if (booting && get().status.kind === 'loading') return booting
+    const p = readMe(get, set)
+    if (get().status.kind === 'loading') {
+      booting = p
+      const done = () => { if (booting === p) booting = null }
+      p.then(done, done)
     }
+    return p
   },
 
   signedIn(me, opts) {
@@ -135,8 +155,10 @@ export const useSession = create<SessionState>((set, get) => ({
       forgetPersonInTab()
       beforePersonSwitch()
     }
-    applyMe(me)
-    set({ status: { kind: 'signed-in', me } })
+    // a read of my account from before a change still on its way (a preference, my status) keeps what is on screen
+    const kept = keepPendingPrefs(me, before)
+    applyMe(kept)
+    set({ status: { kind: 'signed-in', me: kept } })
     if (pendingPick && !me.user.mustChangePassword) {
       const l = pendingPick
       pendingPick = null
@@ -186,11 +208,27 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async updatePrefs(prefs) {
     const st = get().status
-    if (st.kind !== 'signed-in') return
-    // only what changed: the server merges it into the rest (routes/auth.ts), so two saves close together (the text
-    // size and then the theme) never put back each other's old value
-    const me = await api.call(API.updateMe, { body: { prefs } })
-    set({ status: { kind: 'signed-in', me } })
+    if (st.kind !== 'signed-in') return false
+    // shown at once (lib/optimistic.ts), one queue per set of fields (the engine with its model): a refusal puts back
+    // what the account last had and is thrown for the caller to say; an older pick refused under a newer one says
+    // nothing. Only what changed is sent: the server merges it into the rest (routes/auth.ts), so two saves close
+    // together (the text size and then the theme) never put back each other's old value
+    const fields = Object.keys(prefs).sort() as (keyof UserPrefs)[]
+    const from = Object.fromEntries(fields.map((k) => [k, st.me.user.prefs[k] ?? null])) as PrefsPatch
+    const r = await optimistic({
+      key: `${PREFS_KEY}${fields.join(',')}`, from, to: prefs as PrefsPatch,
+      show: (v) => {
+        const cur = get().status
+        if (cur.kind === 'signed-in') set({ status: { kind: 'signed-in', me: withPrefs(cur.me, v) } })
+      },
+      send: () => api.call(API.updateMe, { body: { prefs } }),
+      confirmed: (me) => Object.fromEntries(fields.map((k) => [k, me.user.prefs[k] ?? null])) as PrefsPatch,
+      // the account as the server has it, but with what another pick still being saved shows
+      settle: (me) => set({ status: { kind: 'signed-in', me: keepPendingPrefs(me, get().status) } }),
+      failText: false,
+    })
+    if (!r.ok && r.newest) throw r.error
+    return r.ok && r.newest
   },
 
   async setLocale(choice) {
@@ -267,6 +305,50 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 }))
+
+type Get = () => SessionState
+type Set = (s: Partial<SessionState>) => void
+
+/** GET /api/me and what follows from its answer (useSession.load). */
+async function readMe(get: Get, set: Set): Promise<void> {
+  try {
+    const me = await api.call(API.me)
+    await wordsFor(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
+    get().signedIn(me)
+  } catch (e) {
+    if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
+      storeRecentLocale(null)
+      // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
+      useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
+      try {
+        // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
+        // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
+        // setupStatusFor)
+        const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
+        rememberSetupToken(linked)
+        const token = linked ?? keptSetupToken()
+        const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
+        // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
+        // per-address token limit that everyone behind this address shares
+        if (!s.needed) forgetSetupToken()
+        lastTeamDefault = s.defaultLocale ?? null
+        // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
+        const locale = pickLocale(storedLocale(), s.defaultLocale)
+        await wordsFor(locale)
+        useLocaleStore.getState().setLocale(locale)
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
+      } catch {
+        set({ status: { kind: 'signed-out' } })
+      }
+      return
+    }
+    // Only the error screen uses the recovery hint. A server response still decides account/team language.
+    const locale = recoveryLocale(recentLocale(), storedLocale())
+    await wordsFor(locale)
+    useLocaleStore.getState().setLocale(locale)
+    set({ status: { kind: 'error', error: e } })
+  }
+}
 
 export function useMe(): Me | null {
   return useSession((s) => (s.status.kind === 'signed-in' ? s.status.me : null))

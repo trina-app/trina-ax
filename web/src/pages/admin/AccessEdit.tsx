@@ -190,7 +190,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
         <div className={clsx('min-w-0 flex-1', narrow && 'pt-1')}>
           {/* one line: what the panel does and for which folder */}
           {/* a phone's page: the bar says what it is, ‹ names the folder; the heading is for screen readers */}
-          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className={clsx('text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none', inPage && 'sr-only')}>
+          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className={clsx('text-title-sm font-semibold [overflow-wrap:anywhere] text-ink outline-none', inPage && 'sr-only')}>
             {hadRules ? t('accessEdit.title') : t('accessTree.addRules')}
             <span aria-hidden className="mx-1.5 font-normal text-faint">·</span>
             <span className="font-normal text-muted" data-testid="edit-path">
@@ -404,7 +404,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
   const faceOf = useFaceOf()
   return (
     <section aria-labelledby={titleId} data-testid="edit-people">
-      <h4 id={titleId} className="text-sm font-semibold text-ink">
+      <h4 id={titleId} className="text-title-sm font-semibold text-ink">
         {t('accessEdit.named')}
       </h4>
       <AddNamed
@@ -580,7 +580,7 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
   }
   return (
     <section aria-labelledby={titleId} aria-busy={!ready || undefined} data-testid="edit-result" data-ready={ready}>
-      <h4 id={titleId} className="flex items-center gap-2 text-sm font-semibold text-ink">
+      <h4 id={titleId} className="flex items-center gap-2 text-title-sm font-semibold text-ink">
         {t('accessEdit.result')}
         {!ready && !preview.error && <span className="text-xs font-normal text-faint">{t('accessEdit.computing')}</span>}
       </h4>

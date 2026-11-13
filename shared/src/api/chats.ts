@@ -377,6 +377,21 @@ export const ProjectAccess = z.object({
   otherRulesHidden: z.number().int().positive().optional(),
 })
 export type ProjectAccess = z.infer<typeof ProjectAccess>
+/** A person in a team project, for its page's faces and its members dialog. `avatarVersion`: their photo (absent without
+ * one; the photo is at /api/people/:id/avatar?v=<it>). `creator`: the project's creator. */
+export const ProjectPerson = z.object({ id: z.string(), name: z.string(), avatarVersion: z.number().int().positive().optional(), creator: z.literal(true).optional() })
+export type ProjectPerson = z.infer<typeof ProjectPerson>
+/**
+ * Who is in a team project in projects/<name> (GET /api/projects/:id/people; its members, and the owner, admins and its
+ * creator who manage it): `people` every active person who sees it now, each once (also when two groups hold them), the
+ * creator first, then by name. `groups`, only for whoever manages it (who already reads its participants in GET
+ * …/access): each group it was shared with and the people of `people` in it. Nothing while its folder is in the trash.
+ */
+export const ProjectPeople = z.object({
+  people: z.array(ProjectPerson),
+  groups: z.array(z.object({ id: z.string(), name: z.string(), people: z.array(z.string()) })).optional(),
+})
+export type ProjectPeople = z.infer<typeof ProjectPeople>
 /** A dry run: who would see a new project with these participants, or an existing one (projectId) after this change. */
 export const ProjectAccessPreviewBody = z.object({ projectId: Uuid7.optional(), participants: z.array(ProjectParticipant).max(200), removeRules: z.array(z.object({ subjectType: SubjectType, subjectId: z.string().nullable() })).max(50).optional() })
 export const ProjectAccessPreview = z.object({
@@ -456,6 +471,7 @@ export const CHATS = {
   previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', query: ProjectsQuery, response: Project, summary: 'One project (manage=1: also one the owner or an admin manages without being a member, without its contents).' }),
   restoreProject: endpoint({ method: 'POST', path: '/api/projects/:id/restore', auth: 'user', owner: 'B', response: Project, summary: 'Put a team project whose folder is in the trash back, with its folder (the owner or an admin; audited).' }),
+  getProjectPeople: endpoint({ method: 'GET', path: '/api/projects/:id/people', auth: 'user', owner: 'B', response: ProjectPeople, summary: 'Who is in a team project in projects/<name>, each person once with their photo, groups expanded (the groups only for whoever manages it). Its members, and the owner and admins who manage it; anyone else 404. 409 project_personal for a personal project, project_legacy for one made before outside projects/.' }),
   getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
