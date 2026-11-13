@@ -20,7 +20,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
-import { badSegment } from '../policy/names'
+import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
@@ -80,6 +80,21 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProjec
 /** Manage without reading (docs/DECISIONS.md "Project contents only for members"): see it, its members, rename,
  * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
 const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
+
+/** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
+ * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
+ * scheduled task or dev environment job on it, and nothing in its folder. */
+function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT): boolean {
+  const segs = r.folder_path.split('/')
+  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
+  if (r.created_by !== me || r.instructions !== '' || r.trashed_with !== null) return false
+  if (ctx.db.query('SELECT 1 FROM chats WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  if (ctx.db.query('SELECT 1 FROM schedules WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  // a job or dev server of its dev environment
+  if (ctx.db.query('SELECT 1 FROM dev_env_jobs WHERE project_id = ? LIMIT 1').get(r.id) || ctx.db.query('SELECT 1 FROM dev_env_runs WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  try { return fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).length === 0 } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' }
+}
+
 /** a folder made for a request goes again when a later step of it fails: nothing half-made stays behind */
 const removeMade = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
 
@@ -883,8 +898,8 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a personal project becomes a team project: a new projects/<name> with the participants chosen (as createProject
-    // makes one), the personal folder's files copied into it, the project pointed at it; then the personal folder goes
-    // to my trash, so the files have moved
+    // makes one), and the personal folder moved onto it in one step (docs/DECISIONS.md "Making a project"): the files
+    // move, nothing goes to the trash, no second copy is left. A move that fails leaves the folder where it was
     kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
@@ -897,55 +912,68 @@ export const chatsRoutes: RouteModule = {
       if (body.toParent !== undefined && body.toParent !== 'projects') fail('validation', tr('projectLocation', locale), { fields: { 'body.toParent': 'project_location' }, params: { reason: 'project_location' } })
       assertMayCreateTeamProject(ctx.db, p, locale)
       const participants = checkParticipants(ctx.db, p, body.participants, locale)
+      // another project on a folder inside it would land below projects/<name>, where a project never lives: refused,
+      // nothing changes (before the dry run too, so the confirm never opens for it)
+      if (projectInside(ctx, r!)) fail('conflict', tr('projectShareHoldsProject', locale), { params: { reason: 'project_inside' } })
       // (a member: the people and groups chosen only, as the new-project dry run: never who the admins are)
       if (body.dryRun) { const dry = previewAccess(ctx, p, { participants }, null, locale); return { viewersAdded: Math.max(0, dry.people - 1), ...(dry.adminsApart ? { adminsApart: true } : {}) } }
-      // its skills/ is copied into projects/<name>/skills: those skills switch on in this project's chats (asked first:
+      // its skills/ moves to projects/<name>/skills: those skills switch on in this project's chats (asked first:
       // skills/switch-on.ts)
       const skillsOn = skillsUnder(ctx.files.fx.root, r!.folder_path)
       askSkillsOn(skillsOn.names, body.skillsOk, locale)
       const rules = newProjectRules(participants, p.id)
       validateRules(ctx.db, rules, locale, 'body.participants')
       const before = captureState(ctx.db)
+      // the empty folder with its rules first: the files land under them the moment they arrive
       const made = makeProjectFolder(ctx, { id: r!.id, name: r!.name, locale })
+      // one project per folder: the new folder's name steps around the folders projects name; a project made on that
+      // path in the moment since is refused (here with its name, and again inside the move's transaction)
+      const free = () => assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, made.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
       let out: { files: number; bytes: number }
       try {
         ctx.db.transaction(() => { replaceRules(ctx.db, ensureFolderRow(ctx.db, made.path).id, rules, auth.user.id) })()
-        out = await mapErrors(locale, () => componentC(ctx).files.copyFolderInto(p.id, r!.folder_path, made.path), 'params.id')
-        ctx.db.transaction(() => {
-          // one project per folder: the new folder's name steps around the folders projects name; a project made on
-          // that path in the moment since is refused here, and the folder goes again
-          assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, made.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
+        free()
+        out = await mapErrors(locale, () => componentC(ctx).files.moveFolderOnto(p.id, r!.folder_path, made.path, () => {
+          // (the move pointed the project at made.path already, as a folder move does)
+          free()
           ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1 WHERE id = ?').run(made.path, r!.id)
-          audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, files: out.files, bytes: out.bytes, rules } })
-        })()
-      } catch (e) { unmakeProjectFolder(ctx, made); throw e }
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
-      if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
-      // the files moved, not copied (docs/DECISIONS.md "Making a project", review M6): two copies that do not stay in step
-      // confuse. The personal folder goes to my trash as I would put it there myself (restorable for the trash's days),
-      // but only when it is nothing more than this project's own folder and every file of it was copied: exactly
-      // users/<me>/projects/<name> (an older project elsewhere in my folder may sit on a folder that holds more), no other
-      // project's folder inside it, no skills in it, and as many files copied as it holds. Else, or when the trash
-      // refuses it, the folder stays where it is and the share stands
-      if (mayTrashSharedOriginal(ctx, p.id, r!, out.files)) {
-        try {
-          // (the trash's own file event records it)
-          await componentC(ctx).files.remove(p.id, r!.folder_path)
-        } catch (e) {
-          ctx.log.warn('project share: the personal folder stayed', { projectId: r!.id, err: String((e as Error)?.message ?? e) })
-        }
+        }), 'params.id')
+      } catch (e) {
+        // the folder made above goes again only while it is empty (rmdir): never anything that is in it
+        if (rt.store.projectRow(r!.id)?.folder_path !== made.path) unmakeProjectFolder(ctx, made, { onlyEmpty: true })
+        throw e
       }
+      // the move is done: what follows only records it, and its failure never turns a done share into an error
+      try {
+        audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, files: out.files, bytes: out.bytes, rules } })
+        afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
+        if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
+      } catch (e) { ctx.log.warn('project share: a step after the move failed', { projectId: r!.id, err: String((e as Error)?.message ?? e) }) }
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 
-    kit.handle(API.deleteProject, async ({ c, params, auth }) => {
+    kit.handle(API.deleteProject, async ({ c, params, query, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       const r = projectFor(p, params.id, true)
       // other people's chats lose the project context: whoever manages it (the creator while they may edit it, the owner
       // and admins also without reading it: docs/DECISIONS.md "Project contents only for members")
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      // 되돌리기 after "move to a new project" (docs/DECISIONS.md "Making a project"): only my own personal project that
+      // is still as it was made, and its empty folder goes with it; anything else stays as it is (409 project_not_empty)
+      if (query.ifEmpty) {
+        if (!stillEmpty(ctx, p.id, r)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+        ctx.db.transaction(() => {
+          // the folder goes in the same step, only while empty (rmdir: a file saved in the moment since makes it fail,
+          // and then the project stays too; nothing is lost). Already gone from disk: nothing to remove
+          const abs = path.join(ctx.files.fx.root, ...r.folder_path.split('/'))
+          if (fs.existsSync(abs) && !componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+          ctx.db.query('DELETE FROM projects WHERE id = ?').run(r.id)
+          audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r.id, detail: null })
+        })()
+        return
+      }
       // a team project in projects/<name> whose folder is in place goes to the trash with its folder first (default,
       // the owner may change it): it stays, In trash, for the owner and admins to restore or delete for good, and no
       // folder of a deleted project is left for anyone to open (security review M3). `trashFolder` is not read any more.
@@ -1012,28 +1040,12 @@ export const chatsRoutes: RouteModule = {
   },
 }
 
-/** Sharing a personal project may put its old folder in the trash (routes above, shareProject) only when that folder is
- * the project's alone and was copied whole: exactly users/<me>/projects/<one name>, no other project on it or inside
- * it, no skills folder anywhere in it, and as many regular files on disk as the copy took (the copy leaves out links,
- * hidden entries and files it cannot read, which would otherwise be lost with the trash). */
-function mayTrashSharedOriginal(ctx: AppContext, me: string, r: ProjectRowT, copied: number): boolean {
-  const segs = r.folder_path.split('/')
-  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
-  const inside = ctx.db.query("SELECT 1 FROM projects WHERE id != ? AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\') LIMIT 1").get(r.id, r.folder_path, `${r.folder_path.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`)
-  if (inside) return false
-  let files = 0
-  let ok = true
-  const walk = (dir: string) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!ok) return
-      if (e.name.startsWith('.') || e.isSymbolicLink()) { ok = false; return }
-      if (e.isDirectory()) {
-        if (e.name.toLowerCase() === 'skills') { ok = false; return }
-        walk(path.join(dir, e.name))
-      } else if (e.isFile()) files++
-      else ok = false
-    }
-  }
-  try { walk(path.join(ctx.files.fx.root, ...segs)) } catch { return false }
-  return ok && files === copied
+/** Another live project on a folder inside this personal project's folder (an older project elsewhere in my folder may
+ * sit on a folder that holds more): sharing it would carry that project below projects/<name>. */
+function projectInside(ctx: AppContext, r: ProjectRowT): boolean {
+  // letter case and Unicode form as the volume compares them
+  const k = (p: string) => volumeKey(p, ctx.files.fx.caseInsensitive)
+  const me = k(r.folder_path)
+  const rows = ctx.db.query('SELECT folder_path FROM projects WHERE id != ? AND trashed_with IS NULL').all(r.id) as { folder_path: string }[]
+  return rows.some((x) => { const p = k(x.folder_path); return p === me || p.startsWith(me + '/') })
 }
