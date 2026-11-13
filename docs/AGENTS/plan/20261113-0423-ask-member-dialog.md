@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:23
 - Branch: `fix/ask-member-dialog`
-- Status: in progress
+- Status: done
 - Where: web (Admin › Connectors, RequestDialog.tsx). Why: the popup is a web screen (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — a screen's layout and words change; what is sent and the 7-day wait stay the same
 
@@ -49,4 +49,7 @@ integration-requests, access-edit / skill-managers specs (AddNamed), screenshots
 
 ## Result
 
-Filled in at the end.
+Built as planned. The Member field uses AddNamed (members only, in the flow, autofocus); once picked it is one row
+with picture, name, id and Change. New words are the popup's own keys (`integrations.request.*`); the team dialog's
+shared keys and the shared `Field` / `Choices` are untouched. The notes hint writes 4,000 out like the team dialog's
+(a bare count before "characters" fails the plural check). PR: see the pull request that links this plan.
