@@ -1,7 +1,7 @@
 // @트리나's face in rooms (components/rooms/AiFace.tsx) and Trina's star (components/TrinaStar.tsx): where the product
 // is named after its AI, the star of trina.app on the neutral circle, one gradient per drawing; elsewhere the sparkle on
 // the accent circle. Beside the AI's answers and in the head of an answer shared into a room, never beside people. A button that asks it (the room header, a message's hover bar
-// and menu, the image viewer, and "트리나에게 묻기" in the sidebar, ⌘K and a phone AI chat's header) has the mark without a
+// and menu, the image viewer, and "트리나에게 묻기" in the Trina list, ⌘K and a phone AI chat's header) has the mark without a
 // circle, drawn larger than the icons beside it. Always decorative.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'

@@ -173,7 +173,7 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
-  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole

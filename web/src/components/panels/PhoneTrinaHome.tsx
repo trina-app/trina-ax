@@ -5,7 +5,7 @@
 // filtered history in place of the list, with one line that says what is filtered and a way back). No status chips
 // ("답이 필요해요" is in the filter). A new chat is the floating "트리나에게 묻기" at the bottom right, which opens the
 // new-chat box on its own page (/new, lib/newChat.ts); the list keeps room under its last row so the button never covers
-// one. The ☰ drawer is gone: everything it held is in this list or under 나.
+// one.
 // Above the list, the one card Home has at its top while it waits (the same order as pages/Home.tsx): the owner's lead
 // link card, else an invited person's welcome card, else the "no AI answers you" card.
 import { BookMarked, CalendarClock, Search, Trash2, X } from 'lucide-react'
@@ -52,7 +52,7 @@ export function PhoneTrinaHome() {
             <IconButton label={t('sidebar.search')} onClick={() => setSearchOpen(true)} className="size-11 shrink-0" data-testid="topbar-search">
               <Search size={20} />
             </IconButton>
-            <RecentsMenu view={view.view} onChange={view.setView} changed={filtered} always />
+            <RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />
           </span>
         }
       />

@@ -255,7 +255,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const canMarkAll = unreadIn(filter) || (filter === 'all' && serverUnread > 0)
   const [marking, setMarking] = useState(false)
   /** every unread notice of the tab, on the server (the rows not loaded yet too): shown read at once, then read again
-   * with the counts (the sidebar's, the tab dots; the rooms' badges follow their room.read events) */
+   * with the counts (the rail's, the tab dots; the rooms' badges follow their room.read events) */
   const markAll = async () => {
     if (marking) return
     const generation = life.current, tab = filter, at = new Date().toISOString()

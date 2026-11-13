@@ -46,7 +46,7 @@ const sessionBefore = useSession.getState().status
 const roomsBefore = useRooms.getState()
 const chatsBefore = { chats: useChats.getState().chats, requests: useChats.getState().requests }
 const inboxBefore = useInbox.getState().unread
-// the setup row (onboarding/SetupRow.tsx, in the sidebar and the drawer) reads these: put them back as they were
+// the setup row (onboarding/SetupRow.tsx, on top of every list panel) reads these: put them back as they were
 const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
 const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')

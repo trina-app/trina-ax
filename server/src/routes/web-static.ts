@@ -240,7 +240,7 @@ export interface WebOptions {
   dev: boolean
   devPort: number
   /** the team's logo (the server: <data>/team-icon, admin/team-icon.ts; the mock: in memory), served only at
-   * /team-icon (the sidebar header). Absent or null: the default icon there. */
+   * /team-icon (the top of the rail). Absent or null: the default icon there. */
   teamIcon?: () => TeamIconFile | null
 }
 
@@ -336,7 +336,7 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   if (p.startsWith('/downloads/')) return new Response('Not found', { status: 404 })
   if (p === SANDBOX_FRAME_PATH) return serveSandboxFrame(url.host)
 
-  // the team's logo (the sidebar header's image), or the default when none is set; the tab and app icons below are
+  // the team's logo (the image at the top of the rail), or the default when none is set; the tab and app icons below are
   // always the product's
   if (p === TEAM_ICON_PATH) return serveTeamIcon(req, url, o.teamIcon?.() ?? null, root)
   const wellKnown = WELL_KNOWN_ICONS[p]

@@ -41,7 +41,7 @@ export function useSeesProject() {
 }
 
 /**
- * The projects the person sees now, for the headers (store/projects.ts: one read for every sidebar in this window): read
+ * The projects the person sees now, for the headers (store/projects.ts: one read for every list in this window): read
  * when some chat is in a project and no read was made yet, again when the window comes back to the front (access may
  * have changed on another device; at most once a minute) and once more for a project no read had (a project made or a
  * chat moved in elsewhere). The name is the store's, so a rename saved in this window shows at once. `ready` is false
@@ -95,7 +95,7 @@ const readFolded = (key: string): Set<string> => {
 export function useFoldedGroups() {
   const key = FOLDED(useMeStrict().user.id)
   const [state, setState] = useState(() => ({ key, folded: readFolded(key) }))
-  // another person signed in without the sidebar going away: their own folds
+  // another person signed in without the list going away: their own folds
   const folded = state.key === key ? state.folded : readFolded(key)
   const current = useRef(folded)
   current.current = folded

@@ -1,7 +1,7 @@
 // Status messages (docs/DECISIONS.md "상태 메시지"): an emoji after a person's name, with its words ("In a meeting ·
 // until 3:30 PM") on hover, and on a tap where the emoji is a button of its own (a message's author line, the member
 // list); the DM's one quiet line above the box; and "Set your status", one dialog (a bottom sheet on phones) opened from
-// the account menu, my own status in the sidebar and the phone's drawer row.
+// the account menu (a computer) and the 나 tab (a phone).
 //
 // Every status is text only: React writes it as text, never as markup. Who sees it is the server's (the directory).
 import clsx from 'clsx'
@@ -333,26 +333,7 @@ function StatusDialog({ onClose, returnTo }: { onClose: () => void; returnTo: HT
   )
 }
 
-/** The phone's drawer: one row with my status (or "Set your status") that opens the dialog. */
-export function MyStatusRow({ className, onOpen }: { className?: string; onOpen?: () => void }) {
-  const t = useT()
-  const mine = useMyStatusWords()
-  return (
-    <button
-      type="button"
-      onClick={(e) => { onOpen?.(); openStatusDialog(e.currentTarget) }}
-      className={clsx('flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-sm text-ink hover:bg-hover', className)}
-      data-testid="my-status-row"
-    >
-      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center leading-none">
-        {mine ? mine.emoji : <Smile size={16} className="text-muted" />}
-      </span>
-      <span className="truncate">{mine ? mine.words : t('status.set')}</span>
-    </button>
-  )
-}
-
-/** For the account menu's item and the phone's drawer row: my status in words, one that starts later with its first
+/** For the account menu's item and the 나 tab's row: my status in words, one that starts later with its first
  * day ("On leave from Nov 14"), or null. */
 export function useMyStatusWords(): { emoji: string; words: string } | null {
   const t = useT()

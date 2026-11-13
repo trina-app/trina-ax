@@ -21,7 +21,7 @@ export const TOP_FOLDER_LABELS = {
 
 /** The person's own folder (users/<their id>/). */
 export const OWN_FOLDER_LABEL = { ko: '내 폴더', en: 'My folder', id: 'Folder saya', ja: '自分のフォルダー', es: 'Mi carpeta' } as const satisfies T
-/** Its name since the new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md decision Q4): 파일's "내 파일", so
+/** Its name in 파일 (docs/AGENTS/plan/20261112-1839-nav-rail.md decision Q4): "내 파일", so
  * "폴더" is left to the list folders of 트리나 and 대화. */
 export const OWN_FILES_LABEL = { ko: '내 파일', en: 'My files', id: 'File saya', ja: '自分のファイル', es: 'Mis archivos' } as const satisfies T
 

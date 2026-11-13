@@ -1101,7 +1101,7 @@ export class ChatRuntime {
     // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
-    // a room's AI session is not one of the person's chats (no sidebar entry)
+    // a room's AI session is not one of the person's chats (not in the Trina list)
     if (r?.room_id) return
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)

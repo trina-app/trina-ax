@@ -890,7 +890,7 @@ function bTools(exec: TurnExec): Tool[] {
       call: (args) => connectService(exec, args),
     },
   ]
-  // the answering AI names a new chat (title.ts): no extra model call. The title shows in the sidebar and the header
+  // the answering AI names a new chat (title.ts): no extra model call. The title shows in the Trina list and the header
   // at once (chat.updated); the call is not a step under the answer (turn.ts). The audit keeps no title text.
   if (titleToolOffered(rt.db, spec.chatId, spec.clientKind)) tools.push({
     name: 'set_title', description: B_TOOL_DESCRIPTIONS.set_title, inputSchema: schema(SetTitleInput),

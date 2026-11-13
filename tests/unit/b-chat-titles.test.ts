@@ -1,6 +1,6 @@
 // Chat titles (server/src/chat/title.ts, docs/DECISIONS.md "Chat titles"): the placeholder from the first message
 // skips addresses, code, markdown and secrets (the founder's pasted admin token became a chat title, 2026-10-28); the
-// answering AI names the chat with set_title, live in the sidebar and header (chat.updated), only while the title is
+// answering AI names the chat with set_title, live in the Trina list and header (chat.updated), only while the title is
 // automatic, in the chat's first two messages, never in a scheduled run, never after the person renamed it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'

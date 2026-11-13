@@ -1,6 +1,5 @@
-// The left of a computer's window (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1; Layout.tsx): the rail,
-// and beside
-// it the list of the place: 트리나, 대화, and since phase P3 파일 (its places: recent files, team and project folders, 내
+// The left of a computer's window (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; Layout.tsx): the rail,
+// and beside it the list of the place: 트리나, 대화, 파일 (its places: recent files, team and project folders, 내
 // 파일, the trash) and 활동 (the notices that are not conversations). Admin's own menu is its list
 // (pages/admin/AdminLayout.tsx), so nothing is lit and no panel shows there. The panel
 // folds away by itself below 1052 px while a thread, the room's ✦ side chat or a side panel is open (railPanel.ts), and

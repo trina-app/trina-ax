@@ -1,7 +1,7 @@
 // Home's quiet setup row on a phone (docs/DECISIONS.md "W5 — Onboarding v5", "W6"): "설정 이어서 하기 · 2/5" (or, with one step
-// left, "남은 일: 팀 파일") under the message box, the same words and count as the setup row in the ☰ drawer (SetupRow.tsx,
+// left, "남은 일: 팀 파일") under the message box, the same words and count as the setup row (SetupRow.tsx,
 // both from lib/welcome.ts setupRowWords), which hides on Home so the two never show together. On a computer the
-// sidebar's setup row replaces it (Home shows the goal card). Nothing shows for anyone
+// list panel's setup row replaces it (Home shows the goal card). Nothing shows for anyone
 // else, before the steps were started, or while no AI answers the owner (Home's connect card stands in its place, so the
 // row never leads back to the AI step). On a landing the owner goes to the steps themselves (useResumeOnLanding). A phone
 // whose only step left is 내 스킬, put off for a computer, shows one quiet line instead (SkillsOnComputer); 도구 연결 is
@@ -32,7 +32,7 @@ export function WelcomeResume() {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
   if (!owner || !loaded || !progress || !showResume(progress, computer)) return null
-  // the words, the count and the total come from lib/welcome.ts (the drawer's row says the same), never a number here
+  // the words, the count and the total come from lib/welcome.ts (the setup row says the same), never a number here
   const words = setupRowWords(t, progress, aiReady, computer)
   const hide = () => void useWelcome.getState().update({ dismissed: true }).then(
     () => toast({ level: 'info', text: t('setupRow.hidden'), action: { label: t('common.undo'), run: () => void useWelcome.getState().update({ dismissed: false }).catch(() => toast({ level: 'error', text: t('error.network') })) } }),

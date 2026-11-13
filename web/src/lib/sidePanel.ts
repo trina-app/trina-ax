@@ -17,7 +17,7 @@ export type SidePanel =
   | { kind: 'artifact'; chatId: string; artifactKey: string; versionId?: string }
 
 let current: SidePanel | null = null
-/** "크게 보기": the panel fills the area beside the sidebar (components/Layout.tsx). Not remembered: it lasts while the
+/** "크게 보기": the panel fills the area beside the rail and the list (components/Layout.tsx). Not remembered: it lasts while the
  * panel stays open (another file or artifact opened in it keeps it), and closing the panel or the Browser pane ends it. */
 let expanded = false
 const listeners = new Set<() => void>()

@@ -1,6 +1,6 @@
 // Back closes the open layer first (QA TC-080, TC-141, TC-245). On a phone the iOS edge swipe and Android's Back walk
 // the browser's history (the phone app is one WebView of this app), so every layer over a page holds one history entry
-// while it is open: a sheet or menu (components/rooms/MenuButton.tsx), a dialog (ui.tsx Modal), search, the drawer, the
+// while it is open: a sheet or menu (components/rooms/MenuButton.tsx), a dialog (ui.tsx Modal), search, the
 // side panel, a room's side chat and its 🕘 list, the @ list, the image viewer and its sheet. Phones only (below 768 px),
 // except the image viewer, which held one on computers too and still does.
 //

@@ -238,8 +238,8 @@ export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room'>, t
 }
 /** GET /api/notifications: `unreadCount` counts every unread row; `roomUnreadCount` is its part that is conversation rows
  * (mentions, replies in threads I follow) of rooms I did not mute, which the rooms list counts too (a phone's 나 tab
- * leaves them to 대화); `noticeUnreadCount` the unread notices that are not conversation rows at all (the computer's 활동
- * with the new navigation: its list and its rail mark; older servers omit it). `only=rooms`: the conversation rows alone
+ * leaves them to 대화); `noticeUnreadCount` the unread notices that are not conversation rows at all (the computer's 활동:
+ * its list and its rail mark; older servers omit it). `only=rooms`: the conversation rows alone
  * (a phone's 멘션·스레드), `only=notices`: the other notices alone (활동's list beside the rail); the counts the same.
  * "Mark all as read" with `only=notices` reads those alone. */
 export const NotificationsOnly = z.enum(['rooms', 'notices'])

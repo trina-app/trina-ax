@@ -1,11 +1,11 @@
-// 대화's whole list beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3): every conversation of
-// mine, no "더 보기" cap. 고정 first (all my pins, the most recently pinned first), then 팀 대화방 (전체 first, the others
+// 대화's whole list beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): every conversation of
+// mine. 고정 first (all my pins, the most recently pinned first), then 팀 대화방 (전체 first, the others
 // by name), 그룹 대화 and 1:1 대화 (latest activity first): nav/RoomsList.tsx roomSections and its rows. The rooms I hid
 // are left out (the one on screen still shows); "숨긴 대화 N" at the end opens the conversations page, where they are.
 // Long lists stay cheap (the plan's rendering budget, measured with 200 rooms): each section is skipped by the browser
 // while it is off screen (content-visibility), and past 200 rows the rest is drawn 200 at a time as the list scrolls
 // near its end (the room on screen is always drawn).
-// My folders (phase P4b, docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "폴더 · 나만 보여요"
+// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "폴더 · 나만 보여요"
 // with its +, then each folder as a section of its own (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
 // folded one keeps one pill). A room shows in one place only: pinned › its folder › its kind. With no folder yet, one
 // quiet row "새 폴더" ends the list.

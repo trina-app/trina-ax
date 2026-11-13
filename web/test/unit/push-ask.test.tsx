@@ -104,7 +104,7 @@ describe('in a browser', () => {
     useSession.setState({ status })
     useLocaleStore.setState({ locale })
   })
-  /** a link to another page, as the sidebar or the tab bar has */
+  /** a link to another page, as the rail or the tab bar has */
   function Go() {
     const navigate = useNavigate()
     return <><button type="button" data-testid="go-files" onClick={() => navigate('/files')}>files</button><button type="button" data-testid="go-home" onClick={() => navigate('/')}>home</button></>

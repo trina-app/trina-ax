@@ -52,7 +52,7 @@ export const Me = z.object({
     /** members may turn on "Allow all websites" for the AI's web reads too (Admin > Team settings webAllowAll, with
      * browserAllowAll on). Absent: not allowed (or an older server). */
     webAllowAll: z.literal(true).optional(),
-    /** the team logo's version (Admin > Team settings): the computer's sidebar header shows /team-icon?v=<it>; null or
+    /** the team logo's version (Admin > Team settings): the top of the computer's rail shows /team-icon?v=<it>; null or
      * absent (older server) = the product's mark. The tab and app icons are always the product's. */
     iconVersion: z.string().regex(TEAM_ICON_VERSION_RE).nullable().optional(),
     /** voice input works (Admin > Team settings: OpenRouter with a key, or on this server). false: the composer hides

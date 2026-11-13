@@ -65,7 +65,7 @@ describe('where Settings > Browser shows', () => {
   test('Dev environment sites: only when the dev environment on srt is on for the person, after AI apps', () => {
     expect(settingsTabs(false, false).some((x) => x.id === 'dev-env-sites')).toBe(false)
     const ids = settingsTabs(false, false, true).map((x) => x.id)
-    // Connectors is in Settings for everyone since 2026-11-12 (it was an item of the main sidebar)
+    // Connectors is in Settings for everyone since 2026-11-12
     expect(ids).toContain('connectors')
     expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('ai-apps') + 1)
   })

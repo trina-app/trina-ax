@@ -1,5 +1,4 @@
-// Component B: what the chat list says about each chat for the sidebar (docs/DECISIONS.md "Desktop sidebar: rooms
-// first"), so no screen asks per chat:
+// Component B: what the chat list says about each chat for the Trina list, so no screen asks per chat:
 // - Chat.unseen: an answer finished after the person last had the chat on screen (migration 252, chats.seen_at).
 //   POST /api/chats/:id/seen clears it, for the owner only, and every window hears it (chat.updated); a reload keeps it.
 // - Chat.waiting: the AI asked the person something and waits (an open ask card every window shows); chat.updated says
@@ -35,7 +34,7 @@ describe('Chat.unseen', () => {
     expect(chat.unseen).toBeUndefined()
     const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'done while away' }))
     expect(r.done.status).toBe('done')
-    // the chat.updated after the answer says it (the sidebar of every window), and so does the list (a reload)
+    // the chat.updated after the answer says it (the Trina list of every window), and so does the list (a reload)
     await other.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.chat?.unseen === true)
     expect((await listed('alice', chat.id))?.unseen).toBe(true)
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).unseen).toBe(true)
@@ -72,7 +71,7 @@ describe('Chat.unseen', () => {
     expect((await listed('alice', chat.id))?.unseen).toBe(true)
   })
 
-  test('a chat in the trash is marked quietly: no chat.updated (it would come back into every sidebar)', async () => {
+  test('a chat in the trash is marked quietly: no chat.updated (it would come back into every list)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     await ask(h, alice, 'alice', chat.id, fake({ say: 'answered, then deleted' }))
     await h.api('alice').call(API.deleteChat, { params: { id: chat.id } })

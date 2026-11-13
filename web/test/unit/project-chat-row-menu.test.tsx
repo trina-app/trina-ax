@@ -1,5 +1,5 @@
 // A project page's chat row "···" (pages/Projects.tsx ProjectChatRow, components/chat/chatMenuItems.tsx): the same items
-// as the sidebar row's by the same rules (QA TC-248: it had 링크 복사 only), and on a phone a bottom sheet across the
+// as the Trina list row's by the same rules (QA TC-248: it had 링크 복사 only), and on a phone a bottom sheet across the
 // window (a transform on the button's box held the fixed sheet in a 30 px strip).
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
@@ -75,11 +75,11 @@ async function items(c: Chat, o: { onMove?: (c: Chat) => void } = {}) {
   }
 }
 
-test('a chat of my own: pin, 링크 복사, rename, 프로젝트 변경 and delete, as on the sidebar row', async () => {
+test('a chat of my own: pin, 링크 복사, rename, 프로젝트 변경 and delete, as on the Trina list row', async () => {
   expect(await items(chat(), { onMove: () => {} })).toEqual([pin, link, rename, move, del])
 })
 
-test('shared project chats follow the sidebar\'s rules: never a move; rename for the creator; delete for the creator or a project editor', async () => {
+test('shared project chats follow the Trina list\'s rules: never a move; rename for the creator; delete for the creator or a project editor', async () => {
   const onMove = () => {}
   expect(await items(chat({ shared: { by: 'alex', canDelete: true } }), { onMove })).toEqual([pin, link, rename, del])
   expect(await items(chat({ shared: { by: 'bob', canDelete: true } }), { onMove })).toEqual([pin, link, del])
