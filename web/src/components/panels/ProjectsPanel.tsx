@@ -1,7 +1,7 @@
 // 프로젝트's list (docs/DECISIONS.md "Projects: a place of their own"; the owner, 2026-11-13: "프로젝트를 그냥 따로 하나의
 // 큰 탭으로"): beside the rail on a computer (ProjectsPanel) and as the phone's 프로젝트 tab (pages/Projects.tsx shows
 // ProjectsList at /projects on a phone). "+ 새 프로젝트" on top (the name-only dialog, NewProjectDialog.tsx), then two sections: 팀
-// 프로젝트 (in the team folder, with members) and 내 프로젝트 (personal, in my own folder: onlyMine below). Each project
+// 프로젝트 (others see it too) and 내 프로젝트 (only I do: onlyMine below). Each project
 // is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
 // was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
 // recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
@@ -20,7 +20,6 @@ import { useChats } from '../../store/chats'
 import { isAdmin, useMe } from '../../store/session'
 import { readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
-import { SetupRow } from '../onboarding/SetupRow'
 import { whoSeesProject } from '../projectWho'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 import { useGroupsRead } from './TrinaList'
@@ -28,7 +27,7 @@ import { useGroupsRead } from './TrinaList'
 export function ProjectsPanel() {
   const t = useT()
   return (
-    <PanelFrame title={t('projects.title')} testId="projects-panel" top={<><NewProjectRow /><SetupRow /></>}>
+    <PanelFrame title={t('projects.title')} testId="projects-panel" top={<NewProjectRow />}>
       <ProjectsList />
     </PanelFrame>
   )
@@ -92,8 +91,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
       {list.map((p) => {
         const a = activity.get(p.id)
         // "나만" for mine; "멤버 N명" (its page's words) for a team one
-        // (a team project nobody else sees by its rules says "나만" too, the same word)
-        const who = onlyMine(p) || (p.member !== false && p.audience !== undefined && (p.audience <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
+        const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
         return (
@@ -131,7 +129,8 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   )
 }
 
-/** 내 프로젝트: a personal project (in my own folder): only I see it, admins included, and its chats are never shared.
- * The sections follow where a project lives, as that decides who may see its name and whether its chats may be shared
- * (a team project left with its creator alone stays a team project: "나만 봐요" on its row). */
-const onlyMine = (p: Project) => p.folderPath.startsWith('users/')
+/** 내 프로젝트: a project only I see: a personal one (in my own folder), or a team project nobody else sees by its rules
+ * (just me, or me and the admins by their role: Project.alone); never one I only manage. Everything else is 팀
+ * 프로젝트. A server without the count: by its folder. */
+const onlyMine = (p: Project) =>
+  p.folderPath.startsWith('users/') || (p.member !== false && p.audience !== undefined && (p.audience <= 1 || !!p.alone))

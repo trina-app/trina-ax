@@ -11726,9 +11726,11 @@ and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트�
   to 프로젝트 on both (old links land there); a project's new chat (`/?project=`) is under the project. A project's chat
   opened from its page keeps 프로젝트 lit (`{ rail: 'projects' }` in the entry's state); opened from 최근 기록 it is 트리나's.
   A phone entry saved under the older 프로젝트 tab (its first screen the team folder) takes that screen's tab.
-- **프로젝트's list** (panel and phone tab): "+ 새 프로젝트" on top, then two sections, **팀 프로젝트** (in the team's
-  projects folder) and **내 프로젝트** (personal, in my own folder): where a project lives decides whether admins see its
-  name and whether its chats can be shared, so the sections follow it. One plain row per project: its name and one grey
+- **프로젝트's list** (panel and phone tab): "+ 새 프로젝트" on top (no setup row here: it stays on 트리나's panel), then
+  two sections, **팀 프로젝트** (others see it too) and **내 프로젝트** (only I see it: a personal project, or a team project
+  nobody else sees by its rules; the manager's review: a just-me project belongs under 내 프로젝트). The owner and admins
+  also find, under 팀 프로젝트, the team projects they only manage (as the Projects page lists them). One word for "only
+  me" in rows, **나만**; the page says **나만 봐요**. One plain row per project: its name and one grey
   line, who sees it ("멤버 4명" / "나만") · when my latest chat there was active · how many chats of my list it holds ("대화
   5개", "대화 없음"). Most recently active first, then the ones without a chat of mine, newest first. **No chats in the
   list**: a tree in a narrow column is a developer's pattern; the project's page lists its chats (as ChatGPT's and
@@ -11745,7 +11747,7 @@ and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트�
 - **팀 스킬** is not a 파일 place any more (it showed twice): it is 트리나's 팀 스킬 page. The folder still opens from the
   team folder's top for whoever may read it, so no access changes.
 - Decided without the owner: 최근 기록 includes project chats with a tag (not "chats outside projects"), so nothing is in two
-  lists and nothing is lost; a team project left with its creator alone stays under 팀 프로젝트 ("나만 봐요" there).
+  lists and nothing is lost.
 - Tests: `web/test/unit/{rail,rail-badges,phone-nav,phone-tabs-v2,screens,app-nav,phone-project-files,nav-menus}`,
   `tests/unit/b-chat-groups.test.ts`, e2e `rail`, `trina-panel`, `phone-tabs`, `projects-panel`.
 
