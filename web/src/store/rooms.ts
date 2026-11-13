@@ -14,6 +14,7 @@ import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
+import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
@@ -272,6 +273,21 @@ export function withRoom(d: RoomsData, room: Room): RoomsData {
   return { ...d, rooms: sortRooms(rooms) }
 }
 
+const pinKey = (roomId: string) => `room:${roomId}:pin`
+
+/** A room's pin as it is on screen now (lib/optimistic.ts), or none */
+const withPin = (r: Room, at: string | undefined): Room => {
+  const { pinnedAt: _was, ...rest } = r
+  return at ? { ...rest, pinnedAt: at } : rest
+}
+
+/** A room read or heard while my pin of it is still on its way (lib/optimistic.ts): it keeps the pin on screen (the
+ * read may be from before it; the pin's own answer decides). */
+function keepPendingPin(d: Pick<RoomsData, 'rooms'>, room: Room): Room {
+  if (!optimisticPending(pinKey(room.id))) return room
+  return withPin(room, d.rooms.find((r) => r.id === room.id)?.pinnedAt)
+}
+
 /** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
  * only marked (the 대화 list, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
  * unpins it (docs/DECISIONS.md "Pinned conversations"). */
@@ -384,7 +400,8 @@ interface RoomsState extends RoomsData {
    * shown at once, the server's answer wins; hiding the room on screen goes to the conversations list */
   setHidden: (roomId: string, hidden: boolean) => Promise<void>
   /** pin a room to the top of my lists, or unpin it ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned
-   * conversations"): mine only; my other windows hear it (room.updated) */
+   * conversations"): mine only; my other windows hear it (room.updated). On screen at once; a failure puts it back
+   * with a toast (lib/optimistic.ts), so it never rejects */
   setPinned: (roomId: string, pinned: boolean) => Promise<void>
   removeMember: (roomId: string, userId: string) => Promise<void>
   /** the message box took back a refused send (by placeKey) */
@@ -748,7 +765,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         const r = await api.call(API.listRooms)
         // (a room left a moment ago that is not mine any more: its kept messages go with it)
         const mine = new Set(r.items.map((x) => x.id))
-        set((s) => ({ rooms: sortRooms(r.items), loaded: true, failed: null, alerts: r.alerts ?? null, kept: Object.values(s.kept).every((tl) => mine.has(tl.roomId)) ? s.kept : Object.fromEntries(Object.entries(s.kept).filter(([id]) => mine.has(id))) }))
+        set((s) => ({ rooms: sortRooms(r.items.map((x) => keepPendingPin(s, x))), loaded: true, failed: null, alerts: r.alerts ?? null, kept: Object.values(s.kept).every((tl) => mine.has(tl.roomId)) ? s.kept : Object.fromEntries(Object.entries(s.kept).filter(([id]) => mine.has(id))) }))
         // what this device kept for rooms I am no longer in, or for too long, goes
         pruneRoomDevice((id) => mine.has(id))
       } catch (e) {
@@ -759,7 +776,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     async fetchRoom(id) {
       try {
         const room = await api.call(API.getRoom, { params: { id } })
-        set((s) => withRoom(s, room))
+        set((s) => withRoom(s, keepPendingPin(s, room)))
         return room
       } catch (e) {
         if (isApiError(e, 'not_found') || isApiError(e, 'forbidden')) {
@@ -1162,8 +1179,15 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async setPinned(roomId, pinned) {
       const params = { id: roomId }
-      const room = pinned ? await api.call(API.pinRoom, { params }) : await api.call(API.unpinRoom, { params })
-      set((s) => withRoom(s, room))
+      // on screen at once; a failure puts it back and says so (lib/optimistic.ts)
+      await optimistic<string | undefined, Room>({
+        key: pinKey(roomId),
+        from: get().rooms.find((r) => r.id === roomId)?.pinnedAt,
+        to: pinned ? new Date().toISOString() : undefined,
+        show: (at) => set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? withPin(r, at) : r)) })),
+        send: () => (pinned ? api.call(API.pinRoom, { params }) : api.call(API.unpinRoom, { params })),
+        settle: (room) => set((s) => withRoom(s, room)),
+      })
     },
 
     async removeMember(roomId, userId) {
@@ -1243,7 +1267,7 @@ export const useRooms = create<RoomsState>((set, get) => {
             }
             return
           }
-          set((s) => withRoom(s, room))
+          set((s) => withRoom(s, keepPendingPin(s, room)))
           if (change === 'members') {
             memberReads.delete(roomId)
             // (kept after leaving it, it is read again as the first time: the events do not say whose reactions went)

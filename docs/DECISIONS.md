@@ -24289,6 +24289,29 @@ at the bottom.
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
 
+## Optimistic changes: the screen first, the server after (feat/optimistic-helper, 2026-11-13, the owner)
+
+The owner: "Pin to top and things like it feel one beat slow everywhere." Pinning a Trina chat waited for the server,
+then for the `chat.updated` event, then 600 ms (`GROUPS_SETTLE_MS`), then a read of the groups before the row showed
+under 고정; meanwhile it had already left 최근 기록 for a moment. A room's pin waited for the server's answer.
+- **One helper** (`web/src/lib/optimistic.ts`, `optimistic({ key, from, to, show, send, settle, failText })`): the new
+  value goes on screen before the request; a failure puts back what the server last agreed to and shows one short
+  error toast in the person's language (the server's own words for a refusal, as `errorText` everywhere). It never
+  rejects; the result says how it ended.
+- **One queue per item** (`key`, e.g. `chat:<id>:pin`): the requests of one item go one after another in the order of
+  the taps, so the server ends where the last tap left it. A reply that is no longer the newest writes nothing (the
+  rule of #698, "an answer from before a change made here writes nothing"). An older change failing under a newer one
+  undoes nothing; the newest failing goes back to the last value the server confirmed, not to the value before it.
+- **Reads asked before a change**: `optimisticEdits()` counts the changes made here; the Trina groups read compares it
+  and reads again instead of writing an older pin back. `optimisticPending(key)` keeps a room's pin on screen while the
+  rooms list, a room read or a `room.updated` event from before it lands.
+- **Applied first to pin / unpin**: Trina chats (the row's "···", the chat's title menu, a project page's rows: the
+  chats store, 고정 and the page's own copy), rooms (the "⋯", 대화 and the phone's 대화 tab). Projects, files and folders
+  have no pin.
+- **Never optimistic**: what cannot be taken back or concerns access, security or money (deleting for good, removing a
+  member or someone's access, roles, sign-out of a session, keys, budgets, billing). Those keep their confirm, then
+  wait for the server. The audit of the other actions and the batches that apply the helper next are in the PR.
+
 ## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
 
 Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`

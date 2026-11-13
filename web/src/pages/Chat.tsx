@@ -400,7 +400,7 @@ function ChatView({ chatId }: { chatId: string }) {
               chat={chat}
               title={title}
               // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
-              onPin={() => void actions.togglePin(chat).then((c) => c && setChat(c))}
+              onPin={() => void actions.togglePin(chat, setChat)}
               onRename={rights.creator ? () => void actions.rename(chat).then((c) => c && setChat(c)) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
