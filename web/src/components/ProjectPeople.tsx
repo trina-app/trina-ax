@@ -4,13 +4,14 @@
 // under the name opens the members dialog), and the members dialog lists them all (PeopleList: the creator and "you"
 // marked). Only a team project in projects/ in place: a personal one is the caller's alone, one made before outside
 // projects/ has no such list, and one in the trash is nobody's until restored.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Project, ProjectPeople, ProjectPerson } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { reactionWho } from '../lib/rooms'
 import { useMe } from '../store/session'
+import { useProjectPage } from '../store/projectPage'
 import { Avatar } from './Avatar'
 import { FaceStack, FACES_MAX } from './FaceStack'
 
@@ -18,16 +19,28 @@ import { FaceStack, FACES_MAX } from './FaceStack'
 export const hasPeopleList = (p: Pick<Project, 'folderPath' | 'inTrash'>) => isProjectsFolder(p.folderPath) && !p.inTrash
 
 /** Its people: null while asking, false when there is no list (not such a project, an older server, a refusal).
- * `version`: ask again. */
+ * `version`: ask again. A project page kept from a moment ago (store/projectPage.ts) shows the people it had at once
+ * while they are read again, and keeps what the read answers. */
+const keptPeople = (id: string | undefined) => (id && useProjectPage.getState().pages[id]?.people) || null
 export function useProjectPeople(p: Pick<Project, 'id' | 'folderPath' | 'inTrash'> | null, version = 0): ProjectPeople | null | false {
-  const [people, setPeople] = useState<ProjectPeople | null | false>(null)
+  const [people, setPeople] = useState<ProjectPeople | null | false>(() => keptPeople(p?.id))
   const on = !!p && hasPeopleList(p)
-  // another project: nothing until its list comes; the same one asked again: the faces it has stay meanwhile
-  useEffect(() => { setPeople(null) }, [p?.id])
+  // another project: its kept people, or nothing until its list comes; the same one asked again: the faces it has stay
+  // meanwhile
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return }
+    setPeople(keptPeople(p?.id))
+  }, [p?.id])
   useEffect(() => {
     if (!on) { setPeople(false); return }
     let live = true
-    api.call(API.getProjectPeople, { params: { id: p!.id } }).then((r) => live && setPeople(r), () => live && setPeople(false))
+    const id = p!.id
+    api.call(API.getProjectPeople, { params: { id } }).then(
+      // (an answer to an older ask, after a save asked again, changes nothing)
+      (r) => { if (live) { useProjectPage.getState().keepPeople(id, r); setPeople(r) } },
+      () => { if (live) { useProjectPage.getState().keepPeople(id, undefined); setPeople(false) } },
+    )
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p?.id, on, version])

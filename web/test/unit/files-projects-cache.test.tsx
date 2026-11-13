@@ -69,6 +69,7 @@ beforeAll(() => {
       theProject = { ...theProject, ...(JSON.parse(String(init.body)) as Partial<Project>) }
       return json(200, theProject)
     }
+    if (url.pathname === `/api/projects/${P1}/people`) return json(200, { people: [{ id: 'mia', name: 'Mia', creator: true }, { id: 'bob', name: 'Bob' }] })
     if (url.pathname === `/api/projects/${P1}`) return json(200, project)
     if (url.pathname === '/api/chats') return json(200, { items: chats, nextCursor: null })
     if (url.pathname === '/api/files/audience') return json(200, { path: url.searchParams.get('path'), access: 'write', people: 3, everyone: false })
@@ -291,8 +292,11 @@ describe("a project's page", () => {
       expect(skeleton(m)).toBe(false)
       expect(chatTitles(m).join('|')).toContain('Kickoff notes')
       expect(m.get('project-files').textContent).toContain('1 item')
+      // who is in it: the faces under its name from the first frame too
+      expect(m.find('project-header-open')).not.toBeNull()
       release()
       await m.settle(50)
+      expect(count(new RegExp(`^GET /api/projects/${P1}/people`))).toBe(1)
       expect([count(/^GET \/api\/projects\/[^/?]+(\?|$)/), count(/^GET \/api\/chats\?projectId=/), count(TREE('projects/acme-launch'))]).toEqual([1, 1, 1])
     } finally {
       await m.unmount()
@@ -475,5 +479,23 @@ describe("a file's preview", () => {
     } finally {
       await m.unmount()
     }
+  })
+})
+
+describe('the kept faces (store/projectPage.ts keepPeople)', () => {
+  const people = { people: [{ id: 'mia', name: 'Mia', creator: true as const }] }
+  test('kept with the page, kept across a new keep of it, gone on reset (sign-out) and for a page not kept', () => {
+    const s = useProjectPage.getState()
+    s.keepPeople(P1, people)
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
+    s.keep(P1, { project: project(), chats: null })
+    s.keepPeople(P1, people)
+    s.keep(P1, { project: project({ name: 'Renamed' }), chats: [] })
+    expect(useProjectPage.getState().pages[P1]?.people).toEqual(people)
+    s.keepPeople(P1, undefined)
+    expect(useProjectPage.getState().pages[P1] && 'people' in useProjectPage.getState().pages[P1]!).toBe(false)
+    s.keepPeople(P1, people)
+    s.reset()
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
   })
 })

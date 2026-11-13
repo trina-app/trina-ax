@@ -25575,7 +25575,9 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Decision:** a stack of faces (24 px with a ring of the page's colour; 4 and "+N", on a phone too; the photo or the
   first letter; the name on hover) under a shared project's name, one line, no card. Clicking it opens the members
   dialog, for everyone who sees the page. The faces show once: the 멤버 line keeps "멤버 5명 · 관리" (manager review). A
-  personal project shows none.
+  personal project shows none. They are kept with the page in store/projectPage.ts ("Folders, project pages and file
+  previews open at once"), so going back shows them at once while they are read again; a members save reads them again,
+  and sign-out or an access change empties them with the rest.
 - **The dialog:** a group row says how many people it holds and opens to list them; under the picker one list of
   everyone in it now, each person once even when two groups hold them, the creator and "나" marked; its title is the
   count, so the "멤버 N명" line under the picker shows only while a change is pending (the count after it). A member who does
