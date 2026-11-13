@@ -179,6 +179,7 @@ test.describe('a phone (390 px)', () => {
     // ‹ goes back to the new chat's box it was sent from (a phone's Home, the 트리나 tab)
     await page.getByTestId('chat-back').click()
     await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
     // the answer ends while the chat is not on screen: after the wait, one toast with [열기]; the ☰ dot lights (accent)
     const toast = page.getByTestId('toast').filter({ hasText: '새 답' })
     await expect(toast).toBeVisible({ timeout: 25_000 })

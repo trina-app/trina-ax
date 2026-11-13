@@ -101,7 +101,10 @@ test.describe('home focus on touch devices', () => {
     await example.tap()
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
-    // a phone starts a new chat from the 트리나 tab, Home itself again (#683: the tab as before the redesign)
+    // a phone starts a new chat from the 트리나 tab, Home itself again (#683: the tab as before the redesign), here from
+    // another tab
+    await page.getByTestId('tab-chats').tap()
+    await expect(page).toHaveURL(/\/rooms$/)
     await page.getByTestId('tab-ai').tap()
     await expect(input).toBeVisible()
     await expect(input).not.toBeFocused()
