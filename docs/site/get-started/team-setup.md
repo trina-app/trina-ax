@@ -34,7 +34,7 @@ The deck is an ordinary chat with Trina. On a computer you see it in **Recent** 
 
 ## Coming back
 
-- **Continue setup · 2/4** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of Home on the **Trina** tab.
+- **Continue setup · 2/4** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **☰** list on the **Trina** tab and of the **Files** tab, and Home shows it as a quiet row under the message box.
 - Opening the app on Home also brings you back to the steps, once per browser session.
 - ✕ hides the row. **Show setup again** in Admin › Home brings it back.
 

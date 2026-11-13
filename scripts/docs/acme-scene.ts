@@ -74,7 +74,7 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
     log('jordan: a weekly scheduled task')
   } catch (e) { log(`scheduled task not made: ${(e as Error).message}`) }
 
-  // Trina's answer in the Marketing room, sent from the room's side chat
+  // Trina's answer in the Marketing room, sent from the room's side chat with Send to room (no note: the side chat has none)
   const side = await p.jordan!.call(API.createChat, { body: { sideRoomId: marketing.id } })
   const started = await p.jordan!.call(API.sendMessage, { params: { id: side.id }, body: { content: 'When does the November campaign start, and which channels does it use? Two lines.', attachmentIds: [], clientMessageId: id() } })
   const answerId = started.assistantMessage!.id
@@ -86,9 +86,10 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
   // the app asks once more when a member cannot open a file the answer used: say yes, as the person would on the card
   let key: string | undefined
   for (let i = 0; i < 3; i++) {
-    const r = await p.jordan!.call(API.shareAnswerToRoom, { params: { id: side.id, messageId: answerId }, body: { roomId: marketing.id, note: 'For the kickoff:', clientMessageId: id(), ...(key ? { confirmKey: key } : {}) } }) as { status?: string; confirmKey?: string }
+    const r = await p.jordan!.call(API.shareAnswerToRoom, { params: { id: side.id, messageId: answerId }, body: { roomId: marketing.id, clientMessageId: id(), ...(key ? { confirmKey: key } : {}) } }) as { status?: string; confirmKey?: string }
     if (r.status !== 'confirm') break
     key = r.confirmKey
+    if (i === 2) throw new Error('the answer was not sent to the room: it still asks for a confirmation')
   }
   log('marketing: Trina\'s answer sent from the side chat')
 }

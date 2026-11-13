@@ -81,7 +81,7 @@ Each chat in your list of Trina chats shows at most one mark, at the right end o
 | Grey ring | The AI is answering, or the answer waits its turn. |
 | Dot, title in bold | A new answer you have not opened yet. |
 
-Opening a chat clears its dot, and the **?** of a failed or paused answer, on every device. A folded folder keeps the strongest mark of the chats in it. A room shows **?** in place of its count while the AI waits for your answer there.
+Opening a chat clears its dot, and the **?** of a failed or paused answer, on every device. A folded section keeps the strongest mark of the chats in it. A room shows **?** in place of its count while the AI waits for your answer there.
 
 While the browser tab is in the background, its title counts the chats and rooms that want you, for example "(2) Trina". The desktop app shows the same number on the Dock on a Mac, and a notification when a card opens or an answer that ran over a minute ends while you look elsewhere; clicking it opens that chat. Scheduled tasks get the mark only; a question asked from Slack is answered there, so its chat gets no dot. **Trina** on the bar on the left (on a phone, the **Trina** tab) shows **?** or a dot when a chat wants you, **Chats** shows **?** while the AI waits for your answer in a room, and on a phone a short message with **Open** appears in the app.
 
@@ -111,9 +111,9 @@ at the top collects the messages that name you and the threads you follow.
 #### Ask Trina beside a room
 
 The **✦** button at the top of a room opens a side chat with Trina next to it. Only you see this chat, and the AI
-answers with what you may open. When an answer is worth sharing, **Send** puts it in the room as your message, with a
-line of your own before it. If some people in the room cannot open a file the answer used, the app tells you first and
-waits for your yes.
+answers with what you may open. When an answer is worth sharing, **Send to room** under it puts it in the room as your
+message (**Send to thread** when you asked about one message). If some people in the room cannot open a file the answer
+used, the app tells you first and waits for your yes.
 
 ![The Marketing room: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat](../images/chats/room.webp "A team room")
 
@@ -125,8 +125,6 @@ many replies a thread has; **Also send to the room** puts a reply in the room to
 ![A thread open beside the room: the first message and its replies, with a box to reply](../images/chats/thread.webp "A thread")
 
 ![Chats on a phone: Mentions & threads, team rooms and direct messages, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
-
-
 
 ## Projects
 

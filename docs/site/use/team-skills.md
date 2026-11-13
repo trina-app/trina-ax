@@ -13,7 +13,7 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 ![Typing / in the message box lists the team skills you can use](../images/skills/slash-menu.webp "Team skills in the message box")
 
-![The Team skills page: tabs for available skills, review, suggestions and recent changes, and the team's skills with what each one does](../images/skills/team-skills.webp "Team skills")
+![The Team skills page: tabs for available skills, To review and My suggestions, and the team's skills with what each one does](../images/skills/team-skills.webp "Team skills")
 
 ## Recommended skills
 

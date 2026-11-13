@@ -10,6 +10,8 @@ the same names as in Settings. Admin › Connected apps is the team's connection
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
 
+![The team menu under the team's logo: the team's address, Invite people and Admin](../images/admin/team-menu.webp "Admin, in the team menu")
+
 ![Admin Home: Needs attention at the top, then one card per area, with the Admin menu on the left](../images/admin/home.webp "Admin Home")
 
 ## The Admin menu
@@ -17,7 +19,7 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), AI apps, Plugins |
+| **Connections** | AI accounts, Connected apps (Google apps, other services such as Notion and, for the owner only, [Slack](slack.md)), Use from other AI apps, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
@@ -103,7 +105,5 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 ## System
 
 **Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
-
-![Admin › System: storage, version and updates, and the health checks](../images/admin/system.webp "System")
 
 ![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

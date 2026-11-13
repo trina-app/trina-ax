@@ -43,12 +43,11 @@ tab), or **Admin › Connected apps** for the team. Earlier versions had Connect
 #### Pick a service or add by address
 **Discover**, under your connections on the same page, lists services that support sign-in with Trina AX. Owners and admins can also add any MCP server or API by its address (**Add**, or "Not listed? Add one by its address"). A member reads "Not listed? Ask an admin to add it.": the admin adds it for the team, or asks the member to connect it with their own account (below).
 
-![Discover: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
 
 #### Sign in or paste a key
 Keys and sign-ins are stored encrypted on the server and never shown again.
 
-![The Add Notion dialog: the address filled in, Advanced folded with MCP server, sign-in and Ask every time, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
+![The Add Notion dialog: the address filled in, Advanced folded, and Save and sign in](../images/mcp/add.webp "Adding a service from Discover")
 
 #### Choose who may use it
 For a team connection, name everyone, groups or people.

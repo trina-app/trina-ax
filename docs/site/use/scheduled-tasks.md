@@ -34,12 +34,12 @@ Choose **New task**. There are two ways:
 
 A run has nobody to answer a confirmation, so the task's card asks once, when the task is made, edited or checked again:
 
-- **Save folder.** "새 파일 저장: shared/주간보고 (지금 30명이 볼 수 있어요). 넣어도 되는 내용: 내 폴더, #영업팀 대화". Runs put **new** files there and in its sub-folders without asking, at most 20 a run. They never change or replace a file there that they did not make, and never touch skills or instruction files. If a run read something fewer people may see that the card does not list (another folder, another room), it saves in your own folder instead and says why.
-- **Your own connections.** "보낼 수 있는 곳: 내 Notion · '일일 메모'". Runs send only to the recipients on the card.
+- **Save folder.** "Saves new files in: shared/Weekly reports (30 people can see it now). Content that may go there: My folder, #Sales conversation". Runs put **new** files there and in its sub-folders without asking, at most 20 a run. They never change or replace a file there that they did not make, and never touch skills or instruction files. If a run read something fewer people may see that the card does not list (another folder, another room), it saves in your own folder instead and says why.
+- **Your own connections.** "Where it may send: My Notion · 'Daily notes'". Runs send only to the recipients on the card.
 
-If the save folder is moved, renamed or deleted, its permissions change, or you can no longer write there, the task shows **저장 폴더를 다시 확인해 주세요** with **다시 확인**, and you get one notice. Until you check it, runs save in your own folder. People joining or leaving a group do not change anything.
+If the save folder is moved, renamed or deleted, its permissions change, or you can no longer write there, the task shows **Check the save folder again** with **Check again**, and you get one notice. Until you check it, runs save in your own folder. People joining or leaving a group do not change anything.
 
-In **Edit**, the **저장 폴더** field picks another folder or removes it (×), and each item of the content that may go there can be removed (×).
+In **Edit**, the **Save folder** field picks another folder or removes it (×), and each item of the content that may go there can be removed (×).
 
 ## Manage a task
 

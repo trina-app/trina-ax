@@ -27,8 +27,6 @@ In the desktop app, click your team's logo at the top of the bar on the left and
 team**: it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **Me** tab, under
 your team. In a web browser each team has its own address, so there is nothing to switch.
 
-![The team menu under the team's logo: the team's address, Invite people and Admin](../images/admin/team-menu.webp "The team menu")
-
 ## The Settings window
 
 Settings opens as a window over the page you are on. Links such as `/settings/usage` open it at that section.
@@ -37,7 +35,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Browser, Usage, Memory |
-| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), AI apps |
+| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Use from other AI apps |
 | **App** | Notifications, Apps, About |
 
 **Connectors** holds your connections to other services: Google Drive, Gmail and the other Google apps, Slack, and the
