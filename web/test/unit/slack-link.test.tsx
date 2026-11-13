@@ -19,7 +19,7 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, signIn: true, emailSetByOther: false, read: false, readOffered: false }
+  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, signIn: true, emailSetByOther: false, read: false }
   preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example', signIn: true }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
@@ -86,21 +86,6 @@ describe('the Slack link page', () => {
     await m.click('slack-signin')
     await m.until(() => assigned.length > 0, 'went to Slack')
     expect(calls.at(-1)!.path).toBe('/api/slack/signin')
-    delete (globalThis as { location?: unknown }).location
-    await m.unmount()
-  })
-
-  test('one step: Link, then straight on to Slack\'s page that lets the AI read Slack (when it can be allowed)', async () => {
-    confirmAnswer = { ...confirmAnswer, readOffered: true, read: false }
-    const assigned: string[] = []
-    Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/slack/link', assign(u: string) { assigned.push(u) } } })
-    const m = await page(`?t=${TOKEN}`)
-    await m.until(() => m.find('slack-link-confirm'), 'the Link button')
-    expect(m.get('slack-link').textContent).toContain('Slack then asks you to let Trina AX read Slack as you')
-    await m.click('slack-link-confirm')
-    await m.until(() => assigned.length > 0, 'went to Slack')
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/slack/link/preview', 'POST /api/slack/link/confirm', 'POST /api/slack/signin'])
-    expect(JSON.parse(calls.at(-1)!.raw)).toEqual({ read: true })
     delete (globalThis as { location?: unknown }).location
     await m.unmount()
   })

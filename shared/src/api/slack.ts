@@ -56,13 +56,12 @@ export const SlackAdmin = z.object({
   signIn: z.boolean(),
   /** where Slack sends people back after "Sign in with Slack" (in the manifest); null: the team has no https address */
   redirectUrl: z.string().nullable(),
-  /** whether the Slack app gives people's user scopes (the AI reads Slack as them, docs/SLACK.md "Reading Slack"):
-   * ok, missing (Slack refused them or granted fewer: "Update Slack permissions"), null (not known yet) */
+  /** whether the bot may read threads and channels (docs/SLACK.md "Marketplace-safe reading": the bot scopes
+   * channels:history and groups:history): ok, missing (an app from before them: "Update Slack permissions"), null (no
+   * tokens, or Slack has not said yet) */
   readScopes: z.enum(['ok', 'missing']).nullable(),
-  /** the user scopes the app must have (own app: OAuth & Permissions › User Token Scopes) */
-  userScopes: z.array(z.string()),
-  /** people who let the AI read Slack as them */
-  reading: z.number().int(),
+  /** the bot scopes to add for reading (own app: OAuth & Permissions › Bot Token Scopes); empty when none is missing */
+  missingScopes: z.array(z.string()),
 })
 export type SlackAdmin = z.infer<typeof SlackAdmin>
 
@@ -88,10 +87,9 @@ export const MySlack = z.object({
   signIn: z.boolean(),
   /** someone else set this account's e-mail in the last 7 days: the e-mail proves nothing until then */
   emailSetByOther: z.boolean(),
-  /** the AI may read Slack as me (my Slack user token is kept for my link) */
+  /** the AI may read Slack threads and channels for me: linked, and the Slack app has the reading permissions (only
+   * conversations the app was invited to and I am in) */
   read: z.boolean(),
-  /** I can allow reading now (linked, sign-in ready, the Slack app has the permissions or they are not known yet) */
-  readOffered: z.boolean(),
 })
 export type MySlack = z.infer<typeof MySlack>
 
@@ -127,8 +125,8 @@ export const SLACK = {
   unlinkSlack: endpoint({ method: 'DELETE', path: '/api/slack/me', auth: 'user', owner: 'C', response: MySlack, summary: 'Unlink my Slack account.' }),
   previewSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/preview', auth: 'user', owner: 'C', body: SlackLinkBody, response: SlackLinkPreview, summary: 'What confirming this one-time link would link: the Slack account and me. Changes nothing.' }),
   confirmSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/confirm', auth: 'user', owner: 'C', body: SlackLinkBody, response: MySlack, summary: 'Link the Slack account of this one-time link to me (used up).' }),
-  startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({ read: z.boolean().optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack": links the Slack account I sign in to and lets the AI read Slack as me, in one step (10 minutes). `read`: I am linked already and only allow reading.' }),
-  recheckSlackReadScopes: endpoint({ method: 'POST', path: '/api/admin/slack/read-scopes/recheck', auth: 'admin', owner: 'C', body: z.object({}), response: SlackAdmin, summary: '"I updated the permissions": the next sign-in asks Slack for the user scopes again.' }),
+  startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only).' }),
+  recheckSlackReadScopes: endpoint({ method: 'POST', path: '/api/admin/slack/read-scopes/recheck', auth: 'admin', owner: 'C', body: z.object({}), response: SlackAdmin, summary: '"I updated them": asks Slack again now which permissions the Slack app\'s bot has (reading threads and channels).' }),
   startSlackInstall: endpoint({ method: 'POST', path: '/api/admin/slack/official/install', auth: 'admin', owner: 'C', body: z.object({ origin: z.string().max(200).optional() }), response: z.object({ authorizationUrl: z.string().url() }), summary: '"Add to Slack": Slack\'s install page of the hosting service\'s official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open.' }),
   cancelSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/cancel', auth: 'user', owner: 'C', body: SlackLinkBody, response: empty, status: 204, summary: 'Throw this one-time link away without linking.' }),
 } as const

@@ -45,14 +45,7 @@ export default function SlackLink() {
     if (writing.current) return
     writing.current = true; setBusy(true); setError(null)
     try {
-      if (link) {
-        const mine = await api.call(SLACK.confirmSlackLink, { body: { token } })
-        // one step: linked, and straight on to Slack's page that lets the AI read Slack as this person
-        if (mine.readOffered && !mine.read) {
-          try { window.location.assign((await api.call(SLACK.startSlackSignIn, { body: { read: true } })).authorizationUrl); return } catch { /* linked all the same */ }
-        }
-        setDone('linked')
-      }
+      if (link) { await api.call(SLACK.confirmSlackLink, { body: { token } }); setDone('linked') }
       else { await api.call(SLACK.cancelSlackLink, { body: { token } }); setDone('cancelled') }
     } catch (e) { setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; setBusy(false) }
@@ -61,7 +54,7 @@ export default function SlackLink() {
     <section className="mx-auto max-w-xl space-y-5 p-4 sm:p-6" data-testid="slack-link">
       <div>
         <h1 className="text-xl font-semibold">{t('slack.link.title')}</h1>
-        {!done && <p className="mt-2 text-sm text-muted">{t('slack.link.desc')}{info?.signIn ? ` ${t('slack.link.alsoRead')}` : ''}</p>}
+        {!done && <p className="mt-2 text-sm text-muted">{t('slack.link.desc')}</p>}
       </div>
       {/* what went wrong, as a line like the outcome on /slack/done and in Settings: no box */}
       {error && <p role="alert" className="text-sm text-warn" data-testid="slack-link-error">{error}</p>}

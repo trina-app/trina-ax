@@ -61,10 +61,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
   rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat"),
   room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
-  // reading Slack as the person (server/src/integrations/slack/read.ts)
+  // reading Slack with the bot token (server/src/integrations/slack/read.ts)
   slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack"),
   slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack"),
-  slack_search: t('Slack 검색', 'Search Slack', 'Cari di Slack', "Slackを検索", "Buscar en Slack"),
   room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에

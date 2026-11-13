@@ -169,7 +169,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const viewer = activeUser(db, spec.userId)
   if (!viewer) return early('Access denied: this account is disabled.', 'account disabled')
   const target = a.data.target ?? 'service'
-  // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Reading Slack"); without
+  // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Marketplace-safe reading"); without
   // this the AI offered a card for Slack that does nothing (2026-11-13)
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
@@ -492,6 +492,6 @@ function slackWay(db: Database, userId: string): string {
   const cfg = db.query('SELECT enabled, secret_enc, team_id FROM slack_config WHERE id = 1').get() as { enabled: number; secret_enc: string | null; team_id: string | null } | null
   if (!cfg?.enabled || !cfg.secret_enc) return 'Slack is not set up for this team: the team\'s owner or an admin adds it in Admin › Connected apps › Slack. Tell the user that; do not offer a card.'
   const linked = !!db.query('SELECT 1 FROM slack_links WHERE user_id = ? AND team_id = ?').get(userId, cfg.team_id)
-  if (!linked) return 'The user links their Slack account once in Settings › Connectors › Slack (Sign in with Slack): that also lets you read Slack as them. Tell the user that; do not offer a card.'
-  return 'The user\'s Slack account is linked. If you have no Slack tools, they allow reading once in Settings › Connectors › Slack (Allow reading Slack). Tell the user that; do not offer a card.'
+  if (!linked) return 'The user links their Slack account once in Settings › Connectors › Slack (Sign in with Slack). Tell the user that; do not offer a card.'
+  return 'The user\'s Slack account is linked. Slack is read only in channels the Slack app was invited to (/invite) and the user is in; if you have no Slack tools, the team\'s owner or an admin first updates the Slack app\'s permissions in Admin › Connected apps › Slack. Tell the user that; do not offer a card.'
 }

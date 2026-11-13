@@ -285,10 +285,6 @@ describe('Enterprise Grid', () => {
 })
 
 describe('Sign in with Slack: the person proves the Slack account, no e-mail needed', () => {
-  // the old OpenID Connect sign-in: what linking uses while the Slack app has no user scopes yet (read_scopes
-  // 'missing'); with them, the same button is OAuth v2 and also keeps the user token (tests/unit/c-slack-read.test.ts)
-  beforeAll(() => { h.ctx.db.query("UPDATE slack_config SET read_scopes = 'missing'").run() })
-  afterAll(() => { h.ctx.db.query('UPDATE slack_config SET read_scopes = NULL').run() })
   const start = (who: string) => call(who, 'POST', '/api/slack/signin', {})
   const params = (url: string) => Object.fromEntries(new URL(url).searchParams)
   /** Slack sends the browser back: that person's browser with a session (or `null`: a browser with none). The page it
@@ -319,8 +315,8 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const admin = (await call('dana', 'GET', '/api/admin/slack')).json
     expect(admin.redirectUrl).toBe('https://team.acme.example/api/integrations/slack/oauth/callback')
     expect(JSON.parse(admin.manifest).oauth_config.redirect_urls).toEqual(['https://team.acme.example/api/integrations/slack/oauth/callback'])
-    // the user scopes the one sign-in asks each person for (reading Slack, docs/SLACK.md "Reading Slack")
-    expect(JSON.parse(admin.manifest).oauth_config.scopes.user).toEqual(['channels:history', 'groups:history', 'im:history', 'mpim:history', 'channels:read', 'groups:read', 'im:read', 'mpim:read', 'users:read', 'search:read'])
+    // no user scopes in the app: Sign in with Slack asks for its own in its own flow
+    expect(JSON.parse(admin.manifest).oauth_config.scopes.user).toBeUndefined()
     expect((await call('carol', 'GET', '/api/slack/me')).json.signIn).toBe(true)
     const url = new URL((await start('carol')).json.authorizationUrl)
     expect(url.origin + url.pathname).toBe('https://slack.com/openid/connect/authorize')
@@ -329,7 +325,7 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_signin_flows').all())).not.toContain(params(url.href).state!)
   })
 
-  test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept (nor revoked)', async () => {
+  test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {
     const p = params((await start('carol')).json.authorizationUrl)
     const code = 'code-carol-0001'
     fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
@@ -337,9 +333,7 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0NOMAIL' })
     expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { detail: string }).detail).toContain('"via":"slack_signin"')
     expect(fake.of('openid.connect.token').at(-1)!.token).toBeNull()
-    // this workspace's token (Slack's one user token for that person and app, maybe their working one): not kept, and
-    // not revoked either; one of another workspace or none named is (below)
-    expect(fake.of('auth.revoke').some((c) => c.token === 'xoxp-user-U0NOMAIL')).toBe(false)
+    expect(fake.of('auth.revoke').at(-1)!.token).toBe('xoxp-user-U0NOMAIL')
     const dm = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0NOMAIL'))
     expect(dm!.args.text).toContain('Carol Park (@carol)')
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_links').all())).not.toContain('xoxp-')
@@ -1082,8 +1076,7 @@ describe('Enterprise Grid: one link per Slack user, whatever the enterprise id',
     fake.enterpriseId = 'E0ORG'
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected', { timeoutMs: 10_000 })).toBe(true)
-    // (the old sign-in: tokens saved again reset what is known of the user scopes)
-    h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example', read_scopes = 'missing'").run()
+    h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example'").run()
     try {
       // a one-time link for that Slack user, from before (its event had no enterprise id)
       const t = await newLink('U0MALLORY')
