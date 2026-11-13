@@ -9,7 +9,7 @@
 // with the setup's team group as participant, its files moved into its folder; "나중에" drops the question) and goes on
 // with the step's next button. Nothing to sort, no answer: the run's own end screen (TeamFilesStep RunView) as before.
 // The state lives in this tab (another page and back: no second plan), keyed by the run; sign-out forgets it. The proposal's
-// id is also kept in this browser while it waits: after a reload, or coming back later (the server keeps a plan for an
+// id is also kept in this browser (per person, not cleared by an expired session) while it waits: after a reload, or coming back later (the server keeps a plan for an
 // hour), the same plan shows again on the step (resumeOrganize) instead of leaving the files loose in 전사 공유.
 import clsx from 'clsx'
 import { Check, ChevronRight, FolderPlus, Loader2, X } from 'lucide-react'
@@ -80,7 +80,7 @@ export async function resumeOrganize(userId: string): Promise<void> {
 /** The paths each run of the step landed (TeamFilesStep's run reports every landed file). */
 const landedOf = new Map<number, string[]>()
 export function rememberLanded(runId: number, paths: string[]) { landedOf.set(runId, paths) }
-onFolderUploadsForgotten(() => { generation++; landedOf.clear(); clearSaved(); useOrganize.setState({ runId: null, org: { s: 'idle' } }) })
+onFolderUploadsForgotten(() => { generation++; landedOf.clear(); useOrganize.setState({ runId: null, org: { s: 'idle' } }) })
 
 /** Should the plan start for this run now? A finished run with no failure that landed files in shared/, once per run. */
 export function organizeWanted(run: Run | null): boolean {
@@ -105,7 +105,7 @@ export async function beginOrganize(run: Run, userId: string): Promise<void> {
       if (g !== generation) return
       if (st.state === 'done' && st.plan) {
         const edit = editFromPlan(st.plan)
-        if (edit.rows.length) savePlan(userId, started.id)
+        if (edit.rows.length) savePlan(userId, started.id); else clearSaved()
         set(edit.rows.length ? { s: 'proposal', id: started.id, plan: st.plan, edit } : { s: 'none' })
         return
       }
@@ -177,7 +177,7 @@ function Proposal({ id, plan, edit, applying, error, uploaded, teamGroupId, busy
   }
   const apply = async () => {
     const moves = movesOf(edit)
-    if (!moves.length) return onDone(uploaded)
+    if (!moves.length) { clearSaved(); return onDone(uploaded) }
     useOrganize.setState({ org: { s: 'proposal', id, plan, edit, busy: true } })
     try {
       const applied = await api.call(API.applyOrganize, { body: { id, moves } })
