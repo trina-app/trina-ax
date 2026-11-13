@@ -76,6 +76,7 @@ export function Rail({ showList }: { showList: boolean }) {
                     <Mark mark={marks[item]} item={item} />
                   </span>
                   <span className="block w-full truncate px-0.5 text-center">{label[item]}</span>
+                  <MarkWords mark={marks[item]} item={item} />
                 </Link>
               </Tooltip>
             </li>
@@ -96,29 +97,33 @@ export function Rail({ showList }: { showList: boolean }) {
   )
 }
 
-/** A place's mark at the top right of its icon: the number hidden from screen readers, words for them instead. */
+/** A place's mark at the top right of its icon, for the eyes only: MarkWords says it after the place's name ("대화, 안 읽은
+ * 대화 1개", not the count before the name). */
 function Mark({ mark, item }: { mark: RailMark; item: RailItem }) {
-  const t = useT()
   if (!mark) return null
   const at = 'absolute -top-1 right-0'
   const testId = `rail-${item}-mark`
   if (mark.kind === 'ask')
     return (
-      <span className={clsx(at, 'min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas')} data-testid={testId} data-mark="ask">
-        <span aria-hidden>?</span>
-        <span className="sr-only">{item === 'chats' ? t('rooms.aiWaits') : t('marker.card')}</span>
+      <span aria-hidden className={clsx(at, 'min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas')} data-testid={testId} data-mark="ask">
+        ?
       </span>
     )
-  if (mark.kind === 'dot')
-    return (
-      <span className={clsx(at, 'right-1.5 size-2 rounded-full bg-accent')} data-testid={testId} data-mark="dot">
-        <span className="sr-only">{item === 'chats' ? t('feed.chatsUnread') : t('marker.new')}</span>
-      </span>
-    )
+  if (mark.kind === 'dot') return <span aria-hidden className={clsx(at, 'right-1.5 size-2 rounded-full bg-accent')} data-testid={testId} data-mark="dot" />
   return (
-    <span className={clsx(at, 'min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink')} data-testid={testId} data-mark="count" data-n={mark.n}>
-      <span aria-hidden>{mark.n > 99 ? '99+' : mark.n}</span>
-      <span className="sr-only">{item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : t('notifications.unread', { count: mark.n })}</span>
+    <span aria-hidden className={clsx(at, 'min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink')} data-testid={testId} data-mark="count" data-n={mark.n}>
+      {mark.n > 99 ? '99+' : mark.n}
     </span>
   )
+}
+
+/** A place's mark in words for screen readers, after its name. */
+function MarkWords({ mark, item }: { mark: RailMark; item: RailItem }) {
+  const t = useT()
+  if (!mark) return null
+  const words =
+    mark.kind === 'ask' ? (item === 'chats' ? t('rooms.aiWaits') : t('marker.card'))
+    : mark.kind === 'dot' ? (item === 'chats' ? t('feed.chatsUnread') : t('marker.new'))
+    : item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : t('notifications.unread', { count: mark.n })
+  return <span className="sr-only" data-testid={`rail-${item}-mark-words`}>, {words}</span>
 }

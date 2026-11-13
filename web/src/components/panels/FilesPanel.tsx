@@ -130,7 +130,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
         <section aria-labelledby="files-panel-team">
           {/* the label opens the team folder's top (files kept loose there, every top folder) */}
           <PanelLabel id="files-panel-team" testId="files-panel-label">
-            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className="rounded hover:text-ink hover:underline" data-testid="files-panel-root">
+            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className="rounded hover:text-ink hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center" data-testid="files-panel-root">
               {t('filesPanel.team')}
             </Link>
           </PanelLabel>

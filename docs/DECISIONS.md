@@ -11756,6 +11756,26 @@ changes. On that path it supersedes P1's "파일 and 활동 open today's pages a
 - Version impact: none while the switch is off (an additive query value and count; no changelog fragment, per
   `changes/README.md`).
 
+## The rail and its lists: touch, screen readers, widths (feat/nav-rail-polish, 2026-11-13, navigation redesign polish)
+
+넣을 곳: Team AX core (`web/src/components/rail/Rail.tsx`, `web/src/components/panels/`), 이유: the new navigation's
+accessibility. Plan §6 "what stays working" (Electron, keyboard, accessibility, widths). Only while the server's `navRail`
+switch is on.
+
+- **Touch screens** (`pointer: coarse`: a tablet across, a touch laptop): the list panels' targets are 44 px to tap, as
+  the rail's already were: the header buttons, the panel rows and the list's rows (chats, rooms, folders) grow to 44 px;
+  활동's chips keep their look and take taps from a 44 px box around them. A mouse keeps the 36 px rows. A chat row's
+  "···" stays 28 px (it sits on the row's own link, as decided for phones; long press opens the same menu).
+- **A place's mark is said after its name**: "대화, 안 읽은 대화 3개", not "안 읽은 대화 3개 대화". The number stays hidden
+  from screen readers; the words follow the label.
+- Checked, nothing to change: the Electron window (the normal OS title bar and traffic lights above the rail, 900–1440
+  px, ⌘K, ⇧⌘O, ⌘1–9 switching teams, a notification's click lighting the right place), axe in light and dark on all four
+  lists, the tab order rail → list → page, the skip links, and widths 1024–1920, 150 % browser zoom (simulated by the
+  page width) and the largest text (no sideways scroll; the list stays 240–300 px).
+- Tests: `web/test/e2e/rail.spec.ts` (widths, touch targets, mark names, Tab into the list and the page),
+  `web/test/e2e/a11y.spec.ts` (the rail and its four lists, light and dark).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
+
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
