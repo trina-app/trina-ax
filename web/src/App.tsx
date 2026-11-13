@@ -11,6 +11,8 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useFileLists } from './store/fileLists'
 import { useListCache } from './store/listCache'
+import { useProjectPage } from './store/projectPage'
+import { useTeamFiles } from './store/teamFiles'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
 import { useAiAccess } from './store/aiAccess'
@@ -124,6 +126,8 @@ function dropPersonStores() {
   useProjects.getState().reset()
   useFileLists.getState().reset()
   useListCache.getState().reset()
+  useTeamFiles.getState().reset()
+  useProjectPage.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
   useAiAccess.getState().reset()

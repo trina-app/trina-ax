@@ -1,1 +1,0 @@
-- Getting started › 팀 파일: the ✕ on a file in the folder plan now reads "'<file name>' 그대로 두기" in Korean, with no particle glued to the file name.
