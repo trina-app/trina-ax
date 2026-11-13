@@ -22,6 +22,7 @@ import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
 import { useRoomTitle } from '../rooms/RoomIcon'
+import { rowName } from '../list/List'
 
 /** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
  * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
@@ -33,7 +34,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
   // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx)
   const rights = sharedRights(chat, useMeStrict().user.id)
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
-  // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
+  // the dot: what "답 필요" and the one count hold) reads semibold in ink, the others stay muted (index.css "list panels")
   const { marker, reason } = useChatMarker(chat)
   const ref = useRef<HTMLLIElement>(null)
   const menu = useRowMenu()
@@ -71,15 +72,15 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
         className={({ isActive }) =>
-          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
+          clsx('flex h-row items-center gap-2 rounded-lg pr-9 pl-3 hover:bg-hover max-md:h-11 max-md:pr-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17', isActive ? 'bg-hover' : '', rowName({ selected: isActive, unread: needsMe(marker) }))
         }
       >
         {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {rights.shared && <SharedIcon className="text-faint" />}
         {/* the title wins: it keeps at least 60% of the row and the project tag (at most 40%) is cut first */}
         <span className={clsx('truncate', project && 'min-w-[60%]')}>{title}</span>
-        {project && <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs font-normal text-faint" title={project.name} data-testid="chat-row-project">{project.name}</span>}
-        {sideRoom && <span className="shrink-0 truncate text-xs font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
+        {project && <span className="ml-auto max-w-[40%] min-w-0 truncate text-meta font-normal text-faint" title={project.name} data-testid="chat-row-project">{project.name}</span>}
+        {sideRoom && <span className="shrink-0 truncate text-meta font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
           // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;

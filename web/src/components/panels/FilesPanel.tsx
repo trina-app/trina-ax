@@ -24,7 +24,8 @@ import { TEAM_TOP_ON_PHONE } from '../../lib/newChat'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
+import { ListRow } from '../list/List'
+import { PanelFrame, PanelSection } from './PanelFrame'
 
 /** the team folder's top on a phone with the new tabs, where /files is these places (pages/Files.tsx, lib/screens.ts) */
 export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
@@ -123,16 +124,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const lit =
     view === 'recent' ? 'recent' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
 
-  const row = (p: Place) => (
-    <li key={p.key}>
-      <Link to={p.to} aria-current={lit === p.key ? 'page' : undefined} className={clsx(panelRow, phone && 'h-11', lit === p.key && 'bg-hover font-medium')} data-testid={p.testId}>
-        <p.icon size={16} className="shrink-0 text-muted" aria-hidden />
-        <span className="min-w-0 flex-1 truncate" title={p.label}>
-          {p.label}
-        </span>
-      </Link>
-    </li>
-  )
+  const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
   return (
     <>
       <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>

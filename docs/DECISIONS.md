@@ -11765,6 +11765,49 @@ and rows looked alike).
   faint 1 px line down their left (as Claude Code, Linear and VS Code trees), and a small gap closes the group.
 - **Rows**: 14 px regular, unchanged. No new buttons, no cards; both themes use the existing tokens.
 
+## Panels: Slack-sized type (fix/panel-type-hierarchy, 2026-11-13, product owner)
+
+넣을 곳: `web/src/index.css` (`text-row`, `text-meta`, `h-row`, `pl-row-indent`), `web/src/components/panels/PanelFrame.tsx`
+and the rows of 트리나, 대화, 프로젝트, 파일 and 활동 (also the phone's drawer and 파일/프로젝트 lists, which share them). 이유: the
+owner compared the panels with Slack's sidebar, 2026-11-13: the structure is fine, but the text is far too small and the
+hierarchy does not show. Supersedes the sizes of "Panels: three levels you can tell apart"; the structure stays.
+
+- **Rows** 15 px, 30 px high on a computer (40–44 px on phones and touch screens, as before). Unread (a room with unread
+  messages, a chat that needs me, an unread notice) and the open row are semibold in ink; every other row is muted.
+- **Section headers** the rows' 15 px, semibold in ink, with the ▸ that folds them and their icon; no small grey letter-
+  spaced label. The rows of a section are indented 30 px so their icon starts under the header's words; a 대화 folder
+  is indented the same, its rows one level deeper.
+- **Meta** (a project's "나만 · 3시간 전", a chat's project tag, a notice's time, a folded section's count) 13 px faint.
+- **Fixed rows on top** (트리나에게 묻기, 검색, 예약 작업, 팀 스킬, 새 프로젝트) the rows' 15 px. The panel's title is 18 px, one
+  step above the headers.
+- **Width** 288 px at 1440 (was 268), 256 px at 1280, still 240 px from 1200 down and at most 300 px: at 268 px the 15 px
+  titles with the 30 px indent lost about four more letters each. The 1052 px fold point is unchanged (240 px there).
+- Named tokens, not one-off sizes, so a later whole-app type pass can adopt them. The selected row keeps its fill
+  (`bg-hover`); no new colours.
+
+## Lists: one set of rows and headers (fix/panel-type-hierarchy, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/list/List.tsx` (`ListRow`, `ListIcon`, `ListSection`, `ListHeading`, `rowName`) and the list
+tokens in `web/src/index.css`. 이유: the owner, 2026-11-13, on a phone: 대화 looks right, 프로젝트, 파일 and 나 are too small;
+"is this properly componentized? Why is only Chats fine?" It was not: the phone's 대화 tab (`pages/Rooms.tsx`) drew its
+own rows (17 px names, 40 px round faces, 64 px rows), while 프로젝트 and 파일 reused the computer panel's rows with a
+`phone` flag (15 px, a bare 16 px icon, 44 px) and 나 used the settings list (`phone/PhoneList.tsx`: 15 px, 16 px icons,
+48 px). Three hand-made row styles.
+
+- **One set**: `ListRow` (icon, name, an optional second line, an end mark, `unread`, `selected`) for 프로젝트, 파일 and
+  활동, panel and phone alike; `ListSection`/`ListHeading` for every section header; `ListIcon` for every row icon,
+  `rowName` for the name of the rows that keep their own markup for menus and drag (a chat, a room) and of the
+  phone settings lists' rows (`PhoneListRow`, `PhoneChoiceRow`, `PhoneChecks`, a form field's name), so Settings and
+  Admin on a phone match 나. The panels' old names (`PanelSection`, `GroupChevron`) are re-exported from it.
+- **Phones follow the 대화 tab**: names 17 px, read ones in ink at 500 (the second line carries what is new), unread
+  semibold; icons in a 40 px round tile; a ListRow at least 56 px (the settings rows keep their 48 px); section headers 13 px semibold grey above unindented
+  rows (iOS style), as 대화's always were. Computers keep "Panels: Slack-sized type" (15 px, read rows muted, headers
+  15 px in ink, rows indented).
+- **One place to change**: the difference is only in the tokens (`--text-row`, `--spacing-row-min`,
+  `--spacing-list-icon`, `--color-row-read`, `--font-weight-row-read`, `--text-list-head`, `--color-list-head-ink`, …),
+  a computer's values in `@theme` and a phone's in their own `@media (max-width: 767.98px)` block, apart from the global
+  type scale. The 트리나 drawer's rows use the same size (17 px words, 20 px icons).
+
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,

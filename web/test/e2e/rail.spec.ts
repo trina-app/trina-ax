@@ -1,6 +1,6 @@
 // The new navigation on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1), with the server's
 // `navRail` switch on: the rail (team logo, 트리나 · 대화 · 파일 · 활동, my photo) in place of the 280 px sidebar, one list
-// panel per place (268 px at 1440, 240 px at 1280 and 1024; 파일's and 활동's since P3), what each place remembers, the marks on the
+// panel per place (288 px at 1440, 256 px at 1280, 240 px at 1024; 파일's and 활동's since P3), what each place remembers, the marks on the
 // places, the panel folding beside a thread below 1052 px, its hide button, Admin with one menu, the logo and photo
 // menus per role, the keyboard, and ⌘K's new words. With the switch off nothing here shows (nav-rail-flag.spec.ts).
 // With SHOTS=1 it also takes the screenshots of the phase into $SHOTS_DIR (default test-results/rail): each place at 1440
@@ -59,7 +59,7 @@ test('the rail replaces the sidebar; five places in order; each has its list pan
   await expect(page.getByTestId('nav-files')).toHaveCount(0)
   await expect(page.getByTestId('nav-inbox')).toHaveCount(0)
   expect(await width(page, 'rail')).toBe(72)
-  expect(await width(page, 'trina-panel')).toBe(268)
+  expect(await width(page, 'trina-panel')).toBe(288)
 
   await openRail(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
@@ -75,7 +75,7 @@ test('the rail replaces the sidebar; five places in order; each has its list pan
   await expect(page).toHaveURL(/\/projects$/)
   await expect(page.getByTestId('projects-panel')).toBeVisible()
   await expect(page.getByTestId('chats-panel')).toHaveCount(0)
-  expect(await width(page, 'projects-panel')).toBe(268)
+  expect(await width(page, 'projects-panel')).toBe(288)
 
   // since phase P3, 파일 and 활동 have their lists too (files-panel.spec.ts, activity-panel.spec.ts)
   await openRail(page, 'files')
@@ -83,7 +83,7 @@ test('the rail replaces the sidebar; five places in order; each has its list pan
   await expect(page.getByTestId('files-panel')).toBeVisible()
   await expect(page.getByTestId('chats-panel')).toHaveCount(0)
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)
-  expect(await width(page, 'files-panel')).toBe(268)
+  expect(await width(page, 'files-panel')).toBe(288)
 
   await openRail(page, 'activity')
   await expect(page.getByTestId('activity-panel')).toBeVisible()

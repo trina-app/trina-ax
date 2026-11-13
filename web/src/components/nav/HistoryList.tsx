@@ -161,9 +161,9 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
         {/* the chats, and the projects the person sees for their headers (one read): no flat list first */}
         {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
         {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
-        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
+        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-row text-faint">{t('sidebar.noChats')}</p>}
         {loaded && chats.some((c) => !isUnused(c)) && !filtered.length && !pinnedRows.length && (
-          <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
+          <p className="px-3 py-2 text-row text-faint" data-testid="recents-no-match">
             {t('sidebar.filter.none')}
           </p>
         )}
@@ -175,14 +175,14 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
         {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
         {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
           <div key={key || 'all'} className="mb-2">
-            {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
+            {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
             <ul>{items.map(row)}</ul>
           </div>
         ))}
         {cursor && (
           <button
             type="button"
-            className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
+            className="w-full rounded-lg px-3 py-1.5 text-left text-meta text-muted hover:bg-hover"
             disabled={more}
             onClick={async () => {
               setMore(true)

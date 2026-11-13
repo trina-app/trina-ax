@@ -15,6 +15,7 @@
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 import clsx from 'clsx'
+import { ListHeading, ListIcon, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
@@ -95,9 +96,9 @@ export default function Rooms() {
             const key = s.folder ? `folder-${s.folder.id}` : s.key
             return (
               <section key={key} aria-labelledby={`rooms-section-${key}`} data-testid="rooms-section" data-section={s.key}>
-                <h2 id={`rooms-section-${key}`} className="truncate px-4 pt-4 pb-1 text-xs font-semibold text-faint sm:px-6">
+                <ListHeading as="h2" id={`rooms-section-${key}`} className="px-4 pt-4 pb-1 sm:px-6">
                   {s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
-                </h2>
+                </ListHeading>
                 <ul>
                   {s.rooms.map((r) => (
                     <RoomListRow key={r.id} room={r} className={row} />
@@ -133,10 +134,10 @@ function ChatsActivityRow({ className }: { className: string }) {
   return (
     <li>
       <Link to={CHATS_ACTIVITY} className={className} data-testid="rooms-activity">
-        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
-          <AtSign size={18} />
-        </span>
-        <span className={clsx('min-w-0 flex-1 truncate text-base text-ink', unread ? 'font-semibold' : 'font-medium')}>{t('feed.chats')}</span>
+        <ListIcon>
+          <AtSign />
+        </ListIcon>
+        <span className={clsx('min-w-0 flex-1 truncate', rowName({ unread }))}>{t('feed.chats')}</span>
         {unread && (
           <span className="mr-1 size-2.5 shrink-0 rounded-full bg-accent" data-testid="rooms-activity-unread">
             <span className="sr-only">{t('feed.chatsUnread')}</span>
@@ -218,7 +219,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}><RoomName room={room} /></span>
+          <span className={clsx('truncate', rowName({ unread: unread > 0 }))}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>

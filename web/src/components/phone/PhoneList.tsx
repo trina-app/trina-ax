@@ -8,14 +8,15 @@ import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
 import type { HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { ListHeading, ListIcon, rowName } from '../list/List'
 
 export function PhoneListGroup({ title, footer, children, testId, labelId }: { title?: ReactNode; footer?: ReactNode; children: ReactNode; testId?: string; labelId?: string }) {
   return (
     <section className="mt-6 first:mt-4" data-testid={testId} aria-labelledby={title && labelId ? labelId : undefined}>
       {title && (
-        <h2 id={labelId} className="px-4 pb-1.5 text-xs font-medium text-faint">
+        <ListHeading as="h2" id={labelId} className="px-4 pb-1.5">
           {title}
-        </h2>
+        </ListHeading>
       )}
       <ul className="border-y border-line">{children}</ul>
       {footer && <div className="px-4 pt-2 text-xs text-faint">{footer}</div>}
@@ -57,22 +58,22 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
   // the hairline sits on the part after the icon, so it starts where the name does; none above the first row
   const content = (
     <span className="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
-      <span className={clsx('min-w-0 flex-1', wrap ? 'line-clamp-2' : 'truncate')}>{title}</span>
+      <span className={clsx('min-w-0 flex-1', wrap ? 'line-clamp-2' : 'truncate', rowName())}>{title}</span>
       {shown}
       {/* the room of the row's "···" (`menu`: it sits over this, outside the link) */}
       {menu && <span className="w-11 shrink-0" aria-hidden />}
       {mark}
     </span>
   )
-  const iconCell = icon ? <span className="grid size-5 shrink-0 place-items-center self-center text-muted" aria-hidden>{icon}</span> : null
+  const iconCell = icon ? <ListIcon className="self-center">{icon}</ListIcon> : null
   const rowCls = 'flex w-full items-stretch gap-3 pl-4 text-left text-sm transition hover:bg-hover focus-visible:-outline-offset-2'
   if (below) {
     return (
       <li className="group/row" data-testid={testId}>
         <div className="flex items-stretch gap-3 pl-4 text-sm">
-          {icon && <span className="grid size-5 shrink-0 place-items-center pt-3 text-muted" aria-hidden>{icon}</span>}
+          {icon && <ListIcon className="mt-2">{icon}</ListIcon>}
           <div className="min-w-0 flex-1 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
-            {to ? <Link to={to} state={state} className="-my-1 flex min-h-11 items-center rounded hover:underline">{title}</Link> : <span className="block">{title}</span>}
+            {to ? <Link to={to} state={state} className={clsx('-my-1 flex min-h-11 items-center rounded hover:underline', rowName())}>{title}</Link> : <span className={clsx('block', rowName())}>{title}</span>}
             {/* its buttons are the page's small ones elsewhere: 44 px here, for a finger */}
             <div className="mt-1 flex flex-wrap items-center gap-2 [&_button]:min-h-11">{below}</div>
           </div>
