@@ -19,7 +19,7 @@ const cm = () => 'cm-' + crypto.randomUUID()
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-codex-rooms', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-codex-rooms', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })

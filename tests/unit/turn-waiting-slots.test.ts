@@ -403,8 +403,8 @@ test('a chat whose earlier answer is still ending says so, and a send there gets
   await Bun.sleep(50)
   expect(turnStatus(other.turnId)).toBe('queued')
   expect(chatView(rt, 'olga', rt.store.chatRow(b)!).ending).toBeUndefined()
-  // released at its deadline: the line goes, the chat takes a message again
-  ;(execOf(a) as any).wallEndsAt = 0
+  // released 45 minutes after the stop at the latest (QUARANTINE_HOLD_MAX_MS): the line goes, the chat takes a message again
+  ;(execOf(a) as any).quarantinedAt = performance.now() - 45 * 60_000 - 1
   rt.quarantineReleaseGraceMs = 0
   await rt.probeQuarantined()
   expect(chatView(rt, 'olga', rt.store.chatRow(a)!).ending).toBeUndefined()

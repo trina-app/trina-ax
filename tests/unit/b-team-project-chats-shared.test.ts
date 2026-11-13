@@ -18,7 +18,7 @@ setDefaultTimeout(60_000)
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-team-project-chats-shared', turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-team-project-chats-shared', stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })

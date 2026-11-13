@@ -34,7 +34,7 @@ let h: Harness
 let alice: TestSocket
 let bob: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'web-allow-all', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'web-allow-all', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   noteEgressIp(h.ctx, '198.51.100.7')
   // the contract's group ids are UUIDv7 (GET /api/me checks its answer); the fixture's are short
   h.ctx.db.exec('PRAGMA foreign_keys = OFF')

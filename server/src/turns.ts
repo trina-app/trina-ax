@@ -25,6 +25,9 @@ export interface TurnToolSet {
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>
+  /** a tool call starts (any tools/call of the turn); the function returned is called when it ends. The chat turn's
+   * stall guard waits while one of our tools runs (chat/turn.ts ownCallStarted) */
+  callStarted?(): () => void
   /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
   beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
 }

@@ -17,7 +17,7 @@ import { startPresence, type Presence, type PresenceOptions } from '../realtime/
 import { startRoomTyping } from '../rooms/typing'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
-import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
+import { STALL_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
 import { engineError, tr } from './i18n'
 import { forgetPurgedChats, launcherSockOf, retryPendingForgets } from './forget'
 import { effectiveConcurrency, memoryAdmission } from '../system/limits'
@@ -67,8 +67,8 @@ export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
 export const CLAIM_TRIES = 3
-/** a quarantined slot whose engine was never confirmed gone is released this long after the turn's own wall deadline:
- * the launcher was told to end the engine by then (LaunchRequest.timeoutMs), so it is a bounded wait, never forever */
+/** a quarantined slot whose engine was never confirmed gone is released this long after its launch's own hard stop, or
+ * after QUARANTINE_HOLD_MAX_MS past the stop when that comes first (chat/turn.ts): a bounded wait, never forever */
 export const QUARANTINE_RELEASE_GRACE_MS = 5 * 60_000
 /** Engines that may be up at once, per slot: answers waiting for a person hold no slot but keep their (idle) engine,
  * so without this cap every queued answer could start beside them where memory is not checked (a Mac, office mode) */
@@ -99,8 +99,8 @@ export interface ChatRuntimeOptions {
   engines?: EngineProvider
   hub?: HubOptions
   relay?: BrowserRelayOptions
-  turnTimeoutMs?: number
-  wallTimeoutMs?: number
+  /** the stall guard's silence (STALL_TIMEOUT_MS; tests shorten it) */
+  stallTimeoutMs?: number
   /** Status-only polling while installed startup waits for an idle launcher. */
   recoveryPollMs?: number
   askUserTimeoutMs?: number
@@ -153,7 +153,7 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 /** A disabled or deleted account: its running and queued turns stop now (they would otherwise go on with the
- * engine for up to 20 minutes on the owner's subscription; their tool calls are already refused). */
+ * engine on the owner's subscription until the answer ends; their tool calls are already refused). */
 export function stopTurnsOf(ctx: AppContext, userId: string): number {
   return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
 }
@@ -184,8 +184,9 @@ export class ChatRuntime {
   readonly relay: BrowserRelay
   readonly presence: Presence
   readonly engines: EngineProvider
-  readonly turnTimeoutMs: number
-  readonly wallTimeoutMs: number
+  /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
+   * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
+  stallTimeoutMs: number
   /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
   longAnswerMs: number
   readonly queueStore: QueueStore
@@ -283,8 +284,7 @@ export class ChatRuntime {
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
     startRoomTyping(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
-    this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
-    this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
+    this.stallTimeoutMs = o.stallTimeoutMs ?? STALL_TIMEOUT_MS
     this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
@@ -374,7 +374,7 @@ export class ChatRuntime {
   }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
   /** The chat's earlier answer ended but its engine's end is not confirmed yet (a quarantined slot, at most until its
-   * wall deadline plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
+   * launch's hard stop or 45 minutes after the stop, plus QUARANTINE_RELEASE_GRACE_MS): the chat takes no new message meanwhile and says why (Chat.ending). */
   endingUnconfirmed(chatId: string): boolean {
     for (const e of this.running.values()) if (e.spec.chatId === chatId && e.quarantineState()) return true
     return false
@@ -429,7 +429,7 @@ export class ChatRuntime {
   }
 
   /** A turn opened its first card (it waits for a person): its slot goes to the next answer. Its engine stays up, idle
-   * on the tool call: the card's own time limit and the wall limit still end it. A turn that was waiting for a slot
+   * on the tool call: the card's own time limit still ends it. A turn that was waiting for a slot
    * after an answer and opened another card (a tool running beside it) waits for the person again: it keeps its place
    * in line (grantResumes passes it by while a card is open), and what it was given stays held until it has a slot. */
   turnWaiting(exec: TurnExec) {
@@ -621,7 +621,7 @@ export class ChatRuntime {
       // a claim that failed is tried again only after MEMORY_RECHECK_MS (a busy database gets time to settle)
       const failed = this.claimFailures.get(spec.turnId)
       if (failed && Date.now() - failed.at < MEMORY_RECHECK_MS) { this.dispatchRetry = true; break }
-      try { timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs) } catch (err) {
+      try { timing = this.queueStore.claim(head.turnId, head.userId) } catch (err) {
         // the claim's transaction rolled back: nothing committed, so the turn may be claimed again a little later
         const n = (failed?.n ?? 0) + 1
         if (n < CLAIM_TRIES) {

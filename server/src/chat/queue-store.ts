@@ -21,16 +21,17 @@ export class QueueStore {
   settle(userId: string) {
     this.db.query("DELETE FROM chat_queue_users WHERE user_id = ? AND NOT EXISTS (SELECT 1 FROM turns WHERE user_id = ? AND status = 'queued')").run(userId, userId)
   }
-  claim(turnId: string, userId: string, wallMs: number, now = new Date().toISOString()): { dispatchedAt: string; wallDeadlineAt: string } | null {
+  /** The turn runs now. No deadline is written: one answer has no time limit since 2026-11-14 (turns.wall_deadline_at
+   * stays NULL; rows from before keep theirs, which nothing reads any more). */
+  claim(turnId: string, userId: string, now = new Date().toISOString()): { dispatchedAt: string } | null {
     return this.db.transaction(() => {
-      const deadline = new Date(Date.parse(now) + wallMs).toISOString()
-      const result = this.db.query("UPDATE turns SET status = 'running', started_at = ?, dispatched_at = ?, wall_deadline_at = ? WHERE id = ? AND user_id = ? AND status = 'queued'")
-        .run(now, now, deadline, turnId, userId)
+      const result = this.db.query("UPDATE turns SET status = 'running', started_at = ?, dispatched_at = ? WHERE id = ? AND user_id = ? AND status = 'queued'")
+        .run(now, now, turnId, userId)
       if (!result.changes) return null
       this.settle(userId)
       if (this.db.query('SELECT 1 FROM chat_queue_users WHERE user_id = ?').get(userId))
         this.db.query('UPDATE chat_queue_users SET rr_ticket = ? WHERE user_id = ?').run(this.next(), userId)
-      return { dispatchedAt: now, wallDeadlineAt: deadline }
+      return { dispatchedAt: now }
     })()
   }
   /** Preserve surviving tickets; repair only missing state, after invalid queued rows have been stopped. */

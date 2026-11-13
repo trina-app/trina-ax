@@ -50,7 +50,7 @@ const TZ = 'UTC'
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-chat-rooms', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-chat-rooms', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')
