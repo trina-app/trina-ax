@@ -285,7 +285,8 @@ export async function openAccountMenu(page: Page): Promise<Locator> {
 export const accountButton = (page: Page) => page.getByTestId('account-menu')
 
 /** The Settings dialog ("설정" on a computer, the 나 tab on a phone). */
-export const settingsDialog = (page: Page) => page.getByRole('dialog').filter({ has: page.getByTestId('settings-title') })
+// the dialog itself (on a phone an open section draws its own bar, without the list's settings-title)
+export const settingsDialog = (page: Page) => page.getByTestId('settings-dialog')
 
 /** Settings: my photo's menu › 설정 on a computer, the 나 tab on a phone. */
 export async function openSettings(page: Page) {

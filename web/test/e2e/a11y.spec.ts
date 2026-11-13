@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, openRail, reset, signIn, adv } from './helpers'
-import { openNewChat, openTab } from './nav'
+import { newChatButton } from './nav'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -38,7 +38,9 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await signIn(page)
   await page.goto('/files')
   const input = page.getByTestId('composer-input')
-  await openNewChat(page)
+  // ⇧⌘O from another page: a new entry, the box takes the focus (the rail's 트리나 already opens Home itself, so its
+  // 트리나에게 묻기 replaces Home in place and the focus stays on that button: as dev shows it, until the redesign)
+  await page.keyboard.press('ControlOrMeta+Shift+o')
   await expect(input).toBeFocused()
   await input.fill('Keep this draft')
   await page.goto('/files')
@@ -98,8 +100,9 @@ test.describe('home focus on touch devices', () => {
     await example.tap()
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
-    // a phone starts a new chat from the 트리나 tab (the top bar has no new-chat icon)
-    await openTab(page, 'ai')
+    // a phone starts a new chat from the 트리나 tab: its list first, then 트리나에게 묻기 (nav rail, #673)
+    await (await newChatButton(page)).tap()
+    await expect(input).toBeVisible()
     await expect(input).not.toBeFocused()
   })
 })

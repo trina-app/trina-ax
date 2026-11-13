@@ -11,6 +11,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
+import { isPhone } from './nav'
 
 // Chromium's fake microphone, for the recording bar
 test.use({ serviceWorkers: 'block', launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }, permissions: ['microphone', 'clipboard-read', 'clipboard-write'] })
@@ -64,7 +65,8 @@ const AI: Box = {
 const HOME: Box = {
   name: 'Home',
   open: async (page) => {
-    await page.goto('/')
+    // a phone's new-chat box is its own page (`/` is 트리나's list there, nav rail #673)
+    await page.goto(isPhone(page) ? '/new' : '/')
     return page.getByTestId('composer')
   },
   input: 'composer-input',
