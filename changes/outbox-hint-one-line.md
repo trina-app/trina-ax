@@ -1,1 +1,0 @@
-- Chat on a phone: while an answer runs, the empty message box's hint ("Sends after this answer", or "Choose above first" when a card waits for a choice) fits on one line. It took up to 3 lines and made the box grow.

@@ -1,1 +1,0 @@
-- Phones: the 트리나 tab shows Trina's star in its orange, as in rooms and on Home (dimmed while another tab is open).

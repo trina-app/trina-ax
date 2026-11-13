@@ -1,1 +1,0 @@
-- **A message's hover bar** under the first message of a conversation stays on top of the next message's bar where they meet, so its buttons can be clicked while that message is hovered.
