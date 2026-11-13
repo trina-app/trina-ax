@@ -9,6 +9,7 @@ import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
+import { useFileLists } from './store/fileLists'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
 import { useAiAccess } from './store/aiAccess'
@@ -117,6 +118,7 @@ function dropPersonStores() {
   useDeckBuilds.getState().reset()
   useSendQueue.getState().reset()
   useProjects.getState().reset()
+  useFileLists.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
   useAiAccess.getState().reset()

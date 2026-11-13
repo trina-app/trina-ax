@@ -6,30 +6,31 @@
 import { File as FileIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { FileEntry } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'
-import { api, API, errorText } from '../lib/api'
+import { errorText } from '../lib/api'
 import { useFolderWords } from '../lib/folderLabels'
 import { formatDateTime } from '../lib/format'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { parentPath } from '../lib/paths'
-import { filesChanged } from '../store/live'
+import { readRecentFiles, useFileLists } from '../store/fileLists'
+import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { ErrorNote, Skeleton, useMediaQuery } from '../components/ui'
 
 export default function RecentFiles() {
   const t = useT(), locale = useLocale()
   const words = useFolderWords()
-  const [items, setItems] = useState<FileEntry[] | null>(null)
+  // the list as last read (store/fileLists.ts): a visit after the first shows it at once and reads it again behind it;
+  // only the very first read shows the skeleton
+  const items = useFileLists((s) => s.recent)
   const [error, setError] = useState<string | null>(null)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const back = useGoBack('/files')
   const backLabel = useBackLabel('/files', () => null)
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     try {
-      const r = await api.call(API.recentFiles, { query: { limit: 50 } })
-      setItems(r.items.filter((f) => f.type === 'file'))
+      await readRecentFiles({ fresh })
       setError(null)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
@@ -38,7 +39,9 @@ export default function RecentFiles() {
   }, [locale])
   useEffect(() => {
     void load()
-    return filesChanged.on(() => void load())
+    const again = () => void load(true)
+    const offs = [filesChanged.on(again), accessChanged.on(again), reloadAsked.on(again)]
+    return () => offs.forEach((off) => off())
   }, [load])
   return (
     <div className="flex h-full flex-col" data-testid="recent-files">

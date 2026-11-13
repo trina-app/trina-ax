@@ -15,10 +15,10 @@ import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
-import { api, API } from '../../lib/api'
 import { useChats } from '../../store/chats'
+import { accessChanged, reloadAsked } from '../../store/live'
 import { isAdmin, useMe } from '../../store/session'
-import { readProjectList, useProjects } from '../../store/projects'
+import { readManagedList, readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
@@ -59,15 +59,17 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   // a phone (no Projects page beside it): the owner and admins also find the team projects they manage without being
   // members (GET /api/projects?manage=1: their name and members only), under 팀 프로젝트, as the phone's list had them. A
   // computer's panel leaves them out: they are not the person's own, and the Projects page (/projects) lists them
+  // (the Projects page's list, store/projects.ts managed: as last read at once, read again behind it)
   const admin = isAdmin(useMe()) && phone
-  const [managed, setManaged] = useState<Project[]>([])
+  const managedList = useProjects((s) => s.managed)
+  const managed = useMemo(() => (admin ? (managedList ?? []).filter((p) => p.member === false) : []), [admin, managedList])
   useEffect(() => {
-    if (!admin) return setManaged([])
-    let live = true
-    api.call(API.listProjects, { query: { manage: '1' } }).then((r) => live && setManaged(r.items.filter((p) => p.member === false)), () => {})
-    return () => {
-      live = false
-    }
+    if (!admin) return
+    const read = (fresh = false) => void readManagedList({ fresh }).catch(() => {})
+    read()
+    const again = () => read(true)
+    const offs = [accessChanged.on(again), reloadAsked.on(again)]
+    return () => offs.forEach((off) => off())
   }, [admin])
   const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
   const projects = useMemo(() => {

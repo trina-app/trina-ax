@@ -52,9 +52,9 @@ import { toast } from '../store/ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
-import { chatChanged } from '../store/live'
+import { accessChanged, chatChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
-import { useProjects } from '../store/projects'
+import { readManagedList, useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
@@ -120,14 +120,14 @@ function useDeleteProject() {
   const locale = useLocale()
   const days = chatTrashDays(useMe())
   const deleted = (id: string) => {
-    useProjects.getState().drop(id)
+    useProjects.getState().drop(id, true)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
     // history must not offer "프로젝트 바꾸기…" for a project that is not there any more
     useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
   }
   // not found: deleted by someone else, or no longer mine to see (then my chats keep it, as the server does)
   const missing = (id: string) => {
-    useProjects.getState().drop(id)
+    useProjects.getState().drop(id, true)
     toast({ level: 'info', text: t('projects.missing') })
   }
   return async (p: Project): Promise<Deleted> => {
@@ -171,7 +171,7 @@ function useDeleteProject() {
         useProjects.getState().put(after)
         return after
       }
-      useProjects.getState().drop(p.id)
+      useProjects.getState().drop(p.id, true)
       return 'gone'
     }
     deleted(p.id)
@@ -304,7 +304,10 @@ function ProjectCardLines({ project: p }: { project: Project }) {
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
-  const [items, setItems] = useState<Project[] | null>(null)
+  // the list as last read (store/projects.ts managed): a visit after the first shows it at once and reads it again behind
+  // it; only the very first read shows the skeleton (docs/DECISIONS.md "Projects and Files lists open at once")
+  const items = useProjects((s) => s.managed)
+  const setItems = useProjects((s) => s.setManaged)
   const [error, setError] = useState<string | null>(null)
   // ?new=1 (Search's "New project", the 트리나 list's + and "새 프로젝트") opens the form, also when the list is already
   // on screen, and leaves the address at once (as /rooms?new=1 does): dropping it only on close replaced the new
@@ -325,30 +328,36 @@ export function ProjectList() {
   const [members, setMembers] = useState<Project | null>(null)
   // a card deleted from its menu: the keyboard goes on to the next card (or "New project" after the last one)
   const { box, removed } = useFocusAfterRemove(items, () => document.querySelector<HTMLElement>('[data-testid="project-new"]'))
-  const load = async () => {
+  const load = async (fresh = false) => {
     try {
       // manage=1: the owner and admins also get the team projects they manage without being members (pickers elsewhere
       // never ask for those)
-      const items = (await api.call(API.listProjects, { query: { manage: '1' } })).items
-      useProjects.getState().put(...items)
-      setItems(items)
+      await readManagedList({ fresh })
       setError(null)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     }
   }
   const phone = useMediaQuery(PHONE)
-  // a phone's /projects is the 프로젝트 tab's list (panels/ProjectsPanel.tsx), which reads its own
+  // a phone's /projects is the 프로젝트 tab's list (panels/ProjectsPanel.tsx), which reads the same list for an admin.
+  // Read again when access changed or the live connection could not resume (no project events: a visit reads it too)
   useEffect(() => {
-    if (!phone) void load()
+    if (phone) return
+    void load()
+    const offA = accessChanged.on(() => void load(true))
+    const offB = reloadAsked.on(() => void load(true))
+    return () => {
+      offA()
+      offB()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
-  const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
+  const renamed = (r: Project) => setItems((xs) => xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
-    if (d !== 'gone') return setItems((xs) => xs && xs.map((x) => (x.id === d.id ? d : x)))
+    if (d !== 'gone') return setItems((xs) => xs.map((x) => (x.id === d.id ? d : x)))
     removed(i)
-    setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
+    setItems((xs) => xs.filter((x) => x.id !== p.id))
   }
   if (phone)
     return (
@@ -376,7 +385,7 @@ export function ProjectList() {
         }
       />
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
-        {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
+        {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
@@ -413,9 +422,10 @@ export function ProjectList() {
           ))
         })()}
       </div>
-      {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
+      {/* made here: on the list at once when the person comes back (the read behind it puts it in the server's place) */}
+      {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => { setItems((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p])); navigate(`/projects/${p.id}`) }} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
-      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? r : x)))} />}
+      {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs.map((x) => (x.id === r.id ? r : x)))} />}
     </div>
   )
 }
