@@ -25,7 +25,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { alice?.close(); await h.close() })
 
-const newChat = async (user = 'alice', body: { engine?: 'claude-code' | 'codex'; projectId?: string; title?: string } = {}) =>
+const newChat = async (user = 'alice', body: { engine?: 'claude-code' | 'codex'; projectId?: string; title?: string; private?: boolean } = {}) =>
   h.api(user).call(API.createChat, { body })
 
 describe('a turn', () => {
@@ -528,7 +528,9 @@ describe('memories', () => {
 describe('instructions', () => {
   test('person, writable folders, language, team rules, project instructions', async () => {
     const proj = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Always cite the plan file.' } })
-    const chat = await newChat('alice', { projectId: proj.id })
+    // the person's own chat ("Only me": a team project's new chats are shared, docs/DECISIONS.md "Team project chats
+    // shared by default")
+    const chat = await newChat('alice', { projectId: proj.id, private: true })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'system' }))
     const s = r.done.content
     expect(s).toContain('User: Alice Kim (id alice, role member, groups Marketing)')
