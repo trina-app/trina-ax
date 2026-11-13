@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:08
 - Branch: `feat/google-team-connection`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/integrations/google-apps/`, `connections/`, `web/src/components/integrations/`).
   Why: built-in connectors are core (docs/REPOSITORY-RULES.md).
 - Version impact: minor (a new admin feature, new API endpoints and fields, an add-only migration).
@@ -115,4 +115,6 @@ use it", "Shared by an admin", "Remove". Five languages.
 
 ## Result
 
-(filled in at the end)
+Built as planned in PR #685. Differences: the migration is 349 (348 is taken by an open branch); the member's line also
+offers "Ask every time" when they chose Always allow for the shared account (`GoogleAppView.shared.alwaysAllowed`);
+Drive's Disconnect got the same "does not revoke while you signed a shared app in" check.
