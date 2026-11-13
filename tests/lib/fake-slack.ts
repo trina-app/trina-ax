@@ -1,7 +1,7 @@
 // A stand-in for Slack (tests of the Slack connector, docs/SLACK.md): the Web API methods the connector calls
 // (auth.test, apps.connections.open, bots.info, users.info, users.list, conversations.open, .replies, .info, chat.postMessage,
-// chat.postEphemeral, chat.update, chat.delete; with a person's user token: oauth.v2.access, conversations.replies,
-// .history, .info, .list, search.messages, users.info, auth.test, auth.revoke), a Socket Mode
+// chat.postEphemeral, chat.update, chat.delete; reading with the bot token: conversations.replies, .history, .info and
+// users.conversations over `channels`, with the bot's membership and its history scopes; auth.revoke), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
 import { createHash } from 'node:crypto'
@@ -24,12 +24,10 @@ export interface FakeSlack {
   clientSecret: string
   /** codes Slack's "Sign in with Slack" gave a browser, and what their id_token says */
   codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string; badIdToken?: boolean }>
-  /** codes Slack's OAuth v2 page (user scopes) gave a browser: who allowed it, and what oauth.v2.access answers */
-  oauthCodes: Record<string, { user: string; team?: string; scope?: string; tokenType?: string; noToken?: boolean; token?: string }>
-  /** user tokens Slack gave out (oauth.v2.access): whose, and whether they were revoked (auth.revoke) */
-  userTokens: Record<string, { user: string; team: string; scope: string; revoked?: boolean }>
-  /** conversations a user token can read: members (Slack user ids; none = a public channel everyone sees), messages */
-  channels: Record<string, { name?: string; is_private?: boolean; is_im?: boolean; is_mpim?: boolean; members?: string[]; messages: { ts: string; user: string; text: string; thread_ts?: string; reply_count?: number }[] }>
+  /** conversations the bot token reads: members (Slack user ids, the bot's own id when it was invited; a DM: the person
+   * and the bot), messages. Reading needs the bot in it and its history scope (channels:history, groups:history,
+   * im:history) in `scopes`. */
+  channels: Record<string, { name?: string; is_private?: boolean; is_im?: boolean; is_mpim?: boolean; members: string[]; messages: { ts: string; user: string; text: string; thread_ts?: string; reply_count?: number }[] }>
   /** the workspace is part of an Enterprise Grid organization (auth.test says so) */
   enterpriseId?: string
   /** app-level tokens apps.connections.open takes besides appToken (another app's, for the mismatch case) */
@@ -73,7 +71,7 @@ export function startFakeSlack(): FakeSlack {
   let envelopes = 0
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
-    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', botDisplayName: 'trina-ax', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {}, oauthCodes: {}, userTokens: {}, channels: {},
+    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', botDisplayName: 'trina-ax', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {}, channels: {},
     users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, otherAppTokens: [], sharedChannels: new Set(), unknownChannels: new Set(),
     scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
@@ -131,44 +129,38 @@ export function startFakeSlack(): FakeSlack {
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
       const bot = token === fake.botToken, app = token === fake.appToken || (!!token && fake.otherAppTokens.includes(token))
-      // a person's user token (from oauth.v2.access): the methods that read as them
-      const ut = token ? fake.userTokens[token] : undefined
-      if (ut && method !== 'auth.revoke') {
-        if (ut.revoked) return json({ ok: false, error: 'token_revoked' })
-        const sees = (id: string) => { const c = fake.channels[id]; return !!c && (!c.members || c.members.includes(ut.user)) }
-        const msgOf = (m: { ts: string; user: string; text: string; thread_ts?: string; reply_count?: number }) => ({ type: 'message', ...m })
-        switch (method) {
-          case 'auth.test': return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: ut.user.toLowerCase(), team_id: ut.team, user_id: ut.user }, { 'x-oauth-scopes': ut.scope })
-          case 'users.info': { const x = fake.users[args.user ?? '']; return x ? json({ ok: true, user: userObject(args.user!, x) }) : json({ ok: false, error: 'user_not_found' }) }
-          case 'conversations.info': {
-            const id = args.channel ?? '', c = fake.channels[id]
-            if (!c || !sees(id)) return json({ ok: false, error: 'channel_not_found' })
-            return json({ ok: true, channel: { id, ...(c.name ? { name: c.name } : {}), is_private: !!c.is_private, is_im: !!c.is_im, is_mpim: !!c.is_mpim } })
-          }
-          case 'conversations.replies': {
-            const id = args.channel ?? '', c = fake.channels[id]
-            if (!c || !sees(id)) return json({ ok: false, error: 'channel_not_found' })
-            // oldest first, in pages (the cursor is the offset here)
-            const all = c.messages.filter((m) => m.ts === args.ts || m.thread_ts === args.ts).sort((a, b) => Number(a.ts) - Number(b.ts))
-            const limit = Number(args.limit ?? 1000), from = Number(args.cursor ?? 0)
-            const more = from + limit < all.length
-            return json({ ok: true, messages: all.slice(from, from + limit).map(msgOf), has_more: more, response_metadata: { next_cursor: more ? String(from + limit) : '' } })
-          }
-          case 'conversations.history': {
-            const id = args.channel ?? '', c = fake.channels[id]
-            if (!c || !sees(id)) return json({ ok: false, error: 'channel_not_found' })
-            const top = c.messages.filter((m) => !m.thread_ts || m.thread_ts === m.ts).filter((m) => !args.latest || Number(m.ts) < Number(args.latest)).sort((a, b) => Number(b.ts) - Number(a.ts))
-            const limit = Number(args.limit ?? 100)
-            return json({ ok: true, messages: top.slice(0, limit).map(msgOf), has_more: top.length > limit })
-          }
-          case 'conversations.list': return json({ ok: true, channels: Object.entries(fake.channels).filter(([id, c]) => !c.is_im && !c.is_mpim && sees(id)).map(([id, c]) => ({ id, name: c.name })), response_metadata: { next_cursor: '' } })
-          case 'search.messages': {
-            const q = (args.query ?? '').toLowerCase()
-            const matches = Object.entries(fake.channels).filter(([id]) => sees(id)).flatMap(([id, c]) => c.messages.filter((m) => m.text.toLowerCase().includes(q)).map((m) => ({ ...msgOf(m), channel: { id, name: c.name ?? id, is_private: !!c.is_private, is_im: !!c.is_im, is_mpim: !!c.is_mpim } })))
-            return json({ ok: true, messages: { total: matches.length, matches: matches.slice(0, Number(args.count ?? 20)) } })
-          }
+      // the bot's reads of `channels`: it must be in the conversation, with the history scope of its kind
+      const conv = (method.startsWith('conversations.') && args.channel) ? fake.channels[args.channel] : undefined
+      if (bot && conv && (method === 'conversations.replies' || method === 'conversations.history' || method === 'conversations.info')) {
+        const id = args.channel!, botIn = conv.members.includes(fake.botUserId)
+        // a private channel (or a DM, a group DM) the bot is not in does not exist for it
+        if (!botIn && (conv.is_private || conv.is_im || conv.is_mpim)) return json({ ok: false, error: 'channel_not_found' })
+        if (method === 'conversations.info') {
+          return json({ ok: true, channel: { id, ...(conv.name ? { name: conv.name } : {}), is_private: !!conv.is_private, is_im: !!conv.is_im, is_mpim: !!conv.is_mpim, ...(conv.is_im ? { user: conv.members.find((x) => x !== fake.botUserId) } : { is_member: botIn }),
+            ...(fake.unknownChannels.has(id) ? {} : { is_ext_shared: fake.sharedChannels.has(id), is_pending_ext_shared: false }) } })
         }
-        return json({ ok: false, error: 'not_allowed_token_type' })
+        if (!botIn) return json({ ok: false, error: 'not_in_channel' })
+        const need = conv.is_im ? 'im:history' : conv.is_mpim ? 'mpim:history' : conv.is_private ? 'groups:history' : 'channels:history'
+        if (!fake.scopes.includes(need)) return json({ ok: false, error: 'missing_scope', needed: need })
+        const msgOf = (m: { ts: string; user: string; text: string; thread_ts?: string; reply_count?: number }) => ({ type: 'message', ...m })
+        if (method === 'conversations.replies') {
+          // oldest first, in pages (the cursor is the offset here)
+          const all = conv.messages.filter((m) => m.ts === args.ts || m.thread_ts === args.ts).sort((a, b) => Number(a.ts) - Number(b.ts))
+          const limit = Number(args.limit ?? 1000), from = Number(args.cursor ?? 0)
+          const more = from + limit < all.length
+          return json({ ok: true, messages: all.slice(from, from + limit).map(msgOf), has_more: more, response_metadata: { next_cursor: more ? String(from + limit) : '' } })
+        }
+        const top = conv.messages.filter((m) => !m.thread_ts || m.thread_ts === m.ts).filter((m) => !args.latest || Number(m.ts) < Number(args.latest)).sort((a, b) => Number(b.ts) - Number(a.ts))
+        const limit = Number(args.limit ?? 100)
+        return json({ ok: true, messages: top.slice(0, limit).map(msgOf), has_more: top.length > limit })
+      }
+      if (method === 'users.conversations') {
+        if (!bot) return json({ ok: false, error: 'invalid_auth' })
+        // with `user`: public channels that person is in, private ones they share with the bot; without: the bot's own
+        const who = args.user
+        const list = Object.entries(fake.channels).filter(([, c]) => !c.is_im && !c.is_mpim)
+          .filter(([, c]) => who ? c.members.includes(who) && (!c.is_private || c.members.includes(fake.botUserId)) : c.members.includes(fake.botUserId))
+        return json({ ok: true, channels: list.map(([id, c]) => ({ id, name: c.name, is_private: !!c.is_private })), response_metadata: { next_cursor: '' } })
       }
       switch (method) {
         case 'auth.test':
@@ -221,20 +213,7 @@ export function startFakeSlack(): FakeSlack {
             'https://slack.com/user_id': c.user, 'https://slack.com/team_id': c.team ?? fake.team.id, ...(c.enterprise ? { 'https://slack.com/enterprise_id': c.enterprise } : {}), name: c.user }
           return json({ ok: true, access_token: `xoxp-user-${c.user}`, token_type: 'Bearer', id_token: c.badIdToken ? 'not-a-jwt' : `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln` })
         }
-        case 'auth.revoke': { if (ut) ut.revoked = true; return json({ ok: true, revoked: true }) }
-        case 'oauth.v2.access': {
-          // the app's credentials in the body (no bearer token), a code used once; user scopes only: authed_user's token
-          if (token || args.client_id !== fake.clientId) return json({ ok: false, error: 'invalid_client_id' })
-          if (args.client_secret !== fake.clientSecret) return json({ ok: false, error: 'bad_client_secret' })
-          const c = fake.oauthCodes[args.code ?? '']
-          if (!c) return json({ ok: false, error: 'invalid_code' })
-          delete fake.oauthCodes[args.code!]
-          const scope = c.scope ?? 'channels:history,groups:history,im:history,mpim:history,channels:read,groups:read,im:read,mpim:read,users:read,search:read'
-          // `token`: the user token that person already has (real Slack gives the same one again)
-          const t = c.token ?? `xoxp-${c.user.toLowerCase()}-${Object.keys(fake.userTokens).length + 1}-` + 'u'.repeat(20)
-          if (!fake.userTokens[t]) fake.userTokens[t] = { user: c.user, team: c.team ?? fake.team.id, scope }
-          return json({ ok: true, app_id: fake.appId, team: { id: c.team ?? fake.team.id, name: fake.team.name }, authed_user: { id: c.user, scope, ...(c.noToken ? {} : { access_token: t }), token_type: c.tokenType ?? 'user' } })
-        }
+        case 'auth.revoke': return json({ ok: true, revoked: true })
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })

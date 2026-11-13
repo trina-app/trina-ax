@@ -62,10 +62,8 @@ export const slackRoutes: RouteModule = {
   init(ctx) {
     // after the chat runtime (routes/chats.ts init): questions from Slack become its turns
     try { slackOf(ctx).refresh() } catch (e) { ctx.log.error('slack connector failed to start; it stays off', { err: String(e) }) }
-    // the AI reads Slack as the person (integrations/slack/read.ts): its tools and its section of the instructions
+    // the AI reads Slack with the bot token (integrations/slack/read.ts): its tools and its section of the instructions
     registerSlackRead(ctx)
-    // a disabled or deleted account: its Slack link goes (database trigger) and its user token is revoked at Slack now
-    ;(ctx.services.accountHooks ??= []).push({ disabled: () => { void slackOf(ctx).sweepUserTokens() } })
   },
   register(kit, ctx) {
     const slack = () => slackOf(ctx)
@@ -78,8 +76,8 @@ export const slackRoutes: RouteModule = {
       return slack().saveTokens(auth.user.id, bot, app, { id: body.clientId, secret: clientSecret }, teamOrigin(c, ctx, body.origin))
     }))
     kit.handle(API.setSlackEnabled, ({ c, body, auth }) => safe(c.get('locale'), () => slack().setEnabled(auth.user.id, body.enabled)))
-    // `read`: a linked person allows the AI to read Slack (the same sign-in; linking does both at once)
-    kit.handle(API.startSlackSignIn, ({ c, body, auth }) => safe(c.get('locale'), () => slack().startSignIn(auth.user.id, auth.session.id, auth.session.client, { kind: body.read ? 'read' : 'link' })))
+    kit.handle(API.startSlackSignIn, ({ c, auth }) => safe(c.get('locale'), () => slack().startSignIn(auth.user.id, auth.session.id, auth.session.client)))
+    // "I updated them": Slack is asked again which scopes the bot has (reading threads and channels)
     kit.handle(API.recheckSlackReadScopes, ({ auth }) => slack().recheckReadScopes(auth.user.id))
     // Slack sends the browser back here after "Sign in with Slack". Signed in as the person who started it: linked.
     // No session in this browser (the desktop app's system browser, the phone app's in-app browser, another address):
@@ -89,13 +87,10 @@ export const slackRoutes: RouteModule = {
       const auth = (c as unknown as AppContextC).get('auth')
       // the official app: the hosting service's handoff in place of Slack's code
       const state = c.req.query('state') ?? '', code = c.req.query('code') ?? '', handoff = c.req.query('handoff') ?? ''
-      let out: { result: string; client: string; redirect?: string } = { result: 'signin_failed', client: 'web' }
+      let out = { result: 'signin_failed', client: 'web' }
       try { out = await slack().finishSignIn({ state, code, handoff, error: c.req.query('error') }, auth ? { userId: auth.user.id } : null) }
       catch (e) { ctx.log.error('slack sign-in failed', { err: String(e) }) }
       c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
-      // the same click goes on at Slack's other sign-in page (the app has no user scopes yet): only a page the
-      // connector built from Slack's own address
-      if (out.result === 'redirect' && out.redirect?.startsWith('https://slack.com/')) return c.redirect(out.redirect, 303)
       // (finishSignIn answers signin_needed only for a state and a code, or a handoff, of the right shape)
       if (out.result === 'signin_needed' && (SIGNIN_CODE.test(code) || HANDOFF.test(handoff))) return c.redirect(`/login?next=${encodeURIComponent(resumePath(state, SIGNIN_CODE.test(code) ? { code } : { handoff }))}`, 303)
       const r = encodeURIComponent(out.result === 'signin_needed' ? 'signin_failed' : out.result)

@@ -25,7 +25,7 @@ export const SLACK_SPECS: Record<string, Spec> = {
   startSlackSignIn: { build: c => c.post('/api/slack/signin', {}), scope: 'self' },
   // "Add to Slack" (the hosting service's official app): the owner's and admins' (no hosting service here: 409 after the
   // permission check)
-  // "I updated the permissions" (the user scopes for reading Slack): the owner's and admins'
+  // "I updated them" (the bot's scopes for reading threads and channels, asked of Slack again): the owner's and admins'
   recheckSlackReadScopes: { build: c => c.post('/api/admin/slack/read-scopes/recheck', {}), scope: 'byLevel' },
   startSlackInstall: { build: c => c.post('/api/admin/slack/official/install', {}), scope: 'byLevel' },
 }

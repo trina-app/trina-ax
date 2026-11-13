@@ -25095,6 +25095,8 @@ Activity cleared notices one click at a time.
 
 ## Slack: one connect links and allows reading (feat/slack-read-one-connect, 2026-11-13, the owner)
 
+- **Superseded the same day** by "Slack: reading with the bot token only" (below): no user token, no "Allow reading
+  Slack", no search. Kept here as the record of what #674 built.
 - **Why:** the owner tested in real Slack (2026-11-13): after "Connect Trina AX account" the AI could not read any Slack
   message (not even the thread it was asked in), did not know the question came from Slack, and when asked "can you
   see Slack?" offered a "connect card" that does not exist. The owner: "한번에 다 연결이 가능해야해" (everything connects in
@@ -25515,3 +25517,45 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Tests:** `web/test/unit/connector-detail-tools.test.tsx`, `integration-always-allow.test.tsx`; the e2e specs that
   used the row (integrations, connectors-hub, integration-templates, integration-requests, skill-tool-counts, a11y,
   phone-admin-pages).
+
+## Slack: reading with the bot token only (feat/slack-read-bot-token, 2026-11-13, the owner, QA TC-879)
+
+- **Supersedes** "Slack: one connect links and allows reading" (#674, the same day): its user token (xoxp, ten user
+  scopes incl. `search:read`), the OAuth v2 sign-in with `user_scope`, "Allow reading Slack" (Settings, the button in
+  Slack, the link page), `slack_search`, and the hosting service's `signin/read/start` / `signin/read/redeem`.
+- **Why:** the owner wants the official app listable in the Slack Marketplace. Slack's guidelines
+  (https://docs.slack.dev/slack-marketplace/slack-marketplace-app-guidelines-and-requirements and the review guide
+  https://docs.slack.dev/slack-marketplace/slack-marketplace-review-guide): `search:read` is not allowed; user token
+  scopes only when the app acts as the user, and submissions that use them unnecessarily are returned; `*:history` gets
+  an enhanced review for AI apps, each scope must trace to a testable shipped feature; AI apps must not store Slack data
+  (store metadata, pull in real time). Real-time search (`assistant.search.context`,
+  https://docs.slack.dev/apis/web-api/real-time-search-api) is only for listed or internal apps.
+- **Decision: the bot token reads, nothing else.** Bot scopes add `channels:history` and `groups:history` (manifest
+  `BOT_SCOPES`, `SLACK_BROKER_BOT_SCOPES`); user token scopes: none (`SLACK_BROKER_USER_SCOPES = []`). "Sign in with
+  Slack" goes back to OpenID Connect (`openid profile` in its own flow, not mixed with other scopes; its user token
+  revoked at once): it only proves the linked Slack account.
+- **@app in a thread:** the thread is read with the bot token (it was mentioned there, so it is in the channel); the
+  newest-messages/question-last fix, the taint marking, the size bounds (50 messages / 12,000 characters) stay.
+- **The AI's tools** `slack_read_thread`, `slack_read_channel`: only a conversation the bot is a member of AND the
+  linked Slack user is a member of (`users.conversations` with the bot token and `user=`), or the person's DM with the
+  app. Otherwise one plain answer: the app must be invited first (`/invite @app`), or the person is not in it. A channel
+  by name: among the bot's own channels only. Membership: a "yes" kept 2 minutes in memory, a "no" asked again (someone
+  who just joined is not refused for 2 minutes; someone who just left may read for up to 2 minutes, the same as a
+  conversation they saw a minute ago).
+- **No search** until phase 2 (`assistant.search.context` after listing; a TODO in read.ts, no code).
+- **Existing installs:** what Slack lists for the bot token is kept (`slack_config.bot_scopes`, migration 350; at
+  save, install, start, every 10 minutes, `missing_scope`). Without the two scopes the app answers as before, reading is
+  off, and admins see "Update Slack permissions" (own app: add the two bot scopes, reinstall, "I updated them" asks
+  Slack again; official app: Add to Slack again). The two scopes are not required to save tokens or take an install.
+- **Rate limit:** the non-Marketplace limit (1 history read a minute, 15 messages) applies to the official app while
+  it is not listed: `MYCEL_SLACK_OFFICIAL_LISTED=1` (operator, default off) lifts it; a team's own app is internal.
+- **The earlier user tokens:** revoked at Slack (`auth.revoke`, best effort) and deleted by the connector at start, not
+  in migration SQL; migrations only add (docs/WORKPLAN.md), so `slack_user_tokens`, `slack_config.read_scopes` and
+  `slack_signin_flows.kind/method/question` stay unused. `Services.accountHooks` (only for revoking those tokens) is gone.
+- **Storage:** the thread given with a question goes into that turn's instructions only (the launcher deletes the file
+  after the turn) and memory for at most 30 minutes; a resumed engine session is sent where it was asked, not the
+  thread (`TurnToolProvider.context`), because the message is kept in its session. Tool results are part of the
+  chat's engine session (its folder) like any tool result; docs/SLACK.md "What is kept" lists everything kept and a
+  proposal (not built) for dropping old tool results.
+- **Post to channel:** the notice still names Slack messages from another conversation (Post anyway / Cancel).
+- **Migration:** `350_c_slack_bot_reading.sql` (`slack_config.bot_scopes`). 348 was #674's, 349 Google's.
