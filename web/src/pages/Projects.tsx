@@ -1035,13 +1035,13 @@ export function ProjectFiles() {
           {list?.entries.map((f) => (
             <li key={f.path}>
               {f.type === 'folder' ? (
-                <Link to={down(f)} className="flex min-h-12 items-center gap-3 py-2 text-sm" data-testid="project-file" data-type="folder">
+                <Link to={down(f)} className="flex min-h-12 items-center gap-3 py-2 text-row" data-testid="project-file" data-type="folder">
                   <Folder size={18} className="shrink-0 text-accent-text" aria-hidden />
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>
                   <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
                 </Link>
               ) : (
-                <button type="button" onClick={() => openTeamFile(f.path)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm" data-testid="project-file" data-type="file">
+                <button type="button" onClick={() => openTeamFile(f.path)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-row" data-testid="project-file" data-type="file">
                   <FileText size={18} className="shrink-0 text-faint" aria-hidden />
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>
                   <span className="shrink-0 text-xs text-faint">{formatRelative(f.mtime, locale)}</span>

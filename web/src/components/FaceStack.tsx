@@ -15,7 +15,7 @@ const PHONE_SHOWN = 2
 const STACK = ['relative z-[3]', 'relative z-[2] -ml-1', 'relative z-[1] -ml-1 max-sm:hidden'] as const satisfies { length: typeof FACES_SHOWN }
 /** the "+N" after the faces: a tile like a face's (as high, in px like the pictures), tucked under the last face like
  * the others, its count kept clear of that face's edge (the wider padding on the left) */
-const MORE = '-ml-1 flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-hover pr-[5px] pl-[7px] text-[0.6875rem] leading-none font-semibold text-muted tabular-nums'
+const MORE = '-ml-1 flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-hover pr-[5px] pl-[7px] text-nano leading-none font-semibold text-muted tabular-nums'
 
 /**
  * `people`: the first ones (only FACES_SHOWN of them show); `count`: how many there are in all. Each face has a ring of
@@ -34,8 +34,8 @@ export function FaceStack({ people, count, hoverRing, testId, ...rest }: {
       {people.slice(0, FACES_SHOWN).map((p, i) => (
         <Avatar key={p.id} user={p} size={20} className={clsx(ring, STACK[i])} />
       ))}
-      {count > FACES_SHOWN && <span className={clsx(MORE, ring, 'max-sm:hidden')} data-testid={`${testId}-more`}>+{count - FACES_SHOWN}</span>}
-      {count > PHONE_SHOWN && <span className={clsx(MORE, ring, 'sm:hidden')} data-testid={`${testId}-more-phone`}>+{count - PHONE_SHOWN}</span>}
+      {count > FACES_SHOWN && <span className={clsx(MORE, ring, 'max-sm:hidden')} data-badge="" data-testid={`${testId}-more`}>+{count - FACES_SHOWN}</span>}
+      {count > PHONE_SHOWN && <span className={clsx(MORE, ring, 'sm:hidden')} data-badge="" data-testid={`${testId}-more-phone`}>+{count - PHONE_SHOWN}</span>}
     </span>
   )
 }

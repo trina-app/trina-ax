@@ -23,7 +23,7 @@ export function CompactRow({ title, chip, second, menu, className, testId, rowRe
 }) {
   const text = (
     <>
-      <span className="block truncate font-medium">{title}</span>
+      <span className="block truncate text-row font-medium">{title}</span>
       {second ? <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-faint">{second}</span> : null}
     </>
   )

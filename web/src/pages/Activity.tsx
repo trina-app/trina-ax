@@ -34,6 +34,7 @@ import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
+import { rowName } from '../components/list/List'
 
 type T = ReturnType<typeof useT>
 type Filter = ActivityTab
@@ -418,7 +419,7 @@ function RowBody({ face, who, iso, unread, line, context, count }: { face: React
     {face}
     <span className="min-w-0 flex-1">
       <span className="flex min-w-0 items-baseline gap-2">
-        <span className={clsx('min-w-0 truncate text-sm text-ink', unread ? 'font-bold' : 'font-medium')}>{who}</span>
+        <span className={clsx('min-w-0 truncate', rowName({ unread }))}>{who}</span>
         <time dateTime={iso} className="shrink-0 text-xs text-faint">{timeOf(iso, locale)}</time>
       </span>
       <span className={clsx('mt-0.5 block text-sm break-words', unread ? 'text-ink' : 'text-muted')}>{line}</span>

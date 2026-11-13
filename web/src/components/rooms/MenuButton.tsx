@@ -263,7 +263,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
           {/* the menu's name (aria-label above), shown: not one of its items */}
           {/* (a phone's long sheet, the time zones: it stays at the top while the rows scroll) */}
-          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:sticky max-md:top-0 max-md:z-[1] max-md:bg-surface max-md:px-3 max-md:pt-2 max-md:pb-2">{heading}</p>}
           {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
           {sheetOrder(items).map((it, i, all) => (
             <button

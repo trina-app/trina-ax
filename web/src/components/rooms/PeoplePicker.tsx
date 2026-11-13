@@ -191,7 +191,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                   <label className={row} data-testid="people-row">
                     <Avatar user={p} size={36} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-ink">{p.name}</span>
+                      <span className="block truncate text-row font-medium text-ink">{p.name}</span>
                       {p.title && <span className="block truncate text-xs text-muted">{p.title}</span>}
                     </span>
                     <Tick checked={picked.includes(p.id)} disabled={busy} onChange={() => toggle(p.id)} />

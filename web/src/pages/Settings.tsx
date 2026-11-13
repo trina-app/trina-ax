@@ -59,6 +59,7 @@ import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
 import { SettingsBarAction, useSettingsBar } from '../components/settings/SettingsBar'
+import { SettingRow } from '../components/settings/SettingRow'
 import { MenuButton } from '../components/rooms/MenuButton'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
@@ -117,29 +118,12 @@ function Section({ title, children, desc, page }: { title: string; children: Rea
 }
 
 /** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (below
- * 768 px the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
- * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows).
- * `value`: a value to read, not a control (the username): it stays on the right on a phone too. */
+ * 768 px the control goes under its name): the shared settings row (components/settings/SettingRow.tsx), `divided`.
+ * `framed`: a field with its own frame, no hairline under it on a phone. `quietHint`: on a phone the hint is for screen
+ * readers only (an error still shows). `value`: a value to read, not a control (the username): it stays on the right on a
+ * phone too. */
 function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, value, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; value?: boolean; children: React.ReactNode }) {
-  return (
-    <div className={clsx('flex border-b border-line py-3 last:border-b-0 md:flex-row md:items-center md:justify-between md:gap-6', value ? 'items-start justify-between gap-4' : 'flex-col gap-2', framed && 'max-md:border-b-0')}>
-      <div className="min-w-0">
-        {htmlFor ? (
-          <label htmlFor={htmlFor} className="text-sm text-ink">
-            {label}
-          </label>
-        ) : (
-          <p className="text-sm text-ink">{label}</p>
-        )}
-        {hint && (
-          <p id={hintId} className={clsx('mt-0.5 text-xs', hintError ? 'text-danger' : 'text-muted', quietHint && !hintError && 'max-md:sr-only')} role={hintError ? 'alert' : undefined}>
-            {hint}
-          </p>
-        )}
-      </div>
-      <div className={clsx('min-w-0 md:w-72 md:max-w-[60%] md:shrink-0', value && 'max-md:max-w-[60%] max-md:text-right')}>{children}</div>
-    </div>
-  )
+  return <SettingRow divided id={htmlFor} title={label} desc={hint} descId={hintId} descError={hintError} quietDesc={quietHint} framed={framed} inline={value} control={children} />
 }
 
 function Profile() {

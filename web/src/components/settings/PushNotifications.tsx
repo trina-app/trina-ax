@@ -171,9 +171,9 @@ export function PushNotifications() {
   // change did not work ("다시 시도" only where trying again can help: the team server could not be reached or had a
   // passing fault)
   const notes = <>
-    {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
-    {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
-    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
+    {!app && settings?.configured && <p className="mt-2 text-xs text-faint">{t('push.description')}</p>}
+    {badgeHint && <p className="mt-2 text-xs text-faint" data-testid="push-badge-hint">{t(badgeHint)}</p>}
+    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
     {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
   </>
   if (narrow && here) {

@@ -60,7 +60,7 @@ export function DesktopNotifications({ bridge = desktop() }: { bridge?: DesktopB
         </div>
         {testNotify && <div className="flex shrink-0 items-center gap-2"><Button busy={busy} onClick={() => void test()} data-testid="desktop-notify-test">{t('desktopNotify.test')}</Button></div>}
       </div>
-      {admin && native && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{native.gateway ? t('push.phoneGateway', { host: native.gateway }) : t('push.phoneOff')}</p>}
+      {admin && native && <p className="mt-2 text-xs text-faint" data-testid="phone-push-gateway">{native.gateway ? t('push.phoneGateway', { host: native.gateway }) : t('push.phoneOff')}</p>}
       {/* always there, so a screen reader hears the answer when it comes */}
       <div role="status">{outcome && bridge && <p className={problem ? 'mt-2 text-sm text-danger' : 'mt-2 text-sm text-muted'} data-testid="desktop-notify-result" data-outcome={outcome}>{desktopTestText(outcome, bridge.platform, t)}</p>}</div>
     </div>

@@ -275,8 +275,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           <Link to="/settings/profile" className="flex items-center gap-3 px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2" data-testid="settings-me">
             <Avatar user={me.user} size={48} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{me.user.name}</span>
-              <span className="block truncate text-sm text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
+              <span className="block truncate text-row font-medium">{me.user.name}</span>
+              <span className="block truncate text-meta text-muted">{me.user.title || t(`role.${me.user.role}`)}</span>
             </span>
             <span className="sr-only">{t('settings.profile')}</span>
             <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
@@ -328,7 +328,7 @@ function PhoneTeamGroup() {
     <PhoneListGroup testId="settings-team-group">
       <li className="flex items-center gap-3 px-4 py-3" data-testid="settings-team">
         <TeamLogo className="size-8 rounded-lg" />
-        <span className="min-w-0 flex-1 truncate font-medium">{me.team.name}</span>
+        <span className="min-w-0 flex-1 truncate text-row font-medium">{me.team.name}</span>
       </li>
       {admin && <PhoneListRow icon={<UserPlus size={16} />} title={t('teamMenu.invite')} onClick={() => void openTeamInvite(navigate, null)} chevron testId="settings-invite" />}
       {admin && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}

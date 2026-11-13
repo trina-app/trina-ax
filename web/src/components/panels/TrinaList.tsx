@@ -105,7 +105,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   return (
     <div ref={listRef} data-testid="trina-list">
       <WaitingRow />
-      {empty && <p className="px-3 py-2 text-row text-faint">{t('sidebar.noChats')}</p>}
+      {empty && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
 
       {groups.pinned.length > 0 && (
         <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">

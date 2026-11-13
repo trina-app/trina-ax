@@ -136,7 +136,7 @@ export function RoomsByKind() {
   if (folderNodes.length && !foldersOut) out.push(foldersSection(folderNodes))
   return (
     <div data-testid="sidebar-rooms-list" data-rooms={flat.length} data-drawn={Math.min(draw, flat.length)}>
-      {loaded && !everyRoom.length && <p className="px-3 py-2 text-row text-faint">{t('rooms.listEmpty')}</p>}
+      {loaded && !everyRoom.length && <p className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</p>}
       {out}
       {more && <ul aria-hidden><li ref={end} className="h-px" data-testid="chats-panel-more" /></ul>}
       {loaded && !folders.length && everyRoom.length > 0 && <NewFolderRow kind="rooms" className="mt-2" />}
