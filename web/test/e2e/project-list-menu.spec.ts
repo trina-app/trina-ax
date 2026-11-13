@@ -164,19 +164,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
     test('the cards: one height whatever their instructions, who sees it in place of the folder, and plain words on top', async ({ page }) => {
       await reset(page)
       await signIn(page)
-      // long instructions (clamped to two lines), none at all, one short line under a name long enough to wrap; Launch
-      // with Bob as a member
-      const make = async (name: string, instructions: string, participants: { subjectType: 'user'; subjectId: string }[] = []) =>
-        expect((await post(page, '/api/projects', { name, scope: 'team', instructions, participants })).status()).toBe(201)
+      // three team projects with Bob in each, so one row under 팀 프로젝트: long instructions (clamped to two lines), none
+      // at all, one short line under a name long enough to wrap; and Solo, mine only, under 내 프로젝트 (a project only I
+      // see goes there, docs/DECISIONS.md "Projects: a place of their own")
+      const bob = [{ subjectType: 'user' as const, subjectId: 'bob' }]
+      const make = async (name: string, instructions: string, scope: 'team' | 'personal' = 'team') =>
+        expect((await post(page, '/api/projects', { name, scope, instructions, participants: scope === 'team' ? bob : [] })).status()).toBe(201)
       const budget = 'Budget for next year, with every team\'s numbers and the board\'s notes in one place'
-      await make('Launch', 'Plan the spring launch together: the dates, who does what and the first draft of the press kit, all in one place. Answer in short bullet points.', [{ subjectType: 'user', subjectId: 'bob' }])
+      await make('Launch', 'Plan the spring launch together: the dates, who does what and the first draft of the press kit, all in one place. Answer in short bullet points.')
       await make('Hiring', '')
       await make(budget, 'Draft next year\'s budget.')
+      await make('Solo', 'Notes for myself.', 'personal')
       await page.goto('/projects')
       // the page's one line of what projects are: on a computer (a phone has "+" in its top bar and no intro: QA TC-254)
       await expect(page.getByText(t['projects.desc'], { exact: true })).toHaveCount(vp.phone ? 0 : 1)
       const cards = items(page)
-      await expect(cards).toHaveCount(3)
+      await expect(cards).toHaveCount(4)
+      await expect(page.getByTestId('projects-section-team').getByTestId(/^project-(card|row)$/)).toHaveCount(3)
+      await expect(page.getByTestId('projects-section-mine').getByTestId(/^project-(card|row)$/)).toHaveCount(1)
+      await expect(page.getByTestId('projects-section-mine')).toContainText('Solo')
 
       if (vp.phone) {
         // a phone's rows (QA TC-380): no instructions and no "지침이 없어요." on the list (the project's page has them)
@@ -190,7 +196,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       }
       // who sees it, as the project page's 멤버 line counts (the owner reads its own people): no folder path
       await expect(card(page, 'Launch').getByTestId('project-card-who')).toHaveText(translate('ko', 'projects.whoMembers', { n: 2 }))
-      await expect(card(page, 'Hiring').getByTestId('project-card-who')).toHaveText(t['chat.whoMe'])
+      await expect(card(page, 'Hiring').getByTestId('project-card-who')).toHaveText(translate('ko', 'projects.whoMembers', { n: 2 }))
+      await expect(card(page, 'Solo').getByTestId('project-card-who')).toHaveText(t['chat.whoMe'])
       for (const c of await cards.all()) await expect(c).not.toContainText('projects/')
 
       const box = async (name: string) => (await card(page, name).getByRole('link').boundingBox())!
@@ -242,8 +249,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const c = await chat(page, 'Competitor notes')
       await page.goto('/')
       let { row, menu } = await rowMenu(page, 'Competitor notes')
-      // (폴더로 옮기기: the 트리나 list's own folders, docs/DECISIONS.md "List folders")
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['navFolders.moveTo'], t['chat.project.add'], t['common.delete']])
+      // (no 폴더로 옮기기: the 트리나 list's own folders left the screen, docs/DECISIONS.md "Projects: a place of their own")
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
       await audit(page, 'chat row menu open')
       await menu.getByRole('menuitem', { name: t['chat.project.add'] }).click()
       const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
@@ -274,10 +281,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await chat(page, 'Competitor notes')
       await page.goto('/')
       const { menu } = await rowMenu(page, 'Launch plan (shared)')
-      // mine: the pin, the link, rename and delete, never the move; 폴더로 옮기기 is there but off, with why under the menu
-      // (a project's chat stays in its project)
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['navFolders.moveTo'], t['common.delete']])
-      await expect(menu.getByRole('menuitem', { name: t['navFolders.moveTo'] })).toBeDisabled()
+      // mine: the pin, the link, rename and delete, never the move (a project's chat stays in its project)
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['common.delete']])
       await expect(menu.getByTestId('chat-row-move')).toHaveCount(0)
       await audit(page, 'shared chat row menu open')
     })
