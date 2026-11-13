@@ -12,7 +12,6 @@ import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow } from '../lib/fake-goo
 import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { readScope } from '../../server/src/chat/read-scope'
-import { roomAiOf } from '../../server/src/rooms/ai'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
 
@@ -49,10 +48,10 @@ afterAll(async () => { await A?.close(); lib?.stop(); delete process.env.MYCEL_G
 interface Person2 { asked: string[]; choices: string[][]; answer: string; confirm?: boolean }
 const person = (answer: string): Person2 => ({ asked: [], choices: [], answer })
 
-function turn(user: Person, o: { person?: Person2; scheduled?: boolean; room?: boolean; roomsSeen?: boolean; chat?: string } = {}) {
+function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSeen?: boolean; chat?: string } = {}) {
   const chat = o.chat ?? A.chat(user)
   const turnId = A.turn(user, chat)
-  const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled, room: !!o.room })
+  const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles(), signal: new AbortController().signal } as unknown as TurnToolContext['files']
   if (o.person) {
     const p = o.person
@@ -257,52 +256,6 @@ describe('calls', () => {
     const f = await apps.authorize('alice', 'alice-session', 'gmail')
     expect(await apps.callback(google.authorize(f.authorizationUrl, 'alice'), { userId: 'alice', sessionId: 'alice-session' })).toBe(true)
     expect(await apps.complete('alice', 'alice-session', 'gmail', f.flowId)).toMatchObject({ status: 'connected' })
-  })
-})
-
-describe('rooms', () => {
-  test('a room session offers only the asker\'s own Google apps; another member\'s connection is never used', async () => {
-    // Alice also has a personal MCP connection of her own: not in a room
-    A.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, tools_json, created_at, updated_at)
-      VALUES ('own-mcp', 'personal', 'alice', 'alice', 'mcp', 'Tasks', 'tasks', 'https://tasks.acme.example/mcp', 'none', 'connected', '[{"name":"search","title":null,"description":"d","readOnly":true,"inputSchema":{"type":"object"}}]', 't', 't')`).run()
-    expect([...turn('alice').tools.keys()]).toContain('my_tasks__search')
-    lib.calls = []
-    const t = turn('alice', { room: true, person: person('no') })
-    expect([...t.tools.keys()].length).toBeGreaterThan(0)
-    expect([...t.tools.keys()].every((n) => n.startsWith('my_gmail__'))).toBe(true)
-    expect(t.prompt).not.toContain('Tasks')
-    const r = await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })
-    expect(r.text).toContain('for alice')
-    expect(lib.calls.map((c) => c.who)).toEqual(['alice'])
-    // Bob's session in the same room uses Bob's own, never Alice's
-    lib.calls = []
-    await turn('bob', { room: true }).call('my_gmail__search_gmail_messages', { query: 'lunch' })
-    expect(lib.calls.map((c) => c.who)).toEqual(['bob'])
-    // someone without a Google app gets nothing in a room
-    expect(turn('erin', { room: true }).tools.size).toBe(0)
-    // a change in a room asks every time, without Always allow, even when the person chose it in their own chat
-    setPolicy('allow')
-    const p = person('no')
-    const w = await turn('alice', { room: true, person: p }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
-    expect(w.isError).toBe(true)
-    expect(p.asked).toHaveLength(1)
-    expect(p.choices).toEqual([])
-    setPolicy('ask')
-    A.ctx.db.query("DELETE FROM integrations WHERE id='own-mcp'").run()
-    expect(bobGmail).not.toBe(aliceGmail)
-  })
-
-  test('what a Google app found keeps the room answer private to the asker', async () => {
-    const room = await A.json('/api/rooms', { method: 'POST', as: 'alice', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'group', userIds: ['bob', 'carol'] }) })
-    expect(room.status).toBe(201)
-    const chat = A.chat('alice')
-    const t = turn('alice', { room: true, chat })
-    await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })
-    const scope = { sources: readScope(A.ctx.db, chat) ?? [], outside: false }
-    expect(scope.sources).toContainEqual({ type: 'integration', id: aliceGmail })
-    const d = roomAiOf(A.ctx).decide(room.body.id, chat, scope)
-    expect(d.post).toBe(false)
-    expect(d.outside).toBe(true)
   })
 })
 

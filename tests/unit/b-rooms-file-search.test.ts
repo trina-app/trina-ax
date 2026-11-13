@@ -172,12 +172,11 @@ describe('who finds a file', () => {
     for (const q of ['HIDDEN-FILE', 'thread', 'shared']) expect(await raw('bob', q)).not.toMatch(/in its thread|shared answer/)
   })
 
-  test('a private preview\'s file only for its person; archived rooms, deleted messages and unsent uploads for nobody', async () => {
+  test('an old private preview\'s file, archived rooms, deleted messages and unsent uploads: for nobody', async () => {
     const chat = await groupChat('alice', ['bob', 'erin'])
     const preview = put(chat, 'alice', 'a preview', { privateTo: 'alice' })
     await attach('alice', chat, preview, 'PRIVATE-FILE preview.png')
-    expect(names(await search('alice', 'PRIVATE-FILE'))).toEqual(['PRIVATE-FILE preview.png'])
-    for (const u of ['bob', 'erin']) expect(await raw(u, 'PRIVATE-FILE')).not.toContain('preview.png')
+    for (const u of ['alice', 'bob', 'erin']) expect(await raw(u, 'PRIVATE-FILE')).not.toContain('preview.png')
     // an upload not sent yet, even its uploader's
     await upload('bob', chat, 'UNSENT-FILE draft.pdf')
     for (const u of ['alice', 'bob', 'erin']) expect(await search(u, 'UNSENT-FILE')).toEqual(EMPTY)

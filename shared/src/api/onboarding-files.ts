@@ -2,7 +2,9 @@
 // folder, the page lists its documents without reading them (web/src/lib/teamFiles.ts), the AI picks from the names,
 // paths inside the folder, types, sizes and dates only, the person confirms one checked list, and only then do the
 // files go up, as a folder upload run of the file screen tagged with the step. Route module:
-// server/src/routes/onboarding-files.ts. No file content ever reaches these endpoints.
+// server/src/routes/onboarding-files.ts. No file content ever reaches these endpoints before the upload. Once the files
+// are up in shared/, the setup's folder plan reads the text of some of them (files-organize.ts: the W6 rule reversed for
+// that step, docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders").
 import { z } from 'zod'
 import { RelPath } from './common'
 import { endpoint } from './endpoint'

@@ -293,7 +293,8 @@ for (const lang of ['ko', 'en'] as const) {
       await expect(sheet.getByRole('menuitem')).toHaveText([
         `${t['sidebar.view.status']}· ${t['sidebar.status.all']}`,
         `${t['sidebar.view.activity']}· ${t['sidebar.activity.all']}`,
-        `${t['sidebar.view.group']}· ${t['sidebar.group.date']}`,
+        // grouped by project by default (docs/DECISIONS.md "Trina history by project")
+        `${t['sidebar.view.group']}· ${t['sidebar.group.project']}`,
         `${t['sidebar.view.sort']}· ${t['sidebar.sort.updated']}`,
       ])
       await shot(page, `${lang}-drawer-filter`)

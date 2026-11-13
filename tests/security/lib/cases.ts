@@ -21,6 +21,7 @@ import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
+import { NAV_FOLDER_SPECS } from './nav-folders-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -120,6 +121,7 @@ export const SPECS: Record<string, Spec> = {
   ...SKILL_SHARE_SPECS,
   ...ONBOARDING_FILES_SPECS,
   ...FILE_LIST_SPECS,
+  ...NAV_FOLDER_SPECS,
   ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },

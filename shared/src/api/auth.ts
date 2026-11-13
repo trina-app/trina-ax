@@ -98,9 +98,9 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
-    /** "@트리나 …" in a room asks the AI there (AppConfig.roomAiMentions; off by default since the side chat). Absent =
-     * off: the room's box offers no AI in its "@" list and points to the side chat. */
-    roomAiMentions: z.literal(true).optional(),
+    /** the new navigation is on for this server (AppConfig.navRail; docs/AGENTS/plan/20261112-1839-nav-rail.md): the
+     * web shows the icon rail on computers and the new phone tabs. Absent = off: today's sidebar and tabs. */
+    navRail: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),
     /** this server can print HTML to PDF (a headless browser in the converter isolation, server/src/files/html-pdf.ts):
@@ -150,6 +150,9 @@ export const InviteInfo = z.object({
   /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
   inviterName: z.string().nullable().optional(),
+  /** true while every seat of the plan is taken: accepting is refused until a seat is free (the page says so instead
+   * of the form). Absent from an older server */
+  full: z.boolean().optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({

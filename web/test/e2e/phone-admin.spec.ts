@@ -33,11 +33,13 @@ test('the list: whose admin it is, what needs attention, then the groups with va
   await expect(page.getByTestId('admin-home')).toHaveCount(0)
   // the bar: ‹ named after the 나 list it came from, no title (the list has its own)
   await expect(page.getByTestId('admin-back-label')).toHaveText(t['settings.title'])
-  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+  for (const id of ['members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
     const row = page.getByTestId(`admin-row-${id}`)
     await expect(row).toBeAttached()
     expect(Math.round((await row.boundingBox())!.height)).toBeGreaterThanOrEqual(48)
   }
+  // Slack is one of the connected apps, not a row of its own (owner, 2026-11-12)
+  await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
   await expect(page.getByTestId('admin-row-members')).toContainText('2')
   await expect(page.getByTestId('admin-row-providers')).toContainText('Claude Code')
   // the fixture's disk is 82% full: one attention row, and System's badge counts exactly that
@@ -202,21 +204,20 @@ test('a member: /admin says it is for admins; Back never shows the Admin list', 
   await expect(page.getByTestId('admin-only').or(page.getByTestId('settings-logout'))).toBeVisible()
 })
 
-test('an admin who is not the owner: Slack\'s address goes to the list, one entry', async ({ page }) => {
+test('an admin who is not the owner: Slack\'s old address opens its page in Connected apps, no menu row of its own', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
   await signIn(page, { username: 'dana', password: 'dana password 1' })
   await page.goto('/admin/slack')
-  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page).toHaveURL(/\/admin\/connectors\/slack$/)
+  await expect(page.getByTestId('slack-status')).toBeVisible()
   await expect(page.getByTestId('admin-row-slack')).toHaveCount(0)
-  await page.goBack()
-  await expect(page).not.toHaveURL(/\/admin/)
 })
 
 test('nothing is wider than the screen on any Admin page, in Spanish too', async ({ page }) => {
   for (const locale of ['en', 'es'] as const) {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
-    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'slack', 'usage', 'audit', 'settings', 'system']) {
+    for (const id of ['', 'members', 'groups', 'folders', 'providers', 'connectors', 'connectors/slack', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(id ? `/admin/${id}` : '/admin')
       await expect(page.getByTestId('admin-content')).toBeVisible()
       await page.waitForTimeout(300)

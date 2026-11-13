@@ -57,7 +57,9 @@ self.addEventListener('fetch', (event) => {
 // delivery, revoked permission, logged-out browser or offline server fails closed.
 let pushEpoch = 0
 const pushPending = new Set()
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
+// chat.answer_done: an answer in my own AI chat needs me ("AI answers"); a click opens that chat (its id from the signed-in
+// fetch of the notice, never from the payload)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -174,6 +176,9 @@ self.addEventListener('push', event => {
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
       // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
+      // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
+      // can no longer open lands on the start page (the Inbox never lists these notices)
+      const chatId = !roomId && payload.code === 'chat.answer_done' && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
@@ -185,7 +190,7 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -216,8 +221,8 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId
-    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? `/c/${chatId}` : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

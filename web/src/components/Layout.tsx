@@ -1,5 +1,7 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
+// With the server's `navRail` switch on (lib/navRail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md), a computer gets the
+// rail and one list panel (components/rail/RailColumns.tsx) where the sidebar was; phones keep what they have.
 import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -10,6 +12,7 @@ import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
+import { useNavRail } from '../lib/navRail'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -30,6 +33,8 @@ import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
+import { RailColumns } from './rail/RailColumns'
+import { PANEL_ID } from './panels/PanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
 const BrowserPanel = lazy(() => import('./BrowserPanel'))
@@ -116,6 +121,10 @@ export default function Layout() {
   // leaves the page (QA TC-141, lib/backCloses.ts). A panel kept across a move (open in folder) holds a new entry on the
   // new page
   const phone = !useMediaQuery('(min-width: 768px)')
+  // the new navigation (a computer only in this phase: the phone's tabs come later)
+  const rail = useNavRail() && !phone
+  // whether the rail's list panel shows (RailColumns sets it while the rail is on): the skip link "목록으로" goes there
+  const [listShown, setListShown] = useState(false)
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
   // closes (when nothing else took it meanwhile). The last focus inside the page is kept as it moves.
   const covered = phone && !!panel
@@ -146,6 +155,11 @@ export default function Layout() {
       <a href={big ? '#side-panel' : '#main'} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
+      {rail && listShown && (
+        <a href={`#${PANEL_ID}`} className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow" data-testid="skip-list">
+          {t('rail.skipList')}
+        </a>
+      )}
       <DemoOrDevBanner />
       <ConnectionBanner />
       <OfficeUpdateBanner />
@@ -154,9 +168,13 @@ export default function Layout() {
       <div className="flex min-h-0 flex-1">
         {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
             one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
-        <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
-          <Sidebar />
-        </div>
+        {rail ? (
+          <RailColumns onList={setListShown} />
+        ) : (
+          <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
+            <Sidebar />
+          </div>
+        )}
         {drawer && (
           <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
             <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />

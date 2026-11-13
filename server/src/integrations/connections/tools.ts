@@ -126,8 +126,7 @@ function turnChat(ctx: AppContext, tc: TurnToolContext): string {
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
 function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   ctx.db.transaction(() => {
-    // a Google app's answer (the person's mail, calendar, documents) is also from outside the team files: in a room it
-    // keeps the answer private to the person who asked (rooms/ai.ts decide)
+    // a Google app's answer (the person's mail, calendar, documents) is also from outside the team files
     addSources(ctx.db, chat, row.google_app ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
       : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
     ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chat)
@@ -368,7 +367,7 @@ function keepAlwaysAllow(ctx: AppContext, row: Row, userId: string) {
  *   answer …), which can carry instructions; the card says why;
  * - in the person's own chat after it read their team chat rooms (TurnPerson.roomsSeen) this card is the call's only
  *   one, and it leads with the room line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
- * The card offers Send once, Always allow and Don't send (not in a room's session or after a room read, where other
+ * The card offers Send once, Always allow and Don't send (not after a room read, where other
  * people's words could have asked for it, and not when this person's changes already go without asking).
  */
 async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean | 'always'> {
@@ -385,11 +384,11 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
   // this person's changes at this connection go without asking: the team's rule, or their own choice (never in a
-  // scheduled run, a room's session or after a room read)
+  // scheduled run or after a room read)
   const allowed = !roomsSeen && !b.scheduled && (
     (row.scope === 'team' && row.write_policy === 'allow')
-    || (!b.room && row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
-    || (!b.room && memberAllows(ctx.db, row, b.userId)))
+    || (row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
+    || memberAllows(ctx.db, row, b.userId))
   // ...unless the chat holds something someone else wrote: then the card asks (TC-328). Read for every change of the
   // person's own chat: the card it raises offers no Always allow then
   const outside = !b.scheduled && outsideSeen(ctx.db, b.chatId)
@@ -413,8 +412,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  // why it asks, unless the room line says it already (after a room read, in a room's session)
-  const lead = outside && !person.roomsSeen && !b.room ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
+  // why it asks, unless the room line says it already (after a room read)
+  const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
   const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
@@ -423,9 +422,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
-  // but not in a room's session or after a room read, where every change asks, not when it is on already, and not in a
+  // but not after a room read, where every change asks, not when it is on already, and not in a
   // chat that read something from outside (the words that ask for the change could be someone else's)
-  if (person.choose && !b.room && !person.roomsSeen && !allowed && !outside) {
+  if (person.choose && !person.roomsSeen && !allowed && !outside) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true
@@ -1019,9 +1018,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
   return {
     name: 'integrations',
     build(b) {
-      // a team chat room's session: only the asker's own Google apps (owner decision 10); their answers stay private to
-      // the asker (noteAnswer: rooms/ai.ts decide). Every other connection stays out of rooms (rooms/ai-tools.ts)
-      const rows = integrationsOf(ctx).usable(b.userId).filter((r) => !b.room || (r.google_app && r.scope === 'personal' && r.owner_user_id === b.userId))
+      const rows = integrationsOf(ctx).usable(b.userId)
       const tools: TurnTool[] = []
       const taken = new Set<string>()
       const http: Row[] = []
@@ -1080,7 +1077,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
       // when they ask for the service (connect_service with the template's id). Never another member's connection.
       const mine = new Set(rows.map((r) => r.template_id).filter(Boolean))
-      const templates = b.room ? [] : ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
+      const templates = ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
       for (const t of templates) {
         if (mine.has(t.id) || !templateCovers(ctx.db, t.id, b.userId)) continue
         lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): when the user asks for ${t.name}, call connect_service with template "${t.id}" and name "${t.name}" so they can connect it (not in a scheduled run)`)

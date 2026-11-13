@@ -3,7 +3,7 @@
 // which live changes are worth telling the person (chat.updated notify: a card that opened, an answer that ran about a
 // minute or longer), never a person's stop, a server stop, a scheduled run or a question from Slack. Claude, Codex and the
 // API engine alike, with the fake engine through the real launcher and gate. /seen tells only a real change. The room's
-// "?" (Room.aiWaits) and the per-recipient notices of room messages are in b-rooms-markers.test.ts.
+// the per-recipient notices of room messages are in b-rooms-markers.test.ts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Chat, type EngineId, type ServerFrame, type TurnRequest } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'

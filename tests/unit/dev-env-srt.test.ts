@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
-import { startHarness, type Harness } from '../lib/b-harness'
+import { addTestPerson, startHarness, type Harness } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
@@ -1215,6 +1215,7 @@ describe('the tracker', () => {
 })
 
 describe('the team\'s sites (admins)', () => {
+  beforeAll(() => addTestPerson('carolen', { id: 'carol', name: 'Carol Park', role: 'admin', locale: 'en' }))
   test('read and change; bad domains refused; the next run gets them', async () => {
     const r = await h.api('carol').call(API.devEnvTeam, {})
     expect(r).toMatchObject({ setting: { extraDomains: [] }, plan: { plan: 'starter', maxRunning: 1 } })
@@ -1225,6 +1226,44 @@ describe('the team\'s sites (admins)', () => {
     expect(teamSetting(h.ctx.db)).toMatchObject({ enabled: true, extraDomains: ['api.example.net'] })
     await alice().call({ command: 'echo x' })
     expect(lastSettings().network.allowedDomains).toContain('api.example.net')
+  })
+  test('the refusals answer in the admin\'s language (ko / en), the English detail stays', async () => {
+    const put = async (who: string, body: unknown) => {
+      const r = await h.req(who, '/api/admin/dev-env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      return { status: r.status, error: (await r.json()).error }
+    }
+    const koBad = await put('carol', { extraDomains: ['localhost'] })
+    expect(koBad.status).toBe(400)
+    expect(koBad.error.message).toBe("'localhost' 사이트를 추가할 수 없어요. 주소는 example.com처럼 점으로 나뉜 두 부분 이상이어야 해요.")
+    expect(koBad.error.fields['body.extraDomains']).toBe('localhost: a domain needs at least two parts, for example example.com')
+    const enBad = await put('carolen', { extraDomains: ['localhost'] })
+    expect(enBad.error.message).toBe("'localhost' cannot be added. An address needs at least two parts, for example example.com.")
+    expect(enBad.error.fields['body.extraDomains']).toBe(koBad.error.fields['body.extraDomains'])
+    expect((await put('carol', { extraDomains: ['*.com'] })).error.message).toBe("'*.com' 사이트를 추가할 수 없어요. .com 같은 끝부분 전체는 범위가 너무 넓어서 허용할 수 없어요.")
+    expect((await put('carol', { scope: { mode: 'selected', groupIds: ['nope'], userIds: [] } })).error.message).toBe('없는 부서가 들어 있어요.')
+    expect((await put('carolen', { scope: { mode: 'selected', groupIds: [], userIds: ['nobody'] } })).error.message).toBe('Unknown person.')
+    // every reason of extraDomainProblem has a sentence in each language (none falls back to English words)
+    const { SITE_REASON_KEYS, siteProblemMessage } = await import('../../server/src/devenv/messages')
+    for (const d of ['UPPER.com', 'a'.repeat(260) + '.com', 'a*b.example.com', 'com', 'x', '-a.example.com', '10.0.0.1', '0x7f.1', 'x.example.net']) {
+      const why = extraDomainProblem(d, ['x.example.net'])
+      if (why) expect(SITE_REASON_KEYS).toContain(why)
+    }
+    for (const l of ['ko', 'id', 'ja', 'es'] as const) for (const k of SITE_REASON_KEYS) expect(siteProblemMessage('a', k, l)).not.toContain(k)
+  })
+  test('turning on where srt cannot run: Korean for ko, English for en', async () => {
+    turnOnTeam({ enabled: false, consent: null })
+    selfTestProblem = 'cannot start a scope (polkit rule or slice missing)'
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
+    const put = async (who: string) => {
+      const r = await h.req(who, '/api/admin/dev-env', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, acceptWarning: DEV_ENV_SRT_WARNING_VERSION }) })
+      return { status: r.status, error: (await r.json()).error }
+    }
+    const ko = await put('carol')
+    expect(ko.status).toBe(409)
+    expect(ko.error.message).toBe('이 서버는 개발 환경을 실행할 수 없어요.')
+    expect(ko.error.params).toMatchObject({ reason: 'dev_env_unavailable', why: 'platform' })
+    expect((await put('carolen')).error.message).toBe('This server cannot run the dev environment.')
+    selfTestProblem = ''
   })
 })
 

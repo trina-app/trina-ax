@@ -2,7 +2,7 @@
 // While the app is closed a push sets it on the iPhone (the team server's count in APNs aps.badge; on Android the launcher counts the notifications in the tray). While the
 // team's page is open, the page sends its own count (the one count n of its tab title and the Mac Dock) whenever it
 // changes and every time the app comes to the foreground, and 0 at sign-out; the app sets 0 itself when it signs out
-// or leaves a team. A number only.
+// or leaves a team. A number only. iPhone only: on Android the app never sets a number (setsIconNumber).
 
 import { MAX_BADGE } from './protocol'
 
@@ -18,6 +18,14 @@ export const PERMISSION_REQUEST = { ios: { allowAlert: true, allowBadge: true, a
 export function askBadgeAgain(o: { ios: boolean; status: string; allowsBadge: boolean | null | undefined; askedBadge: boolean }): boolean {
   return o.ios && o.status === 'granted' && o.allowsBadge !== true && !o.askedBadge
 }
+
+/** Whether this app sets the icon's number itself: on the iPhone only. On Android expo-notifications (58.1.6) sets a
+ * number through ShortcutBadger (Samsung's badge provider), but its 0 only cancels the app's notifications (all of them,
+ * the tray too) and never clears that number, and One UI shows it only while a notification is in the tray, so a count
+ * once set came back stale with the next push and stayed after reading and sign-out (QA TC-408, Galaxy Note10, One UI 4).
+ * Android keeps the launcher's own count of the notifications in the tray; a `badge` message from the page is taken and
+ * does nothing there. */
+export const setsIconNumber = (platform: string): boolean => platform === 'ios'
 
 /** Sets the icon's number, one call at a time and the latest wins (a burst of page changes ends on the last count).
  * A failure (badges off, a launcher without numbers) changes nothing. */

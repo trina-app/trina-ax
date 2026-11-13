@@ -11,7 +11,10 @@
 //           from the brand pictures (k-means, render.ts) or stays monochrome. Feature ground (cover, closing): warm
 //           near-black #171513, or B itself when B carries white at 4.5:1.
 //   brand — white content pages (text mix(#111, B, 0.06), one soft corner glow of B ≤ 0.09); the cover, numbers and
-//           closing on a mesh of B (three blobs: hue −26° L+4 %, L−16 %, hue +24° L+6 %), white type.
+//           closing on a mesh of B (three blobs: hue −26° L+4 %, L−16 %, hue +24° L+6 %), white type. A hue turn
+//           changes how light a colour reads (blue → cyan is far lighter at the same L), so each blob is darkened (or
+//           lightened, under near-black type) until it carries the type at least as well as B itself; the feature's
+//           `mute` is held at 4.5:1 there (labels and the footer sit on the mesh, not on flat B).
 import type { DeckTheme } from '@mycel/shared/api'
 import { contrast, luminance, mix } from '../promo-video/colors'
 import { fromHsl, hsl, usableBrand } from '../promo-video/palette'
@@ -105,11 +108,24 @@ function brandFeature(B: string): G2 {
   const g = ground(B, text, text)
   return {
     ...g, mark: text, accent: text, onMark: B,
-    dim: soften(text, B, 0.22, 4.5), mute: soften(text, B, 0.4, 3),
+    dim: soften(text, B, 0.22, 4.5), mute: soften(text, B, 0.4, 4.5),
     line: mix(B, text, 0.24), lineStrong: mix(B, text, 0.6),
     t05: mix(B, text, 0.08), t10: mix(B, text, 0.16), t20: mix(B, text, 0.26), t40: mix(B, text, 0.4),
     dark: text === '#ffffff',
   }
+}
+
+/** The brand mesh's three colours: B turned −26° and +24° and a deeper B, each kept at least as far from the feature's
+ * type as B is (so type that reads on B reads on every blend of the mesh). */
+export function meshOf(B: string): [string, string, string] {
+  const text = brandFeature(B).text
+  const white = text === '#ffffff'
+  // under white type a blend of B and darker blobs is never lighter than B; under near-black type a blend of lighter
+  // colours can read a little darker than either, so the blobs keep a margin there
+  const need = contrast(text, B) + (white ? 0 : 0.3)
+  const step = white ? -0.01 : 0.01
+  const keep = (c: string) => { let m = c; for (let k = 0; k < 100 && contrast(text, m) < need; k++) m = shift(m, 0, step); return m }
+  return [keep(shift(B, -26, 0.04)), keep(shift(B, 0, -0.16)), keep(shift(B, 24, 0.06))]
 }
 
 const PHOTO = (scrimBg: string, mark: string): G2 => ({ ...ground(scrimBg, '#ffffff', mark), text: '#ffffff' })
@@ -145,7 +161,7 @@ export function lookFor2(theme: DeckTheme, brandIn: string | null | undefined, s
   if (theme === 'brand' && B && (contrast('#ffffff', B) >= 4.5 || contrast('#111111', B) >= 4.5)) {
     const content = ground('#ffffff', mix('#111111', B, 0.06), B)
     const feature = brandFeature(B)
-    const mesh: [string, string, string] = [shift(B, -26, 0.04), shift(B, 0, -0.16), shift(B, 24, 0.06)]
+    const mesh = meshOf(B)
     return { theme: 'brand', brand: B, radius: 16, content, feature, photo: PHOTO('#08080c', content.mark), featureKind: 'mesh', glow: B, mesh }
   }
   // paper: the brand as the accent; a hueless brand takes the sampled accent, else stays monochrome
@@ -154,7 +170,7 @@ export function lookFor2(theme: DeckTheme, brandIn: string | null | undefined, s
   const content = ground(paper, '#171513', acc ?? '#2b2a28')
   const solidB = !!B && !hueless(B) && contrast('#ffffff', B) >= 4.5 && colourClass(B) !== 'light'
   const feature = solidB ? brandFeature(B!) : ground('#171513', '#f3eee6', acc ?? '#d8d2c8')
-  return { theme: 'paper', brand: B, radius: 4, content, feature, photo: PHOTO('#120f0c', content.mark), featureKind: solidB ? 'mesh' : 'glow', glow: acc, mesh: solidB ? [shift(B!, -26, 0.04), shift(B!, 0, -0.16), shift(B!, 24, 0.06)] : null }
+  return { theme: 'paper', brand: B, radius: 4, content, feature, photo: PHOTO('#120f0c', content.mark), featureKind: solidB ? 'mesh' : 'glow', glow: acc, mesh: solidB ? meshOf(B!) : null }
 }
 
 /** Mean luminance of colours (for the tone fallback when there are no notes). */

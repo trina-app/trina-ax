@@ -32,7 +32,8 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   expect(await newChat.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
   const projects = side.getByRole('link', { name: t['sidebar.projects'] })
   expect(Math.round((await projects.boundingBox())!.height)).toBe(36)
-  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('12px')
+  // the section titles are as large as the rows, and bold (TC-149)
+  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('14px')
 })
 
 test('the account menu opens above the profile line, moves with the keyboard, and the theme is not in it', async ({ page }) => {
@@ -207,7 +208,9 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
     expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
     expect(c.width).toBeLessThan(main.width - 200)
     await page.setViewportSize({ width: 390, height: 760 })
-    expect(Math.round((await column.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
+    // a phone's Projects is rows from edge to edge under the phone's bar, without the page header (TC-380)
+    const phoneColumn = path === '/skills' ? column : page.getByTestId('project-rows')
+    expect(Math.round((await phoneColumn.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
 })
 
@@ -240,7 +243,7 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await expect(menu.getByRole('menuitem')).toHaveText([
     `${t['sidebar.view.status']}${t['sidebar.status.all']}`,
     `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
-    `${t['sidebar.view.group']}${t['sidebar.group.date']}`,
+    `${t['sidebar.view.group']}${t['sidebar.group.project']}`,
     `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
   ])
   await expect(menu.getByRole('separator')).toHaveCount(1)
@@ -267,10 +270,11 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
     await choose('activity', id)
     await expect(list).toContainText('Weekly notes')
   }
-  // Group by
-  await choose('group', 'project')
-  // newest first: the chat without a project was made last
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.noProject'], 'Launch'])
+  // Group by: by project by default (docs/DECISIONS.md "Trina history by project"), the chats in no project last even
+  // though the one without a project was made last; by date one choice away
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
+  await choose('group', 'date')
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
   await choose('group', 'none')
   await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
   // Sort by
@@ -288,9 +292,9 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
-  // PROTOTYPE (desktop sidebar): back to the five latest, without date groups; "모두 보기" shows them by date
-  await expect(side.getByTestId('ai-chats-latest')).toBeVisible()
-  await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
+  // back to the short list beside the rooms, by project (docs/DECISIONS.md "Trina history by project"): no date groups
+  await expect(side.getByTestId('history-groups')).toBeVisible()
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {

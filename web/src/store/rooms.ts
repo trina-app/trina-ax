@@ -11,27 +11,19 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type ShareRoomMessageBody, type ShareRoomMessageResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { noteRecent } from '../lib/emoji'
-import { mentionsMe, newestSeq, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
+import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
 import { navigateTo } from '../lib/nav'
 import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
-import { mergeOpenRequests, useChats } from './chats'
 import { useSession } from './session'
 import { useSideChats } from './sideChats'
 import { toast, useUi } from './ui'
 
-export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' | 'room.ai' | 'room.ai.run' | 'room.ai.step' | 'queue.position' }>
-
-/** The AI in a room (docs/DECISIONS.md "대화방의 트리나"): how many questions it answers there now (anyone's), and my own
- * questions: working ones with their steps, and ones that stopped or failed until I close them. A finished answer is a
- * room message, so its run goes. Someone else's question whose answer stayed theirs only says so itself
- * (RoomMessage.answeredPrivately). */
-export interface RoomAi { answering: number; runs: RoomAiRun[] }
-const NO_AI: RoomAi = { answering: 0, runs: [] }
+export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' }>
 
 export const ROOM_PAGE = 50
 
@@ -302,19 +294,6 @@ export function withoutRoom(d: RoomsData, roomId: string): RoomsData {
   return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadViews, ...(d.kept?.[roomId] ? { kept: omit(d.kept, roomId) } : {}) }
 }
 
-/** One of my runs changed: a done one goes (its answer is a message now), the others stay in their place. */
-export function withAiRun(ai: Record<string, RoomAi>, roomId: string, run: RoomAiRun): Record<string, RoomAi> {
-  const cur = ai[roomId] ?? NO_AI
-  const runs = run.state === 'done' ? cur.runs.filter((r) => r.turnId !== run.turnId) : withRun(cur.runs, run)
-  return { ...ai, [roomId]: { ...cur, runs } }
-}
-
-/** The AI's count in a room. */
-export function withAiCount(ai: Record<string, RoomAi>, roomId: string, answering: number): Record<string, RoomAi> {
-  const cur = ai[roomId] ?? NO_AI
-  return { ...ai, [roomId]: { ...cur, answering } }
-}
-
 /** The read position the server answered: my badge for the room follows it. */
 export function withReadState(d: RoomsData, roomId: string, s: { lastReadSeq: number; unreadCount: number; mentioned?: boolean }): RoomsData {
   // "mentioned" also covers a followed thread's reply, which reading the room does not read: the server says (an older
@@ -345,11 +324,10 @@ interface RoomsState extends RoomsData {
   members: Record<string, RoomMember[]>
   /** per room: its timeline's sends and its threads' (PendingSend.threadRootId) */
   pending: Record<string, PendingSend[]>
-  /** a send the server refused (the AI still busy with my question, a used-up budget, …): back in its message box (by
+  /** a send the server refused (a used-up budget, a team file I can no longer open, …): back in its message box (by
    * placeKey: the room's, or a thread's) with the reason as a toast, not a failed bubble to retry
    * (components/rooms/RoomComposer.tsx takes it) */
   returned: Record<string, PendingSend>
-  ai: Record<string, RoomAi>
   /** what the room page shows on its right besides a thread (which is in the address): 'trina', its Trina side chat
    * (components/rooms/SideChatPanel.tsx); none: nothing, or the thread. Gone when the page leaves the room. */
   side: Record<string, 'trina'>
@@ -409,16 +387,8 @@ interface RoomsState extends RoomsData {
    * conversations"): mine only; my other windows hear it (room.updated) */
   setPinned: (roomId: string, pinned: boolean) => Promise<void>
   removeMember: (roomId: string, userId: string) => Promise<void>
-  /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
-  loadAi: (roomId: string) => Promise<void>
-  stopAi: (roomId: string, turnId: string) => Promise<void>
-  /** close a run of mine that stopped or failed */
-  dismissAi: (roomId: string, turnId: string) => void
   /** the message box took back a refused send (by placeKey) */
   takeReturned: (key: string) => void
-  /** post my private preview of an AI answer to the room (shared/src/api/rooms.ts shareRoomMessage): "confirm" first when
-   * it used material some member cannot see (with `ask`: always); sent again with that `confirmKey`, it posts */
-  shareAi: (roomId: string, messageId: string, body?: ShareRoomMessageBody) => Promise<ShareRoomMessageResult>
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
@@ -431,7 +401,7 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'kept' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'ai' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, kept: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, ai: {}, side: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'kept' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, kept: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, side: {} }
 
 /** what was typed in a room (or one of its threads: placeKey) and not sent yet (components/rooms/RoomComposer.tsx); kept
  * on this device too (keepRoomDraft), like the AI chat's drafts; gone at sign-out with the rest */
@@ -725,24 +695,6 @@ export function settledPending(s: Pick<RoomsData, 'timeline' | 'threadViews'> & 
   return pending
 }
 
-/** The runs of my questions that ended and whose line I closed (EndedRun's X), in this browser, per person: the server
- * lists a failed one for a day (rooms/ai.ts state), and a reload must not bring a closed line back. The last 200. */
-const CLOSED_RUNS_MAX = 200
-const closedKey = (userId: string) => `mycel.roomAiClosed:${userId}`
-export function closedRuns(userId: string | null): Set<string> {
-  if (!userId) return new Set()
-  try {
-    const v = JSON.parse(localStorage.getItem(closedKey(userId)) ?? '[]') as unknown
-    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-  } catch { return new Set() }
-}
-function closeRun(userId: string | null, turnId: string) {
-  if (!userId) return
-  try {
-    const list = [...closedRuns(userId)].filter((x) => x !== turnId)
-    localStorage.setItem(closedKey(userId), JSON.stringify([...list, turnId].slice(-CLOSED_RUNS_MAX)))
-  } catch { /* storage full or blocked: closed for this page only */ }
-}
 
 export const useRooms = create<RoomsState>((set, get) => {
   // (the first change to a room's sends in this page starts from the ones this device kept: withKeptUnsent)
@@ -840,7 +792,6 @@ export const useRooms = create<RoomsState>((set, get) => {
         keepUnsent(roomId, get().pending[roomId])
       })
       void get().loadMembers(roomId)
-      void get().loadAi(roomId)
     },
 
     close(roomId, place = null) {
@@ -1220,57 +1171,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       set((s) => (s.members[roomId] ? { members: { ...s.members, [roomId]: s.members[roomId]!.filter((m) => m.user.id !== userId) } } : {}))
     },
 
-    async loadAi(roomId) {
-      // the cards of my questions here come along (the AI's question, a confirmation), as a chat's do with its thread
-      // (store/chats.ts loadThread): after a reload, in another browser or after a reconnect the events that opened
-      // them are not replayed, and the question would wait for an answer nobody can give
-      const before = new Set(Object.keys(useChats.getState().requests))
-      const who = myId()
-      const [r, open] = await Promise.all([
-        api.call(API.getRoomAi, { params: { id: roomId } }).catch(() => null),
-        // an older server without the list: the cards that come over the socket, as before
-        api.call(API.listRoomAiRequests, { params: { id: roomId } }).catch(() => null),
-      ])
-      // an older server without the AI in rooms: nothing shows; signed out meanwhile: nothing of it stays
-      if (!r || myId() !== who) return
-      // the questions of mine the list speaks for: the room's as this window knew them and as the server lists them
-      // (the window's own: a question that ended while the socket was away still has its run here, so its card, which
-      // the list no longer has, goes). The two reads run side by side: a turn that ended between them (the cards read
-      // with its card, the runs read without it) and that this window does not know is outside these, so its listed
-      // card is not merged (it would wait under no question) and a copy the socket brought is not dropped by this read;
-      // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
-      // closed before the merge stays out, mergeOpenRequests)
-      const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
-      // the server lists the working ones and my recent failed ones (one a restart cut while this window was away, QA
-      // TC-241), not one I closed in this browser
-      const closed = closedRuns(who)
-      const mine = r.mine.filter((x) => !closed.has(x.turnId))
-      set((s) => {
-        // runs that ended here (stopped, failed) stay until closed
-        const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...mine, ...ended.filter((x) => !mine.some((m) => m.turnId === x.turnId))] } } }
-      })
-      if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
-    },
-
-    async stopAi(roomId, turnId) {
-      await api.call(API.stopRoomAi, { params: { id: roomId, turnId } })
-    },
-
-    dismissAi(roomId, turnId) {
-      // closed here stays closed after a reload (the server lists a failed run for a day)
-      closeRun(myId(), turnId)
-      set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
-    },
-
     takeReturned(key) {
       set((s) => ({ returned: omit(s.returned, key) }))
-    },
-
-    async shareAi(roomId, messageId, body = {}) {
-      const r = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId }, body })
-      if (r.status === 'sent') patchMessages((s) => withMessage(s, roomId, r.message, myId()))
-      return r
     },
 
     async shareAnswer(chatId, messageId, body) {
@@ -1301,31 +1203,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       const threads = Object.values(get().threadViews).map((tv) => get().loadThread(tv.roomId, tv.rootId))
       if (open) {
         asked.delete(open)
-        await Promise.all([get().loadNewest(open), get().loadAi(open), ...members, ...threads])
+        await Promise.all([get().loadNewest(open), ...members, ...threads])
       } else await Promise.all([...members, ...threads])
     },
 
     handleEvent(ev) {
       switch (ev.type) {
-        case 'room.ai':
-          set((s) => ({ ai: withAiCount(s.ai, ev.data.roomId, ev.data.answering) }))
-          return
-        case 'room.ai.run':
-          set((s) => ({ ai: withAiRun(s.ai, ev.data.roomId, ev.data.run) }))
-          return
-        case 'room.ai.step': {
-          const cur = get().ai[ev.data.roomId]
-          if (cur?.runs.some((r) => r.turnId === ev.data.turnId)) set((s) => ({ ai: { ...s.ai, [ev.data.roomId]: { ...cur, runs: withRunStep(cur.runs, ev.data.turnId, ev.data.step) } } }))
-          return
-        }
-        case 'queue.position': {
-          // the queue of every answer of mine: only my questions in rooms are kept here
-          const { turnId, position } = ev.data
-          for (const [roomId, cur] of Object.entries(get().ai)) {
-            if (cur.runs.some((r) => r.turnId === turnId)) set((s) => ({ ai: { ...s.ai, [roomId]: { ...cur, runs: withRunPosition(cur.runs, turnId, position) } } }))
-          }
-          return
-        }
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)

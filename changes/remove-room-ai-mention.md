@@ -1,0 +1,1 @@
+- **Rooms**: the old "@트리나" in a room (off since 2026-11-09) is gone from the code. Ask Trina in the ✦ side chat beside a room and send the answer with "Send to room". AI answers already posted in rooms stay as they are; old answers that were never posted are no longer shown.

@@ -56,6 +56,9 @@ export const TeamLink = z.object({
    * or a managed engine answers them), `connect_own` (each person signs in to their own AI: the invite message says
    * "본인 AI 계정이 필요해요"), `ask_owner` (nothing answers them yet). Absent from an older server */
   memberAi: z.enum(['ready', 'connect_own', 'ask_owner']).optional(),
+  /** an admin chose this link's groups after making it (PATCH `groupIds`): the welcome steps no longer add the team's
+   * group to it. Absent from an older server */
+  groupsChosen: z.boolean().optional(),
 })
 export type TeamLink = z.infer<typeof TeamLink>
 
@@ -78,14 +81,18 @@ export const CreateTeamLinkBody = z.object({
 })
 export type CreateTeamLinkBody = z.input<typeof CreateTeamLinkBody>
 
-/** Change what the open link leads to, keeping its address: its skill, and groups added to it (never removed: people
- * who joined keep theirs). The welcome steps' invite uses it when a link is already out. */
+/** Change what the open link leads to, keeping its address, uses and expiry: its skill, and its groups (`groupIds`
+ * replaces them, Admin › Members; `addGroupIds` adds, the welcome steps' invite). Only people who join after the change
+ * get the new groups: people who joined keep theirs. */
 export const UpdateTeamLinkBody = z.object({
   skillPath: z.string().min(1).max(1024).nullable().optional(),
   /** ignored: the starter is gone (docs/DECISIONS.md "DS3"); still accepted so a tab opened on an older app, which sends
    * `starter: null`, gets no 400. Remove in the release after the next one */
   starter: z.unknown().optional(),
   addGroupIds: z.array(Uuid7).max(100).optional(),
+  /** the groups everyone who joins from now on gets (replaces the link's groups; [] = no groups). Refused while the
+   * link has expired or stopped */
+  groupIds: z.array(Uuid7).max(100).optional(),
 }).strict()
 export type UpdateTeamLinkBody = z.input<typeof UpdateTeamLinkBody>
 
@@ -124,7 +131,7 @@ export type JoinTeamLinkResponse = z.infer<typeof JoinTeamLinkResponse>
 export const TEAM_LINKS = {
   getTeamLink: endpoint({ method: 'GET', path: '/api/admin/team-link', auth: 'admin', owner: 'A', response: TeamLinkResponse, summary: 'The open team invite link (address to copy again, uses, expiry, state) and the seats.' }),
   createTeamLink: endpoint({ method: 'POST', path: '/api/admin/team-link', auth: 'admin', owner: 'A', status: 201, body: CreateTeamLinkBody, response: TeamLinkResponse, summary: 'Make the team invite link (members only); the open one before it stops working.' }),
-  updateTeamLink: endpoint({ method: 'PATCH', path: '/api/admin/team-link', auth: 'admin', owner: 'A', body: UpdateTeamLinkBody, response: TeamLinkResponse, summary: 'Change the open team link\'s skill, or add groups to it; its address stays the same.' }),
+  updateTeamLink: endpoint({ method: 'PATCH', path: '/api/admin/team-link', auth: 'admin', owner: 'A', body: UpdateTeamLinkBody, response: TeamLinkResponse, summary: 'Change the open team link\'s skill or groups (for people who join from now on); its address stays the same.' }),
   revokeTeamLink: endpoint({ method: 'DELETE', path: '/api/admin/team-link', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Turn the team invite link off; its address never works again (a new link has a new token).' }),
   teamLinkInfo: endpoint({ method: 'POST', path: '/api/team-link/info', auth: 'public', owner: 'A', body: TeamLinkInfoBody, response: TeamLinkInfo, summary: 'What a team invite link is for (team, still valid or why not). The token comes in the body, never in the path.' }),
   joinTeamLink: endpoint({ method: 'POST', path: '/api/team-link/join', auth: 'public', owner: 'A', status: 201, body: JoinTeamLinkBody, response: JoinTeamLinkResponse, summary: 'Create a member account with the team invite link and sign in (rate-limited per link; the owners are told).' }),

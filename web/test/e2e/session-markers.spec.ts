@@ -102,7 +102,39 @@ test('"?" for a card and for a failed answer; the filter shows them and the runn
   await expect(rowOf(page, asked).getByTestId('marker-ask')).toBeVisible()
 })
 
-test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and a waiting AI once each, not plain team unread', async ({ page }) => {
+test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the chat waiting for me (not "answering"), the dot for a new answer (QA TC-419)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const done = await startAndLeave(page, 'slow hello there slow slow')
+  await page.goto('/')
+  await page.getByTestId('composer-input').fill('please ask me something')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('ask-card')).toBeVisible()
+  const asked = idOf(page)
+  await page.getByTestId('new-chat').click()
+  await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
+  const sideAsk = rowOf(page, asked).getByTestId('marker-ask')
+  await expect(sideAsk).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+k')
+  const attention = page.getByTestId('search-palette').getByTestId('search-section-attention')
+  const row = (id: string) => attention.locator(`[data-key="chat:${id}"]`)
+  // the same mark, and the sidebar's own words for it (its label)
+  await expect(row(asked).getByTestId('search-row-marker')).toHaveAttribute('data-marker', 'ask')
+  await expect(row(asked).getByTestId('search-marker-reason')).toHaveText((await sideAsk.getAttribute('aria-label'))!)
+  await expect(row(asked)).not.toContainText('답하는 중')
+  await expect(row(done).getByTestId('search-row-marker')).toHaveAttribute('data-marker', 'new')
+  await expect(row(done).getByTestId('search-marker-reason')).toHaveText((await rowOf(page, done).getByTestId('marker-new').getAttribute('aria-label'))!)
+  // "?" before a new answer; opening the chat from here clears its dot in both places
+  await expect(attention.locator('[data-key^="chat:"]').first()).toHaveAttribute('data-key', `chat:${asked}`)
+  await row(done).click()
+  await expect(page).toHaveURL(new RegExp(`/c/${done}$`))
+  await expect(rowOf(page, done).getByTestId('chat-marker')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(row(asked)).toBeVisible()
+  await expect(row(done)).toHaveCount(0)
+})
+
+test('rooms: "@" over the count; the one count holds DMs and mentions once each, not plain team unread', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const now = new Date().toISOString()
@@ -112,7 +144,7 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   const rooms = [
     { ...base, id: uuidv7(), kind: 'dm', name: null, groupId: null, peers: [peer], unreadCount: 3 },
     { ...base, id: uuidv7(), kind: 'team', name: '마케팅팀', groupId: uuidv7(), peers: [peer], unreadCount: 12 },
-    { ...base, id: uuidv7(), kind: 'team', name: '영업팀', groupId: uuidv7(), peers: [peer], unreadCount: 2, mentioned: true, aiWaits: true },
+    { ...base, id: uuidv7(), kind: 'team', name: '영업팀', groupId: uuidv7(), peers: [peer], unreadCount: 2, mentioned: true },
     { ...base, id: uuidv7(), kind: 'all', name: null, groupId: null, peers: [peer], unreadCount: 1, mentioned: true },
   ]
   expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
@@ -120,22 +152,17 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   const badge = (name: string) => list.getByTestId('sidebar-room').filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
   await expect(badge('마케팅팀')).toHaveText(/^12/)
-  await expect(badge('영업팀')).toHaveAttribute('data-ai-waits', '')
-  await expect(badge('영업팀')).toContainText('?')
-  await expect(badge('영업팀')).not.toContainText('@')
+  await expect(badge('영업팀')).toContainText('@')
   await expect(badge('전체')).toContainText('@')
-  // the one count: the DM, the waiting AI, the mention (each room once); the team room's 12 only make it bold
+  // the one count: the DM and the two mentions (each room once); the team room's 12 only make it bold
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
-  // the phone: 영업팀's @트리나 waits on me, so the 대화 tab's pill is an amber "?" (its own count, every unread message of
-  // rooms not muted, 18, is said with it and comes back when the wait ends); the ☰ dot is for the AI chats in the drawer
-  // only, and none wants me
+  // the phone: the 대화 tab's pill counts every unread message of rooms not muted (18); the ☰ dot is for the AI chats in
+  // the drawer only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(page.getByTestId('tab-chats-unread')).toHaveAttribute('data-ai-waits', '')
-  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('?')
-  await expect(page.getByTestId('tab-chats-unread')).toContainText('18')
+  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('18')
   await expect(page.getByTestId('menu-open')).toBeVisible()
   await expect(page.getByTestId('menu-dot')).toHaveCount(0)
 })

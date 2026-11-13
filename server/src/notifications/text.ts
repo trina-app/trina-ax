@@ -44,6 +44,13 @@ export const TEXT = {
     en: 'Your password was entered wrong several times. Check it in the app.',
     id: 'Kata sandi Anda beberapa kali salah dimasukkan. Periksa di aplikasi.', ja: "パスワードの確認で何度も間違いがありました。アプリで確認してください。", es: "Su contraseña se introdujo mal varias veces. Revíselo en la aplicación.",
   },
+  // an answer in my own AI chat finished, failed or waits for me: one line for all three, never the chat's title or the
+  // answer's text (the push gateway has the same words: push-gateway/src/text.ts)
+  'chat.answer_done': {
+    ko: '트리나가 대화에 답했어요.',
+    en: 'Trina replied in your chat.',
+    id: 'Trina membalas di obrolan Anda.', ja: 'トリナがチャットで返信しました。', es: 'Trina respondió en su chat.',
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído' }
@@ -86,5 +93,6 @@ export function pushMessages(locale: Locale) {
     'room.mention': TEXT['room.mention'][locale],
     'owner.lead_joined': TEXT['owner.lead_joined'][locale],
     'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
+    'chat.answer_done': TEXT['chat.answer_done'][locale],
   }, markRead: MARK_READ[locale] }
 }

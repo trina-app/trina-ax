@@ -1,0 +1,1 @@
+- Settings › Security & devices: after you change your password, the list of signed-in devices shows only this device at once (the other devices were already signed out). Signing out a device that is already gone just removes its row instead of showing "Not found or no access."

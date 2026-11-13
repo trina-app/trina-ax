@@ -3,7 +3,7 @@
 // button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
 // around the box: components/FileDropZone.tsx; each is uploaded at once with POST /api/rooms/:id/files and sent by id;
 // a picture shows as itself at once, a 64 px square, while it uploads), and "@"
-// for the room's members: a picked name (or "@트리나") stands out in the
+// for the room's members: a picked name stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
 // send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
@@ -127,10 +127,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
-  // "@트리나" in the "@" list only while the server still takes it (Me.server.roomAiMentions; off by default: the
-  // side chat, ✦ in the room's header, asks the AI beside the room)
-  const aiMentions = !!me?.server?.roomAiMentions
-  const mention = useMentionMenu({ text, setText, input, members, meId, ai: aiMentions, initial: roomDraftMentions.get(key), everyone })
+  const mention = useMentionMenu({ text, setText, input, members, meId, initial: roomDraftMentions.get(key), everyone })
   const [asking, setAsking] = useState(false)
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
@@ -196,7 +193,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t(aiMentions ? 'rooms.placeholderEmpty' : 'rooms.placeholderEmptySide') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
@@ -400,7 +397,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:pr-3 max-md:pl-2">
               <div className="flex h-composer-line shrink-0 items-center">
                 {phone ? (
-                  <AttachSheet onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+                  <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
                 ) : (
                   <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
                     <Paperclip size={18} />

@@ -37,10 +37,9 @@ describe('asked for an existing file', () => {
     expect(r.length).toBeLessThanOrEqual(420)
   })
 
-  test('in every chat that keeps the tool rules: an own chat, a room, a shared project chat, a confidential chat', () => {
+  test('in every chat that keeps the tool rules: an own chat, a shared project chat, a confidential chat', () => {
     expect(buildTurnPrompt(h.ctx.files, input())).toContain(FIND_FILE_RULE)
     expect(buildTurnPrompt(h.ctx.files, input({ locale: 'en', tools: [] }))).toContain(FIND_FILE_RULE)
-    expect(buildTurnPrompt(h.ctx.files, input({ room: { name: 'Sales', kind: 'team', members: 4, asker: 'Alice Kim' }, roomReadable: () => true }))).toContain(FIND_FILE_RULE)
     expect(buildTurnPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true }))).toContain(FIND_FILE_RULE)
     expect(buildTurnPrompt(h.ctx.files, input({ confidential: 'server', tools: [] }))).toContain(FIND_FILE_RULE)
   })

@@ -27,6 +27,7 @@ import { ONBOARDING } from './onboarding'
 import { TEAM_LINKS } from './team-links'
 import { WELCOME } from './onboarding-welcome'
 import { ONBOARDING_FILES } from './onboarding-files'
+import { FILES_ORGANIZE } from './files-organize'
 import { ONBOARDING_GOAL } from './onboarding-goal'
 import { DEMO } from './demo'
 import { PEOPLE } from './people'
@@ -41,13 +42,14 @@ import { HANDOVER } from './handover'
 import { FILE_LIST } from './file-list'
 import { MEMBER_WELCOME } from './member-welcome'
 import { SERVICE_REQUESTS } from './service-requests'
+import { NAV_FOLDERS } from './nav-folders'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...GOOGLE_APPS, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER, ...FILE_LIST, ...MEMBER_WELCOME, ...SERVICE_REQUESTS } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...GOOGLE_APPS, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...FILES_ORGANIZE, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER, ...FILE_LIST, ...MEMBER_WELCOME, ...SERVICE_REQUESTS, ...NAV_FOLDERS } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, GOOGLE_APPS, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER, FILE_LIST, MEMBER_WELCOME, SERVICE_REQUESTS } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, GOOGLE_APPS, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, FILES_ORGANIZE, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER, FILE_LIST, MEMBER_WELCOME, SERVICE_REQUESTS, NAV_FOLDERS } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -74,6 +76,7 @@ export * from './handover'
 export * from './file-list'
 export * from './member-welcome'
 export * from './service-requests'
+export * from './nav-folders'
 export * from './credentials'
 export * from './drive'
 export * from './google-apps'
@@ -92,6 +95,7 @@ export * from './onboarding-skill'
 export * from './team-links'
 export * from './onboarding-welcome'
 export * from './onboarding-files'
+export * from './files-organize'
 export * from './onboarding-goal'
 export * from './demo'
 export * from './people'

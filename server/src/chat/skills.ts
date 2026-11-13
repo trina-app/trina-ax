@@ -145,8 +145,8 @@ export function mayNotUse(db: Database, rules: RuleSet, people: readonly (Princi
   return people.filter((p) => !p || !atLeast(rules.access(p, segs), 'read') || (group !== undefined && (!group || !p.groups.includes(group.id)))).map((p) => p?.id ?? '')
 }
 
-/** May every one of `people` use this team path (mayNotUse is empty)? Kept per path for the caller's life: a room's
- * members (rooms/ai.ts) and the people who see a shared project chat (chat/turn.ts) both go by it. */
+/** May every one of `people` use this team path (mayNotUse is empty)? Kept per path for the caller's life: the people
+ * who see a shared project chat (chat/turn.ts) go by it. */
 export function everyoneMayUse(db: Database, rules: RuleSet, people: readonly (Principal | null)[]): (rel: string) => boolean {
   const seen = new Map<string, boolean>()
   return (rel) => {
@@ -391,8 +391,12 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
   // a project's skills are SKILL.md folders only (a README there is just a file)
   if (rootOf(rel.split('/'))?.project) return isSkillManifest(rel) && parseSkill(text, rel) ? 'skill' : 'other'
   if (parseSkill(text, rel)) return 'skill'
-  // team rules are skills/*.md only (prompt.ts teamRules): a file without a header in a group's skills is just a file
-  return isSkillManifest(rel) || hasFrontmatter(text) || isGroupSkill(rel) ? 'other' : 'rule'
+  // team rules are skills/*.md only (prompt.ts teamRules, skillEntriesOnDisk depth 1): a file without a header deeper in
+  // skills/ (a skill's extra file, even one saved before its SKILL.md, or a note in a folder), in a group's skills or in
+  // a personal skills folder is just a file
+  const parts = rel.split('/')
+  const topLevel = parts.length === 2 && parts[0] === SKILLS_DIR
+  return !topLevel || isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
 }
 
 /** Why `text` does not load at `rel` (R2-SKILL-03), for a save: the confirmation card and the AI's write result. null

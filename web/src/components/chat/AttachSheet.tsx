@@ -19,6 +19,7 @@
 import { Camera, FileText, FolderOpen, Images, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocale, useT } from '../../i18n'
+import { holdHistory } from '../../lib/backCloses'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
 import { appPicksPhotos, PHOTO_PICK_LIMITS, pickPhotosFromApp } from '../../lib/mobile'
@@ -31,6 +32,10 @@ export const iosWebKit = () =>
 
 /** What the 파일 row's input takes: on iOS any data file, so the Files browser opens without iOS's menu; elsewhere any. */
 export const filesAccept = () => (iosWebKit() ? 'application/octet-stream' : undefined)
+
+/** How long the history stays held for a pick's bytes once the picker answered (AttachSheet): 15 s, and 1 s more per
+ * MiB (a full 200 MiB pick: the 120 s cap). */
+export const bytesHoldMs = (bytes: number) => Math.min(120_000, 15_000 + Math.ceil(bytes / (1024 * 1024)) * 1000)
 
 export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, icon, testId, filesTestId = 'attach-files-input', buttonClassName }: {
   /** files picked from the phone (pictures, a photo just taken, files) */
@@ -62,14 +67,20 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
     if (picked.length) onFiles(picked)
   }
   // the phone app's photo picker: the bytes come over the bridge (a few seconds for a video), the button turns into a
-  // spinner meanwhile; they go to the box as it is then, and are dropped when the box went away
+  // spinner meanwhile; they go to the box as it is then, and are dropped when the box went away (each box keys its
+  // sheet by what it writes to, so another room's or chat's box is another sheet)
   const [fetching, setFetching] = useState(false)
   const alive = useRef(true)
   const latest = useRef(onFiles)
   latest.current = onFiles
+  // the history stays where it is while the pick is on (lib/backCloses.ts holdHistory): the sheet's own back-off waits
+  const letGo = useRef<(() => void) | null>(null)
   useEffect(() => {
     alive.current = true
-    return () => { alive.current = false }
+    return () => {
+      alive.current = false
+      letGo.current?.()
+    }
   }, [])
   // bytes on their way: an update waits before it reloads the page, as for an upload
   useEffect(() => (fetching ? markBusy('upload') : undefined), [fetching])
@@ -77,7 +88,17 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
     if (!appPicksPhotos()) return photos.current?.click()
     if (fetching) return
     setFetching(true)
-    pickPhotosFromApp(Math.min(Math.max(1, room ?? PHOTO_PICK_LIMITS.files), PHOTO_PICK_LIMITS.files))
+    // the sheet closes as the picker opens: its back-off (a step of the history within this page) waits until the bytes
+    // are in, so nothing the phone app could take for a new page happens meanwhile (QA TC-251: on Android it dropped
+    // the pick)
+    // Held while the picker is up (the page is under it), then for the bytes at most bytesHoldMs, so a stuck transfer
+    // never keeps Back's history waiting for minutes
+    letGo.current?.()
+    const hold = holdHistory()
+    let cap: ReturnType<typeof setTimeout> | null = null
+    const release = () => { if (cap) clearTimeout(cap); cap = null; hold() }
+    letGo.current = release
+    pickPhotosFromApp(Math.min(Math.max(1, room ?? PHOTO_PICK_LIMITS.files), PHOTO_PICK_LIMITS.files), (bytes) => { cap = setTimeout(release, bytesHoldMs(bytes)) })
       .then(({ files: picked, tooBig }) => {
         if (!alive.current) return
         // one line for all left out: a file over 50 MB, or past 200 MB in one pick. A box that takes bigger files offers
@@ -87,11 +108,17 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
         else if (tooBig.length) toast({ level: 'warn', text: t('composer.photosTooBig', { names, max: formatSize(PHOTO_PICK_LIMITS.file, locale), total: formatSize(PHOTO_PICK_LIMITS.pick, locale) }) })
         if (picked.length) latest.current(picked)
       }, (e: unknown) => {
-        // cancelled is no error; a page that moved on says nothing either
-        if (!alive.current || (e instanceof DOMException && e.name === 'AbortError')) return
+        // a box that went away (another page, another room) says nothing. Cancelled in the picker is no error either:
+        // that is an empty pick, not a failure. A pick the page gave up on while the box is still here (the app put
+        // its bridge in again, a session reset) did fail: the person picked and nothing came, so it says so
+        if (!alive.current) return
         toast({ level: 'warn', text: t(e instanceof Error && e.message === 'photo_denied' ? 'composer.photosDenied' : 'composer.photosFailed') })
       })
-      .finally(() => { if (alive.current) setFetching(false) })
+      .finally(() => {
+        release()
+        if (letGo.current === release) letGo.current = null
+        if (alive.current) setFetching(false)
+      })
   }
   const items: MenuItem[] = [
     ...(computer

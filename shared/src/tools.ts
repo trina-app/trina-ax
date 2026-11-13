@@ -270,30 +270,6 @@ export const RoomFileInput = z.strictObject({
   as_images: roomAsImages,
 })
 
-/** room_file in a room's own AI session (rooms/ai.ts): a file of this room, nothing else */
-export const RoomFileHereInput = z.strictObject({
-  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>), or its exact name.'),
-  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
-  pages: roomPages,
-  as_images: roomAsImages,
-})
-/** room_thread in a room's own AI session (rooms/ai.ts): one whole thread of this room, nothing else */
-export const RoomThreadHereInput = z.strictObject({
-  thread: z.string().min(1).max(100).describe('The id of the thread\'s first message: id="…" of a message in <room_context> that has thread_replies, or thread_reply_of="…" of a reply (in a thread: thread_id).'),
-  before: z.string().min(1).max(100).optional().describe('To read further back in a long thread: the reply id an earlier result named ("before=…").'),
-})
-/** project_chats in a room's own AI session (rooms/ai.ts, chat/room-project-chats.ts): the shared project chats the asker
- * may view, or those that match */
-export const ProjectChatsInput = z.strictObject({
-  query: z.string().min(1).max(200).optional().describe('Words to look for in a chat\'s title, its project\'s name and its messages (all of them, any case). Without query and project the chats are listed, the latest activity first.'),
-  project: z.string().min(1).max(200).optional().describe('Only the chats of the project whose name is this or contains it (e.g. "견적").'),
-  limit: z.number().int().min(1).max(50).optional().describe('At most this many chats (default 20).'),
-  include_all: z.boolean().optional().describe('Also look in the projects that some people in this room cannot see (default: only the projects everyone here can see). Your answer then stays private to the user when someone here cannot see one of them.'),
-})
-/** project_chat: one shared project chat's messages, its current branch (a room's own AI session) */
-export const ProjectChatInput = z.strictObject({
-  chat: z.string().min(1).max(100).describe('The chat\'s id: chat_id="…" of a result of project_chats.'),
-})
 const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
 /** save_room_file in a person's own chat: a copy of a file sent in one of their rooms put into the team folder */
 export const SaveRoomFileInput = z.strictObject({
@@ -321,12 +297,6 @@ export const ChangeProjectMembersInput = z.strictObject({
   add: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to add.'),
   remove: z.array(ProjectMemberRef).max(20).default([]).describe('People and groups to take out.'),
 }).refine((x) => x.add.length + x.remove.length > 0, { message: 'name at least one person or group to add or remove', path: ['add'] })
-/** save_room_file in a room's own AI session (rooms/ai.ts): a copy of a file sent in this room */
-export const SaveRoomFileHereInput = z.strictObject({
-  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
-  save_as: saveAs,
-})
-
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -367,9 +337,6 @@ export const OTHER_TOOLS = {
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
-  room_thread: { input: RoomThreadHereInput, output: TextOutput },
-  project_chats: { input: ProjectChatsInput, output: TextOutput },
-  project_chat: { input: ProjectChatInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

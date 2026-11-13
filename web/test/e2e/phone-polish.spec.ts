@@ -97,9 +97,9 @@ test('an empty DM: the box\'s line fits on one line; the side chat has no "Open 
   await routeRoom(page, { members: [{ id: 'ben', name: '벤' }], kind: 'dm' })
   await page.goto(`/rooms/${ROOM_ID}`)
   const box = page.getByTestId('room-input')
-  await expect(box).toHaveAttribute('placeholder', t['rooms.placeholderEmpty'])
-  // both lines of the empty box, in every language, fit the box's text width at 390 px (measured in its own font)
-  const lines = Object.entries(DICTS).flatMap(([loc, d]) => [`${loc}: ${d['rooms.placeholderEmpty']}`, `${loc}: ${d['rooms.placeholderEmptySide']}`])
+  await expect(box).toHaveAttribute('placeholder', t['rooms.placeholderEmptySide'])
+  // the empty box's line, in every language, fits the box's text width at 390 px (measured in its own font)
+  const lines = Object.entries(DICTS).map(([loc, d]) => `${loc}: ${d['rooms.placeholderEmptySide']}`)
   const over = await box.evaluate((el, all) => {
     const cs = getComputedStyle(el)
     const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)

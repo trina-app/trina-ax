@@ -2,22 +2,32 @@
 
 People ask the team's AI from Slack: `@trina-ax` in a channel, or a direct message to the app. Each question runs a
 normal chat as the person who asked, with their own permissions, engine, budget and usage, and the full answer is also
-in that chat in the app. It is off until the team's owner sets it up; it works on hosted and self-hosted servers alike,
+in that chat in the app. It is off until the team's owner or an admin sets it up; it works on hosted and self-hosted servers alike,
 also on an office Mac without a public address (Socket Mode: the server connects out to Slack).
 
-Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터" and "Slack through the official Trina AX app".
+Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터", "Slack through the official Trina AX app" and "Admins manage
+Slack too".
 
-There are two ways to have the Slack app. Where the hosting service serves the server, the owner adds **the official
-app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app** from our
-manifest (the four steps).
+There are two ways to have the Slack app. Where the hosting service serves the server, the owner or an admin adds
+**the official app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app**
+from our manifest (the four steps).
+
+**Who.** The owner and admins see Slack in Admin › Connected apps, its state and how many people linked, and can add the
+official app, Reconnect it, turn Slack off and on, and remove the official app. Only the owner saves, replaces or
+removes the team's own app's tokens: the server refuses an admin there (`PUT /api/admin/slack/tokens` is owner-only;
+`DELETE /api/admin/slack` with the own app saved answers 403 `owner_only`), and the page shows an admin one line
+instead of the four steps and "Replace tokens". No answer ever carries a token, to anyone. Members have no Admin; each
+links their own Slack in Settings › Connectors. Every change is in the audit log with who made it.
 
 ## The official app ("Add to Slack")
 
-Admin › Slack shows **Add to Slack** when the hosting service serves this server (a hosted team, or a self-installed
-server the hosting service registered, the same rule as Google sign-in through it) and no own app is saved. Press it,
-choose your workspace in Slack and allow it: you come back to Admin › Slack, added and on. Nothing to copy; it works on
-a phone too. Then **invite the app** to the channels where people may ask it, `/invite @trina-ax`, as with an own app.
-*Use your own Slack app instead* opens the four steps.
+Slack's page in **Admin › Connected apps** (`/admin/connectors/slack`, the owner's and admins': Slack is one row of that list,
+not an Admin menu item of its own; the old `/admin/slack` leads there) shows **Add to Slack** when the hosting service
+serves this server (a hosted team, or a self-installed server the hosting service registered, the same rule as Google
+sign-in through it) and no own app is saved. Press it, choose your workspace in Slack and allow it: you come back to
+Admin › Connected apps › Slack, added and on. Nothing to copy; it works on a phone too. Then **invite the app** to the
+channels where people may ask it, `/invite @trina-ax`, as with an own app. *Use your own Slack app instead* opens the
+four steps.
 
 - **How it works.** The hosting service holds the one public Slack app "Trina AX": its client secret, and its
   app-level token with the one Socket Mode connection. That token is app-wide (it gets every workspace's events), so
@@ -29,13 +39,13 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
   kept sealed like an own app's tokens; answers go to Slack from here directly.
 - **Before the token is kept**, Slack itself is asked whose it is (`auth.test`): it must be the bot of the workspace
   the hosting service named, with every scope. So the hosting service cannot give this server another workspace's bot.
-  When Slack cannot be reached for that check (a brief outage), the install is not removed: Admin › Slack says "Added
+  When Slack cannot be reached for that check (a brief outage), the install is not removed: Slack's page says "Added
   to Slack. It turns on by itself once Slack confirms it.", and the server fetches the token again and checks it
   shortly (for up to 30 minutes; after a restart, press Add to Slack again). Only a definite no removes it there.
 - **Only a Slack workspace admin or owner can add it.** The hosting service asks Slack who allowed it (`users.info`);
   anyone else gets "A Slack workspace admin has to add it." and the app is taken off the workspace again (unless the
   workspace is already added here).
-- **Only the owner who pressed it finishes it.** Slack sends the browser to the hosting service, which sends it back
+- **Only the owner or admin who pressed it finishes it** (still the owner or an admin when the browser comes back). Slack sends the browser to the hosting service, which sends it back
   only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (10
   minutes, time to sign in here first) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
   is asked to sign in first and then goes on. 10 minutes, used once, the newest only.
@@ -43,8 +53,9 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
   URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
   signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
-  removed it): the token is forgotten here and Admin › Slack says "The app was removed from Slack. Add it to Slack
-  again." People's links stay (the same workspace when it is added again). A token Slack refuses at a post means the
+  removed it): the token is forgotten here and Slack's page says "The app was removed from Slack. Add it to Slack
+  again." People's links stay (the same workspace when it is added again). **Remove Slack** beside Add to Slack takes
+  it out of Admin › Connected apps instead, with everyone's links. A token Slack refuses at a post means the
   same. A notice about an earlier install (still waiting at the hosting service when the app was added again) changes
   nothing: the server acts only on the notice of the install it holds.
 - **Remove** asks the hosting service to take the app off the workspace, then deletes the token and every person's
@@ -52,7 +63,7 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
   remove the install there). If Slack cannot be asked, the hosting service keeps the install as this team's (no other
   team gets the workspace while its token may still work) until it can end it: add it again, or remove the app in
   Slack.
-- **The hosting service down or not serving** this server any more: Admin › Slack says "can't reach the hosting
+- **The hosting service down or not serving** this server any more: Slack's page says "can't reach the hosting
   service" or "does not serve this server's Slack now"; polls back off (1 s … 60 s) and resume by themselves. Events
   Slack sent meanwhile wait at the hosting service (up to 30 minutes, while the server polled in the last 10).
 - **A restore on a new machine** (the sealed token no longer opens): the server asks the hosting service for it again.
@@ -68,7 +79,7 @@ a phone too. Then **invite the app** to the channels where people may ask it, `/
 
 ## Setting up the team's own app (the owner)
 
-Admin › Slack is a checklist of four steps; each step's title opens its page in Slack.
+Admin › Connected apps › Slack is a checklist of four steps; each step's title opens its page in Slack.
 
 1. **Create the app in Slack.** Slack opens "Create an app" with our manifest filled in. Choose your workspace and
    create it. It makes an **internal** app of your workspace only, with Socket Mode on, and with the team's https address
@@ -225,7 +236,8 @@ after 1, 2, 4 … seconds (at most a minute).
 the hosting service, `envelope.ts` the shapes, `manifest.ts`, `post-check.ts` what an answer used before it is posted,
 `service.ts`, `text.ts`), `server/src/routes/slack.ts`, migrations `server/migrations/335_c_slack.sql` and
 `345_c_slack_official.sql`, the wire contract with the hosting service `shared/src/cloud-protocol/slack-broker.ts` (MIT),
-contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx`, `web/src/pages/SlackLink.tsx`,
+contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx` (a page of Admin › Connected apps,
+`web/src/pages/admin/Integrations.tsx`), `web/src/pages/SlackLink.tsx`,
 `web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack-broker.test.ts` (the sealed-token vector
 shared with the control plane, signatures, the long poll) and `tests/unit/c-slack-official.test.ts` (the official app
 against the fake broker `tests/lib/fake-slack-broker.ts`), `tests/unit/c-slack.test.ts` with the fake Slack

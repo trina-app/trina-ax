@@ -11557,6 +11557,71 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Appearance leaves the account menu (2026-11-08, the owner's request).** The theme (system, light, dark) is chosen in
   Settings › Profile only, so there is one place for it and the menu is shorter (lean UI). The menu keeps 자리 비움으로
   표시, Settings, Usage, Deleted chats and Sign out. No API or data change; the stored `theme` preference is unchanged.
+## navRail: the new navigation behind one server switch (feat/nav-rail-flag, 2026-11-13, navigation redesign P0c)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `shared/src/api/auth.ts` `Me.server.navRail`, `web/src/lib/navRail.ts`,
+`web/src/lib/rail.ts`), 이유: the navigation is the web app's; the switch is the operator's (`server.json`), like
+`roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
+시작해서 끝까지 해줘"; committed here).
+
+- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
+  `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
+  for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
+  computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
+- The phases P1–P5 and P4b merge to `dev` behind it; today's sidebar, tabs and drawer stay what everyone sees and their
+  tests stay unchanged. P6 flips the default (absent = on; `false` a kill switch for one release); P7 removes the old
+  path and the switch. Releases are not held for this work.
+- **Every route has a rail place or none** (`lib/rail.ts` `railOf`): 트리나 for Home, `/new`, chats, projects, scheduled
+  tasks, team skills, deleted history, connector consent and the welcome steps; 대화 for rooms, threads and Activity's
+  멘션·스레드 (`?in=chats`); 파일; 활동; none for Admin, the Slack pages and an unknown address. Settings is a dialog: the
+  page under it decides. `web/test/unit/rail.test.ts` reads every route under `<Layout />` in `App.tsx` and fails on one
+  without a decision. Each place remembers its last page for the browser tab (sessionStorage, dropped on sign-out).
+  Started from the 11-13 draft, changed to the plan's four places (no 프로젝트 place: projects are in 트리나's list).
+- **QA:** the local QA team gets `"navRail": true` in its `server.json` and a restart, from P1 on. potenlab.trina.app gets it
+  only after P1, P2, P3 and P5 are on `dev` and passed QA. The mock has `POST /__test/nav-rail {on}` (off after every
+  reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
+- Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
+  `web/test/e2e/nav-rail-flag.spec.ts`.
+- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+
+## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
+
+넣을 곳: Team AX core (`web/src/components/rail/`, `web/src/components/panels/`, `Layout.tsx`), 이유: the app's own
+navigation. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.1 (approved by the owner 2026-11-13). Only while the
+server's `navRail` switch is on (previous entry); with it off nothing changes. Supersedes, on that path, the layout part
+of "Desktop sidebar: rooms first" and the team menu's place; keeps "Labeled rows, not icons" (every icon has its name
+under it) and W5 (the setup row is at the top of every list panel).
+
+- **The rail** (72 px, grows with the text size up to 88 px): the team's logo with its name small under it (owners and
+  admins: the team menu, Invite people and Admin, opening to the right; a member: the logo, not a button), then 트리나 ·
+  대화 · 파일 · 활동 (the phone's tab order), my photo at the bottom (status, away, Settings, Sign out; Usage is in
+  Settings and ⌘K, Deleted history at the end of 트리나's list, Admin only in the logo menu). A place opens what was open
+  in it last in this browser tab; the lit place opens its start. Tab goes logo → places → photo; arrows move too.
+- **One list panel** for 트리나 (트리나에게 묻기, 검색, setup row, today's history list with its caps, then 프로젝트 · 예약
+  작업 · 팀 스킬 · 삭제한 기록 as quiet rows) and 대화 (🔍 on the 대화 search type, ⊕ 새 대화, setup row, 멘션·스레드 with its
+  count, today's capped rooms list). `/rooms` beside it says "pick a conversation" and keeps only the hidden
+  conversations, so the list, the AI row and 새 대화 are not shown twice. 파일 and 활동 open today's pages at full width
+  (their panels are phase P3). Width:
+  `clamp(240px, min(16.75rem, 18.6vw), 300px)`: 268 px at 1440, 240 px at 1290 and below. The plan wrote `26vw`, which
+  gives 268 px at 1280 too; its own numbers (240 at 1280, the 1052 px rule) need the narrower one.
+- **Below 1052 px** (72 + 240 + a room with its thread, 740) the panel folds away by itself while a thread, the room's ✦
+  side chat or a side panel is open, and comes back when it closes; its "목록 숨기기" hides it (remembered in this browser)
+  and the rail's "목록 보기" brings it back. The plan's overlay sheet for a thread below 812 px moves to phase P3 (until then
+  768–811 px keeps today's room + thread columns).
+- **Marks**: 트리나 a "?" (an AI chat waits on me) or a dot (an unseen answer); 대화 the number of conversations with
+  something unread (muted and hidden left out), "?" while a room's AI waits on me, a dot when only mention/thread rows are
+  unread; 활동 the unread notices that are not conversation rows (the phone 나 tab's number). Nothing counted twice:
+  mentions and thread replies are 대화's, on its 멘션·스레드 row.
+- **Admin**: no place lit; its own menu is a 240 px list beside the rail at every computer width (its 88 px icon rail is
+  not used), so two rails never stand side by side.
+- **⌘K**: the computer has the 대화 search type too (the panel's 🔍 opens it); "프로젝트" and "사용량" are found as
+  actions, the files by "팀 폴더".
+- Unchanged: routes, push targets and deep links, shortcuts (⇧⌘O lights 트리나), Settings as a dialog, the Electron
+  window, phones (their tabs are phase P5).
+- Tests: `web/test/unit/rail-badges.test.tsx`, `web/test/e2e/rail.spec.ts` (1440, 1280, 1100, 1024; owner and member),
+  `web/test/e2e/nav-rail-flag.spec.ts` (the rail only while on).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
+
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
@@ -11666,6 +11731,103 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
   phone-nav, deck-progress; `web/test/e2e/session-markers.spec.ts`, `sidebar.spec.ts`, `states.spec.ts`.
 - Version impact: **minor** (optional Chat, Room and event fields, optional desktop bridge parts; no endpoint, no
   migration).
+
+## Trina history by project — 트리나 기록을 프로젝트별로 (feat/history-by-project, 2026-11-12, the owner, QA TC-424)
+
+넣을 곳: Team AX core (`web/src/lib/historyGroups.ts`, `web/src/components/history/HistoryGroups.tsx`,
+`web/src/components/Sidebar.tsx`, the project page's box), 이유: the AI history is core chat UI. Plan:
+`docs/AGENTS/plan/20261112-1621-history-by-project.md`.
+
+The owner showed the Claude Code desktop app's sidebar (sessions grouped by folder, a small grey header per folder with
+its name, an icon and ▾) and said that is what Trina should have: **"세션들이 유지되어야"** ("the sessions should stay").
+Each piece of work keeps its chats together, and the person goes back to it there. This is the owner's final direction
+and **supersedes** two earlier decisions:
+- "Desktop sidebar: rooms first" (2026-11-06): 트리나 기록 was **exactly the five latest AI chats**, with the date groups
+  and the filter only behind "모두 보기". Now it is grouped by project, and "모두 보기" groups by project by default.
+- "Session markers" (2026-11-07): "the list is not re-sorted by state". The list is no longer one flat list by latest
+  activity: it is grouped by project. A row's state still never moves it (the groups follow the newest activity, not
+  the marks).
+
+- **Groups.** One group per project the person has chats in, the newest activity first. The chats in no project form
+  the last group, **"기타 기록" / "Other chats"** (the same group in "모두 보기" said "프로젝트 없음" before). A person
+  with no chat in a project sees no header at all: the five latest as before, and in "모두 보기" and the phone's
+  drawer the date groups as before ("Group by: Project" with nothing to group shows dates).
+- **The header**, small and grey (12 px, `text-faint`): the project's name (a link to its page), a folder icon, ▾ (folds
+  the group). **+** at its right end on hover and keyboard focus, always on a touch screen (44 px on a phone): it opens
+  the project's page with its "이 프로젝트에서 채팅" box focused (with a mouse; a phone's keyboard does not jump up), the
+  same as starting there. Its name is **"'<project>'에서 트리나에게 묻기" / "Ask Trina in <project>"**, the AI action's one
+  name everywhere (the navigation redesign plan, §2.0, added to the repo with the `navRail` flag as
+  `docs/AGENTS/plan/20261112-1839-nav-rail.md`; "새 채팅" leaves navigation); the word leaves that history entry once the box has it, so Back or a reload do not focus it
+  again. The name's link is as tall as the header (28 px, 44 px on a phone); ▾ is a 24 px button (44 px to a finger).
+  On a computer + shows on hover and on keyboard focus only, not on the focus a click on ▾ leaves (folding would hide
+  the mark it just showed); where + always shows, the mark sits left of it. No + on the other chats (that is 트리나에게 묻기) nor on a project whose folder is in the
+  trash or that the person only manages (no box there).
+- **Folding** is remembered per person in this browser (`mycel.sidebar.historyFolded.<user id>`, at most 200 keys). A
+  folded group keeps one mark on its header in the rows' marker spot: the strongest of its chats, **"?" first, then the
+  dot, then the ring** (what needs the person before what only runs; a single row keeps ? > ring > dot), so a folded
+  group never hides a chat that waits.
+- **Caps are the place's, not the list's.** One list component (`HistoryGroups`, `useHistoryGroups(chats, caps)`):
+  - beside the rooms (a computer's sidebar): my pins as before (at most ten), then the **five projects** with the latest
+    activity and the other chats, **three rows each** newest first, then "**N개 더 보기**" that opens the group in place
+    (for this visit; folding closes it again). "N more" carries the mark of the rows it holds back. The project of the
+    chat on screen and its row stay in sight past the caps, as the flat list's sixth row did. "모두 보기" stays, and its
+    "답 필요 K" counts the chats of the projects past the five (and the pins past ten);
+  - as a whole panel (the phone's drawer, "모두 보기"): every project, every row.
+  The owner said the rooms part is already too long ("이미 대화방만해도 너무 길어"); how the sidebar is split between
+  rooms and the AI history is still open, so the caps are parameters and this change does not touch the rooms section,
+  the menu rows or the sidebar's layout.
+- **Access.** A header shows only for a project the project list (`GET /api/projects`) says the person sees now and
+  that the chat header did not find gone (store/projects.ts `drop` on a 404). The chats of any other project (no read
+  access any more, its folder gone) are in "Other chats", as the chat page shows no project for them; its name is never
+  shown or guessed (no "…" placeholder). The "In a project" / "Not in a project" filters follow the same rule. The
+  list is kept for the whole window (`store/projects.ts` `listed`, cleared on sign-out), so the computer's column and
+  the phone's drawer (mounted again each time ☰ opens) share one read: read when some chat is in a project and none was
+  made yet, again when the window comes back to the front (at most once a minute), and once more for a project no read
+  had (a project made, or a chat moved in, elsewhere; one the person cannot see is asked about once). While a first
+  read is on its way the spinner shows for at most 1.5 s, then the list without project headers until it ends (a read
+  that never answers no longer blanks the history); a failed read puts every chat in "Other chats". Access lost on
+  another device shows at the next read (a reload, or the window back to the front after a minute).
+- **Rows** are the same rows: marks, the hover peek, the "···" menu, pins. "프로젝트로 옮기기…" moves the row to its new
+  group at once (the dialog's fresh project list is used, no wait for a second read).
+- **"모두 보기"**: "그룹: 프로젝트" is the default; 날짜 is one choice away. The menu's choices are now kept as what
+  differs from the default (`mycel.sidebar.historyView`); a view kept before (`mycel.sidebar.recentsView`, the whole view,
+  which held the old default "date" for everyone who ever used the menu) keeps its other choices but not its grouping
+  by date.
+- **Removed:** the flat five as the default for a person with project chats, the date groups as "모두 보기"'s default,
+  the "프로젝트 없음" heading. **Added:** only the header (name, icon, ▾, +) and "N개 더 보기". No sort button (the groups
+  follow the newest activity), no new section.
+- Rejected: re-sorting rows by state (marks stay marks); a separate "projects" section beside 트리나 기록; "N more" opening
+  "모두 보기" filtered to the project (opening in place keeps the person where they are).
+- Tests: `web/test/unit/history-groups.test.ts`, `web/test/unit/sidebar.test.tsx` ("Trina history by project"),
+  `web/test/e2e/history-by-project.spec.ts`; `account-settings.spec.ts` and `phone-menus-tabs.spec.ts` updated (project grouping by default).
+- Part of the navigation redesign (`docs/AGENTS/plan/20261112-1839-nav-rail.md`, phase P0a): ships now on today's
+  sidebar with no flag (owner, 2026-11-12/13). The redesign's Trina panel (P2) later keeps at most eight projects with
+  activity in the last 14 days and reads the group heads from the server; until then the grouping is of the loaded
+  chats.
+- Version impact: patch (web only; no API, no migration).
+
+## Navigation lists as reusable parts (feat/nav-lists, 2026-11-13, navigation redesign P0b)
+
+넣을 곳: Team AX core (`web/src/components/nav/`), 이유: the navigation redesign (`docs/AGENTS/plan/20261112-1839-nav-rail.md`,
+approved by the owner 2026-11-13) draws the same lists in new places (the rail's Trina and 대화 panels) behind the
+`navRail` flag while today's sidebar stays the default. One copy of each list means a fix lands in both layouts.
+
+- **What moved, unchanged:** out of `Sidebar.tsx` into `components/nav/`: `MenuRows` / `PhoneMenuRows` (the labeled rows
+  on a computer, the drawer's rows on a phone), `HistoryList` (Trina history: title, filter and sort menu, the list, the
+  move dialog), `ChatItem` with the hover peek (`useChatPeek`), `AccountMenu`. Out of `rooms/SidebarRooms.tsx` into
+  `nav/RoomsList.tsx`: the rooms list body, its rows and helpers (`sidebarRows`, `roomSections`, `hiddenUnread`,
+  `UnreadBadge`, `RoomPinIcon`). `SidebarRooms.tsx` keeps the section around it (title, fold, "+") and re-exports the
+  helpers, so no importer changed. `history/HistoryGroups.tsx` (P0a) stays where it is: it was already a list with its
+  caps as parameters.
+- **Caps are props:** `HistoryList caps` (required: `SIDEBAR_HISTORY_CAPS`, 10 pins, 5 latest, 5 projects × 3 rows, beside
+  the rooms; `null` = the whole history, the phone's drawer) and `RoomsList caps` (`SIDEBAR_ROOM_CAPS`, 10 pins and 5
+  latest, is its default). The sidebar passes today's values, so nothing on screen changes.
+- Two small structural differences, invisible: the move dialog now renders inside the sidebar's scroll box (it is a
+  fixed overlay, so nothing clips it), and after a move the keyboard looks for the moved row inside the history list
+  instead of the whole sidebar.
+- Tests: `web/test/unit/nav-lists.test.tsx` (caps from the caller); `sidebar.test.tsx`, `room-pins.test.tsx`,
+  `room-hide.test.tsx` and the sidebar e2e suites pass unchanged.
+- Version impact: none (no visible change; no changelog fragment, per `changes/README.md`).
 
 ## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
 
@@ -17121,6 +17283,60 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
 
+## Getting back to earlier work, part A — 지난 작업으로 돌아가기 (feat/history-way-back-a, 2026-11-12, QA TC-419 to TC-423)
+
+넣을 곳: Team AX core (`web/src/components/SearchDialog.tsx`, `web/src/lib/sessionMarkers.ts`,
+`web/src/components/chat/ChatTitleMenu.tsx`, `web/src/pages/Chat.tsx`, `web/src/pages/Files.tsx`,
+`server/src/chat/version-chats.ts`, `server/src/routes/files.ts`, `shared/src/api`), 이유: chats, search and file history
+are core. Plan: `docs/AGENTS/plan/20261112-1621-history-way-back-a.md`. The owner (2026-11-12): getting back to earlier
+work is hard, the AI history is the only way back. Option A of the research is part of every option and is built first;
+the owner has not chosen between B and C. Nothing changes in the sidebar (rooms first, five latest plus pins, "Show
+all"; the list is never re-sorted by state: 2026-11-06/07).
+
+- **⌘K "Needs attention" = the sidebar's markers** (TC-419, a bug). It used its own rule ("is it running") and words
+  ("Answering now", "Waiting to answer"): a chat waiting for my answer said "Answering now" while the sidebar showed "?",
+  and a finished answer I had not seen was not there. Now its AI chats come from the sidebar's own list (the chat store;
+  ⌘K's own first page only until that list has loaded) with `markedChats` (`lib/sessionMarkers.ts`: `markerOf` with the
+  same view, so the chat on screen shows no dot and a card open in this window is "?"), each row with the sidebar's
+  `SessionMarker` at its right end and its words (`marker.*`, the AI's question itself while this window has its card,
+  never for a confidential chat; the hover peek's colours). Order: "?" first, then a new answer, then the ring, the latest
+  first in each; then scheduled tasks to confirm and broken connections, 5 rows in all as before. ⌘K's two labels are
+  gone from all five languages.
+- **History rows say when and where** (TC-420): on the History tab's list and in the History results of a search (on All
+  and on History), grey on the right, "2시간 전 · Launch plan": the chat's last activity (`updatedAt`, `formatRelative`, as
+  the project page's list and the sidebar's peek) and its project's name when it has one (the project is no longer
+  repeated after the title there). On a phone (below 768 px) that grey line goes under the title, so the title keeps the
+  row's width (at 390 px beside it, titles were cut to a few letters). Recents rows are unchanged.
+- **History from a project** (TC-421): opened on a project's page (its files too) or in a chat of a project, the History
+  tab lists that project's chats first (the project page's own list: `GET /api/chats?projectId=`, so my pins there and
+  its shared chats I see), then the rest of my list, each once. Anywhere else nothing changes and no project is read. A
+  chat in none of this window's lists is read once to learn its project; the list waits for that instead of moving under
+  the pointer. Search results keep their order. No new control.
+- **Pin from the chat's own title menu** (TC-422; "Pinned chats" said it was not built): "상단에 고정" / "고정 해제" is the
+  title menu's first item, the row menu's own words, icon and call (`useChatActions().togglePin`), for anyone who sees
+  the chat.
+- **"Open the chat" in a file's version history** (TC-423, security). A version (and the file as it is now) already knew
+  the AI turn of the save (`file_versions.saved_turn_id`, `file_events.turn_id`) and a turn knows its chat
+  (`turns.chat_id`): **no migration**. `GET /api/files/history` adds `savedChatId` to such a version and `chatId` to
+  `current`, each **only when the viewer may open that chat now** (`chat/version-chats.ts` `openableTurnChats`, one read
+  of the turns and one check per chat): `chatFor` 'view' (their own chat, or a shared project chat of a project they see
+  now), and not in the trash, not the server's own draft, not a room's AI, not confidential unless it is theirs (all chats
+  while safe operations are on), not an answer of a shared chat hidden from them (`AnswerSight`; no record or no answer
+  id: hidden from all but its runner), and **not in a project they do not see now, their own chat too** (stricter than
+  opening it: the link stays away from a project they lost; the chat still opens from History). Any failed check gives
+  nothing. Otherwise the answer is as before: no id, no title, nothing that says a chat exists beyond the "by AI" line
+  that was already there. The owner and admins get no more than anyone. A check that fails (a read of the turns, an
+  answer that cannot be judged) gives no link for that save and never fails the history (review). The screen shows "Open the chat" (기록 열기, a
+  link to `/c/:id`, underlined) after "saved during an AI answer" only when the id is there; it closes the dialog.
+- **Left out** (option A only): Home's "Continue" line, summaries, AI search of chats, any sidebar change, the ⌘K row
+  menu and Recents rows.
+- Tests: `tests/security/version-chat-link.test.ts` (every case above for all five people, the stored version and the
+  file as it is now, the id nowhere else in the answer, a link only where `GET /api/chats/:id` opens, and a failing
+  check),
+  `web/test/unit/search-way-back.test.tsx`, `session-markers.test.tsx` (`markedChats`), `chat-title-pin.test.tsx`; e2e
+  `session-markers.spec.ts`, `search-palette.spec.ts`, `chat-pins.spec.ts`, `files.spec.ts`.
+- Version impact: **minor** (two additive, optional fields on the file history answer).
+
 ## Onboarding v6 polish: the caret after a fill, plain copy, one name (fix/onb6-polish, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/chat/Composer.tsx`, `web/src/pages/Home.tsx`, `web/src/components/onboarding/`
@@ -17413,6 +17629,70 @@ pins wherever a room allows it.
   back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
   pin ahead of the clock.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## List folders — my own folders for AI chats and conversations, server part (feat/nav-folders-server, 2026-11-13, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/nav-folders.ts`, `server/src/routes/nav-folders.ts`, migration 289,
+`shared/src/api/nav-folders.ts`, clean-up hooks in `server/src/routes/chats.ts`, `server/src/rooms/service.ts`,
+`server/src/admin/users.ts`), 이유: the lists they sort are core. Plan: the navigation redesign
+(`docs/AGENTS/plan/20261112-1839-nav-rail.md` once committed), phase P4a; the screens come in P4b behind the `navRail`
+flag. Nothing is visible yet, so no `changes/` fragment.
+
+The owner approved the navigation redesign (11-13): a person keeps their own AI chats, rooms and DMs in folders, like
+Slack's sections, that only they see. This entry is the server half: tables, rules and endpoints, no screen.
+
+- **Names.** Tables `nav_folders` / `nav_folder_items`, `NavFolder`, `/api/nav-folders`. Not `personal_folders`: "personal
+  folder" already means a person's files folder (`users/<name>/`); not `folders`: that is the team drive. The UI word
+  stays 폴더.
+- **The schema stops mistakes, not only the code.** `nav_folders` has `UNIQUE(id, user_id, kind)` and each item carries
+  `kind` and the person's id with `FOREIGN KEY (folder_id, user_id, kind)` to it, plus a CHECK that a chat item has a
+  chat and a room item a room: no code path can put an item in someone else's folder or a chat in a room folder. One
+  folder per item (partial unique indexes per person). Additive only (reader 1).
+- **Only the maker.** Every query is by the caller's id; another person's folder id answers 404 like an unknown one,
+  for the owner and admins too. No admin endpoint, no audit row, nothing in the activity log: folder names are personal
+  and land nowhere else. `Chat.folderId` and `Room.folderId` are the viewer's own (built per recipient in `roomOut`, so
+  another member's `room.updated` never carries my folder). `navFolders.changed` goes to my windows only; an older page
+  ignores the unknown event.
+- **One visibility check.** What a folder lists and counts, `?folderId`, `NavFolder.top` and the limit clean-up all use
+  one SQL fragment per kind (`visibleChatItems`, `VISIBLE_ROOM_ITEMS`): a chat must be my own, not in the trash, with no
+  project, not shared, not a room's AI session and not a server draft; a room must have my member row, not be archived,
+  not be hidden by me, and the row must be newer than my `joined_at`. A stale row (someone else's chat, a lost shared
+  chat, a chat moved into a project behind the folder's back) is never shown, counted or named. Plain SQL, no `chatFor`
+  per row: only own non-project chats can be filed, so 30 × 500 rows stay one query.
+- **Filing.** `PUT /api/chats/:id/folder` and `PUT /api/rooms/:id/folder` (`{ folderId }`, null = out; another folder =
+  move). A chat: `chatFor` 'view' first (404 for a chat I cannot open or in the trash), a server draft 404, a project
+  chat 409 `folder_project_chat` ("프로젝트 기록은 프로젝트 안에 있어요. 폴더에는 넣을 수 없어요.": it stays where its people
+  find it). A room: members only (404, archived included); a hidden room 409 `room_hidden` (show it first), as pins.
+- **Clean-up.** The trash drops a chat's row (restored, it is in no folder, as pins). `updateChat` drops it in the same
+  transaction when `project_id` becomes set, the only way a chat gets a project, so a filed chat can never be shared
+  from inside a folder. Leaving or being taken out of a room drops it (`forgetMember`). A hidden room **keeps** its row
+  (hidden rooms come back when something arrives; the DM stays in its folder) and an archived one too, both filtered on
+  read. A deleted account keeps its users row as a tombstone, so `deleteUser` deletes the person's rows by hand next to
+  the pins. Purges and folder deletes cascade.
+- **Order and limits.** Folders by `position` (0..n-1 per person and kind). `PUT /api/nav-folders/order` takes any subset
+  of my ids: those first in that order, the rest after in their order, unknown ids ignored, the full list returned. Two
+  devices that reorder at once both succeed and the last wins (no 400 for a folder made on the other device meanwhile).
+  Items have no order of their own: they follow the list (latest activity first). 30 folders per person and kind
+  (`nav_folders_full`), 500 items per folder (`nav_folder_full`; rows that can never show again are deleted first: a chat's that fail the
+  check, a room left, archived or filed before rejoining; a hidden room's row stays and counts). Names:
+  NFC, trimmed, 1–40 characters as people see them (graphemes), none invisible or a control character, unique per
+  person and kind in any letter case (`name_key`, `nav_folder_name_taken`).
+- **Deleting a folder** deletes only the folder; its chats and rooms go back to their usual place and my windows get
+  them again without `folderId`.
+- **The list.** `GET /api/nav-folders` returns both kinds with `count` and, for chat folders, the 3 most recently active
+  chats (`top`), so a folded folder needs no other request; the rest pages through `GET /api/chats?folderId=`. Room
+  folders need no `top`: `GET /api/rooms` is not paged and carries `folderId`. `marked` (session markers of rows outside
+  `top`) is left to P2's `GET /api/chats/groups`.
+- Tests: `tests/unit/b-nav-folders.test.ts` (make, rename, delete, names, both limits, subset order, the composite key,
+  filing and moving, project and draft refusals, the trash, `updateChat`, stale rows of every kind, rooms hidden,
+  archived, left and rejoined, a route matrix for the folder's owner, another member, an admin, the owner, a person
+  who lost access and a deleted account), the security permission matrix (`tests/security/lib/nav-folders-cases.ts`,
+  every route), `web/test/unit/realtime.test.ts` (the new event).
+- **Independent security review (2026-11-13).** Nothing revealed; fixed: a full room folder pruned a hidden room's row
+  (now only rows that can never show again), `?folderId` had its own copy of the rule (now the one check), and the
+  tests that claimed a removal by someone else, the folder page in the matrix, 404-only renames and an untouched order.
+  Left as is: names are unique by NFC + lower case, not NFKC (as the plan says).
+- Version impact: **minor** (new endpoints, additive fields and an additive migration).
 
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
 
@@ -23569,6 +23849,36 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
   dark, keyboard).
 - Version impact: **minor** (two endpoints, a new part of the Move picker).
 
+## Phone photo picker: the history waits while a pick is on (fix/mobile-photo-pick-background, 2026-11-12, QA TC-251)
+
+The phone app's own photo picker (photo-pick-v1) opened, the person picked, and nothing was attached, with no word, on
+the Android QA app and the iPhone TestFlight build. Plan and evidence:
+`docs/AGENTS/plan/20261112-1354-mobile-photo-pick-background.md`.
+- **The cause.** The attach sheet closes as its item runs, and its history entry is backed off (`history.go(-1)`)
+  right after the page asked for the pick. iOS: react-native-webview 14's history shim reports every pushState,
+  replaceState and popstate as a load end; the app installed its bridge again for it (`loaded()`: a new nonce and
+  `mycel:mobile-ready`), which cancelled the pick on the page and dropped the picker's answer in the app. Android: the
+  app hears every step of the page's history as a load start (`doUpdateVisitedHistory`); one that says loading fenced
+  the bridge, dropped the pick and put the bridge back 10 s later with a new nonce. The page took both as "moved on".
+- **Web: `holdHistory()`** (lib/backCloses.ts): no back-off of ours while the app's pick is on: while the picker is
+  up, then at most 15 s + 1 s per MiB for the bytes (2 min cap). Back and the router still go; an overlay opened
+  meanwhile pushes its entry after. Only the app's picker holds it. This should fix the apps already out (iPhone
+  build 9, Android 1.0.5): it changes the page, not the app.
+- **A lost pick says so.** An AbortError while the box is still there (the bridge came back, a session reset) shows
+  사진을 가져오지 못했어요. A cancel is an empty pick and stays quiet; a box that went away says nothing.
+- **One box.** Each message box keys its attach sheet by what it writes to (room and thread, chat draft, side chat), so
+  a pick lands only in the box that started it.
+- **Native, next build:** a load end while the bridge is on asks the page whether it still has this bridge's nonce
+  (`sameDocumentScript`); only a new document gets the bridge again, so no step within the page (the iOS shim's, an
+  Android one) cancels anything on its way. Android, a load start at the address on screen while a pick is on is no
+  fence (`loadStartFences`). A copy whose size reads as 0 takes the picker's size (`assetSize`).
+- **The question carries no secret** (fix/mobile-same-document-id): the load end asks about a random document id set
+  with the bridge (`documentScript`), not the nonce, and uses no JSON of the page's, so a new page that hooks
+  postMessage learns only that id, which opens nothing.
+- **Left:** a tap on 사진 보관함 faster than the reinstall the sheet's opening brings on iPhone build 9 (tens of ms);
+  gone with the native fix.
+- Version impact: **patch**.
+
 ## 휴대폰 앱 아이콘의 숫자 — the phone app's icon shows the unread count (feat/phone-app-badge, 2026-11-12, QA TC-408)
 
 넣을 곳: Team AX core (`mobile/`, `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/attention.ts`,
@@ -23598,10 +23908,16 @@ option 1): the AI judges folders only during setup; after it, the Move picker su
 - **While the page is open: the page.** New capability `badge-v1`: `{type:'badge', count}` (a whole number 0 to 9999),
   sent by `setAppBadge` (`web/src/lib/mobile.ts`) when n changes (a burst waits `WEB_BADGE_MS`), when the bridge comes,
   after a session reset and on every `mycel:mobile-foreground` even unchanged (a push may have set the server's number
-  meanwhile). The app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  meanwhile). The iPhone app sets it with `setBadgeCountAsync`, one call at a time, the latest winning (`mobile/src/badge.ts`).
+  **Android never sets a number** (`setsIconNumber`, fix/phone-badge-iphone-only, 2026-11-13, QA TC-408 on a Galaxy
+  Note10, One UI 4): expo-notifications 58.1.6 sets it through ShortcutBadger, One UI shows it only while a notification
+  is in the tray, and its `setBadgeCount(0)` only cancels the app's notifications (the whole tray) and never clears
+  Samsung's number, so the number stuck after reading and sign-out. On Android the launcher counts the notifications in
+  the tray; the page may still send `badge`, and the app takes it and does nothing. Ships with Android build 11; iOS
+  unchanged.
   In the foreground a push's number is not applied (`shouldSetBadge: false`): the page's is the newer.
-- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the app
-  (`forgetDelivered`); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
+- **Zero.** A sign-out (the page's `session-reset` with `signedOut`) and leaving a team clear the icon in the iPhone app
+  (`forgetDelivered`; on Android the cleared tray clears the launcher's count); the page sends 0 when its markers stop, and after a sign-out or another session's reset it sends
   0, never the last session's number, until its own count is worked out.
 - **Permission.** The OS question asks for the badge with alerts and sounds. iOS asks once: an iPhone that said yes before
   1.0.5 is asked once more (`askBadgeAgain`, remembered in the keychain), which shows no dialog; if iOS keeps Badges off,
@@ -23682,3 +23998,395 @@ section 5. Linux only (macOS will use the shared localhost).
   counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
 - **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
   (mode 640), and the Files API lists it and serves it (VM check P6).
+## Setup 팀 파일: the AI proposes folders — 시작 설정의 팀 파일, AI가 폴더를 제안한다 (feat/setup-files-organize, 2026-11-12, product owner)
+
+넣을 곳: trina-ax core (`server/src/onboarding/files-organize.ts`, `files-organize-ai.ts`, `file-rank.ts`,
+`shared/src/api/files-organize.ts`, `web/src/components/onboarding/OrganizeFiles.tsx`, `web/src/lib/organize.ts`, the
+member welcome), 이유: onboarding, files and the AI are core. Plan: `docs/AGENTS/plan/20261112-1238-setup-files-organize.md`
+(PR A of the owner's locked "Files onboarding — final plan"; PR B forms → skills and PR C Move picker suggestions follow).
+
+The owner's decisions (2026-11-12, not to be re-opened): "AI judges folders ONLY during setup. At setup there is no
+folder structure, so the AI PROPOSES ONE." The owner "doesn't know whether files go in shared/ ('전사 공유') or
+elsewhere: the step must decide that for him." "Files and projects are SETUP STEPS (leading), not a Home line." After
+setup, folder suggestions come from the Move picker (PR C), never from an AI call per upload.
+
+- **The W6 privacy rule is reversed for this step.** W6 said no file content reaches the 팀 파일 endpoints and the AI
+  sees names and metadata only. That still holds for the pick before the upload. Once the files are up in 전사 공유,
+  the plan reads their text: at most 20 files (`ORGANIZE_LIMITS.read`), 3,000 characters each, the text layer only
+  (`extractText` with `textLayerOnly`, no OCR), within 8 s; only files in `shared/` that the caller can read and
+  uploaded themselves within the last 24 hours (an `upload` file event of theirs: the step's run); any other path the
+  page sends is left out. The start of the step says so in one line, "팀 전체가 보는 전사 공유에 정리해 드려요 · AI가
+  파일 내용을 읽고 정리해요", shown only while an AI answers the person (without AI nothing is read). The comment of
+  `shared/src/api/onboarding-files.ts` says where the rule ends.
+- **The same path as the picks** (review must-fix): the plan is one ordinary no-tools turn of the caller
+  (`file-rank.ts runFilesTurn`, extracted from `rankTeamFiles`): their AI access and budget, the chat marked in
+  `onboarding_file_ranks` (its material JSON now has `kind: 'organize'`; no migration), never listed, deleted after; its
+  own instructions (`organizeSystemPrompt`) with the files as data inside `<material>` (closing tag broken in names and
+  text). Not the file-list reader (team-wide accounts only). The answer is read defensively (`parseOrganize`: known ids
+  once, folder names cleaned to one level, known reasons, `form` only when true, a project only with a clean name and
+  2+ known files).
+- **The plan** (`organizePlan`, shared, so the server and the mock server propose the same): the AI's folder for a file
+  it read; every other file, and every file when no AI answers, the turn fails or runs 25 s, goes by name rules
+  (`nameReason`: the file-rank reason words in five languages) to the folder the AI used most for that kind, else an
+  existing folder named for that kind in any language, else the kind's folder in the team's language (양식, 회의록 and
+  브랜드 reuse the folders a new team has: "Team folder basics"). One level under `shared/`, at most 8 folders (the 9th
+  goes to its kind's folder when that one is in, else stays), existing folders reused whatever the letter case; the
+  upload's own folder (`shared/<picked folder>/`) is not offered to the AI as a place, but counts as existing (never
+  "새로 만들어요"). An existing folder whose name a plan cannot carry (over 40 characters) is not offered in the picker. A file already in its folder stays. Each
+  row carries `form: true|false` for PR B. At most one project group.
+- **A job the page polls**: `POST /api/onboarding/files/organize` answers at once with an id and N; `GET …/organize/:id`
+  gives "읽고 정리하는 중… n/N" and then the plan; only the one who started it reads it (404 otherwise); forgotten after
+  an hour. Owners and admins only.
+- **The screens** (after a step run into 전사 공유 that ended without a failure): reading; the proposal, a flat list
+  grouped by folder ("전사 공유 › 양식 (3)", Google Drive's "Organize my files"), each row with a folder picker (the
+  plan's and the existing folders, "새 폴더…") and ✕ (the file stays where it went up; "n개는 올린 자리에 그대로 둬요"), a
+  new folder's name typed in place (a name no folder can have goes back, with "폴더 이름으로 쓸 수 없어요"), [이대로 정리]
+  and "나중에" (on to the next step, the files where they are; F5 shows
+  when coming back). Without AI the list says "AI 없이 파일 이름으로 정리했어요". Nothing to sort: the run's own F5 as
+  before. No undo toast: the proposal is where the owner changes things.
+- **Applying** (`POST …/organize/apply {id, moves}`) is bound to the caller's plan: only that plan's files move (any
+  other path is answered as not moved), and the same plan applied again (a second tab, a retry after a lost answer)
+  answers the first result. Each file moves as the caller through the file service's move (rules, versions, events; a
+  taken name gets " (2)"), a missing folder is made first, at most 8 folders (400 otherwise), folder names checked as
+  one level. A folder under `shared/` the moves emptied goes to the trash only when it is truly empty on disk (no
+  hidden or temporary entry) and is neither a plan folder nor a default folder (양식, 회의록, 브랜드 in any language).
+  Anything moved records `onboarding.filesOrganized` (settings).
+- **The result**: what went where, the slot for PR B's forms card (`FormsSlot`, given the moved forms' paths; empty
+  now), the project question when the AI saw one group ("이 n개는 'A사 리뉴얼' 프로젝트로 묶을까요?" [프로젝트로 묶기] /
+  나중에), then the step's next button. The question shows only when the setup has a team group (without one the project
+  would be the owner's alone, while the question says the whole team works on it). [프로젝트로 묶기] makes a team project
+  (`POST /api/projects`, one folder `projects/<slug>`) with the team group as participant (`projectBody`; participants
+  default to [] and a project's contents are its members': without the group, people who join later would not see it)
+  and moves its files into the project's folder; files that do not move are counted ("n개는 프로젝트로 옮기지 못해서 그대로
+  있어요"); a 전사 공유 folder the plan made and the project emptied goes to the trash and leaves the result line. A
+  name that is taken (409) leaves only 나중에 (asking again would fail the same way).
+- **Admins**: the member welcome card gets `organizeFiles` (optional in the contract; older servers send nothing) for an
+  admin while nobody applied a plan and the team has its steps row; the row "팀 파일 정리하기" (not counted) opens the
+  same 팀 파일 step in a dialog. Hidden once any owner or admin applied a plan (the plan said "the owner": an admin's
+  plan counts too, or every later admin would keep the row).
+- Five languages, English first. Phone: the rows wrap with a full-width picker, 390 px without side scroll.
+- Tests: `tests/unit/b-onboarding-files-organize.test.ts` (name rules, the plan: cap 8, one level, reuse, stays, project;
+  the answer and the fence; on the fake engine: 20-file cap and text in the material, fallback on a failed answer and
+  on a timeout; apply; the routes' roles and the job's owner; the admins' row), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/organize.test.ts`, `web/test/unit/member-welcome.test.tsx`, `web/test/e2e/welcome-organize.spec.ts`
+  (propose → change → remove → rename → apply → project question → 나중에 → next; a project with the team group; no AI;
+  nothing to sort; 390 px light and dark), `web/test/e2e/welcome-team-files.spec.ts` (the plan after the upload).
+- Version impact: **minor** (three API routes, new screens in the setup step; no migration).
+
+## Setup 팀 파일: forms become skills (feat/setup-forms-skills, 2026-11-12)
+
+넣을 곳: trina-ax core (`server/src/onboarding/form-skill.ts`, `skill-draft.ts`, `files-organize.ts`,
+`shared/src/api/onboarding-skill.ts`, `files-organize.ts`, `web/src/components/onboarding/FormSkills.tsx`,
+`SkillShareCard.tsx`, `scripts/system/packages.json`), 이유: the owner's locked plan "Files onboarding — final plan", PR
+B: a form uploaded at setup gets "이걸 스킬로 만들어둘까요?" at once (no "try it in chat first"). Built on "Setup 팀 파일:
+the AI proposes folders".
+
+Version impact: **minor** (new route, migration 288).
+
+- **Which forms.** On the 팀 파일 result screen, `formSkillPaths(plan, applied)`: rows the folder plan marked
+  `form: true` that moved into the folder the plan proposed for them (a form the person sent elsewhere is no form to
+  them), of a kind a skill can fill (`FORM_SKILL_TYPES`: .hwp, .hwpx, .xlsx, .docx; a Markdown or PDF "form" is not
+  offered), each once, at most `FORM_SKILLS_MAX` = 3. The server takes the form mark off a file whose name holds a
+  specific (`formNameSpecifics`, S's `specificsOf` over the name: a company with a suffix such as ㈜/주식회사, a person,
+  a date): "견적서_㈜에이스상사.xlsx" is a filled-in copy, not the team's form. A company name without a suffix
+  ("견적서_에이스상사.xlsx") is not caught: the heuristic's known gap, as in S. The start route checks the same again.
+- **The question** (owners and admins only, members never see it): "{forms}(을)를 스킬로 만들어둘까요?" with the forms'
+  names without extension, date or version (`formStem`), and "팀원이 '{kind} 만들어줘' 하면 이 양식대로 채워요." (`formKind`:
+  the first name without the words for a form). [만들기] / 나중에. One box, like the project question under it.
+- **The draft is S's draft from a file.** `POST /api/onboarding/skill-draft/from-form {path}` (owners and admins): the
+  file must be one the caller can open, a team file (`isTeamFilePath`), one the people a team skill is shared with can
+  open (S's stand-in; 409 `private` otherwise), and not a named copy (409 `named`). The form's text (extract.ts, text
+  layer, at most 8,000 characters; an unreadable form still drafts from its name) and path are the material; a new
+  chat of the caller marked in `onboarding_skill_drafts` like S's, with `source_path` (migration 288, additive) and no
+  source chat or message ('' in the NOT NULL columns: a table is never rebuilt). Every turn runs restricted like S's
+  (no tool, its own instructions: `formSkillSystemPrompt`, the text inside `<material>`). The same form again: the
+  unsaved draft, its one rewrite, or a new draft after a failed one (as S). Read with S's `GET …/skill-draft/:chatId`,
+  shared with S's `POST …/save`.
+- **The AI only names it.** The answer is `{title, description, inputs}`: the form's blanks that change every time, at
+  most 8, three visible (the rest folded as in S). It writes no steps (any it writes are ignored). An input keeps only
+  what the card shows (name, label, required, a choice's options): `placeholder`, `prefill` and a choice's `default`
+  are dropped, because the card does not show them while every teammate's AI reads them in the SKILL.md (review,
+  2026-11-12: the form's text or words planted in it could reach teammates unseen). A value written in the
+  form (a sample customer, a date, an amount, a phone) in the title, the line, a label or a placeholder is a specific:
+  one rewrite, then no card. The card's files are the form's folder and "the newest file whose name has the words" (`like` = the
+  stem), shown as "양식 폴더의 가장 최근 견적서 양식".
+- **The fixed procedure** (`formSteps`, in the team's language, the same for every team; the AI must not invent
+  business steps): 1. the inputs; a missing must-have asked once, in one line; nothing invented. 2. the form: the newest
+  file of its folder whose name has the stem; none → ask the person for it. 3. never the form itself, always a copy:
+  .hwp/.hwpx with `edit_hwp` and always an `output` (without it the form would get a new version); .xlsx/.docx in
+  box_shell, python3 with openpyxl / python-docx, opening the form under `$TRINA_TEAM/`, keeping formatting, merged cells
+  and formulas, written in the folder the command starts in (a venv there when the import fails). 4. a new file named
+  from the form's kind, the inputs and today's date, "(2)" when taken. 5. the person's own folder (copied by box_shell
+  into `$TRINA_TEAM/users/<id>/`, the one team folder a command may write besides its start folder), or `move_files` to
+  a folder they name. 6. the link and what was filled. 7. only when filling fails (no dev environment, no HWP plugin, a
+  failed run): `make_file` with the same fields, saying the look may differ and why (a Hangul form: a .hwpx, or a .docx
+  when Hangul writing is off). The
+  rules section is S's without "save only when asked" (saving is the skill's work) and with "never change the form".
+- **Where the start is allowed.** Only a file directly in the forms folder (`shared/양식`, any of the five languages'
+  names) or a file the caller's own applied folder plan marked as a form and moved (still remembered by the server:
+  10 minutes), never `users/`, `skills/`, `.system` or another team file (400 `not_in_forms_folder`). Names quoted in
+  the steps are one line, with backticks and `<` replaced, as `files/locations.ts` cleanLabel.
+- **Where the real fill cannot run.** box_shell is not offered in scheduled runs or shared project chats
+  (`chat/turn.ts`), nor when the team's dev environment is off or the person is outside its scope
+  (`devenv/setting.ts`); edit_hwp exists only with the HWP plugin. There, step 7 runs: make_file with the same fields,
+  and the AI must say plainly that the form itself cannot be filled here, so it made a copy with the same fields, and
+  that opening it in their own chat (or asking an admin to turn on the dev environment) fills the real form. Who gets
+  box_shell is unchanged. The ✦ side chat beside a room is the person's own chat and fills the real form ("@트리나" in
+  rooms is off since "Trina side chat, PR 2").
+- **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
+  the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
+  Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing
+  folder read every name as taken and ended in a 409).
+- **The card** is S's `SkillShareCard`, now also for a `formPath`: one per form; [팀에 공유] leaves "'견적서 만들기' 스킬을
+  팀에 공유했어요", its 나중에 drops that form. The state lives in the tab with the plan's (another step and back: the same).
+- **Dev environment packages.** `python3-openpyxl` and `python3-docx` (Debian 12/13, Ubuntu 24.04) join the `devenv`
+  group of `scripts/system/packages.json`, so the hosted image, install-linux.sh and install-srt.sh have them; a Mac's
+  own python3 has neither, so the procedure says to install them in a venv when the import fails (PyPI is an allowed
+  site).
+- **DS3 — origin.** A skill made here is the team's own: its origin is the team's own form plus the owner's (or an
+  admin's) OK on the card (owner decision 2026-11-12). DS3's "known origin" rule is about skills we ship; nothing here
+  ships, and the AI adds no work steps of its own.
+- Rejected: letting the AI write the steps (it invented business steps in S's acceptance runs; a form's procedure is the
+  same everywhere); filling .xlsx/.docx with make_file (the look of the team's form is the point); a "try it in chat
+  first" step (the owner: ask right away).
+- Tests: `tests/unit/b-form-skill.test.ts`, `web/test/unit/form-skills.test.tsx`, `web/test/e2e/welcome-form-skills.spec.ts`.
+
+## Slack inside Admin › Connected apps, no menu item (fix/slack-in-connectors, 2026-11-12, the owner)
+
+Supersedes the Admin menu item "Slack" (c964122e3, 2026-11-05). The owner: "설정에 슬랙을 저따구로 넣으면 어카냐... 슬랙이
+뭐 그렇게 중요한 서비스냐". Slack is one service among many, so it sits where the others are.
+- **Where.** A row of Admin › Connected apps, like Google Drive: under **Connected** once it is added (its state on the
+  right: On, Off, Needs attention, Reconnect after the app was removed in Slack), else a card in **Discover** after the
+  Google ones. Its page is `/admin/connectors/slack`: the header of a connector's page (Connected apps › Slack, the
+  logo, the name, one line) over the same settings as before (Add to Slack, the own app's four steps, the status line,
+  Turn off, Replace tokens, Remove). The phone's Admin list loses its Slack row; Slack's page opens under Team connected
+  apps.
+- **Who.** The owner only, as before: the list asks for Slack's state only for the owner (the server refuses admins),
+  and an admin's `/admin/connectors/slack` leads to the list.
+- **Removed in Slack.** The row says Reconnect until Slack is added again, so the page offers **Remove Slack** beside
+  Add to Slack (the same Remove; its confirm says Slack leaves Connected apps and everyone's links are deleted, not
+  that the app is taken out of the workspace, which it is already): an owner who does not want it back can take it out
+  of Connected. Its one line, now also a Discover card's, says whose access an answer
+  uses in plain words ("only what the person who asked can open", not "the linked person's own permissions").
+- **Old addresses.** `/admin/slack` with its query (`?slack=installed` and the other outcomes of "Add to Slack") opens
+  `/admin/connectors/slack` with the same query, Connected apps marked in the menu; an admin who is not the owner gets
+  Admin's list, as before. The server now sends "Add to Slack" back to `/admin/connectors/slack?slack=…`.
+- **Docs.** "Admin › Slack" is "Admin › Connected apps › Slack" in the texts (ko "관리자 › 연결한 서비스 › Slack"). The Slack
+  guide's screenshots are taken by `scripts/docs/screenshots.ts --mock` against the web e2e mock server, whose test
+  control `POST /__test/slack` sets the states a development server cannot reach (Add to Slack offered, added through
+  the hosting service, removed in Slack); Slack's own consent page is described in words.
+- Tests: `web/test/unit/slack-screens.test.tsx`, `web/test/e2e/slack-in-connectors.spec.ts`, the admin menu lists in
+  `admin-home.spec.ts` and `settings-ia.spec.ts`, the phone specs that open Slack's page.
+- Version impact: **minor** (a visible move in Admin; no API change).
+
+## Admins manage Slack too (fix/slack-admins, 2026-11-13, the owner)
+
+Supersedes "Owner only, for every Admin › Slack route: the app answers as every linked person, which is more than an
+admin's own reach" ("Slack 커넥터", 2026-11-05) and the "Who" line of "Slack inside Admin › Connected apps" (2026-11-12).
+The owner (2026-11-13, final): "Admins may manage Slack too." They agreed with the reasoning that admins already add
+team connections and change members' access, and that Slack answers as a person only after that person links their own
+Slack account.
+- **Admins and the owner:** Slack in Admin › Connected apps (Connected or Discover), its state and linked count, "Add to
+  Slack" through the official app, Reconnect (Add to Slack again), Turn off / Turn on, and Remove of the official app.
+  Routes `GET /api/admin/slack`, `POST /api/admin/slack/enabled`, `DELETE /api/admin/slack` and
+  `POST /api/admin/slack/official/install` are `auth: 'admin'`; the "Add to Slack" return finishes only for the person
+  who pressed it if they are still the owner or an admin.
+- **The owner only:** the team's own Slack app, i.e. pasting its bot and app-level tokens and its client secret
+  (`PUT /api/admin/slack/tokens` stays `auth: 'owner'`), and removing it while it is saved (`DELETE` answers an admin
+  403 `owner_only`, nothing changes): removing it would destroy the owner's setup, which an admin could not restore. An
+  admin's Turn off / on of the own app is allowed (it touches no token). No answer reveals a token to anyone, as before.
+  Picked as the option that widens access least where the decision did not say (Remove of the own app).
+- **Screens.** An admin gets the same Slack page without the own app's parts: no "Use your own Slack app instead", no
+  four steps, no "Replace tokens" and no Remove of it; one plain line says "Only the team owner can change or remove
+  this Slack app." (set up) or "Only the team owner can connect Slack here." (nothing added and no Add to Slack). The old
+  `/admin/slack` opens Slack's page for admins too. Members: unchanged.
+- **Races and role changes.** An install is never kept over an own app saved while Slack was asked (checked again in
+  the write), an admin's Remove never deletes an own app saved while the hosting service was asked (409
+  `own_app_saved`), and an install waiting for Slack's check is dropped when the person who pressed it is no longer the
+  owner or an admin. An admin whose own-app connection fails is told to ask the owner, not pointed at "Replace tokens";
+  Discover shows an admin the Slack card only where Add to Slack is offered.
+- **Audit.** Unchanged: every change (`slack.installed`, `slack.enabled`, `slack.disabled`, `slack.removed`) names who
+  made it.
+- Tests: `tests/unit/c-slack.test.ts` (route levels pinned; admin sees, turns off, refused on tokens and on removing the
+  own app), `tests/unit/c-slack-official.test.ts` (admin adds, turns off and on, removes; demoted meanwhile: not added),
+  the security route matrix (`tests/security/lib/slack-cases.ts`, by level), `web/test/unit/slack-screens.test.tsx`,
+  `web/test/e2e/slack-in-connectors.spec.ts`, `web/test/e2e/phone-admin.spec.ts`.
+- Version impact: **minor** (a wider role on existing routes; no new route).
+
+## Files onboarding: follow-ups from hands-on QA (fix/files-onboarding-qa, 2026-11-13, QA)
+
+넣을 곳: trina-ax core (`web/src/components/onboarding/SkillShareCard.tsx`, `server/src/onboarding/form-skill.ts`,
+`server/src/team-files/move-suggest.ts`, `web/src/components/FolderPicker.tsx`), 이유: hands-on QA of "Setup 팀 파일:
+forms become skills" and "Move picker: suggested and recent folders" (merged 2026-11-12) found four rough edges.
+
+Version impact: **patch** (no route, no migration).
+
+- **The form skill card listed every input.** A weekly-report form's card showed six asks. The server already folds all
+  but `SKILL_DRAFT_VISIBLE_INPUTS` = 3 (`advanced: true`, under "더 자세히 정하기"), but the share card listed folded
+  inputs too. The card now shows only the inputs that are not folded (S's drafts as well).
+- **What the fallback tells the person depends on the file type.** Step 7 of the fixed procedure said "ask an admin to
+  turn on the dev environment" for every form. A Hangul form is filled by edit_hwp, which needs the Hangul document
+  preview (HWP) plugin, so for .hwp/.hwpx it now says to ask an admin to turn that plugin on in Admin › Plugins (no
+  "own chat" hint: the plugin is team-wide). Excel and Word forms keep "open it in your own chat, or ask an admin to turn
+  on the dev environment".
+- **One save per file.** In a room "@트리나 견적서 만들어줘" asked twice to make the same file. A room has no box_shell, so
+  an Excel form goes straight to step 7's make_file. The room card is asked per call (tool and arguments) before the
+  tool runs. A make_file that then fails (most likely the form passed as `template`: make_file takes templates only
+  under `skills/`), or that is followed by a second save or a move into the person's folder, asks again. The procedure
+  now says: call make_file once, with the filled fields as `content` (a table for .xlsx), no `template`, and `output`
+  already in the step-5 folder. Never make or move it again. Step 5 adds: save once, and never repeat a save the person
+  allowed (a room asks for each save). The room's card-before-the-call order is the room flow's own (rooms/ai-tools.ts,
+  chat/turn.ts confirmRoomChange) and is unchanged: a call that fails after the yes still costs a card.
+- **✕ on a suggested folder.** (a) The folder came back under 최근 on the next opening and read as still suggested.
+  Now a folder ✕'d for any of the files being moved is left out of 최근 too (server), and the picker drops it from
+  최근 at once (web). (b) After ✕, weaker folders (양식, 내 폴더) rose into 추천. The ✕'d folder was taken out of the
+  candidates before scoring, so its files no longer made "견적서" a common word, and a folder with one quote form
+  crossed THRESHOLD. `rank` now scores every candidate and drops the ✕'d ones only at the end. The bar stays the best
+  folder's (RELATIVE) and THRESHOLD still applies, so a ✕ never promotes a weak folder; the result may be no
+  suggestion at all.
+- Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
+  `web/test/unit/folder-picker-suggestions.test.tsx`.
+
+## Activity: the DMs tab is back (feat/activity-dms-tab-back, 2026-11-13, the owner)
+
+Supersedes "no DMs tab" (#635, fix/activity-dms, the same day): the owner wants the tab back.
+- **Tabs.** All · DMs · Mentions · Threads again, as before #635 (a phone shows the short word, "MD" in Spanish). DMs
+  holds a direct or group chat's conversation rows (`room.kind` dm or group); a mention or a thread reply inside one is
+  under Mentions or Threads as well. The 멘션·스레드 page opened from a phone's 대화 tab (`?in=chats`) keeps All ·
+  Mentions · Threads (CHATS_FILTERS), and `?tab=dms` there opens All.
+- **One rule.** `dms` is back in shared `ActivityTab` and `activityTabHas`, so the page's filter and the server's
+  "Mark all as read" (`POST /api/notifications/read` `{ tab: 'dms' }`) read the same rows.
+- Tests: `web/test/e2e/activity-tabs.spec.ts`, `phone-menus-tabs.spec.ts`, `phone-chats-tab.cases.ts`,
+  `web/test/unit/inbox-rooms.test.tsx`, `web/test/unit/activity-mark-all.test.tsx`, `tests/unit/b-rooms-inbox.test.ts`.
+- Version impact: **minor** (a visible tab; the API accepts one more tab value).
+
+## Activity: "Mark all as read" for the open tab (feat/activity-mark-all-read, 2026-11-13, QA TC-457)
+
+넣을 곳: trina-ax `web/src/pages/Activity.tsx`, `server/src/notifications/service.ts` (`readAll`) and
+`shared/src/api/notifications.ts`, 이유: Activity and the notices are core.
+
+Activity cleared notices one click at a time.
+
+- **One call for the tab, on the server.** `POST /api/notifications/read` `{ tab, only? }` → `{ read }`. All: every
+  unread notice of mine (not suppressed, inside the 30 days) and every unread conversation row; `only: 'rooms'` (대화's
+  멘션·스레드 page) the conversation rows alone; DMs / Mentions / Threads the conversation rows the tab shows (the DMs
+  tab was gone from dev's 4a68912a9 and is back since feat/activity-dms-tab-back). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
+  rows not loaded yet are read too. Only mine, nothing deleted, a second call marks nothing.
+- **A conversation row reads as opening it does.** Opening a row reads its notices and then the room (or the thread) at
+  its newest message. Mark all moves my place in the room (`markRead`), or for a thread's row in the thread
+  (`markThreadRead`), to the row's newest message, as a notification's "Mark as read" does with `room.seq`. So the
+  room's unread count, its @ mark, the attention count (tab title, Dock, the phone icon's number) follow, and my other
+  windows and devices hear it through the existing `room.read`, `room.thread` and `notifications.changed` events. A
+  room's plain messages after the row's newest one stay unread.
+- **The button** is a quiet text button at the end of the tools row ("Mark all as read", 모두 읽음 표시), shown only while
+  the open tab has an unread row (loaded rows, or for All the server's unread count), disabled while the call runs. The
+  rows and dots read at once; the page then reads the list again, and so do the sidebar's count and the tab dots.
+- **One signal per call** (follow-up review): the bulk read runs in one transaction with the rooms' per-row
+  `notifications.changed` held back (`Rooms.hold`) and sends one at the end; a thread read's own `room.updated` goes once
+  per room. `room.read` and `room.thread` still go per room and thread (each carries its own state). All builds no row
+  text (its rule always holds).
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (tab by tab, only mine, idempotent, room places),
+  `web/test/unit/activity-mark-all.test.tsx`, `web/test/e2e/activity-mark-all-read.spec.ts` (1440 and 390).
+
+## Team link: show and change the groups people join (feat/team-link-groups, 2026-11-13, QA TC-458)
+
+- **Problem.** A team link made with the group "leads" put everyone who joined into leads (so its room and a project
+  that group writes). The Invite links row did not say which groups the link adds, and changing them meant a new link,
+  which breaks the address already sent.
+- **Decided (owner).** The row says it in words: "Joins: Leads" / "Joins no groups" (also the phone row of TC-390 and
+  single-use invite rows; a lead invite keeps its own text). The team link popup has the same line with a quiet
+  "Change groups", which opens the same group checks as making a link, Save / Cancel and one line: people who already
+  joined keep their groups. The checks (making and changing) carry a small "Make a new group" link to Admin › Groups;
+  no inline group making, and none in the welcome steps' folded form (it would leave the wizard).
+- **Server.** `PATCH /api/admin/team-link` takes `groupIds` (replace) beside `addGroupIds` (add, the welcome steps).
+  Admin only; unknown ids → 400; groups deleted since drop out (also from what GET shows); refused (410, reason
+  `expired`/`stopped`) on a link that no longer works; no open link → 404. Token, uses and expiry stay. Audit
+  `team_link.update` with `groupIds` (after) and `from` (before). Nobody's groups change: only people who join later.
+- **Review fixes.** A join reads the link's groups (and skill) again inside its write, so a join waiting on the
+  password hash while the admin changes the groups gets the new ones. When the replaced groups cannot open the link's
+  own skill, the skill is taken off (audited `skillCleared`; the popup says so), not refused: refusing would leave the
+  admin unable to take a wrong group off a link whose skill only that group opens, which is TC-458 itself. A skill asked
+  for in the same PATCH is still refused, as on create. A PATCH that changes nothing writes no row. Once an admin chose
+  the groups (`groupsChosen`, from the audit row with `from`), the welcome steps no longer add the team's group back.
+- Tests: `tests/unit/a-team-links.test.ts` ("changing the groups of the open link"), `tests/unit/a-team-link-starter.test.ts`,
+  `web/test/unit/team-link.test.tsx`, `web/test/unit/onboarding-polish.test.tsx`, `web/test/e2e/team-link.spec.ts`;
+  screenshots `web/test/e2e/shots-team-link-groups.spec.ts` (`TEAM_LINK_GROUPS_SHOTS`).
+
+## AI 답변 알림 — a push when an answer in my AI chat needs me (feat/push-ai-answer-done, 2026-11-12, QA TC-442)
+
+넣을 곳: Team AX core (`server/src/notifications/`, `server/src/chat/turn.ts`, `shared/src/api/notifications.ts`,
+`web/pwa/sw.js`, Settings › Notifications, `push-gateway/src/text.ts`). Why: notifications and push are core.
+
+- **Problem.** Pushes reached the phone for DMs, mentions, room notices and scheduled tasks, but not when an answer in a
+  personal AI chat finished: someone who asks Trina something and puts the phone away never heard that it was there.
+- **One event, `chat.answer_done`.** The same states as the chat list's "needs you" (`shared/src/api/attention.ts`): the
+  answer finished (`done`), failed, or the AI waits for the person (a question or a yes/no card every window shows:
+  `waiting`). The notice keeps the kind (`chat_answer_notices`, migration 347, with `chat_answer_push_deliveries`); the
+  push and the lock screen say one generic line for all three ("Trina replied in your chat."), in the person's language.
+- **Who.** The person who asked that turn (`spec.userId`): in a shared project chat the asker, never its creator or the
+  other members. Never a scheduled run (schedule.* has its own), a question from Slack (answered there), a room's AI
+  (rooms have their own), an answer the person stopped or a server stop cut off, a turn the server started by itself (no client: skill drafts,
+  merges, file ranking). Not one of the server's own chats.
+- **Not while I look at it.** The server does not know which chat a window shows, but a visible window that has a chat
+  on screen marks its answer seen (POST /api/chats/:id/seen, "Session markers"). So the notice is made before the
+  chat's update goes out, and its push waits (`push_at`: 10 s; a card 30 s, since nothing marks a card seen) and goes
+  only while the answer is still unseen, or the card still open (asked again right before and after each send). A
+  shared chat keeps one seen mark, its creator's: for another asker the push goes regardless (coalesced as below).
+- **One push per answer, never per step.** The source is the turn (a card: `<turn>.ask`, one per turn however many
+  cards it opens). A finished answer of a chat whose earlier finished answer was told within 10 minutes, unread and not
+  seen since, makes none: a burst of answers is one push.
+- **Tap.** `/c/<chatId>` (the web's chat page; push-events.ts PATH rules, ids only) while the person may still open the
+  chat, else the start page (also a browser's click: the Inbox never lists these); the service worker opens the chat
+  from the signed-in fetch of the notice.
+- **Lock screen and label (TC-365).** The payload carries ids and the event code only. The iPhone's notification
+  extension acts on `room.*` only (the APNs payload is mutable for those alone), so these pushes show the gateway's
+  generic line and no chat title; no app build. The gateway gets the line in `EVENT_TEXT`; until it is deployed it shows
+  its generic `chat.*` text ("You have a new message"). The badge number is the same one count n as before.
+- **Setting.** Settings › Notifications › Tasks and connections: "AI chat answers" (`chatAnswers`, default on; column
+  `notification_preferences.chat_answers`). Off makes no notice and cancels deliveries that wait, as the other events.
+- **Not in the Inbox.** The chat list's markers already show these chats; the notices are neither listed nor counted
+  there (`LISTED` leaves the table out), only fetched by the push.
+- Left out: quiet hours (the person just asked), the chat's title on the lock screen (it would need the extension and
+  the gateway's mutable rule for `chat.*`).
+- Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
+  `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
+- Version impact: **minor**.
+
+## Docs-only pull requests run only the doc checks (ci/docs-only-fast, 2026-11-13, product owner)
+
+- **Why:** the owner: waiting ~10 minutes of builds and tests for a pull request that only edits DECISIONS or a changes
+  fragment is pointless; those files reach no build, no test and no app.
+- **How (`.github/workflows/ci.yml`):** a `scope` job diffs the pull request's merge commit against its base (first
+  parent). When every changed file is Markdown directly under `docs/` or `changes/`, the `docs` job runs
+  `features:check` and `check:docs` (onboarding doc contracts, tooltips, changelog), and `static`, `unit` and `other`
+  are skipped. The required check (`check`, "typecheck, native, unit, fast fuzz, web, relay") keeps its name: on that
+  path it passes when `scope` and `docs` passed; otherwise it needs `static`, `unit` and `other` as before.
+- **Not docs-only:** anything else, including `docs/features.ts`, `docs/api/`, `README.md` and the workflow itself; a
+  push to dev or main, a manual run and a run called by release.yml always run everything.
+
+## Room @트리나 code removed (fix/remove-room-ai-mention, 2026-11-13, product owner)
+
+- **Decision:** the owner, 2026-11-13: "코드도 삭제해줘". "@트리나" in rooms has been off since "Trina side chat, PR 2"
+  (2026-11-09); this removes its code and the `roomAiMentions` switch. It supersedes that entry's "Later:" line. People
+  ask the AI in the ✦ side chat beside a room (a personal chat) and send an answer with "대화방에 보내기".
+- **Removed:** the ask in `Rooms.send`; `rooms/ai.ts` (RoomAi: the room AI turn, its context block, where an answer
+  goes, private previews and their posting, stop, sources), `rooms/ai-redecide.ts`, `rooms/earlier-sources.ts`,
+  `rooms/ai-context.ts` (the room's <room_context> block and room_thread); `chat/room-project-chats.ts` (project_chats,
+  project_chat); the room session's own tools (room_file / save_room_file "here", room_thread) and schemas; the room
+  session branches of `chat/turn.ts`, `chat/tools.ts`, `chat/runtime.ts` (RoomTurns), `chat/prompt.ts` (the room section
+  and its allowlist) and the connection tools' `room` flag; the endpoints getRoomAi, stopRoomAi, listRoomAiRequests,
+  shareRoomMessage and roomMessageSources; the events room.ai, room.ai.run and room.ai.step; Room.aiWaits; RoomMessage
+  preview, answeredPrivately and sourceCount; in the web app the AI row of the "@" list, the "@트리나" token, the room's
+  AI status lines, the preview line with "방에 올리기…", the "?" badge for a waiting room AI and their strings in five
+  languages.
+- **Kept:** the ✦ side chat and every tool of a person's own chat (rooms, room_read, room_file, save_room_file,
+  post_to_room), "대화방에 보내기", "이 방에서는 항상 허용" grants (rooms/ai-grants.ts: used by the side chat), the room
+  history and hidden answers (rooms/history.ts, which still reads room_ai_turns.scope for old answers), mentions of
+  people and "@전체".
+- **Old data:** no table or row is dropped. An AI answer already posted to a room stays an ordinary message
+  (authorKind 'ai', "○○ 님이 물어봄" above it; no "참고한 파일" list any more). An unposted private preview is no longer
+  listed to anyone (canSee, SEE_SQL); its chat (chats.room_id) stays hidden from 트리나 기록 as before, and a turn left
+  queued in one refuses to run. `roomAiMentions` in server.json is accepted and ignored (OBSOLETE_KEYS, logged once).
+- **Tests:** the room-AI-only tests went (b-rooms-ai*, b-room-ai-grants, room-ai unit and e2e specs, their security
+  cases); the side chat's grant cases stay in b-chat-rooms-fewer-cards. Settings › 트리나에게 허용한 것 and the admin
+  switch are in web/test/e2e/ai-allowances.spec.ts.

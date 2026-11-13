@@ -1,0 +1,1 @@
+- Team settings > Dev environment: the messages that appear when a change cannot be saved (the server cannot run it, a site address that is not allowed, too many sites, an unknown group or person, the warning to accept first) now come in the person's own language instead of English.

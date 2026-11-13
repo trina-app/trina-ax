@@ -192,6 +192,12 @@ export const appConnectorLogo = (a: AppConnector) => `/icons/connectors/${a.logo
 export const BUILT_IN = APP_CONNECTORS
 export const builtInLogo = (id: AppConnector['id']) => appConnectorLogo(APP_CONNECTORS.find((b) => b.id === id)!)
 
+/** Slack (docs/SLACK.md): not an app the AI uses for a person but the team's way to ask the AI in Slack, set up by the
+ * owner or an admin. One row of Admin › Connected apps, its page at /admin/connectors/slack. */
+export const SLACK_APP = { id: 'slack', name: 'Slack', logo: 'slack.svg' } as const
+export const slackLogo = `/icons/connectors/${SLACK_APP.logo}`
+export const SLACK_ADMIN_PATH = `/admin/connectors/${SLACK_APP.id}`
+
 /** Outside AI apps that can use this server's MCP connector (Settings › AI apps, components/integrations/
  * AiAppConnect.tsx). Only apps whose sign-in the server accepts are named: the connector's OAuth takes claude.ai's
  * callback (Claude on the web, desktop and phone) and a loopback http://localhost/…/callback (Claude Code, Codex and

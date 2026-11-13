@@ -45,7 +45,6 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   const own = 'the user can ask for it in one of their own chats, or do it on the Files screen'
   if (files && files !== exec.files) return r('only the main AI may change skill folders, where the user answers its card; a helper (sub-agent) cannot ask the user', 'put it in your report; the main AI calls skill_files itself', 'sub-agent')
   if (exec.spec.clientKind === 'schedule') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
-  if (exec.room) return r('this is a team chat room, where skill folders are not changed (other people\'s words could steer it)', own, 'room')
   if (exec.shared) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')

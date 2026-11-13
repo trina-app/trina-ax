@@ -12,6 +12,9 @@
 //      it goes on across pages and guards a reload; the step reopens on its newest run, never on F1. Hand-picked and
 //      dropped files run the same way, skipping what is already there (no "(1)" copies). The run's first landed file
 //      records 팀 파일 done on the server (POST /api/onboarding/files/landed), whoever of the owners and admins started it.
+//   F6 the folder plan (OrganizeFiles.tsx, docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"): a run into 전사
+//      공유 that ended without a failure is read and sorted ("읽고 정리하는 중… n/N"), proposed as folders, applied on
+//      [이대로 정리]; nothing to sort ends on F5 as before. The start says so: "AI가 파일 내용을 읽고 정리해요".
 // A phone has no folder: [파일 직접 올리기] only. The list, the AI's answer and the ticks live in this tab while it stays
 // open (← 이전 and back, another page and back: no second AI call). The Files screen offers the same steps in a dialog to
 // owners and admins while the team folder holds no file (TeamFilesEntry).
@@ -34,8 +37,10 @@ import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../.
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
+import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
+import { beginOrganize, OrganizeView, organizeWanted, rememberLanded, useOrganize } from './OrganizeFiles'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 
 const L = TEAM_FILES_LIMITS
@@ -235,9 +240,12 @@ function stopNow() {
 /** The step's upload run into `base` (F4/F5). The first file that lands records 팀 파일 done, once per run. */
 function startStepRun(plan: FolderPlan, base: string): Run {
   let reported = false
+  // every landed path: the folder plan sorts them once the run is done (OrganizeFiles.tsx)
+  const landed: string[] = []
   const run = startFolderUpload(plan, base, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}` }), {
     tag: TAG,
     onLanded: (path) => {
+      landed.push(path)
       if (reported) return
       reported = true
       api.call(API.teamFilesLanded, { body: { path } }).then(
@@ -246,6 +254,7 @@ function startStepRun(plan: FolderPlan, base: string): Run {
       )
     },
   })
+  rememberLanded(run.view.id, landed)
   patch({ screen: 'run' })
   return run
 }
@@ -298,6 +307,13 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const home = team ? homePlace(team, me.team.name, words.name(SHARED_HOME, SHARED_HOME)) : null
   const draft = useDraft()
   const run = useRuns((s) => s.tagged[TAG] ?? null)
+  const org = useOrganize()
+  const runStatus = run?.view.status
+  // a finished run that landed files in 전사 공유: the folder plan starts (once per run)
+  useEffect(() => {
+    if (organizeWanted(run)) void beginOrganize(run!)
+  }, [run, runStatus, org.runId])
+  const organizing = !!run && org.runId === run.view.id && (org.org.s === 'reading' || org.org.s === 'proposal' || org.org.s === 'result')
   // the team's home, and other groups' folders (Admin's folder list knows which folder is whose); with shared/ as the
   // home the team group's own folder is not offered (shared/ is the team's place: the same people and more)
   const [places, setPlaces] = useState<Place[]>(() => (home ? [home] : []))
@@ -425,6 +441,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
 
   let body: ReactNode
   if (draft.phase !== 'idle') body = <Looking phase={draft.phase} count={draft.count} />
+  else if (draft.screen === 'run' && run && organizing) body = <OrganizeView uploaded={run.view.done} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run) body = <RunView run={run} places={places} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} onMore={phone ? null : () => void pickFolder(false)} />
   else if (draft.screen === 'list' && draft.docs.length) body = <ListView draft={draft} places={places} place={place} phone={phone} busy={stepBusy} later={later} onAddFolder={() => void pickFolder(true)} onOtherFolder={() => void pickFolder(false)} />
   else if (phone) {
@@ -432,6 +449,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
       <div className="space-y-5">
         <StepHead title={t('welcome.teamFiles.phoneTitle')} desc={t('welcome.teamFiles.phoneDesc')} />
         {place ? <TeamReach team={place.who} groupId={place.groupId} /> : <p className="text-label text-muted">{t('welcome.teamFiles.noFolder')}</p>}
+        {place?.id === SHARED_HOME && <OrganizeLine />}
         {notes}
         <div className="space-y-2">
           {place && (
@@ -463,6 +481,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
             {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
             <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
             <TeamReach team={place.who} groupId={place.groupId} />
+            {place.id === SHARED_HOME && <OrganizeLine />}
             {notes}
           </div>
         ) : <p className="text-label text-muted">{t('welcome.teamFiles.noFolder')}</p>}
@@ -480,7 +499,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   // the start shows these in its own place; the list and the run under everything
   const below = draft.phase === 'idle' && ((draft.screen === 'run' && run) || (draft.screen === 'list' && draft.docs.length))
   return (
-    <div className={clsx('rounded-xl', over && 'ring-2 ring-accent/30 ring-offset-4 ring-offset-bg')} {...dropZone} data-testid="welcome-team-files" data-screen={draft.phase !== 'idle' ? 'looking' : draft.screen}>
+    <div className={clsx('rounded-xl', over && 'ring-2 ring-accent/30 ring-offset-4 ring-offset-bg')} {...dropZone} data-testid="welcome-team-files" data-screen={draft.phase !== 'idle' ? 'looking' : draft.screen === 'run' && organizing ? 'organize' : draft.screen}>
       {inputs}
       {body}
       {below && (skipped > 0 || error) && <div className="mt-3 space-y-2">{notes}</div>}
@@ -493,6 +512,18 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
 function MacBlocked({ folder }: { folder: string }) {
   const t = useT()
   return <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-blocked">{t('welcome.teamFiles.macBlocked', { folder })}</p>
+}
+
+/** The start's promise (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"): where the files go and that the AI
+ * reads them to sort them (the W6 "names only" rule ends at the upload); shown only while an AI answers the person. */
+function OrganizeLine() {
+  const t = useT()
+  const words = useFolderWords()
+  // only when the AI will read them: no AI answers this person, no line (the name rules sort without reading)
+  const ai = useAiAccess()
+  useEffect(() => { void useAiAccess.getState().load() }, [])
+  if (!ai.loaded || !ai.usable) return null
+  return <p className="text-label text-muted" data-testid="welcome-team-files-organize-line">{t('welcome.teamFiles.organizeLine', { shared: words.name(SHARED_HOME, SHARED_HOME) })}</p>
 }
 
 function StepHead({ title, desc }: { title: string; desc?: string }) {

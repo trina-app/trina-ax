@@ -65,6 +65,10 @@ export const useHandover = create<State>((set, get) => ({
   reset() { generation++; inflight = null; set({ loaded: false, state: null }) },
 }))
 
+/** Home's card waits: the lead flag is offered and someone joined with the lead link, and the owner has not closed it
+ * (components/handover/HandoverCard.tsx useLeadCard; the welcome steps' resume holds for it, WelcomeResume.tsx). */
+export const leadCardWaiting = (s: HandoverState | null) => !!s?.flag && !!s.card && !s.card.dismissed
+
 /** This window handed the role over a moment ago: the realtime owner_changed that follows is not toasted a second time
  * (the dialog already said it). */
 let transferredAt = 0

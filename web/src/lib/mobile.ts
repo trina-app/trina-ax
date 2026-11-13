@@ -240,8 +240,9 @@ function fromBase64(b64: string): Uint8Array {
  * `limit`, [] when they cancelled; `tooBig`, the names the app left out for their size (50 MiB a file, 200 MiB a pick).
  * Only bytes cross: never a path or a URL, and nothing is fetched. Each chunk is asked for in order and must be exactly
  * as long as the file says. Rejects with photo_denied when the phone refused access, and with an AbortError when the
- * page moved on (a navigation, a team change, a sign-out); the app then drops the pick itself. */
-export async function pickPhotosFromApp(limit: number): Promise<{ files: File[]; tooBig: string[] }> {
+ * page moved on (a navigation, a team change, a sign-out); the app then drops the pick itself. `onAnswer`: the picker
+ * has answered, with this many bytes still to come. */
+export async function pickPhotosFromApp(limit: number, onAnswer?: (bytes: number) => void): Promise<{ files: File[]; tooBig: string[] }> {
   const turn = epoch
   await barrier
   if (turn !== epoch) throw cancelled()
@@ -260,6 +261,7 @@ export async function pickPhotosFromApp(limit: number): Promise<{ files: File[];
     asked = !Array.isArray(reply.files) || reply.files.length > 0
     const tooBig = reply.tooBig ?? []
     if (!validPicks(reply.files, tooBig, want)) throw new Error('mobile_protocol_mismatch')
+    onAnswer?.(reply.files.reduce((n, f) => n + f.size, 0))
     const files: File[] = []
     let seq = 0
     for (const [index, f] of reply.files.entries()) {
@@ -292,7 +294,10 @@ async function sendAppearance(): Promise<void> {
 /** Where Back goes in this page (nav-v1, lib/appNav.ts): the latest the page worked out. */
 export interface AppNav { canGoBack: boolean; home: boolean }
 let nav: AppNav | null = null
-/** what the app last heard, for this bridge (nonce and generation): a send of the same is skipped */
+/** what the app last heard, for this bridge (nonce and generation) and this history entry: a send of the same is
+ * skipped. The entry counts (its address and key), not only the answer: Android's app forgets what it heard when the
+ * WebView reports some same-document moves as a load start (mobile/App.tsx onLoadStart), so a move to a screen with
+ * the same answer (나's root → 프로젝트's root, both "no Back, not home") must tell it again (QA TC-404). */
 let navSent = ''
 /** Tells the app where Back goes (nav-v1: the iOS edge swipe, Android's Back): when it changes, when the bridge comes
  * and again after every session reset (a send the reset fenced off is not lost). Like the look, not tied to a session:
@@ -306,7 +311,10 @@ async function sendNav(): Promise<void> {
   const config = mobileApp()
   if (!nav || !config?.capabilities.includes(NAV_CAPABILITY)) return
   const { canGoBack, home } = nav
-  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}`
+  const at = typeof location === 'undefined' ? '' : `${location.pathname ?? ''}${location.search ?? ''}`
+  const key = typeof history === 'undefined' ? '' : String((history.state as { key?: unknown } | null)?.key ?? '')
+  const entry = `${at}#${key}`
+  const sent = `${config.nonce}:${config.generation}:${canGoBack}:${home}:${entry}`
   if (sent === navSent) return
   navSent = sent
   try {

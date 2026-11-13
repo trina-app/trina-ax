@@ -129,6 +129,59 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await expect(palette(page)).toHaveCount(0)
 })
 
+test('History rows say when and in which project; opened in a project, its chats come first (QA TC-420, TC-421)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const p = await post(page, '/api/projects', { name: 'Launch plan', scope: 'team', folderPath: 'marketing', instructions: '' })
+  expect(p.status()).toBe(201)
+  const projectId = ((await p.json()) as { id: string }).id
+  const made = async (title: string, inProject = false) => ((await (await post(page, '/api/chats', { title, ...(inProject ? { projectId } : {}) })).json()) as { id: string }).id
+  const inProject = [await made('프로젝트 기록 하나', true), await made('프로젝트 기록 둘', true)]
+  for (const title of ['다른 기록 하나', '다른 기록 둘', '다른 기록 셋']) await made(title)
+  const history = () => palette(page).getByTestId('search-section-chats').getByRole('option')
+  const names = () => history().getByTestId('search-row-name')
+  const openHistory = async () => {
+    await open(page)
+    await palette(page).getByTestId('search-tab-chats').click()
+    await expect(history()).toHaveCount(5)
+  }
+
+  // Home: my list as it is (the latest first), each row with its time and its project grey on the right
+  await page.goto('/')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await openHistory()
+  await expect(names()).toHaveText(['다른 기록 셋', '다른 기록 둘', '다른 기록 하나', '프로젝트 기록 둘', '프로젝트 기록 하나'])
+  const meta = history().nth(3).getByTestId('search-row-meta')
+  await expect(meta).toHaveText(/^\S.* · Launch plan$/)
+  await expect(history().first().getByTestId('search-row-meta')).not.toContainText('·')
+  const [row, m] = [await history().nth(3).boundingBox(), await meta.boundingBox()]
+  expect(m!.x).toBeGreaterThan(row!.x + row!.width / 2)
+  await page.keyboard.press('Escape')
+
+  // the project's page: its chats first, then the rest
+  await page.goto(`/projects/${projectId}`)
+  await expect(page.getByTestId('project-chats')).toBeVisible()
+  await openHistory()
+  await expect(names()).toHaveText(['프로젝트 기록 둘', '프로젝트 기록 하나', '다른 기록 셋', '다른 기록 둘', '다른 기록 하나'])
+  await page.keyboard.press('Escape')
+
+  // a chat in the project: the same; a chat in no project: as on Home
+  await page.goto(`/c/${inProject[0]}`)
+  await expect(page.getByTestId('chat-menu')).toBeVisible()
+  await openHistory()
+  await expect(names().first()).toHaveText('프로젝트 기록 둘')
+  await expect(names().nth(1)).toHaveText('프로젝트 기록 하나')
+  await page.keyboard.press('Escape')
+  await page.goto('/files')
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
+  await openHistory()
+  await expect(names().first()).toHaveText('다른 기록 셋')
+
+  // search results: the same grey line
+  await input(page).fill('프로젝트')
+  await expect(history().first().getByTestId('search-row-meta')).toHaveText(/ · Launch plan$/)
+})
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`search passes the accessibility checks (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })

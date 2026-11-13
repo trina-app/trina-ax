@@ -58,6 +58,14 @@ export function pickedName(name: string | null | undefined, mime: string, index:
   return safeFileName(out) === out ? out : `${fallback}${tail}`
 }
 
+/** A picked file's size: the copy's on disk; when that reads as none (0: missing, or not readable to the app), what the
+ * picker said, so the file is not left out without a word (a size that does not match the copy then fails its chunk:
+ * the page says the photos did not come). */
+export function assetSize(onDisk: number | null | undefined, reported: number | null | undefined): number {
+  if (typeof onDisk === 'number' && Number.isSafeInteger(onDisk) && onDisk > 0) return onDisk
+  return typeof reported === 'number' && Number.isSafeInteger(reported) && reported > 0 ? reported : 0
+}
+
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 /** Base64 without a global btoa (React Native's engine may lack one), in blocks of 12 KiB so padding is only at the end. */
 export function base64Bytes(bytes: Uint8Array): string {

@@ -16,6 +16,7 @@ import { fullInternet, removeUserSite, setFullInternet, userSites } from '../dev
 import { findRun, fullAvailable, networkNow, planState, previewPortProblem, previewRow, previewSupported, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
 import { pollSrt, startJobTracker } from '../devenv/jobs'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
+import { devEnvMsg, siteProblemMessage } from '../devenv/messages'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
@@ -144,13 +145,14 @@ export const devEnvRoutes: RouteModule = {
       await narrowNow(auth.user.id)
       return mySites(auth.user.id)
     })
-    kit.handle(API.setMyDevEnvFullInternet, async ({ body, auth }) => {
+    kit.handle(API.setMyDevEnvFullInternet, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
       const now = mySites(auth.user.id)
       if (body.on) {
         // the person turns it on for herself: no admin step, but the warning first; never with No network
-        if (now.state !== 'on') fail('conflict', 'The dev environment has no network for you now.', { params: { reason: 'dev_env_no_network' } })
-        if (!fullAvailable()) fail('conflict', 'This server cannot run Full internet.', { params: { reason: 'dev_env_full_unavailable' } })
-        if (body.acceptWarning !== DEV_ENV_FULL_WARNING_VERSION) fail('conflict', 'Accept the Full internet warning first.', { params: { reason: 'dev_env_full_warning', warningVersion: DEV_ENV_FULL_WARNING_VERSION } })
+        if (now.state !== 'on') fail('conflict', devEnvMsg('noNetwork', locale), { params: { reason: 'dev_env_no_network' } })
+        if (!fullAvailable()) fail('conflict', devEnvMsg('fullUnavailable', locale), { params: { reason: 'dev_env_full_unavailable' } })
+        if (body.acceptWarning !== DEV_ENV_FULL_WARNING_VERSION) fail('conflict', devEnvMsg('fullWarning', locale), { params: { reason: 'dev_env_full_warning', warningVersion: DEV_ENV_FULL_WARNING_VERSION } })
       }
       const before = fullInternet(ctx.db, auth.user.id)
       setFullInternet(ctx.db, auth.user.id, body.on)
@@ -171,25 +173,26 @@ export const devEnvRoutes: RouteModule = {
       if (!devEnvFlag()) fail('not_found')
       return teamView()
     })
-    kit.handle(API.updateDevEnvTeam, async ({ body, auth }) => {
+    kit.handle(API.updateDevEnvTeam, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
       if (!devEnvFlag()) fail('not_found')
       const before = teamSetting(ctx.db)
       const after = { ...before, limits: { ...before.limits, ...(body.limits ?? {}) } }
       if (body.extraDomains) {
         const list = cleanExtraDomains(body.extraDomains)
-        if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
+        if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', devEnvMsg('maxSites', locale, { n: DEV_ENV_MAX_EXTRA_DOMAINS }))
         const hosts = teamHosts(ctx)
         for (const d of list) {
           const why = extraDomainProblem(d, hosts)
-          if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
+          if (why) fail('validation', siteProblemMessage(d, why, locale), { fields: { 'body.extraDomains': `${d}: ${why}` } })
         }
         after.extraDomains = list
       }
       if (body.scope) {
         const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
-        if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', 'Unknown group.', { fields: { 'body.scope.groupIds': 'unknown group' } })
+        if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', devEnvMsg('unknownGroup', locale), { fields: { 'body.scope.groupIds': 'unknown group' } })
         const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
-        if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', 'Unknown person.', { fields: { 'body.scope.userIds': 'unknown person' } })
+        if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', devEnvMsg('unknownPerson', locale), { fields: { 'body.scope.userIds': 'unknown person' } })
         after.scope = body.scope
       }
       if (body.network) after.network = body.network
@@ -197,9 +200,9 @@ export const devEnvRoutes: RouteModule = {
       // turning on: the server must run srt, and the current warning must be accepted
       if (after.enabled && !teamInForce(before)) {
         const a = await availability()
-        if (!a.available) fail('conflict', 'This server cannot run the dev environment.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
+        if (!a.available) fail('conflict', devEnvMsg('unavailable', locale), { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
         if (after.consent?.warningVersion !== DEV_ENV_SRT_WARNING_VERSION) {
-          if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
+          if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', devEnvMsg('warning', locale), { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
           after.consent = newConsent({ id: auth.user.id, name: auth.user.name })
           audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: null, detail: { warningVersion: DEV_ENV_SRT_WARNING_VERSION, team: true } })
         }

@@ -154,7 +154,7 @@ describe('who sees a hit', () => {
     expect((JSON.parse(text) as { items: RoomMessage[] }).items.find((m) => m.id === a.answerId)).toMatchObject({ withheld: true, body: '' })
   })
 
-  test('a 1:1 chat is found only by its two people; a private preview only by its person', async () => {
+  test('a 1:1 chat is found only by its two people; an old private preview by nobody', async () => {
     const room = await dm('alice', 'bob')
     await send('alice', room, 'DM-CANARY 견적 just for you')
     for (const u of ['alice', 'bob']) expect(bodies(await search(u, 'DM-CANARY'))).toEqual(['DM-CANARY 견적 just for you'])
@@ -162,9 +162,9 @@ describe('who sees a hit', () => {
     const page = await search('bob', 'DM-CANARY')
     expect(page.items[0]).toMatchObject({ roomId: room, authorKind: 'user', author: { id: 'alice', name: 'Alice Kim' }, threadRootId: null, markdown: false })
     expect(page.rooms).toEqual([{ id: room, kind: 'dm', name: null, peers: [{ id: 'alice', name: 'Alice Kim' }], memberCount: 2 }])
-    // the AI's private preview for alice in the room
+    // an old private preview of the room AI for alice: nobody finds it now
     put(room, 'alice', 'PREVIEW-CANARY only alice sees this', { privateTo: 'alice' })
-    expect(bodies(await search('alice', 'PREVIEW-CANARY'))).toEqual(['PREVIEW-CANARY only alice sees this'])
+    expect(await rawSearch('alice', 'PREVIEW-CANARY')).not.toContain('only alice')
     expect(await rawSearch('bob', 'PREVIEW-CANARY')).not.toContain('only alice')
   })
 

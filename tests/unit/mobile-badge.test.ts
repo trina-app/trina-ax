@@ -3,7 +3,9 @@
 // dialog), takes the page's number over the bridge only with badge-v1, and sets the latest one.
 import { expect, test } from 'bun:test'
 import { FileTransfers, MobileReceiver, type TransferIO } from '../../mobile/src/bridge'
-import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, validBadge } from '../../mobile/src/badge'
+import fs from 'node:fs'
+import path from 'node:path'
+import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber, validBadge } from '../../mobile/src/badge'
 import { BADGE_CAPABILITY, MAX_BADGE, MOBILE_CAPABILITIES, PUSH_CAPABILITY, parseMessage, type MobileConfig } from '../../mobile/src/protocol'
 import { PUSH_GATEWAY_MAX_BADGE } from '../../shared/src/cloud-protocol/push-gateway'
 import { APP_BADGE_MAX } from '../../shared/src/api/attention'
@@ -78,4 +80,16 @@ test('AppBadge: one call at a time, the latest wins, a failure changes nothing, 
   fail = false
   await badge.clear()
   expect(set).toEqual([1, 3, 7, 0])
+})
+
+test('the app sets the icon number on the iPhone only; Android never calls setBadgeCountAsync, not even with 0 (QA TC-408)', () => {
+  expect(setsIconNumber('ios')).toBe(true)
+  for (const p of ['android', 'web', 'windows', 'macos']) expect(setsIconNumber(p)).toBe(false)
+  // the one place that sets it goes through that check (sign-out and team change clear through appBadge too)
+  const push = fs.readFileSync(path.join(import.meta.dir, '../../mobile/src/push.ts'), 'utf8')
+  const calls = push.split('\n').filter((l) => l.includes('setBadgeCountAsync('))
+  expect(calls).toHaveLength(1)
+  expect(calls[0]).toContain('setsIconNumber(Platform.OS)')
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).not.toContain('setBadgeCountAsync')
 })
