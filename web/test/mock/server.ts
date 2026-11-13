@@ -2653,7 +2653,8 @@ export class MockServer {
       for (const [k, v] of [...this.files.entries()]) if (k.startsWith(p.folderPath + '/')) this.files.set(to + k.slice(p.folderPath.length), { ...v })
       this.projectMembers.set(to, { creator: c.user.id, participants: c.body.participants ?? [], version: 1 })
       p.folderPath = to
-      return p
+      // the project as the server answers it (routes/chats.ts projectOut): its audience counted, as GET reads it
+      return this.sharedProjectOut(p, c.user)
     },
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on needs the
     // current warning accepted

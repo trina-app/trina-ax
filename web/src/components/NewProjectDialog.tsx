@@ -36,7 +36,7 @@ export function NewProjectDialog({ initialName = '', onClose, onMade }: { initia
     const el = input.current
     if (!el) return
     el.focus()
-    el.select()
+    if (typeof el.select === 'function') el.select()
   }, [])
   const finalName = name.normalize('NFC').trim()
   // a personal project I see with the same name (where the new one goes)
