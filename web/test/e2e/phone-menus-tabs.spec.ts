@@ -70,6 +70,14 @@ for (const lang of ['ko', 'en'] as const) {
       const made = await page.request.post('/api/skills/suggestions', { headers: H_, data: { source: { kind: 'file', path: `users/${me.user.id}/tone.md` }, name: 'Mail tone', content: '# Mail tone\n\nShort and kind.' } })
       expect(made.status()).toBe(201)
       await page.goto('/skills')
+      // the row measures its words (ui.tsx PhoneTabs): with a wider system font (the Linux runner's DejaVu Sans) English
+      // does not fit and the row is a picker, on purpose; the rest of this test runs in Korean too
+      const phoneTabs = page.getByTestId('skills-header').getByTestId('tabs-phone')
+      await expect(phoneTabs).toHaveAttribute('data-fits', /^(row|picker)$/)
+      if (lang === 'en' && (await phoneTabs.getAttribute('data-fits')) === 'picker') {
+        test.info().annotations.push({ type: 'note', description: 'English tabs are a picker in this font' })
+        return
+      }
       const tabs = page.getByTestId('skills-header').getByRole('tablist')
       await expect(tabs.getByRole('tab')).toHaveText([t['skills.tabSkillsShort'], `${t['skills.tabReviewShort']} (1)`, t['skills.tabMineShort'], t['skills.tabChangesShort']])
       // the row is the width of the page (16px each side), never scrolls, every word whole

@@ -140,7 +140,10 @@ test('a real drag from the computer (the browser\'s own drag, not made-up events
   await cdp.send('Input.dispatchDragEvent', { type: 'dragEnter', x, y, data })
   await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x, y: y + 5, data })
   await expect(page.getByTestId('drop-overlay')).toHaveCount(1)
-  await cdp.send('Input.dispatchDragEvent', { type: 'drop', x, y: y + 5, data })
+  // a real drag keeps sending dragover: one more now that the overlay is up, so the browser's last answer about the drop
+  // comes from the overlay (a drop that follows only the dragover answered before it was drawn can be refused, CI)
+  await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x, y: y + 6, data })
+  await cdp.send('Input.dispatchDragEvent', { type: 'drop', x, y: y + 6, data })
   await expect(page.getByTestId('drop-overlay')).toHaveCount(0)
   await expect(page.getByTestId('attachment-chip')).toHaveCount(1)
   await expect(page.getByTestId('attachment-chip')).toContainText('icon-192.png')
