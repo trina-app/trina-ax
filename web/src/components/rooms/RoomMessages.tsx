@@ -220,6 +220,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       highlighted={lit === m.id}
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
+                      onEditAgain={() => setEditing((e) => e ?? m.id)}
                       onThread={onThread}
                       onAskTrina={onAskTrina}
                       variant={variant}
@@ -306,7 +307,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -393,7 +394,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
       ) : editing ? (
-        <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
+        <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} onAgain={onEditAgain} />
       ) : deleted ? (
         <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
       ) : (
@@ -580,39 +581,47 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   )
 }
 
-function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void }) {
+/** an edit that failed, by message: its box opens again with the words typed (EditForm) */
+const failedEdits = new Map<string, string>()
+
+/** `onAgain`: the edit failed (the old text is back): open the box again, with the words typed */
+function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void; onAgain: () => void }) {
   const t = useT()
-  const locale = useLocale()
   // the box gives line breaks back as "\n" (a message from another app may have "\r\n"): the mentions' places are counted
   // in the same text
   const body0 = useMemo(() => lineBreaks(m.body), [m.body])
-  const [draft, setDraft] = useState(body0)
-  const [busy, setBusy] = useState(false)
+  const [start] = useState(() => {
+    const kept = failedEdits.get(m.id)
+    failedEdits.delete(m.id)
+    return kept ?? body0
+  })
+  const [draft, setDraft] = useState(start)
   const input = useRef<HTMLTextAreaElement>(null)
   // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole
-  const [picked] = useState(() => pickedInMessage(body0, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
+  const [picked] = useState(() => pickedInMessage(start, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
   // "@전체" only kept or taken out: an edit notifies nobody, so it cannot add one (the server refuses it)
   const everyone = m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null
   const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked, everyone })
-  const save = async () => {
+  // the new text shows at once and the box closes; a failure puts the old text back with its own toast (store/rooms.ts
+  // edit) and opens the box again with the words typed
+  const save = () => {
     const body = draft.trim()
-    if (!body || busy) return
+    if (!body) return
     if (body === body0) return onDone()
-    setBusy(true)
-    try {
-      await useRooms.getState().edit(roomId, m.id, body, mention.mentions(), mention.mentionsAll())
-      onDone()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      setBusy(false)
-    }
+    const mentions = mention.mentions(), all = mention.mentionsAll()
+    onDone()
+    void useRooms.getState().edit(roomId, m.id, body, mentions, all).then((ok) => {
+      if (ok) return
+      failedEdits.set(m.id, draft)
+      onAgain()
+    })
   }
   return (
     <form
       className="my-1 rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
       onSubmit={(e) => {
         e.preventDefault()
-        void save()
+        save()
       }}
     >
       {mention.list}
@@ -629,7 +638,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
             onDone()
           } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
             e.preventDefault()
-            void save()
+            save()
           }
         }}
         className={clsx(inputCls, 'h-auto min-h-16 resize-y border-0 py-2 focus:ring-0!')}
@@ -639,7 +648,7 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
         <Button size="sm" variant="ghost" onClick={onDone}>
           {t('common.cancel')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" busy={busy} disabled={!draft.trim()} data-testid="room-edit-save">
+        <Button size="sm" variant="primary" type="submit" disabled={!draft.trim()} data-testid="room-edit-save">
           {t('common.save')}
         </Button>
       </div>

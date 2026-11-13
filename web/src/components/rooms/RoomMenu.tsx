@@ -86,7 +86,8 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       confirm: t('common.save'),
     })
     if (name === null || name === (room.name ?? '')) return
-    await useRooms.getState().rename(room.id, name || null).catch(fail)
+    // on screen at once; a failure puts the old name back with its own toast (store/rooms.ts rename)
+    await useRooms.getState().rename(room.id, name || null)
   }
   const copyLink = async () => {
     await copy(roomLink(room.id))
