@@ -7,7 +7,7 @@
 import { afterEach, expect, spyOn, test } from 'bun:test'
 import { harness, withOwner, type Harness } from './a-lib'
 import { CLAIM_TRIES, getChatRuntime, processGroupGone, type ChatRuntime } from '../../server/src/chat/runtime'
-import { TurnExec } from '../../server/src/chat/turn'
+import { LAUNCHER_BACKSTOP_MS, QUARANTINE_HOLD_MAX_MS, TurnExec } from '../../server/src/chat/turn'
 import { newId } from '../../server/src/db'
 import { setSetting } from '../../server/src/admin/settings'
 import { waitFor } from '../lib/wait'
@@ -108,8 +108,13 @@ test('an engine still running keeps the slot until the bounded deadline; Stop on
   expect(rt.stopChat(a)).toBe(execs[0]!.id)
   await rt.probeQuarantined()
   expect(rt.runningCount()).toBe(1)
-  // past the wall deadline plus the grace: released, the answer stays failed
-  ;(execs[0] as any).wallEndsAt = 0
+  // held at most 45 minutes past the stop (plus the grace), never until the launch's 12-hour backstop
+  const q = execs[0]!.quarantineState()!
+  const at = (execs[0] as any).quarantinedAt as number
+  expect(q.releaseAt).toBe(at + QUARANTINE_HOLD_MAX_MS + rt.quarantineReleaseGraceMs)
+  expect(q.releaseAt).toBeLessThan(at + LAUNCHER_BACKSTOP_MS)
+  // 45 minutes after the stop, with no grace: released, the answer stays failed
+  ;(execs[0] as any).quarantinedAt = performance.now() - QUARANTINE_HOLD_MAX_MS - 1
   rt.quarantineReleaseGraceMs = 0
   await rt.probeQuarantined()
   expect(rt.queueDiagnostics().quarantined).toBe(0)
@@ -182,7 +187,8 @@ test('a quarantined turn whose launcher never confirms the end is made to end at
   ;(execs[0] as any).quarantine() // what the stop grace does when no exit comes
   await rt.probeQuarantined()
   expect(execs[0]!.status).not.toBe('finished')
-  ;(execs[0] as any).wallEndsAt = 0
+  // 45 minutes after the stop (QUARANTINE_HOLD_MAX_MS), with no grace: the launch's 12-hour backstop is not waited for
+  ;(execs[0] as any).quarantinedAt = performance.now() - QUARANTINE_HOLD_MAX_MS - 1
   rt.quarantineReleaseGraceMs = 0
   await rt.probeQuarantined()
   await execs[0]!.done
