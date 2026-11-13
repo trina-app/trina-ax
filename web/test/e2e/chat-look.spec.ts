@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { drawerButton } from './nav'
+import { tabBar } from './nav'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
 
@@ -220,7 +220,7 @@ test('on a phone the newest answer shows its actions, an older answer or my mess
   await expect(page.getByTestId('composer-phone-footer')).toHaveText(ONLY_ME)
   expect((await page.getByTestId('composer-phone-footer').boundingBox())!.height).toBeLessThanOrEqual(26)
   await expect(page.getByTestId('chat-back')).toBeVisible()
-  await expect(drawerButton(page)).toBeHidden()
+  await expect(tabBar(page)).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await audit(page, 'chat on a phone')
   await ctx.close()

@@ -11,7 +11,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer, openProjectsTab, openTab, tabBar, tabButton } from './nav'
+import { chatList, openProjectsTab, openTab, tabBar, tabButton } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -102,10 +102,7 @@ test.describe('TC-253: Home on a phone', () => {
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     await expect(page.getByTestId('home-scroll')).not.toContainText('Weekly numbers')
-    await openDrawer(page)
-    await expect(page.locator('[data-drawer]').getByTestId('recents-list')).toContainText('Weekly numbers')
-    await page.keyboard.press('Escape')
-    await expect(page.locator('[data-drawer]')).toBeHidden()
+    await expect(await chatList(page)).toContainText('Weekly numbers')
 
     // 2. Scroll: on a short screen (a small phone, the keyboard up) what is above the box scrolls; the box stays at the
     // bottom, never under the top bar

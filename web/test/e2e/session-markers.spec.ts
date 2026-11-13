@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatFilterClear, drawerButton, isNewNav, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
+import { chatFilterClear, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
 
 /** the chat's row in the AI's history on screen (the sidebar or the 트리나 panel; on a phone the drawer or the 트리나 tab) */
 const rowOf = (page: Page, id: string) => navChatRow(page, { id })
@@ -168,8 +168,7 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   await expect(tabMark(page, 'chats')).toHaveAttribute('data-ai-waits', '')
   await expect(tabMark(page, 'chats').locator('[aria-hidden]')).toHaveText('?')
   await expect(tabMark(page, 'chats')).toContainText('18')
-  if (!(await isNewNav(page))) await expect(drawerButton(page)).toBeVisible()
-  await expect(await phoneAiMark(page)).toHaveCount(0)
+  await expect(phoneAiMark(page)).toHaveCount(0)
 })
 
 test.describe('a phone (390 px)', () => {
@@ -187,8 +186,8 @@ test.describe('a phone (390 px)', () => {
     // the answer ends while the chat is not on screen: after the wait, one toast with [열기]; the ☰ dot lights (accent)
     const toast = page.getByTestId('toast').filter({ hasText: '새 답' })
     await expect(toast).toBeVisible({ timeout: 25_000 })
-    await expect(await phoneAiMark(page)).toBeVisible()
-    await expect(await phoneAiMark(page)).not.toHaveAttribute('data-ask', '')
+    await expect(phoneAiMark(page)).toBeVisible()
+    await expect(phoneAiMark(page)).not.toHaveAttribute('data-ask', '')
     // Home lists no chats (the drawer has them: QA TC-253)
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     // the drawer: the dot left of the always-shown "···"
@@ -203,6 +202,6 @@ test.describe('a phone (390 px)', () => {
     await toast.getByTestId('toast-action').click()
     await expect(page).toHaveURL(new RegExp(`/c/${id}$`))
     await page.getByTestId('chat-back').click()
-    await expect(await phoneAiMark(page)).toHaveCount(0)
+    await expect(phoneAiMark(page)).toHaveCount(0)
   })
 })

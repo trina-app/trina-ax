@@ -12,7 +12,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { folderLabel } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { isNewNav, openTab, tabBar, tabButton } from './nav'
+import { openTab, tabBar, tabButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -27,8 +27,7 @@ const back = (page: Page) => page.getByTestId('files-back')
 /** 프로젝트 › 팀 폴더 (QA TC-255) */
 async function teamFolder(page: Page) {
   await openTab(page, 'files')
-  // today: the team folder's root; the new 파일 tab opens on its own list
-  await expect(page).toHaveURL((await isNewNav(page)) ? /\/files/ : /\/files$/)
+  await expect(page).toHaveURL(/\/files/)
 }
 
 async function file(page: Page, path: string, text = 'x') {

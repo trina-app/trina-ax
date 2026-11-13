@@ -11,7 +11,7 @@
 // phone-chats-tab.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { oldNav, tabButtonNow, tabMark } from './nav'
+import { tabButton, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -37,9 +37,8 @@ const INBOX: Item[] = [
 ]
 const HIT = { id: TEAM_MESSAGE, roomId: TEAM, threadRootId: null, authorKind: 'user', author: MINJUN, askedBy: null, markdown: false, snippet: '@Olga 견적서 확인 부탁해요', createdAt: ago(5) }
 
-async function start(page: Page, old = false) {
+async function start(page: Page) {
   await reset(page)
-  if (old) await oldNav(page)
   await routeRooms(page, ROOMS)
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   // GET /api/notifications: every unread row, and the conversation rows' part of it (the server's roomUnreadCount)
@@ -77,7 +76,7 @@ const palette = (page: Page) => page.getByTestId('search-palette')
 const historyLength = (page: Page) => page.evaluate(() => history.length)
 /** a tab of the bar on top (나 is the Settings dialog, which has its own bar over the page's) */
 /** a phone tab (the 나 list draws its own bar over the page's: the last one is the one on show) */
-const tab = (page: Page, name: 'chats' | 'me') => tabButtonNow(page, name)
+const tab = (page: Page, name: 'chats' | 'me') => tabButton(page, name)
 /** Back as the phone does it (the iOS edge swipe, Android's Back): the history's own back */
 const back = (page: Page) => page.goBack({ waitUntil: 'commit' })
 
@@ -273,25 +272,4 @@ export function chatsTabCases() {
     })
   })
 
-  test.describe('a computer', () => {
-    test.use({ viewport: { width: 1440, height: 900 } })
-
-    // today's sidebar (the new navigation has the 멘션·스레드 row on computers too: chats-panel.spec.ts, rail.spec.ts)
-    test('as it was: no 멘션·스레드 row, no 대화 type in search, the sidebar\'s Activity counts everything', async ({ page }) => {
-      await start(page, true)
-      await expect(page.getByTestId('inbox-unread')).toContainText('3')
-      await page.goto('/rooms')
-      await expect(page.getByTestId('rooms-row')).toHaveCount(2)
-      await expect(page.getByTestId('rooms-activity')).toBeHidden()
-      await page.keyboard.press('ControlOrMeta+k')
-      await expect(palette(page)).toBeVisible()
-      await expect(palette(page).getByRole('tab')).toHaveText(['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'].map((x) => t[`search.tab.${x}` as keyof typeof t]))
-      await expect(palette(page).getByRole('combobox')).toHaveAttribute('placeholder', t['search.placeholder'])
-      // Settings › 알림's way to Activity: the whole count, as the sidebar
-      await page.keyboard.press('Escape')
-      await page.goto('/settings/notifications')
-      await expect(page.getByTestId('notifications-activity')).toBeVisible()
-      await expect(page.getByTestId('notifications-activity')).toContainText('3')
-    })
-  })
 }

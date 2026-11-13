@@ -7,14 +7,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
-import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, settingsDialog, tabBar, tabButtonNow } from './nav'
+import { accountButton, chatList, navChatList, navLists, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, phoneTrinaHome, settingsDialog, tabBar, tabButton } from './nav'
 
 const t = DICTS.en
 
-/** `old`: a test of today's sidebar or phone drawer itself (they go with the navigation's phase P7) */
-async function start(page: Page, old = false) {
+async function start(page: Page) {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-  if (old) await oldNav(page)
   await signIn(page)
 }
 
@@ -24,45 +22,24 @@ async function audit(page: Page, where: string) {
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
 }
 
-test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ page }) => {
-  await start(page, true)
-  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
-  // the column is 280 px, its right border included
-  expect(Math.round((await side.locator('..').boundingBox())!.width)).toBe(280)
-  // 트리나에게 묻기 is the one text row; 프로젝트 is an icon of the same height
-  const newChat = side.getByTestId('new-chat')
-  expect(Math.round((await newChat.boundingBox())!.height)).toBe(36)
-  expect(await newChat.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
-  const projects = side.getByRole('link', { name: t['sidebar.projects'] })
-  expect(Math.round((await projects.boundingBox())!.height)).toBe(36)
-  // the section titles are as large as the rows, and bold (TC-149)
-  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('14px')
-})
-
 test('the account menu opens above the profile line (beside the rail\'s photo), moves with the keyboard, and the theme is not in it', async ({ page }) => {
   await start(page)
-  const neu = await isNewNav(page)
   const button = accountButton(page)
   const menu = await openAccountMenu(page)
   const m = (await menu.boundingBox())!
   const b = (await button.boundingBox())!
-  // the sidebar's line at the bottom: the menu above it; the rail's photo: the menu to its right
-  if (neu) expect(m.x).toBeGreaterThanOrEqual(b.x + b.width - 1)
-  else expect(m.y + m.height).toBeLessThanOrEqual(b.y + 1)
+  // the rail's photo: the menu to its right
+  expect(m.x).toBeGreaterThanOrEqual(b.x + b.width - 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
   // first, as in Slack: set yourself away (docs/DECISIONS.md "접속 상태")
-  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none; with the rail, Usage is
-  // in Settings and Deleted history in the 트리나 list
-  await expect(menu.getByRole('menuitem')).toHaveText(neu ? [t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['auth.logout']] : [t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
+  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none; Usage is in Settings
+  // and Deleted history in the 트리나 list
+  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['auth.logout']])
   await expect(menu.getByRole('menuitem', { name: t['presence.setAway'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['status.set'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
-  if (!neu) {
-    await page.keyboard.press('ArrowDown')
-    await expect(menu.getByRole('menuitem', { name: t['sidebar.usage'] })).toBeFocused()
-  }
   await page.keyboard.press('End')
   await expect(page.getByTestId('logout')).toBeFocused()
   await page.keyboard.press('Escape')
@@ -165,7 +142,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(dialog.getByTestId('settings-group-connections').getByRole('link').first()).toHaveAttribute('href', '/settings/connectors')
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
-  await tabButtonNow(page, 'chats').click()
+  await tabButton(page, 'chats').click()
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/rooms$/)
 })
@@ -182,27 +159,6 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   })
 }
-
-test('Deleted chats: in the account menu on a wide screen; on a phone a row of the drawer, which has no 파일 row or account menu (sign-out is in the 나 tab)', async ({ page }) => {
-  await start(page, true)
-  await page.setViewportSize({ width: 1360, height: 820 })
-  await page.goto('/')
-  let side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-  await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
-  await side.getByTestId('account-menu').click()
-  await side.getByTestId('account-trash').click()
-  await expect(page).toHaveURL(/\/trash$/)
-  await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
-  await page.setViewportSize({ width: 390, height: 760 })
-  await page.goto('/')
-  await page.getByRole('button', { name: t['sidebar.open'] }).click()
-  side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-  await expect(side.getByTestId('account-menu')).toBeHidden()
-  await expect(side.getByRole('link', { name: t['sidebar.files'] })).toHaveCount(0)
-  await side.getByRole('link', { name: t['sidebar.trash'] }).click()
-  await expect(page).toHaveURL(/\/trash$/)
-  await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
-})
 
 test('on a wide window a page\'s column is centred beside the sidebar; on a phone it is full width', async ({ page }) => {
   await start(page)
@@ -230,21 +186,13 @@ async function someChats(page: Page) {
   await page.goto('/')
 }
 
-test('Recents folds away; filter, group and sort like Claude\'s, remembered and reset', async ({ page }) => {
-  await start(page, true)
+test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered and reset', async ({ page }) => {
+  await start(page)
   await someChats(page)
-  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
-  const list = side.getByTestId('recents-list')
-  const titles = () => list.getByRole('listitem').allTextContents()
+  const side = await navLists(page)
+  const list = navChatList(page)
+  const titles = () => list.locator('li a[href^="/c/"]').allTextContents()
   await expect(list).toContainText('Plan the launch')
-  // fold and unfold, remembered after a reload
-  await side.getByTestId('recents-toggle').click()
-  await expect(side.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'false')
-  await expect(list).toBeHidden()
-  await page.reload()
-  await expect(side.getByTestId('recents-list')).toBeHidden()
-  await side.getByTestId('recents-toggle').click()
-  await expect(list).toBeVisible()
   // the menu: four rows with their current values, two groups
   await side.getByTestId('recents-filter').click()
   const menu = page.getByTestId('recents-filter-menu')
@@ -278,9 +226,7 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
     await choose('activity', id)
     await expect(list).toContainText('Weekly notes')
   }
-  // Group by: by project by default (docs/DECISIONS.md "Trina history by project"), the chats in no project last even
-  // though the one without a project was made last; by date one choice away
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
+  // Group by: by project by default (the 트리나 list's own groups); by date one choice away
   await choose('group', 'date')
   await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
   await choose('group', 'none')
@@ -300,15 +246,14 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
-  // back to the short list beside the rooms, by project (docs/DECISIONS.md "Trina history by project"): no date groups
-  await expect(side.getByTestId('history-groups')).toBeVisible()
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText(['Launch', t['history.other']])
+  // back to the 트리나 list with its project groups
+  await expect(side.getByTestId('trina-list')).toBeVisible()
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {
-  await start(page, true)
+  await start(page)
   await someChats(page)
-  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
+  const side = await navLists(page)
   await side.getByTestId('recents-filter').focus()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('recents-view-status')).toBeFocused()
@@ -359,19 +304,17 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await row.hover()
   await more.click()
   // the new navigation's lists have folders: "Move to folder" before the project's move
-  const folder = (await isNewNav(page)) ? [t['navFolders.moveTo']] : []
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], ...folder, t['chat.project.add'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['navFolders.moveTo'], t['chat.project.add'], t['common.delete']])
 })
 
-test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {
+test('no quick view on a touch screen; the filter is on the 트리나 tab', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true, locale: 'ko-KR' })
   const page = await context.newPage()
-  await start(page, true)
+  await start(page)
   await someChats(page)
-  await page.getByRole('button', { name: DICTS.en['sidebar.open'] }).or(page.getByRole('button', { name: DICTS.ko['sidebar.open'] })).first().click()
-  const side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-  await expect(side.getByTestId('recents-filter')).toBeVisible()
-  await side.getByRole('listitem').filter({ hasText: 'Weekly notes' }).hover()
+  const list = await chatList(page)
+  await expect(phoneTrinaHome(page).getByTestId('recents-filter')).toBeVisible()
+  await list.getByRole('listitem').filter({ hasText: 'Weekly notes' }).hover()
   await page.waitForTimeout(800)
   await expect(page.getByTestId('chat-peek')).toHaveCount(0)
   await context.close()

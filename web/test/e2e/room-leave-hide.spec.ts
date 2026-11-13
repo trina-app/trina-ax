@@ -10,7 +10,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { allRoomsLink, isNewNav, navRoomLinks, navRoomRow, navRoomsList, roomRowLink, roomRowMenu, showRooms, tabMark } from './nav'
+import { navRoomLinks, navRoomRow, navRoomsList, roomRowLink, roomRowMenu, showRooms, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -43,8 +43,7 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   const state = await start(page)
   await expect(navRoomLinks(page)).toHaveCount(4)
   await expect(navRoomsList(page)).not.toContainText('박지우')
-  // nothing behind "더 보기": the way to every room, the hidden one too (the 대화 panel has no cap, so no such link)
-  if (!(await isNewNav(page))) await expect(allRoomsLink(page)).toBeVisible()
+  // the 대화 panel has no cap: no "더 보기"; the hidden one is behind its own row
 
   // hover: the "⋯" takes the pill's place, with its tooltip
   const row = sidebarRow(page, '김소라')

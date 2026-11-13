@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { makeJpeg, makePng, SVG } from '../../../tests/lib/images'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { isNewNav, oldNav, teamLogo } from './nav'
+import { teamLogo } from './nav'
 
 const file = (name: string, mimeType: string, b: Uint8Array) => ({ name, mimeType, buffer: Buffer.from(b) })
 const iconHrefs = (page: Page) => page.evaluate(() => [...document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')].map((l) => `${l.getAttribute('rel')} ${l.getAttribute('href')}`))
@@ -165,9 +165,8 @@ test('the sidebar header shows a non-square logo cropped, not stretched', async 
   const logo = teamLogo(page)
   await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(240)
   const box = (await logo.boundingBox())!
-  // the sidebar's header: 28 px; the rail's top: 36 px
-  const side = (await isNewNav(page)) ? 36 : 28
-  expect([box.width, box.height]).toEqual([side, side])
+  // the rail's top: 36 px
+  expect([box.width, box.height]).toEqual([36, 36])
   expect(await logo.evaluate((el) => getComputedStyle(el).objectFit)).toBe('cover')
 })
 
@@ -194,21 +193,4 @@ test('main takes focus without an outline; a button inside it still shows its ri
   for (let i = 0; i < 8 && (await page.evaluate(() => document.activeElement?.tagName)) !== 'BUTTON'; i++) await page.keyboard.press('Tab')
   const inside = await page.evaluate(() => ({ in: !!document.activeElement?.closest('main'), style: getComputedStyle(document.activeElement!).outlineStyle }))
   expect(inside).toEqual({ in: true, style: 'solid' })
-})
-
-test('phone width: the menu header keeps the product mark next to the AI name, the logo shows on computers', async ({ page }) => {
-  await reset(page)
-  // today's ☰ drawer itself (the new phone tabs have none: phase P5)
-  await oldNav(page)
-  await signIn(page)
-  await page.goto('/admin/settings')
-  await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
-  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/')
-  await page.getByRole('button', { name: '메뉴 열기' }).click()
-  const drawer = page.locator('[data-drawer]')
-  await expect(drawer.getByTestId('sidebar-logo-phone')).toBeVisible()
-  await expect(drawer.getByTestId('sidebar-logo-phone')).toHaveAttribute('src', '/favicon.svg')
-  await expect(drawer.getByTestId('sidebar-logo')).toBeHidden()
 })

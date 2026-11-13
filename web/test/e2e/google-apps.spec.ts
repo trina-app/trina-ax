@@ -6,7 +6,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { openDrawer, openSettings } from './nav'
+import { openSettings, showChats } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
@@ -204,13 +204,12 @@ test('not available: the reason in plain words, Connect off; an admin gets the w
   await expect(page.getByTestId('gapp-admin-detail')).toContainText('Google Calendar')
 })
 
-test('phone width: the page and an app\'s page fit; Me has Connectors, the drawer does not', async ({ page }) => {
+test('phone width: the page and an app\'s page fit; Me has Connectors, the 트리나 list does not', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await googleApps(page, { client: 'app' })
   await signIn(page)
-  await page.goto('/')
-  await openDrawer(page)
+  await showChats(page)
   await expect(page.locator('[data-testid="nav-connectors"]:visible')).toHaveCount(0)
   await page.goto('/settings')
   await page.getByTestId('settings-row-connectors').click()

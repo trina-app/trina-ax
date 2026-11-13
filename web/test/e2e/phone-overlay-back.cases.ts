@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { oldNav, openDrawer, openSearch, openTrinaRow } from './nav'
+import { openSearch, openTrinaRow, phoneTrinaHome, showChats } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 const SORA = { id: 'sora', name: '김소라' }
@@ -154,33 +154,26 @@ export function overlayBackCases() {
     await expect(page).not.toHaveURL(roomUrl)
   })
 
-  // the drawer's filter and search's type picker are sheets over a sheet once the phone menus (#453) are in
-  test('the drawer\'s filter: its row\'s choices (a second sheet) close with one Back, then the drawer; a choice leaves no entry', async ({ page }) => {
+  // the 트리나 tab's filter: a sheet, its row's choices a second sheet
+  test('the 트리나 tab\'s filter: its row\'s choices (a second sheet) close with one Back, then the filter; a choice leaves no entry', async ({ page }) => {
     await reset(page)
-    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
-    await oldNav(page)
     await signIn(page)
-    await openDrawer(page)
-    const drawer = page.locator('[data-drawer]')
-    const filter = drawer.getByTestId('recents-filter')
-    await filter.click()
-    // before #453 it is a computer's dropdown in the drawer, not a sheet
-    test.skip((await page.getByTestId('recents-filter-menu').count()) > 0, 'the drawer\'s filter sheet comes with the phone menus (#453)')
+    await showChats(page)
+    const list = phoneTrinaHome(page)
+    const filter = list.getByTestId('recents-filter')
     for (const close of ['back', 'choice'] as const) {
-      if (close === 'choice') await filter.click()
-      await expect.poll(() => depth(page)).toBe(2)
+      await filter.click()
+      await expect.poll(() => depth(page)).toBe(1)
       await page.getByRole('menu').getByRole('menuitem').first().click()
       const choices = page.getByRole('menuitemradio')
       await expect(choices.first()).toBeVisible()
-      await expect.poll(() => depth(page)).toBe(2)
+      await expect.poll(() => depth(page)).toBe(1)
       if (close === 'back') await back(page)
       else await choices.first().click()
       await expect(page.getByRole('menu')).toHaveCount(0)
-      await expect(drawer).toBeVisible()
-      await expect.poll(() => depth(page)).toBe(1)
+      await expect(list).toBeVisible()
+      await settled(page)
     }
-    await back(page)
-    await expect(drawer).toHaveCount(0)
     await expect(page).toHaveURL(/\/$/)
     expect(await depth(page)).toBe(0)
   })
@@ -262,45 +255,37 @@ export function overlayBackCases() {
     await expect(page).not.toHaveURL(roomUrl)
   })
 
-  test('search from the drawer (TRINA-20): Back closes search and stays on Trina; the next Back goes where you were with nothing open', async ({ page }) => {
+  test('search from the 트리나 tab (TRINA-20): Back closes search and stays on the list; the next Back goes where you were with nothing open', async ({ page }) => {
     await reset(page)
-    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
-    await oldNav(page)
     await signIn(page)
     // where you were before Trina: Chats, opened as its own page (so the step back does not depend on how tab taps keep
     // the history)
     await page.goto('/rooms')
     await expect(page.getByTestId('rooms-page')).toBeVisible()
     await page.goto('/')
-    await openDrawer(page)
-    await page.locator('[data-drawer]').getByTestId('drawer-search').click()
+    await openSearch(page)
     const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
     await expect(search).toBeVisible()
-    // the drawer gave search its place
-    await expect(page.locator('[data-drawer]')).toHaveCount(0)
     await back(page)
     await expect(search).toHaveCount(0)
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.locator('[data-drawer]')).toHaveCount(0)
+    await expect(phoneTrinaHome(page)).toBeVisible()
     await back(page)
     await expect(page).toHaveURL(/\/rooms$/)
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 
-  test('a page opened from inside the drawer takes its entry: Back from it is Trina with the drawer closed', async ({ page }) => {
+  test('a page opened from the 트리나 list takes one entry: Back from it is the list', async ({ page }) => {
     await reset(page)
-    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
-    await oldNav(page)
     await signIn(page)
+    await showChats(page)
     const start = await historyLength(page)
-    await openDrawer(page)
-    await page.locator('[data-drawer]').getByTestId('nav-skills').click()
+    await openTrinaRow(page, 'skills')
     await expect(page).toHaveURL(/\/skills$/)
-    // one step at most: the drawer's entry is the new page's, none is left under it
     expect(await historyLength(page)).toBeLessThanOrEqual(start + 1)
     await back(page)
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.locator('[data-drawer]')).toHaveCount(0)
+    await expect(phoneTrinaHome(page)).toBeVisible()
     expect(await onOverlay(page)).toBe(false)
   })
 
