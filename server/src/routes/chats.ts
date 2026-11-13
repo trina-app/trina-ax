@@ -19,6 +19,7 @@ import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
+import { projectsRestored } from '../chat/project-restore'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
@@ -920,6 +921,14 @@ export const chatsRoutes: RouteModule = {
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      // a project in the trash that an admin pointed at a folder is back as a restore brings it back: its paused tasks
+      // and shared chats (chat/project-restore.ts; QA TC-1014, TC-1015). Since when: its folder's trash item, or (purged
+      // since) the project's own trash record
+      if (repoint && r!.trashed_with !== null) {
+        const since = (ctx.db.query('SELECT deleted_at AS at FROM trash_items WHERE id = ?').get(r!.trashed_with) as { at: string } | null)?.at
+          ?? (ctx.db.query("SELECT at FROM audit_log WHERE action = 'project.trash' AND target = ? ORDER BY id DESC LIMIT 1").get(r!.id) as { at: string } | null)?.at
+        projectsRestored(ctx, [r!.id], { by: auth.user.id, trashedAt: since ?? null })
+      }
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, ApiError, uuidv7, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { CONFIRMED } from '../lib/schedule-card'
+import { legacyProjectFolder } from '../lib/legacy-project'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -85,6 +86,27 @@ describe('a team project back from the trash', () => {
       }
     })
   }
+})
+
+describe('a team project in the trash pointed at a folder by an admin', () => {
+  test('is back like a restore: its paused tasks run again, its shared chats come back into its members\' lists', async () => {
+    const { p, chat } = await teamProject('Repointed')
+    const t = tasks(p.id)
+    await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
+    expect(h.rt().schedules.runDue(new Date())).toEqual([])
+    expect([enabled(t.due.id), enabled(t.before.id), enabled(t.off.id)]).toEqual([0, 0, 0])
+    // an admin made a new projects/<name> for its people; dana (the owner, a member) points the project at it
+    const users = ['dana', 'bob', 'alice'].map((u) => ({ subjectType: 'user' as const, subjectId: u, access: 'write' as const }))
+    legacyProjectFolder(db(), h.team, 'projects/repointed-new', [{ subjectType: 'everyone', subjectId: null, access: 'none' }, ...users], 'dana')
+    const from = { alice: h.rt().hub.lastSeq('alice'), bob: h.rt().hub.lastSeq('bob') }
+    const out = await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'projects/repointed-new' } })
+    expect([out.inTrash, out.folderPath]).toEqual([false, 'projects/repointed-new'])
+    expect([enabled(t.due.id), enabled(t.before.id), enabled(t.off.id)]).toEqual([1, 0, 0])
+    for (const u of ['alice', 'bob'] as const) {
+      const f = await ws[u]!.next('chat.updated', (x) => x.data.chatId === chat.id && x.data.change === 'restored' && seqOf(x) > from[u], 10_000)
+      expect(f.data.chat?.id).toBe(chat.id)
+    }
+  })
 })
 
 describe('two people editing one project', () => {
