@@ -7,7 +7,7 @@
 // may be hidden there by the person. What is on screen is remembered as what is open in its place (lib/rail.ts).
 import { useEffect } from 'react'
 import { matchPath, useLocation } from 'react-router-dom'
-import { railHere, rememberRail } from '../../lib/rail'
+import { rememberRail, useRailHere } from '../../lib/rail'
 import { useSidePanel } from '../../lib/sidePanel'
 import { useRooms } from '../../store/rooms'
 import { ActivityPanel } from '../panels/ActivityPanel'
@@ -20,9 +20,8 @@ import { PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
 
 /** whether this place has a list panel and how it shows now */
 function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
-  const { pathname, search, state } = useLocation()
-  const item = railHere(pathname, search, state)
-  const has = !!item
+  const { pathname } = useLocation()
+  const has = !!useRailHere()
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
   const roomId = matchPath('/rooms/:roomId/*', pathname)?.params.roomId ?? null
   const thread = !!matchPath('/rooms/:roomId/t/:messageId', pathname)
@@ -35,7 +34,7 @@ function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelStat
 /** `onList`: told whether the list panel shows (Layout.tsx's skip link "목록으로") */
 export function RailColumns({ onList }: { onList: (shown: boolean) => void }) {
   const { pathname, search, state: entry } = useLocation()
-  const item = railHere(pathname, search, entry)
+  const item = useRailHere()
   const { has, state } = useRailPanelShown()
   const shown = has && state === 'shown'
   useEffect(() => rememberRail(pathname, search, entry), [pathname, search, entry])

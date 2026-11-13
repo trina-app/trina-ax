@@ -19,6 +19,7 @@
 // everyone on a computer: owners and admins pick a folder and apply it (skills/BringSkillsSheet.tsx), members suggest
 // (skills/ContributeSheet.tsx: 스킬로 제안); on a phone one plain line says it is done on a computer. Nothing adds a skill
 // by itself (docs/DECISIONS.md "DS3").
+import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { ArrowRightLeft, ChevronDown, ChevronRight, FileText, FolderUp, MessageSquarePlus, MoreHorizontal, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -255,7 +256,7 @@ function NoSkills() {
   const admin = isAdmin(useMe())
   return (
     <EmptyState icon={<Sparkles size={22} />} title={t(admin ? 'skills.noSkills' : 'skills.catalog.memberEmpty')}>
-      {!admin && <p data-testid="skill-none-member">{t('skills.noSkillsHint')}</p>}
+      {!admin && <p data-testid="skill-none-member">{t(ownFolderWord() === 'files' ? 'skills.noSkillsHintFiles' : 'skills.noSkillsHint')}</p>}
     </EmptyState>
   )
 }

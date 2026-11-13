@@ -52,7 +52,11 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   await expect(panel(page).getByTestId('rooms-all')).toHaveCount(0)
   // 멘션·스레드 stays the first row
   await expect(panel(page).getByTestId('rooms-activity')).toBeVisible()
-  // the hidden DM: one row at the end, to the conversations page where it is
+  // the hidden DM: on the conversations page itself it is listed there (no second row); in a room, one row at the end
+  // goes there
+  await expect(page.getByTestId('rooms-hidden')).toBeVisible()
+  await expect(panel(page).getByTestId('chats-panel-hidden')).toHaveCount(0)
+  await panel(page).getByTestId('sidebar-room').first().click()
   await expect(panel(page).getByTestId('chats-panel-hidden')).toHaveText(t['rooms.hidden.title'].replace('{n}', '1'))
   await panel(page).getByTestId('chats-panel-hidden').click()
   await expect(page).toHaveURL(/\/rooms$/)
@@ -99,12 +103,21 @@ test('800 px: a thread is a sheet over the room; 1024 px: beside it', async ({ p
   expect(Math.round(sheet.width)).toBe(Math.round(room.width))
   await expect(page.getByTestId('rail')).toBeVisible()
   // the room under it waits: out of reach until the sheet closes
-  expect(await page.getByTestId('room').evaluate((e) => e.inert)).toBe(true)
-  // nothing sideways
+  expect(await page.getByTestId('room').evaluate((e) => (e as HTMLElement).inert)).toBe(true)
+  // nothing sideways; a dialog over the room with the keyboard in it
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await expect(thread).toHaveAttribute('role', 'dialog')
+  expect(await thread.evaluate((e) => e.contains(document.activeElement))).toBe(true)
+  // Esc closes it: the room again, within reach
+  await page.keyboard.press('Escape')
+  await expect(thread).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+  expect(await page.getByTestId('room').evaluate((e) => (e as HTMLElement).inert)).toBe(false)
+  await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
+  await expect(thread).toHaveAttribute('data-sheet', '')
   await page.setViewportSize({ width: 1024, height: 860 })
   await expect(thread).not.toHaveAttribute('data-sheet', '')
-  expect(await page.getByTestId('room').evaluate((e) => e.inert)).toBe(false)
+  expect(await page.getByTestId('room').evaluate((e) => (e as HTMLElement).inert)).toBe(false)
   const beside = (await thread.boundingBox())!
   expect(beside.x).toBeGreaterThan((await page.getByTestId('room').boundingBox())!.x + 400)
 })

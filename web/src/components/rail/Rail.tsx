@@ -8,9 +8,9 @@
 import clsx from 'clsx'
 import { Bell, FolderOpen, MessageCircle, PanelLeftOpen } from 'lucide-react'
 import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useT } from '../../i18n'
-import { RAIL_ITEMS, railHere, railLinkState, railTarget, useRailMemory, type RailItem } from '../../lib/rail'
+import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
 import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
@@ -26,8 +26,7 @@ import { useRailPanel } from './railPanel'
 /** `showList`: the panel is hidden by the person (below 1052 px): a button to bring it back */
 export function Rail({ showList }: { showList: boolean }) {
   const t = useT()
-  const { pathname, search, state } = useLocation()
-  const current = railHere(pathname, search, state)
+  const current = useRailHere()
   const last = useRailMemory((s) => s.last)
   const attention = useAttention()
   // 트리나's mark counts the AI chats of the chat list: read it here, whichever place opens first (대화, 파일, 활동), not

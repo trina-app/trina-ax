@@ -58,9 +58,6 @@ import { aiName } from '../lib/tabs'
 import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
 import { EmptyState, IconButton, Skeleton, useMediaQuery } from '../components/ui'
 import { useNavRail } from '../lib/navRail'
-
-/** the thread or side chat as a sheet over the room (a narrow computer window with the new navigation) */
-const SHEET = 'absolute inset-0 z-20 border-l-0 shadow-xl'
 import { LoadError } from '../components/LoadError'
 import { FileDropZone } from '../components/FileDropZone'
 import { Tooltip } from '../components/Tooltip'
@@ -85,6 +82,9 @@ const NO_PENDING: PendingSend[] = []
 /** the rows of the timeline by their message (a message, an event line): where the reader was is kept by them */
 const ROOM_ROW_ID = messageDomId('')
 const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
+
+/** the thread or side chat as a sheet over the room (a narrow computer window with the new navigation) */
+const SHEET = 'absolute inset-0 z-20 border-l-0! shadow-xl'
 
 export default function RoomPage() {
   const { roomId = '', messageId } = useParams()
@@ -197,6 +197,26 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const navRail = useNavRail()
   const roomy = useMediaQuery('(min-width: 812px)')
   const sheet = navRail && wide && !roomy
+  // the sheet over the room (below 812 px with the new navigation): the keyboard goes into it as it opens and back to
+  // where it was in the room as it closes; Esc closes it (not while a menu or dialog of its own is open)
+  const sheetOpen = sheet && !!(threadId || sideOpen)
+  useEffect(() => {
+    if (!sheetOpen) return
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const el = document.querySelector<HTMLElement>('[data-sheet]')
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      e.preventDefault()
+      if (threadId) closeThread()
+      else closeSide()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (before?.isConnected) requestAnimationFrame(() => before.focus({ preventScroll: true }))
+    }
+  }, [sheetOpen, threadId, closeThread, closeSide])
   usePeopleList()
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
@@ -497,11 +517,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     </FileDropZone>
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
-      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} data-sheet={sheet ? '' : undefined}>
+      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
       </RoomSideColumn>
     ) : sideOpen ? (
-      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} data-sheet={sheet ? '' : undefined}>
+      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} />
       </RoomSideColumn>
     ) : null}

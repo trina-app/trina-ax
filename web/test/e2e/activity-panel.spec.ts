@@ -78,8 +78,11 @@ test('owner: the notices on the left, unread first; chips 전체 · 트리나 ·
   await expect(page.getByTestId('activity-panel-dot')).toHaveCount(4)
   // the chips: 트리나 the scheduled runs, 요청 the connection
   await expect(page.getByTestId('activity-panel-chips').getByRole('button')).toHaveText([t['feed.tab.all'], '트리나', t['activity.chip.requests']])
+  await expect(page.getByTestId('activity-panel-mark-all')).toBeVisible()
   await page.getByTestId('activity-chip-trina').click()
   await expect(rows(page)).toHaveCount(3)
+  // "Mark all as read" reads the whole list: only under 전체, never what a chip hides
+  await expect(page.getByTestId('activity-panel-mark-all')).toHaveCount(0)
   expect(await rows(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-chip')))).toEqual(['trina', 'trina', 'trina'])
   await page.getByTestId('activity-chip-requests').click()
   await expect(rows(page)).toHaveCount(1)

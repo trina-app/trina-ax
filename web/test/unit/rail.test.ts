@@ -9,7 +9,7 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { RAIL_ITEMS, RAIL_ROOT, railHere, railLinkState, railOf, railState, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
+import { RAIL_ITEMS, RAIL_ROOT, railHere, railHereKept, railLinkState, railOf, railState, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
 import { navRailOn } from '../../src/lib/navRail'
 import { clearLocalData } from '../../src/lib/localData'
 import { installDom } from './dom-host'
@@ -83,7 +83,7 @@ describe('every route has a place or none', () => {
 describe('the places', () => {
   test('four, in the order of the phone tabs: 트리나 · 대화 · 파일 · 활동', () => {
     expect(RAIL_ITEMS).toEqual(['ai', 'chats', 'files', 'activity'])
-    for (const i of RAIL_ITEMS) expect(railOf(RAIL_ROOT[i])).toBe(i)
+    for (const i of RAIL_ITEMS) expect(railOf(new URL(RAIL_ROOT[i], 'http://x').pathname)).toBe(i)
   })
 
   test("Activity's 멘션·스레드 is 대화's; the rest of Activity is 활동", () => {
@@ -119,7 +119,7 @@ describe('what each place remembers', () => {
     expect(last).toEqual({ ai: '/c/abc', chats: '/activity?in=chats' })
     expect(railTarget('ai', 'chats', last)).toBe('/c/abc')
     expect(railTarget('ai', 'ai', last)).toBe('/')
-    expect(railTarget('files', 'ai', last)).toBe('/files')
+    expect(railTarget('files', 'ai', last)).toBe('/files?view=recent')
   })
 
   test('a kept address is a path of this app (never //host)', () => {
@@ -150,6 +150,13 @@ describe("a page opened from another place's list (phase P3: a notice's chat ope
     expect(railHere('/c/abc', '', { rail: 'activity' })).toBe('activity')
     expect(railHere('/c/abc', '', null)).toBe('ai')
     expect(railHere('/admin/members', '', { rail: 'activity' })).toBeNull()
+  })
+
+  test('kept while the page tidies its address in place (a replace with no state); another page lights its own', () => {
+    expect(railHereKept('/projects/p1', '?members=1', { rail: 'activity' })).toBe('activity')
+    expect(railHereKept('/projects/p1', '', null)).toBe('activity')
+    expect(railHereKept('/c/abc', '', null)).toBe('ai')
+    expect(railHereKept('/projects/p1', '', null)).toBe('ai')
   })
 
   test('kept as what is open in 활동, and a press on 활동 opens it with 활동 lit again', () => {

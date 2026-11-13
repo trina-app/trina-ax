@@ -14,7 +14,9 @@ import { PanelDivider } from '../PanelDivider'
 
 /** `divider`: the room page's resizable column, its divider's test ids prefixed with this ('thread', 'side-chat');
  * absent: sized and placed by `className`. */
-export function RoomSideColumn({ label, testId, divider, className, onClickCapture, tabIndex, children, ...rest }: { label: string; testId: string; divider?: 'thread' | 'side-chat'; className?: string; onClickCapture?: MouseEventHandler<HTMLElement>; tabIndex?: number; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+/** `modal`: a sheet over the room (a narrow window with the new navigation, pages/Room.tsx): a modal dialog for screen
+ * readers, focusable as a whole */
+export function RoomSideColumn({ label, testId, divider, className, onClickCapture, tabIndex, modal, children, ...rest }: { label: string; testId: string; divider?: 'thread' | 'side-chat'; className?: string; onClickCapture?: MouseEventHandler<HTMLElement>; tabIndex?: number; modal?: boolean; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   const t = useT()
   return (
     <section
@@ -30,9 +32,11 @@ export function RoomSideColumn({ label, testId, divider, className, onClickCaptu
         className,
       )}
       aria-label={label}
+      role={modal ? 'dialog' : undefined}
+      aria-modal={modal || undefined}
       data-testid={testId}
       onClickCapture={onClickCapture}
-      tabIndex={tabIndex}
+      tabIndex={modal ? -1 : tabIndex}
       {...rest}
     >
       {children}

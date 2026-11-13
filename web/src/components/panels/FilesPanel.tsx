@@ -35,6 +35,7 @@ export function FilesPanel() {
     const load = () =>
       void api.call(API.tree, { query: { path: '' } }).then(
         (r) => live && setTop([...topFoldersFirst(r.entries, '')].filter((e) => e.type === 'folder' && !APART.has(e.path))),
+        // not read (offline, a server hiccup): the rows it had stay; none yet, the label still opens the team folder
         () => live && setTop((v) => v ?? []),
       )
     load()
@@ -81,10 +82,13 @@ export function FilesPanel() {
   return (
     <PanelFrame title={t('sidebar.files')} testId="files-panel" top={<SetupRow />}>
       <ul>{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
-      {team.length > 0 && (
+      {top !== null && (
         <section aria-labelledby="files-panel-team">
+          {/* the label opens the team folder's top (files kept loose there, every top folder) */}
           <PanelLabel id="files-panel-team" testId="files-panel-label">
-            {t('filesPanel.team')}
+            <Link to="/files" className="rounded hover:text-ink hover:underline" data-testid="files-panel-root">
+              {t('filesPanel.team')}
+            </Link>
           </PanelLabel>
           <ul>{team.map(row)}</ul>
         </section>

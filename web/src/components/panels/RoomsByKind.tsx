@@ -40,7 +40,8 @@ export function RoomsByKind() {
   const titleOf = useRoomTitle()
   const everyRoom = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
-  const openId = /^\/rooms\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
+  const { pathname } = useLocation()
+  const openId = /^\/rooms\/([^/]+)/.exec(pathname)?.[1] ?? null
   const rooms = shownInLists(everyRoom, openId)
   const hidden = everyRoom.length - rooms.length
   const sections = roomsByKind(rooms, titleOf, locale)
@@ -53,7 +54,9 @@ export function RoomsByKind() {
   useEffect(() => {
     const el = end.current
     if (!el || !more) return
-    const seen = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setBudget((b) => b + ROOMS_BUDGET), { rootMargin: '400px 0px' })
+    // the panel's own scroll box, so the look-ahead is measured there
+    const root = el.closest<HTMLElement>('[data-testid="panel-scroll"]')
+    const seen = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setBudget((b) => b + ROOMS_BUDGET), { root, rootMargin: '400px 0px' })
     seen.observe(el)
     return () => seen.disconnect()
   }, [more, draw])
@@ -90,7 +93,8 @@ export function RoomsByKind() {
       {loaded && !everyRoom.length && <p className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</p>}
       {out}
       {more && <ul aria-hidden><li ref={end} className="h-px" data-testid="chats-panel-more" /></ul>}
-      {hidden > 0 && (
+      {/* not on the conversations page itself, which lists them already */}
+      {hidden > 0 && pathname !== '/rooms' && (
         <Link to="/rooms" className={`${panelRow} mt-2 text-xs text-muted`} data-testid="chats-panel-hidden">
           <EyeOff size={14} aria-hidden />
           <span className="truncate">{t('rooms.hidden.title', { n: hidden })}</span>

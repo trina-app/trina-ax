@@ -10,13 +10,13 @@
 import clsx from 'clsx'
 import { AtSign, Bell, CalendarClock, CheckCheck, ChevronRight, Plug, Settings } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
 import { chipOf, chipsFor, inChip, unreadFirst, type ActivityChip } from '../../lib/activityKinds'
 import { listTime } from '../../lib/format'
-import { RAIL_STATE_KEY, railState } from '../../lib/rail'
+import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
@@ -46,7 +46,6 @@ export function noticeTarget(item: InboxNotification): { to: string; state?: Rec
 
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
-  const navigate = useNavigate()
   const admin = isAdmin(useMe())
   const chips = chipsFor(admin)
   const [chip, setChip] = useState<ActivityChip>('all')
@@ -60,6 +59,8 @@ export function ActivityPanel() {
   const pages = useRef(0)
   const itemsRef = useRef<InboxNotification[] | null>(null)
   const life = useRef(0)
+  // the newest read again wins: an older answer that lands late (or one sent before a row was read here) is dropped
+  const sequence = useRef(0)
   useEffect(() => {
     life.current++
     return () => void life.current++
@@ -68,11 +69,13 @@ export function ActivityPanel() {
   /** the newest rows again (as many as are loaded), or `after` the next older page */
   const load = useCallback(async (after?: string) => {
     const generation = life.current
+    const seq = after ? sequence.current : ++sequence.current
     if (after) setPaging(true)
     try {
       const limit = after ? PAGE : Math.min(100, Math.max(PAGE, itemsRef.current?.length ?? 0))
       const r = await api.call(API.listNotifications, { query: { limit, only: 'notices', ...(after ? { cursor: after } : {}) } })
-      if (generation !== life.current) return
+      if (generation !== life.current || seq !== sequence.current) return
+      if (!after) pages.current = 0
       const next = after ? [...new Map([...(itemsRef.current ?? []), ...r.items].map((x) => [x.id, x])).values()] : r.items
       itemsRef.current = next
       setItems(next)
@@ -102,16 +105,21 @@ export function ActivityPanel() {
 
   const read = (item: InboxNotification) => {
     if (item.readAt) return
+    sequence.current++
     const next = itemsRef.current?.map((x) => (x.id === item.id ? { ...x, readAt: new Date().toISOString() } : x)) ?? null
     itemsRef.current = next
     setItems(next)
     setUnread((n) => Math.max(0, n - 1))
-    // the rail's number with it at once (the server's "changed" signal reads it again too)
-    void api.call(API.markNotificationRead, { params: { id: item.id } }).then(reloadInboxCount, (e) => setError(errorText(e, locale, t('error.network'))))
+    // the rail's number with it at once (the server's "changed" signal reads it again too); not read: as the server has it
+    void api.call(API.markNotificationRead, { params: { id: item.id } }).then(reloadInboxCount, (e) => {
+      setError(errorText(e, locale, t('error.network')))
+      void load()
+    })
   }
   const markAll = async () => {
     if (marking) return
     setMarking(true)
+    sequence.current++
     const at = new Date().toISOString()
     const next = itemsRef.current?.map((x) => (x.readAt ? x : { ...x, readAt: at })) ?? null
     itemsRef.current = next
@@ -129,10 +137,11 @@ export function ActivityPanel() {
   }
 
   // the row open on the right: its own view (?n=), or its page opened from here (활동 still lit)
-  const { pathname, search, state } = useLocation()
+  const { pathname, search } = useLocation()
+  const lit = useRailHere()
   const here = `${pathname}${search}`
   const openId = new URLSearchParams(search).get('n')
-  const isOpen = (item: InboxNotification) => (pathname === '/activity' ? openId === item.id : railState(state) === 'activity' && noticeLink(item)?.to === here)
+  const isOpen = (item: InboxNotification) => (pathname === '/activity' ? openId === item.id : lit === 'activity' && noticeLink(item)?.to === here)
 
   // what was unread when this list showed it stays on top while the list is open (read now, its dot goes): a row never
   // jumps away from under the pointer as it opens
@@ -140,25 +149,15 @@ export function ActivityPanel() {
   for (const x of items ?? []) if (!x.readAt) wasUnread.current.add(x.id)
   const shown = (items ?? []).filter((x) => inChip(x, shownChip))
   const { unread: fresh, read: old } = unreadFirst(shown, (x) => wasUnread.current.has(x.id))
-  const row = (item: InboxNotification) => (
-    <NoticeRow
-      key={item.id}
-      item={item}
-      open={isOpen(item)}
-      onOpen={() => {
-        const to = noticeTarget(item)
-        read(item)
-        navigate(to.to, { state: to.state })
-      }}
-    />
-  )
+  const row = (item: InboxNotification) => <NoticeRow key={item.id} item={item} open={isOpen(item)} onOpen={() => read(item)} />
   return (
     <PanelFrame
       title={t('inbox.title')}
       testId="activity-panel"
       actions={
         <>
-          {unread > 0 && (
+          {/* the whole list's, so only under 전체: a chip never reads what it does not show */}
+          {unread > 0 && shownChip === 'all' && (
             <IconButton label={t('feed.markAllRead')} onClick={() => void markAll()} disabled={marking} data-testid="activity-panel-mark-all">
               <CheckCheck size={16} aria-hidden />
             </IconButton>
@@ -173,9 +172,10 @@ export function ActivityPanel() {
       top={
         <>
           <SetupRow />
-          <Link to={CHATS_ACTIVITY} className={clsx(panelRow, 'text-muted')} data-testid="activity-panel-to-chats">
-            <AtSign size={16} aria-hidden />
-            <span className="min-w-0 flex-1 truncate">{t('activity.inChats')}</span>
+          {/* two lines when the words are long (English, Spanish): never cut */}
+          <Link to={CHATS_ACTIVITY} className={clsx(panelRow.replace('h-9', 'min-h-9 py-1.5'), 'text-muted')} data-testid="activity-panel-to-chats">
+            <AtSign size={16} className="shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1">{t('activity.inChats')}</span>
             <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
           </Link>
           {chips.length > 1 && (
@@ -216,16 +216,19 @@ export function ActivityPanel() {
   )
 }
 
-/** One notice: its kind's icon, its words (two lines at most), when; a dot while unread. */
+/** One notice: its kind's icon, its words (two lines at most), when; a dot while unread. A link to where it opens
+ * (noticeTarget), so it can also open in a new tab. */
 function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: boolean; onOpen: () => void }) {
   const t = useT(), locale = useLocale()
   const unread = !item.readAt
   const kind = chipOf(item)
   const Icon = kind === 'trina' ? CalendarClock : kind === 'requests' ? Plug : Bell
+  const target = noticeTarget(item)
   return (
     <li>
-      <button
-        type="button"
+      <Link
+        to={target.to}
+        state={target.state}
         onClick={onOpen}
         aria-current={open ? 'page' : undefined}
         className={clsx('flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-hover focus-visible:-outline-offset-2', open && 'bg-hover')}
@@ -247,7 +250,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
             <span className="sr-only">{t('notifications.unreadMark')}</span>
           </span>
         )}
-      </button>
+      </Link>
     </li>
   )
 }

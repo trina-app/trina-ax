@@ -7,7 +7,7 @@
 // opens the last AI chat again, back to 대화 the last room. Pure but for that small memory; every route of App.tsx is
 // checked in test/unit/rail.test.ts. Started from the 11-13 draft (branch wip/rail-draft), changed to the plan's four
 // places (no 프로젝트 place: projects are in 트리나's list).
-import { matchPath } from 'react-router-dom'
+import { matchPath, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { RAIL_LAST_KEY } from './localData'
 import { activityInChats } from './screens'
@@ -16,8 +16,8 @@ export type RailItem = 'ai' | 'chats' | 'files' | 'activity'
 /** the rail's order, top to bottom: the phone's tabs 1–3, then 활동 (the phone has it under 나) */
 export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'files', 'activity']
 
-/** where a place starts (its first visit, or a press on the place already lit) */
-export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files', activity: '/activity' }
+/** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 (phase P3) */
+export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files?view=recent', activity: '/activity' }
 
 /** The routes of App.tsx (under <Layout />) that belong to a place, as App.tsx writes them; any other address (Admin,
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
@@ -84,9 +84,27 @@ export function railHere(pathname: string, search = '', state?: unknown): RailIt
   return own ? railState(state) ?? own : null
 }
 
+/** The place an entry's state named stays while the page tidies its own address in place (a closed dialog drops ?new=1
+ * with a replace that carries no state): the same path keeps it; another path lights its own place. */
+let kept: { path: string; item: RailItem } | null = null
+export function railHereKept(pathname: string, search = '', state?: unknown): RailItem | null {
+  const named = railState(state)
+  const item = railHere(pathname, search, state)
+  if (named && item === named) kept = { path: pathname, item }
+  else if (kept && kept.path === pathname && railOf(pathname, search)) return kept.item
+  else kept = null
+  return item
+}
+
+/** The place lit for the entry on screen (railHereKept with the router's location). */
+export function useRailHere(): RailItem | null {
+  const { pathname, search, state } = useLocation()
+  return railHereKept(pathname, search, state)
+}
+
 /** The address on screen belongs to a place: kept as what is open there (`state`: the entry's, see railHere). */
 export function rememberRail(pathname: string, search = '', state?: unknown) {
-  const item = railHere(pathname, search, state)
+  const item = railHereKept(pathname, search, state)
   if (!item) return
   const to = `${pathname}${search}`
   const { last } = useRailMemory.getState()

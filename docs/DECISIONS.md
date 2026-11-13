@@ -11684,22 +11684,28 @@ changes. On that path it supersedes P1's "파일 and 활동 open today's pages a
   app or connect the AI, an account deletion, a connection or shared Drive to sign in to again, skills to merge), shown to
   the owner and admins only. Unread first, newest first, then the read ones under "읽음"; a row read while the list is open
   keeps its place (its dot goes), so nothing jumps from under the pointer. The rail's 활동 number is the server's
-  `noticeUnreadCount` (new, additive), the same as the list's dots. "Mark all as read" (header, while something is unread)
-  reads those notices only (`only=notices`); the gear opens Settings › Notifications.
+  `noticeUnreadCount` (new, additive), the same as the list's dots. "Mark all as read" (header, while something is unread,
+  under 전체 only: a chip never reads what it hides) reads those notices only (`only=notices`); the gear opens Settings ›
+  Notifications. A mention or thread reply in a room I muted counts on neither 대화 nor 활동 (its room row keeps its grey
+  count): muting is the person's choice to stay quiet; before, it counted in the Inbox.
 - **A notice opens on the right while 활동 stays lit**: its chat, project, scheduled tasks or setup page, opened with the
   history entry's state `{ rail: 'activity' }` (`lib/rail.ts` `railHere`), so Back, Forward and a press on 활동 later keep
-  활동 lit; a link followed inside that page lights the page's own place. A notice with no page of its own, or with what only
+  활동 lit; the page tidying its own address in place (a closed dialog dropping `?members=1`) keeps it; a link followed
+  inside that page lights the page's own place. Rows are links, so they also open in a new tab. A notice with no page of its own, or with what only
   its own view shows (a handover's buttons, a job's log, an ask to add an app), opens as itself at `/activity?n=<id>`.
   Opening a notice reads it. `/activity` with nothing picked says how many are unread and where mentions are. An old
   `/activity?tab=mentions|threads` link goes to `/activity?in=chats&tab=…` (대화's 멘션·스레드, its tabs unchanged).
 - **파일**: 최근 파일 (`/files?view=recent`, `GET /api/files/recent`, newest first with the folder each is in), 팀 폴더 (the
-  team folder's top folders, in the Files order, without projects/ and users/), 프로젝트 폴더 (projects I can see, by
-  name; the board icon), then **내 파일** and 휴지통. The deepest place the open folder or file is in is marked. The Files
-  page drops its 팀 폴더 / 휴지통 tabs on this path (the trash is a place on the list; the title says 휴지통 there).
+  team folder's top folders, in the Files order, without projects/ and users/; the label opens the team folder's top),
+  프로젝트 폴더 (projects I can see, by name; the board icon), then **내 파일** and 휴지통. The deepest place the open folder
+  or file is in is marked. 파일's start (a first press, or a press on it lit) is 최근 파일. The Files page drops its 팀 폴더
+  / 휴지통 tabs on this path (the trash is a place on the list) and its visible "파일" title (the list says it; the
+  breadcrumbs say where), except 휴지통's.
 - **"내 폴더" → "내 파일"** (decision Q4): one switch for the whole server (`setOwnFolderWord`, set from `navRail` at the
   server's start and from `GET /api/me` in the web app), so the Files screen, the list, the scheduled tasks' "my files",
-  the "save it in my files" prompts and what the AI is told about `users/<id>/` use the same word. `place-words` knows
-  both names. Other sentences that mention 내 폴더 in passing change in P6 with the rest of the copy.
+  the "save it in my files" prompts, the hints that name it (scheduled tasks' save folder, team skills, "add files"), the
+  AI's step and share places and what the AI is told about `users/<id>/` use the same word (a `…Files` key next to each
+  old one; the switch picks). `place-words` treats "내 파일" as a place word only while it is the name in use.
 - **대화 uncapped**: every conversation, by kind: 고정 (all my pins) · 팀 대화방 (전체 first, by name) · 그룹 대화 · 1:1 대화
   (latest first); no "더 보기" or "모든 대화"; the rooms I hid are behind one quiet row "숨긴 대화 N" (to `/rooms`, where they
   are). Rendering budget: each section is skipped by the browser while off screen (`content-visibility: auto`), and past
@@ -11707,7 +11713,8 @@ changes. On that path it supersedes P1's "파일 and 활동 open today's pages a
   measured in `chats-panel.spec.ts`. It is incremental drawing, not a full virtual list: simpler, and enough at the sizes
   teams have.
 - **Below 812 px** (72 rail + 740 for a room with its thread) a room's thread or ✦ side chat is a sheet over the room, as
-  on a phone; the room under it is inert until it closes. From 812 px the P1 rule holds (the list folds below 1052 px).
+  on a phone: a modal dialog with the keyboard in it, closed by its ✕ or Esc (focus goes back to the room); the room
+  under it is inert until it closes. From 812 px the P1 rule holds (the list folds below 1052 px).
 - Left out on purpose: an Upload button in 파일's header (the folder's own toolbar has it, next to where the file goes;
   one button, not two). Folders in 대화 come with P4b.
 - Tests: `web/test/unit/rail-panels-p3.test.ts`, `rail.test.ts` (entry state), `folder-labels.test.ts`,

@@ -5220,7 +5220,7 @@ export const ko = {
   "activity.chips": "보기",
   "activity.chip.requests": "요청",
   "activity.read": "읽음",
-  "activity.pick": "왼쪽에서 고르면 여기에 열려요. 멘션·스레드는 대화 목록 맨 위에 있어요.",
+  "activity.pick": "왼쪽에서 고르면 여기에 열려요.",
   "filesPanel.recent": "최근 파일",
   "filesPanel.recentEmpty": "최근에 바뀐 파일이 없어요.",
   "filesPanel.team": "팀 폴더",
@@ -5231,6 +5231,12 @@ export const ko = {
   "files.summary.askOwnFolderPromptFiles": "{path}에는 쓸 권한이 없었어. 같은 내용을 내 파일에 저장해 줘.",
   "files.summary.askOwnFolderHiddenPromptFiles": "앞서 저장하려던 위치에는 저장할 수 없었어. 같은 내용을 내 파일에 저장해 줘.",
   "shareRoom.placeMineFiles": "내 파일",
+  "files.addInMyFolderFiles": "파일은 내 파일에 넣을 수 있어요",
+  "scheduled.saveLapsedHintFiles": "저장 폴더가 바뀌어서 저장 허용을 멈춰 뒀어요. 그동안 결과는 내 파일에 저장해요.",
+  "notifications.event.schedule.saveLapsedFiles": "예약 작업의 저장 폴더를 다시 확인해 주세요. 그동안 결과는 내 파일에 저장해요.",
+  "notifications.event.schedule.saveLapsedNamedFiles": "\"{title}\" 예약 작업의 저장 폴더를 다시 확인해 주세요. 그동안 결과는 내 파일에 저장해요.",
+  "skills.noSkillsHintFiles": "채팅 답변 아래나 내 파일에 있는 파일의 메뉴에서 \"스킬로 제안\"을 눌러 팀에 스킬을 제안할 수 있어요.",
+  "skills.noMineFiles": "아직 제안한 스킬이 없어요. 채팅 답변 아래나 내 파일에 있는 파일의 메뉴에서 \"스킬로 제안\"을 눌러 보세요.",
 } as const
 
 export type MessageKey = keyof typeof ko

@@ -20,6 +20,7 @@
 // folder itself offers no new folder or upload. A project's folder is its members' (docs/DECISIONS.md "Project contents
 // only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
 // the project's page instead (there they can add themselves), not to "folder not found".
+import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -873,7 +874,8 @@ function Files() {
       ) : (
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
         {/* the new navigation (lib/navRail.ts): the trash is a row of 파일's list beside the rail, so no tabs here */}
-        <h1 className="mr-2 text-lg font-semibold">{rail && view === 'trash' ? t('files.trash') : t('files.title')}</h1>
+        {/* the list beside it says 파일 already, the breadcrumbs where this is: the title is for screen readers there */}
+        <h1 className={clsx('mr-2 text-lg font-semibold', rail && view !== 'trash' && 'sr-only')}>{rail && view === 'trash' ? t('files.trash') : t('files.title')}</h1>
         {!rail && <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />}
         {view === 'files' && (
           // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
@@ -976,7 +978,7 @@ function Files() {
               {folderNotes}
               {/* why New folder and Upload are off here (computers: phones hide them) */}
               {tree && !canWrite && (
-                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? 'files.addInMyFolder' : 'files.addHere')}</span>
+                <span className="ml-2 text-xs text-muted max-md:hidden" data-testid="files-cannot-add">{t(personal ? (ownFolderWord() === 'files' ? 'files.addInMyFolderFiles' : 'files.addInMyFolder') : 'files.addHere')}</span>
               )}
             </nav>
           )}
