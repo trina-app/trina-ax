@@ -38,8 +38,8 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
   const changed = (c: Chat | null) => c && onChanged?.(c)
   return [
     chat.pinnedAt
-      ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat).then(changed)), testId: `${testId}-unpin` }
-      : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat).then(changed)), testId: `${testId}-pin` },
+      ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-unpin` }
+      : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-pin` },
     linkItem,
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat).then(changed)), testId: `${testId}-rename` }] : []),
     ...extra,

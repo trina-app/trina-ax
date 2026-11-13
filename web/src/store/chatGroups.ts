@@ -9,8 +9,9 @@
 // phone's /new or a chat, a computer's 트리나 panel hidden) marks what was read stale here, so the list shown again reads
 // at once instead of keeping its 5 s rule and missing the new chat until a reload.
 import { create } from 'zustand'
-import type { ChatGroups } from '@mycel/shared/api'
+import type { Chat, ChatGroups } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { optimisticEdits, optimisticPendingKeys } from '../lib/optimistic'
 import { chatChanged, navFoldersChanged } from './live'
 
 interface ChatGroupsState {
@@ -54,11 +55,18 @@ export function readChatGroups(o: { minAgeMs?: number } = {}): Promise<void> {
   if (o.minAgeMs && !stale && lastRead && Date.now() - lastRead < o.minAgeMs) return Promise.resolve()
   stale = false
   const mine = generation
+  const edits = optimisticEdits(isChatPin)
   inFlight = api.call(API.listChatGroups).then(
     (groups) => {
       if (mine !== generation) return
+      // a pin made here while it was asked (lib/optimistic.ts): this answer may be from before it and would move the
+      // row back for a moment, read once more instead
+      if (edits !== optimisticEdits(isChatPin)) {
+        again = true
+        return
+      }
       lastRead = Date.now()
-      useChatGroups.setState({ groups, error: null })
+      useChatGroups.setState({ groups: withPendingPins(groups), error: null })
     },
     (e: unknown) => {
       if (mine !== generation) return
@@ -73,6 +81,29 @@ export function readChatGroups(o: { minAgeMs?: number } = {}): Promise<void> {
     }
   })
   return inFlight
+}
+
+const isChatPin = (key: string) => key.startsWith('chat:') && key.endsWith(':pin')
+const byPinTime = (a: Chat, b: Chat) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
+
+/** a read's 고정 with the chats whose pin is still on its way as they are on screen (the read may be from before it) */
+function withPendingPins(groups: ChatGroups): ChatGroups {
+  const pending = new Set(optimisticPendingKeys(isChatPin).map((k) => k.slice('chat:'.length, -':pin'.length)))
+  if (!pending.size) return groups
+  const shown = useChatGroups.getState().groups?.pinned ?? []
+  const pinned = [...groups.pinned.filter((c) => !pending.has(c.id)), ...shown.filter((c) => pending.has(c.id))].sort(byPinTime)
+  return { ...groups, pinned }
+}
+
+/** A chat pinned or unpinned here: its row in 고정 at once, the most recently pinned first (the read a moment after it
+ * says the same). Nothing before the first read. */
+export function showPinnedChat(chat: Chat): void {
+  const g = useChatGroups.getState().groups
+  if (!g) return
+  const rest = g.pinned.filter((c) => c.id !== chat.id)
+  if (!chat.pinnedAt && rest.length === g.pinned.length) return
+  const pinned = chat.pinnedAt ? [chat, ...rest].sort(byPinTime) : rest
+  useChatGroups.setState({ groups: { ...g, pinned } })
 }
 
 /** how long a burst of changes (an answer's run state, a pin and its move) waits before the one read after it */

@@ -49,7 +49,8 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   const { copy } = useCopy()
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const show = () => void useRooms.getState().setHidden(room.id, false).catch(fail)
-  const setPinned = (pinned: boolean) => void useRooms.getState().setPinned(room.id, pinned).catch(fail)
+  // on screen at once; a failure undoes it with its own toast (store/rooms.ts setPinned)
+  const setPinned = (pinned: boolean) => void useRooms.getState().setPinned(room.id, pinned)
   const hide = async () => {
     // hiding unpins it: the undo pins it again
     const wasPinned = !!room.pinnedAt

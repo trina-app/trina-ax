@@ -5,6 +5,7 @@
 import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
+import { optimisticPending } from '../lib/optimistic'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -207,6 +208,16 @@ export function keepChatPlace(chatId: string, place: ChatPlace | null) {
   if (!place) return
   chatPlaces.set(chatId, place)
   while (chatPlaces.size > CHAT_PLACES) chatPlaces.delete(chatPlaces.keys().next().value!)
+}
+
+/** A chat read or heard while my pin or unpin of it is still on its way (lib/optimistic.ts, components/chat/chatActions.ts
+ * togglePin): it keeps the pin on screen (the copy may be from before it; the pin's own answer decides). */
+function keepPendingPin(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
+  if (!optimisticPending(`chat:${c.id}:pin`)) return c
+  const now = s.chats.find((x) => x.id === c.id) ?? s.others[c.id]
+  if (!now) return c
+  const { pinnedAt: _was, ...rest } = c
+  return now.pinnedAt ? { ...rest, pinnedAt: now.pinnedAt } : rest
 }
 
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
@@ -484,7 +495,8 @@ export const useChats = create<ChatsState>((set, get) => {
       const page = await api.call(API.listChats, { query: { limit: PAGE, cursor } })
       if (session !== generation) return
       set((s) => {
-        const merged = reset ? page.items : [...s.chats, ...page.items.filter((c) => !s.chats.some((x) => x.id === c.id))]
+        const items = page.items.map((c) => keepPendingPin(s, c))
+        const merged = reset ? items : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
       })
     },
@@ -703,7 +715,7 @@ export const useChats = create<ChatsState>((set, get) => {
           const { chatId, change, chat } = ev.data
           // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
           if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
-          else if (chat) get().upsertChat(chat)
+          else if (chat) get().upsertChat(keepPendingPin(get(), chat))
           return
         }
         case 'turn.request': {

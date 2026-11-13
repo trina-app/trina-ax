@@ -6,6 +6,8 @@ import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { openHome } from '../../lib/screenHistory'
+import { optimistic } from '../../lib/optimistic'
+import { showPinnedChat } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -15,6 +17,25 @@ import { confirmDialog, promptDialog } from '../ui'
  * restored) */
 export const undoDelete = (chatId: string, failText: string): Promise<void> =>
   api.call(API.restoreChat, { params: { id: chatId } }).then(useChats.getState().upsertChat, () => void toast({ level: 'error', text: failText }))
+
+/** the chat as this window has it now (a reply or an event may have changed it since the menu opened) */
+const currentChat = (c: Chat): Chat => {
+  const s = useChats.getState()
+  return s.chats.find((x) => x.id === c.id) ?? s.others[c.id] ?? c
+}
+
+/** the chat with a pin from `at`, or none */
+const withPin = (c: Chat, at: string | undefined): Chat => {
+  const { pinnedAt: _was, ...rest } = c
+  return at ? { ...rest, pinnedAt: at } : rest
+}
+
+/** a chat's pin on every list of this window: 최근 기록 and the history (the chats store), 고정 (the groups) */
+const showChat = (c: Chat) => {
+  const s = useChats.getState()
+  if (s.chats.some((x) => x.id === c.id) || c.id in s.others) s.upsertChat(c)
+  showPinnedChat(c)
+}
 
 export function useChatActions() {
   const t = useT()
@@ -56,18 +77,32 @@ export function useChatActions() {
     }
   }
 
-  /** pin a chat to the top of my list, or unpin it: mine only; my other windows hear it (chat.updated). The chat as it
-   * is now, or null when it failed. */
-  const togglePin = async (chat: Chat): Promise<Chat | null> => {
-    try {
-      const params = { id: chat.id }
-      const c = chat.pinnedAt ? await api.call(API.unpinChat, { params }) : await api.call(API.pinChat, { params })
-      useChats.getState().upsertChat(c)
-      return c
-    } catch (e) {
-      fail(e)
-      return null
-    }
+  /** pin a chat to the top of my list, or unpin it: mine only; my other windows hear it (chat.updated). On screen at
+   * once (lib/optimistic.ts): `onShown` gets the chat each time its pin on screen changes (now, the server's copy, or
+   * as it was after a failure), for lists that keep their own copy. The server's copy, or null when it failed or a newer
+   * pin or unpin of the chat was made meanwhile. */
+  const togglePin = async (chat: Chat, onShown?: (c: Chat) => void): Promise<Chat | null> => {
+    const params = { id: chat.id }
+    const pinning = !chat.pinnedAt
+    const r = await optimistic<string | undefined, Chat>({
+      key: `chat:${chat.id}:pin`,
+      from: chat.pinnedAt,
+      to: pinning ? new Date().toISOString() : undefined,
+      show: (at) => {
+        const c = withPin(currentChat(chat), at)
+        showChat(c)
+        onShown?.(c)
+      },
+      send: () => (pinning ? api.call(API.pinChat, { params }) : api.call(API.unpinChat, { params })),
+      confirmed: (c) => c.pinnedAt,
+      settle: (c) => {
+        // the server's copy joins my list as before (a project page's chat that my list had not loaded yet)
+        useChats.getState().upsertChat(c)
+        showPinnedChat(c)
+        onShown?.(c)
+      },
+    })
+    return r.ok && r.newest ? r.reply : null
   }
 
   return { rename, remove, togglePin }
