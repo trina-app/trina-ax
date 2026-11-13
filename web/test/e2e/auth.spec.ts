@@ -382,6 +382,30 @@ for (const locale of ['ko', 'en', 'id'] as const) {
   })
 }
 
+// The offline page asks again by itself: no tap needed once the server answers.
+test('the offline page retries by itself and goes back to the chat when the server answers', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByTestId('cant-reach')).toBeVisible()
+  await page.unroute('**/api/me')
+  // no click: the next quiet try (every few seconds) brings the app back
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('cant-reach')).toHaveCount(0)
+})
+
+test('the offline page asks at once when the network comes back', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByTestId('cant-reach')).toBeVisible()
+  await page.unroute('**/api/me')
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 3_000 })
+})
+
 test('recovery does not replace an old login pick or pass a previous account language to another person', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await page.goto('/login')
