@@ -22,6 +22,12 @@ export const browserSettingsBridge = (bridge: DesktopBridge | null = desktop()):
  * out: not a store build. */
 export const storeApp = (bridge: DesktopBridge | null = desktop()): boolean => bridge?.store === true
 
+/** A store app: the Mac App Store or Microsoft Store desktop build (storeApp) or the iPhone and Android app. It shows no
+ * link, button or call to action toward buying, changing or managing the plan, and names no price (App Review 3.1.1 and
+ * 3.1.3(b)(c), Google Play payments policy); a limit is stated as a fact and the owner manages the plan on the web
+ * (docs/DECISIONS.md "Store apps show no purchase links"). The web and the dmg/exe desktop builds keep the links. */
+export const noPurchaseLinks = (bridge: DesktopBridge | null = desktop()): boolean => storeApp(bridge) || !!mobileApp()
+
 /** The Mac App Store build, the one build that answers the page's file inputs itself (its own window, opened at
  * .claude for a folder input); every other desktop build, the Microsoft Store one too, picks like a browser. */
 export const answersFileInputs = (bridge: DesktopBridge | null = desktop()): boolean => storeApp(bridge) && bridge?.platform === 'darwin'

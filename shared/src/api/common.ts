@@ -106,7 +106,7 @@ export const ErrorCode = z.enum([
   'unavailable', // server shutting down / restoring
   'internal',
   'storage_full', // 507: the team's storage is (almost) full; writes are refused until space is freed
-  'plan_limit', // 409: over the plan (plan.json): seats (params.reason seat_limit) or answers at the same time (concurrency_over_plan); params.manageUrl = where to change it
+  'plan_limit', // 409: over the plan (plan.json): seats (params.reason seat_limit) or answers at the same time (concurrency_over_plan); params.manageUrl = where to change it; params.changePlan = the message says to change the plan (a store app words it itself)
 ])
 export type ErrorCode = z.infer<typeof ErrorCode>
 

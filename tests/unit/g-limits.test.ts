@@ -210,6 +210,10 @@ describe('seats (BIZ-01, UX-14)', () => {
     const add = await owner.try('POST', '/api/admin/users', { username: 'paul', name: 'Paul', role: 'member' })
     expect(add.status).toBe(409)
     expect(add.body.error.params.reason).toBe('seat_limit')
+    // the admin's refusal says to change the plan and says so in a flag: a store app words it itself (web/src/lib/api.ts
+    // storeSafeError); the invitee's refusal above carries no such flag
+    expect(add.body.error.params.changePlan).toBe(true)
+    expect(acc.body.error.params.changePlan).toBeUndefined()
     // disabled accounts do not count: disabling one frees a seat, enabling it again needs a free one
     await owner.call('PATCH', `/api/admin/users/${m1.id}`, { status: 'disabled' })
     expect(seatsUsed(h.ctx.db)).toBe(2)

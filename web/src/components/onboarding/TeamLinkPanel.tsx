@@ -13,6 +13,7 @@ import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw, Share } fr
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { noPurchaseLinks } from '../../lib/desktop'
 import { formatDateTime } from '../../lib/format'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { teamLinkMessage } from '../../lib/team-link'
@@ -358,7 +359,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     <div className="space-y-5" data-testid="team-link" data-folded={folded || undefined}>
       {/* every seat of the plan is taken: the link looks ready, but whoever opens it is told the team is full (QA TC-488) */}
       {left === 0 && (
-        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-no-seats">{t('teamLink.noSeats')}</p>
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-no-seats">{t(noSeatsKey())}</p>
       )}
       {link.limitedUntil && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
@@ -377,6 +378,10 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     </div>
   )
 }
+
+/** Every seat taken: turn off an unused account or change the plan; a store app (lib/desktop.ts noPurchaseLinks) says it
+ * with no "change the plan" */
+export const noSeatsKey = (store = noPurchaseLinks()): MessageKey => (store ? 'teamLink.noSeatsStore' : 'teamLink.noSeats')
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
@@ -590,7 +595,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
       <p className="text-xs text-muted">{t('teamLink.memberNote')}</p>
     </>
   )
-  const fullNote = full && <p className="text-sm text-warn" data-testid="team-link-full">{t('teamLink.noSeats')}</p>
+  const fullNote = full && <p className="text-sm text-warn" data-testid="team-link-full">{t(noSeatsKey())}</p>
   const replaceNote = replacing && <p className="text-xs text-warn">{t('teamLink.replaceNote')}</p>
   const create = (
     <Button variant="primary" className={folded ? 'max-sm:w-full' : undefined} busy={busy} disabled={!!usesProblem || full} onClick={submit} data-testid="team-link-create">
