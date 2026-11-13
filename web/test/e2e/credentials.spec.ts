@@ -118,7 +118,9 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   // order: the key moves above the subscription
   const labels = () => page.getByTestId('credentials-claude').getByTestId('credential-row').evaluateAll((rows) => rows.map((r) => r.querySelector('.font-medium')?.textContent))
   expect(await labels()).toEqual(['대표 Max', '회사 키'])
-  await page.getByTestId('credentials-claude').getByRole('button', { name: '위로' }).click()
+  // move up is in the account's ⋯ menu
+  await page.getByTestId('credentials-claude').getByTestId('credential-row').nth(1).getByTestId('credential-menu').click()
+  await page.getByTestId('credentials-claude').getByRole('menuitem', { name: '위로' }).click()
   await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
 
   // ChatGPT: Codex's Add account; the address and the one-time code, then connected

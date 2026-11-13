@@ -1,17 +1,17 @@
 // Admin › Providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
-// page, and /admin/engines and /admin/credentials lead here): one quiet row per engine (Claude Code, Codex, API, …): its
-// state as a chip, one dim line (how it signs in · its models · when it was checked), what is missing in one line,
-// check again and the on/off switch. Under it, the provider's accounts in the order they are used, with Add account (the
-// owner or an admin; the AI connection dialogs of Credentials.tsx, for this provider's kinds only). The row opens in place for the
-// rest: the longer explanation, the version and every model, and the API engine form (owner and admins) (address, model, key;
-// ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
+// page, and /admin/engines and /admin/credentials lead here; QA TC-191 made it as quiet as Team settings): one row per
+// engine (Claude Code, Codex, API): its provider's mark, its name, one state and the on/off switch, what is missing in
+// one line. Under it, the provider's accounts in the order they are used, with Add account (the owner or an admin; the
+// AI connection dialogs of Credentials.tsx, for this provider's kinds only). The row opens in place for the rest: the
+// longer explanation, the version, how it signs in, every model, when it was checked, Check again and the API engine
+// form (owner and admins) (address, model, key; ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
 // limits) are in Team settings (TeamAiSettings.tsx); the old ?tab=team address opens them there (AdminLayout.tsx).
 // A phone (below 768 px): an engine is one row (its name, its state, a chevron) that opens its own page,
 // /admin/providers/<engine> (adminScreens.ts; ?engine= leads there): the state, check again and the switch, what is
 // missing, its accounts with Add account, how it signs in, its models and when it was checked (docs/DECISIONS.md "Admin
 // and Settings on phones"). A fix that is a command on the server says to do it on a computer there.
 import clsx from 'clsx'
-import { ChevronRight, RefreshCw } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
@@ -19,9 +19,9 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Switch, inputCls, useMediaQuery } from '../../components/ui'
-import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, ProviderAccounts, accountsNeedLook, useTeamCredentials } from './Credentials'
+import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
+import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
+import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, useTeamCredentials, type ProviderMark } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -73,7 +73,7 @@ export default function Engines() {
               <EngineRow e={engine} page phone accounts={ENGINE_FAMILY[engine.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[engine.id]!} />} accountsShown owner={isAdmin(me)}
                 initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
             </ul>
-            {tc.state.data && ENGINE_FAMILY[engine.id] && <p className="mt-3 text-xs text-faint">{t('credentials.order')}</p>}
+            {tc.state.data && ENGINE_FAMILY[engine.id] && <HowOrderWorks />}
           </section>
         ) : null}
       </Loadable>
@@ -110,7 +110,7 @@ export default function Engines() {
                 />
               ))}
             </ul>}
-            {tc.state.data && <p className="mt-3 text-xs text-faint">{t('credentials.order')} {t('credentials.costNote', { date: tc.state.data.pricesAsOf })}</p>}
+            {tc.state.data && !phone && <HowOrderWorks pricesAsOf={tc.state.data.pricesAsOf} />}
           </>
         )}
       </Loadable>
@@ -118,6 +118,9 @@ export default function Engines() {
     </>
   )
 }
+
+/** The mark an engine's row shows (Credentials.tsx ProviderLogo). */
+const ENGINE_MARK: Record<EngineId, ProviderMark> = { 'claude-code': 'claude', codex: 'openai', api: 'api' }
 
 /** The state word of an engine's row and page: an API engine without its settings is "Not set up". */
 function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean; text: string } {
@@ -134,7 +137,8 @@ function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   const st = engineState(t, e)
   return (
     <li>
-      <Link to={`/admin/providers/${e.id}`} className="flex min-h-12 items-center gap-2 py-2 text-sm -outline-offset-2 hover:bg-hover" data-testid="engine-row" data-engine={e.id} data-look={look || undefined}>
+      <Link to={`/admin/providers/${e.id}`} className="flex min-h-12 items-center gap-3 py-2 text-sm -outline-offset-2 hover:bg-hover" data-testid="engine-row" data-engine={e.id} data-look={look || undefined}>
+        <ProviderLogo mark={ENGINE_MARK[e.id]} small />
         <span className="min-w-0 flex-1 truncate font-medium text-ink">{e.label}</span>
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}
         <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
@@ -143,11 +147,12 @@ function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   )
 }
 
-/** One engine: name and state on the first line, one dim line under it, what is missing in one line (it opens with
- * "More"); check again and the switch on the right. The name opens the rest in place. `accountsShown`: the accounts
- * show under the closed row too. `phone`: the dim line is in the opened part only (it says the same as the details
- * there), and a fix that is a command on the server says to do it on a computer. `page`: the engine's own page on a
- * phone, everything open, its name in the bar (the page's own heading is for screen readers). */
+/** One engine, as quiet as a Team settings row: its mark, its name and one state, the on/off switch on the right; a
+ * problem in one line under the name (the fix, never cut). The name opens the rest in place: the longer explanation,
+ * the version, how it signs in, every model, when it was checked, Check again and, for the API engine, its form.
+ * `accountsShown`: the accounts show under the closed row too. `phone`: a fix that is a command on the server says to do
+ * it on a computer. `page`: the engine's own page on a phone, everything open, its name in the bar (the page's own
+ * heading is for screen readers). */
 function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; accountsShown: boolean; phone: boolean; page?: boolean; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
@@ -161,76 +166,66 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
   const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
   const checked = e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })
   const models = e.models.map((m) => m.label).join(', ')
-  // the dim line under the name: how it signs in · its models · when it was checked
-  const meta = [mode, models, checked].filter(Boolean).join(' · ')
   // what to know about this engine; the row shows it when opened
-  const hint = [e.authMode === 'local-login' && (phone ? t('admin.onComputerEngine') : t('engines.localHelp')), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
+  const hint = [e.authMode === 'local-login' && (phone ? t('admin.onComputerEngine') : t('engines.localHelp')), e.beta && t('engines.betaHint')].filter(Boolean).join(' ')
   // the API engine is not "installed": it has an address, a model and a key, or not yet. Its form is in the opened row,
   // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
   const apiNotSet = e.id === 'api' && e.status === 'not_installed'
   return (
-    <li className="py-3 max-md:py-1.5" data-testid="engine-card" data-engine={e.id}>
+    <li className="py-4 max-md:py-2" data-testid="engine-card" data-engine={e.id}>
       <div className="flex items-start gap-3">
+        <span hidden={page}><ProviderLogo mark={ENGINE_MARK[e.id]} /></span>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="text-sm font-semibold" hidden={page}>
+          <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-sm font-medium text-ink" hidden={page}>
               <button
                 type="button"
                 aria-expanded={open}
                 aria-controls={open ? (accounts ? `${details} ${accountsId}` : details) : undefined}
                 onClick={() => setOpen(!open)}
-                className="-ml-1 inline-flex items-center gap-1.5 rounded-md px-1 text-left hover:bg-hover max-md:min-h-11"
+                className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 text-left hover:bg-hover max-md:min-h-11"
                 data-testid="engine-open"
               >
-                <ChevronRight size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-90')} aria-hidden />
                 <span className="break-words">{e.label}</span>
+                <ChevronRight size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-90')} aria-hidden />
               </button>
             </h3>
             <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${technical ? 'ok' : e.status}`)}</Badge>
-            {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
-            {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </div>
-          {!phone && <p className="mt-0.5 truncate pl-5 text-xs text-faint" title={meta}>{meta}</p>}
           {apiNotSet ? (
-            <p className="mt-1 pl-5 text-xs text-warn" data-testid="engine-detail">
-              {t('adminux.engines.apiNotSetHint')}{' '}
-              {owner && !open && (
-                <button type="button" className="font-medium text-accent-text underline" onClick={() => {
+            owner && !open && (
+              <p className="text-sm text-muted" data-testid="engine-detail">
+                <button type="button" className="font-medium text-accent-text underline-offset-2 hover:underline" onClick={() => {
                   setOpen(true)
                   // this button goes away with the open row: the keyboard moves on to the form's first field
                   requestAnimationFrame(() => document.getElementById(details)?.querySelector<HTMLElement>('input, select, textarea')?.focus())
                 }} data-testid="engine-api-setup">
                   {t('adminux.engines.apiSetUp')}
                 </button>
-              )}
-            </p>
-          ) : e.detail && !technical && (
-            <div className="mt-1 flex min-w-0 items-baseline gap-2 pl-5">
-              {/* a problem's line is the fix (a command to run): shown whole, never cut behind "More" */}
-              {ok ? (
-                <OneLine className="min-w-0 flex-1 text-xs text-muted" testId="engine-detail">{e.detail}</OneLine>
-              ) : (
-                <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail">{phone && /`[^`]+`/.test(e.detail) ? <span data-testid="engine-on-computer">{t('admin.onComputer')}</span> : <CodeText text={e.detail} />}</p>
-              )}
-            </div>
+              </p>
+            )
+          ) : e.detail && !technical && !ok && (
+            // a problem's line is the fix (a command to run): shown whole, never cut
+            <p className="min-w-0 text-xs break-words text-warn" data-testid="engine-detail">{phone && /`[^`]+`/.test(e.detail) ? <span data-testid="engine-on-computer">{t('admin.onComputer')}</span> : <CodeText text={e.detail} />}</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <IconButton label={t('engines.check')} className="max-md:size-11" onClick={onCheck} disabled={checking}>
-            <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
-          </IconButton>
+        <div className="flex min-h-9 shrink-0 items-center">
           <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enableNamed', { name: e.label })} hideLabel testId={`engine-switch-${e.id}`} />
         </div>
       </div>
       {(accountsShown || open) && accounts && <div id={accountsId}>{accounts}</div>}
       {open && (
-        <div id={details} className="mt-3 space-y-3 pl-5" data-testid="engine-details">
-          {hint && <p className="text-xs leading-relaxed text-muted" data-testid={e.beta ? 'engine-beta' : undefined}>{hint}</p>}
+        <div id={details} className="mt-3 space-y-3 pl-12 max-md:pl-0" data-testid="engine-details">
+          {e.id === 'api' && <p className="text-xs leading-relaxed text-muted" data-testid="engine-experimental"><span className="font-medium text-warn">{t('engines.experimental')}</span> · {t('engines.experimentalHint')}</p>}
+          {e.beta && <p className="text-xs leading-relaxed text-muted" data-testid="engine-beta"><span className="font-medium text-warn">{t('engines.beta')}</span> · {hint}</p>}
+          {!e.beta && hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
+          {ok && e.detail && !technical && <p className="text-xs text-muted" data-testid="engine-ok-detail">{e.detail}</p>}
           <div className="space-y-0.5 text-xs text-faint">
             <p>{[e.version && `v${e.version}`, mode].filter(Boolean).join(' · ')}</p>
             {models && <p>{t('engines.models', { list: models })}</p>}
             {checked && <p>{checked}</p>}
           </div>
+          <Button size="sm" variant="secondary" onClick={onCheck} disabled={checking} data-testid="engine-check">{checking ? t('credentials.checking') : t('engines.check')}</Button>
           {e.id === 'api' && owner && <ApiEngineForm onSaved={onApiSaved} />}
         </div>
       )}
