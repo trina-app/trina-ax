@@ -297,7 +297,7 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
-  activity = startActivity((state) => client?.send({ type: 'presence', state }))
+  activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange)
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
   client.start()

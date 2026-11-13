@@ -48,6 +48,7 @@ const bridge: DesktopBridge = {
     get: () => ipcRenderer.invoke('bridge:focus'),
     onChange: on('bridge:focus'),
   },
+  systemActivity: { onChange: on('bridge:system-activity') },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),

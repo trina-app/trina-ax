@@ -24325,3 +24325,48 @@ Activity cleared notices one click at a time.
 - **Tests:** the room-AI-only tests went (b-rooms-ai*, b-room-ai-grants, room-ai unit and e2e specs, their security
   cases); the side chat's grant cases stay in b-chat-rooms-fewer-cards. Settings › 트리나에게 허용한 것 and the admin
   switch are in web/test/e2e/ai-allowances.spec.ts.
+
+## Phone notifications when I'm away — no phone push while I'm at Trina (feat/push-when-away, 2026-11-13, product owner)
+
+넣을 곳: trina-ax core (`server/src/notifications/away.ts`, `server/src/notifications/push-service.ts`,
+`server/src/realtime/presence.ts`, `server/src/realtime/hub.ts`, `server/src/notifications/preferences.ts`,
+`server/migrations/290_b_push_phone_when.sql`, `shared/src/api/notifications.ts`, `shared/src/desktop-bridge.ts`,
+`desktop/src/common/system-activity.ts`, `desktop/src/main/app-window.ts`, `desktop/src/preload/app.ts`,
+`web/src/lib/presence.ts`, `web/src/components/settings/Notifications.tsx`), 이유: the owner: "메세지나 알림이 오면,
+데스크탑앱에도 울리고, 내 폰에서도 울려" — look at Slack and Discord, then "ㄱㄱ". Plan and review in the session
+scratchpad (push-when-inactive-plan.md); the owner then questioned a catch-up cap, and the design became Slack's plain
+default.
+
+- **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
+  no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
+  while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
+  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  the computer's own notification are unchanged.
+- **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
+  heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
+  open; the page pings every 20 s, the relay has no pings of its own, Bun closes idle sockets after 120 s), or a window
+  closed while in use within the 30 s grace (a reload, a Wi-Fi switch, a relay reconnect; any window opening again
+  ends it). Not when the person set themselves away (manual away sends). Any Trina window counts, the phone app's too
+  while open in front of them (it goes idle when hidden), as Slack counts any active client.
+- **The computer's own use (desktop app).** A page sees only its own input: someone in Excel with Trina behind it, or
+  in the in-app browser pane, would look away. The desktop app asks Electron `powerMonitor` every 30 s
+  (`getSystemIdleState(600)`, `getSystemIdleTime()`) and tells the page (`systemActivity`, bridge optional): the
+  computer's last input counts as the page's; a locked screen is idle at once. A browser tab cannot see the computer:
+  its own input only (known limit). Older desktop apps: their page's own input only.
+- **Right after a start** windows are still reconnecting (presence's 15 s warm-up): a phone push due then waits once
+  until the warm-up ends and is decided then.
+- **Never cancelled:** the owner's locked password check (`owner.reauth_locked`, a security warning); a retry (only a
+  first try is decided); Web Push (`web` rows: a browser's own channel).
+- **The setting.** Settings › Notifications, its own section "Phone" (the person's preference, for every device, not
+  "this device"): "Phone notifications only when I'm away", on by default; off = `always` (today's behaviour). Stored as
+  `notification_preferences.phone_when` ('away' | 'always', migration 290, additive, min_compatible_reader 1), sent as
+  `NotificationPreferences.phoneWhen` (optional: older servers omit it and the app shows no row). Only the caller's own
+  (the existing PATCH /api/notification-preferences).
+- **Not in this build:** clearing a phone notification already delivered when it is read on the computer (needs a
+  silent push and a phone app release; the app has only dismiss-all, `mobile/src/push.ts`). The iPhone icon number is
+  set by the next push or when the app opens, so it can stay higher while pushes are cancelled.
+- **Tests:** `tests/unit/b-push-away.test.ts` (cancel at Trina, not sent later, away sends, grace, manual away, Always,
+  the caller's own, another person's phone untouched, the start wait), `tests/unit/b-presence.test.ts` (inUse, silence,
+  grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
+  `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.

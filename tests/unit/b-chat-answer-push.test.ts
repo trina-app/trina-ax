@@ -43,7 +43,10 @@ function phone(user: string) {
   const sent: NativeSend[] = []
   let now = Date.now()
   const p = new PushService(h.ctx, { config: () => null, native: () => ({ url: 'https://push.example.test' }), transport: async () => { throw new Error('no web push here') },
-    nativeTransport: async (i) => { sent.push(i); return { statusCode: 200 } }, now: () => now })
+    nativeTransport: async (i) => { sent.push(i); return { statusCode: 200 } }, now: () => now,
+    // the asker's own window is open here (the test's socket): "at Trina" would cancel the phone push
+    // (notifications/away.ts, its own tests in b-push-away); these tests are about which answers make a notice
+    phoneDecision: () => ({ kind: 'send' }) })
   const sid = (h.ctx.db.query("SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1").get(user) as { id: string }).id
   p.registerDevice(user, sid, { consent: true, platform: 'ios', environment: 'production', token: crypto.randomUUID().replace(/-/g, '').repeat(2) })
   /** later: the clock `ms` after the real now (the answer itself takes a moment) */

@@ -75,6 +75,7 @@ export class Hub implements RealtimeHub {
   private sweeper: ReturnType<typeof setInterval> | null = null
   private frameHandlers: ClientFrameHandler[] = []
   private windowListeners: WindowListener[] = []
+  private seenListeners: ((userId: string, windowId: string) => void)[] = []
   private userEndedListeners: UserEndedListener[] = []
   private o: Required<HubOptions>
   private stopping = false
@@ -296,6 +297,7 @@ export class Hub implements RealtimeHub {
     try { raw = JSON.parse(data) } catch { this.sendFrame(s, { type: 'error', code: 'bad_request', message: 'not JSON' }); return }
     const f = ClientFrame.safeParse(raw)
     if (!f.success) { this.sendFrame(s, { type: 'error', code: 'validation', message: 'unknown or invalid frame' }); return }
+    for (const l of this.seenListeners) try { l(s.userId, s.windowId) } catch { /* the listener's own problem */ }
     if (f.data.type === 'ping') { this.sendFrame(s, { type: 'pong', t: f.data.t }); return }
     if (f.data.type === 'browser.ack') this.ackBrowserCall(s.userId, f.data.callId)
     for (const h of this.frameHandlers) try { h({ userId: s.userId, windowId: s.windowId }, f.data) } catch (e) { this.ctx.log.error('client frame handler failed', { err: e }) }
@@ -395,6 +397,8 @@ export class Hub implements RealtimeHub {
   lastSeq(userId: string): number { return this.users.get(userId)?.seq ?? 0 }
   onClientFrame(h: ClientFrameHandler) { this.frameHandlers.push(h) }
   onWindow(l: WindowListener) { this.windowListeners.push(l) }
+  /** Every valid frame a window sends (its ping too), after it is parsed: presence's silence cut-off. */
+  onFrameSeen(l: (userId: string, windowId: string) => void) { this.seenListeners.push(l) }
   onUserEnded(l: UserEndedListener) { this.userEndedListeners.push(l) }
 
   // ---------------- housekeeping ----------------

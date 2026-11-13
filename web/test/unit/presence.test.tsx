@@ -53,6 +53,34 @@ function tracker(phone: boolean) {
 }
 
 describe('this window\'s activity (lib/presence.ts)', () => {
+  test('the desktop app: the computer\'s own input keeps the window in use; a locked screen makes it idle at once', () => {
+    const a = tracker(false)
+    // 9 minutes without input in the page, but the computer was used a minute ago (Excel in front of Trina)
+    a.timers.advance(9 * 60_000)
+    a.t.system({ locked: false, idleMs: 60_000 })
+    a.timers.advance(5 * 60_000)
+    expect(a.t.current).toBe('active')
+    expect(a.sent).toEqual([])
+    // locked: idle at once, and stays so while the computer reports locked
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    a.t.system({ locked: true, idleMs: 30_000 })
+    expect(a.t.current).toBe('idle')
+    // unlocked and used: in use again
+    a.t.system({ locked: false, idleMs: 1000 })
+    expect(a.sent).toEqual(['idle', 'active'])
+    // a long-idle computer is idle (its last input is older than 10 minutes)
+    a.timers.advance(IDLE_AFTER_MS + 100)
+    a.t.system({ locked: false, idleMs: IDLE_AFTER_MS + 200 })
+    expect(a.t.current).toBe('idle')
+  })
+
+  test('a phone ignores the computer\'s word (its own rule: visible is in use)', () => {
+    const a = tracker(true)
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.t.current).toBe('active')
+  })
+
   test('a computer: idle after 10 minutes without input, in use at the next input; only changes are sent', () => {
     const a = tracker(false)
     expect(a.t.current).toBe('active')
