@@ -1,2 +1,0 @@
-- Invites when the plan's member limit is reached: the invite page now says the team is full (and to tell whoever invited you) instead of showing a sign-up form that is refused afterwards. A person accepting a last seat that someone else just took sees the same words, no longer the admin's "disable an account or change the plan" message with the billing link.
-- Team invite link: when no seat is left, the panel says so above the ready-made message, so an admin does not send a link nobody can join with.
