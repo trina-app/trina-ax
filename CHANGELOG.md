@@ -7,6 +7,12 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.3 — 2026-11-13
 
+- Renaming a Trina chat, moving it to a project, changing its AI model, deleting it or bringing it back from Deleted history now shows at once, and so do creating, renaming and deleting a conversation folder and moving a conversation into or out of one. Before, each waited for the server and the row could jump when it answered. If the change fails, it goes back and a short message says why.
+- **Slack: Trina reads the thread you ask in, with the Slack app's own permissions.** Mention @Trina in a thread and it reads the thread so far; ask in the app about a Slack channel or thread and it reads channels it was invited to that you are in too (`/invite @Trina` first). It no longer reads Slack as you, has no Slack search, and nobody has to "Allow reading Slack". Nothing of Slack's messages is stored beyond the chat's answer.
+- Admin › Connected apps › Slack shows **Update Slack permissions** when the Slack app does not have the two reading permissions yet. A team's own app: add `channels:history` and `groups:history` as Bot Token Scopes in Slack, reinstall the app, then press **I updated them**. The official app: **Add to Slack** again.
+- An answer that used Slack messages from another channel or a DM still asks first before **Post to channel**.
+- The AI no longer offers a "connect card" for Slack; it says how Slack is reached instead.
+
 - **Activity** on a computer selects only the notice you opened. Two notices that open the same page (two people who joined one project) were both shown selected, filled and in bold, while that page was open.
 - **A message's hover bar** under the first message of a conversation stays on top of the next message's bar where they meet, so its buttons can be clicked while that message is hovered.
 
@@ -134,10 +140,6 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - **Slack** is no longer an Admin menu item of its own. The owner finds it in **Admin › Connected apps**, like Google Drive: under **Connected** once it is added (with On, Off, a problem or Reconnect on its row), else under **Discover**. Its page has the same Add to Slack, steps, status, Turn off and Remove as before. Old links to Admin › Slack, and the way back from Slack after **Add to Slack**, open it there.
 - **Slack**: after the app was removed in Slack, its page also offers **Remove Slack**, so it can be taken out of the list instead of waiting there to be reconnected.
 - Docs site: the Slack guide's screenshots are now of the English app in the light theme, showing Slack in Connected apps.
-- **Slack: one sign-in links your account and lets the AI read Slack as you.** "Sign in with Slack" now also lets Trina read the threads, channels and messages you can see in Slack, so "summarize this thread" works when you ask from Slack. A question from Slack knows where it was asked and reads the thread so far. People linked before see **Allow reading Slack** in Settings › Connectors › Slack, and once in Slack next to "working…". Unlinking stops it.
-- An answer that used Slack messages from another channel or a DM asks first before **Post to channel**.
-- The AI no longer offers a "connect card" for Slack; it says how to link Slack instead.
-- Admin › Connected apps › Slack shows **Update Slack permissions** when the Slack app does not have the permissions for reading yet. A team's own Slack app: add the listed permissions in Slack, reinstall the app, then press **I updated them**; until then Sign in with Slack links the account as before.
 - The dev environment has a **Preview** button again (Linux servers with a preview domain). When the AI starts a dev server, its step in the chat shows "Dev server on port N · Preview": the button opens the app in a new tab, on a separate preview domain. Only the person who started the dev server can open it, and the link stops working when the dev server stops.
 - On Ubuntu 24.04 the installer and `install-srt.sh` now give the real reason why the dev environment stays off: the system's systemd 255 cannot limit the team server to its own run scopes. AppArmor is not the reason.
 - The dev environment now works on Ubuntu 24.04 servers. The installer turns it on there as on Debian 13. On a server installed before this version, run `sudo ./install-linux.sh update --from <kit>` once to turn it on.
