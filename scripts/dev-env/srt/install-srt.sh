@@ -222,7 +222,7 @@ done
 
 # ---- check: the server account can run an instance of the template, and nothing else. This comes before the server
 # drop-in, so a failed check leaves the dev environment off ----
-PROBE=$(head -c 64 /dev/urandom | tr -dc 'a-z0-9' | head -c 16)
+PROBE=$(head -c 4096 /dev/urandom | tr -dc 'a-z0-9' | head -c 16)
 [ ${#PROBE} = 16 ] || PROBE=0000000000000000
 PU=trina-dev@$PROBE.service
 PARGS=$BASE/devenv/run/$PROBE.args

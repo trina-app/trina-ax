@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:44
 - Branch: `feat/srt-ubuntu-route-a-3e556a`
-- Status: in progress
+- Status: done
 - Where: `server/src/devenv/srt`, `scripts/dev-env/srt`, `scripts/linux/install-linux.sh`, `native/cmd/mycel-sandbox`.
   Why: the dev environment runner and its root install (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. Ubuntu 24.04 servers get the dev environment, and the root install changes (a new unit file
@@ -65,4 +65,7 @@ Out: macOS (unchanged), route B (user manager with linger).
 
 ## Result
 
-(at the end)
+Built as planned. Differences: per-run `RuntimeMaxSec` cannot change at runtime on systemd 255, so the template has an
+8 h 10 min ceiling and the tracker stops jobs (6 h) and dev servers (8 h); `systemctl start --wait` gives the end of a
+run with no poll; `ExecStart=-` keeps failed commands from leaving failed units. VM results: docs/DECISIONS.md "Dev
+environment on srt: runs as template units". PR: see the branch.

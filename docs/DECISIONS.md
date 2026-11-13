@@ -24988,6 +24988,14 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   when every server has the template.
 - **Preview.** `mycel-sandbox port-forward --cgroup` accepts `trina-dev@<16>.service` (and the older scope name). The
   run's processes are in the unit's cgroup, which only systemd can fill, so attack A26 holds.
-- **VM checks (2026-11-13).** See the PR: `scripts/dev-env/srt/spike-vm.sh` with `SPIKE_OS=ubuntu2404` and
-  `debian13`.
+- **VM checks (2026-11-13, EC2 t3a.medium, `scripts/dev-env/srt/spike-vm.sh` with `SPIKE_OS`).** Ubuntu 24.04.5
+  (systemd 255.4, `apparmor_restrict_unprivileged_userns=1`): `checks` 0 failed (S1a-S1f, A1, A17, A20, A21 oom-kill,
+  A22 512 tasks, A24, A25 13 refusals, A25b, S5, the restart) and `preview` 0 failed (S2, A26, P1-P7; P7 is A23: a job
+  past the disk floor ends with `disk`). Debian 13 (systemd 257): `checks` 0 failed. Ubuntu 24.04 on c6i.xlarge with
+  two kits built on the VM: install (dev environment on, a run unit as `axserver` writes its exit code, a transient
+  root `.service` refused), update to the second kit (the same), `uninstall --purge` (no template, rule, slice file,
+  drop-in, base or accounts left; `/opt/trina` keeps chrome-headless-shell and python by design).
+- **Seen, not changed here.** On Ubuntu the list's devenv group has no chromium (Ubuntu ships it as a snap), so A24 and
+  S4 test nothing there. On Debian 13, chromium in srt stops at its process singleton (`socket()`: EPERM, srt's seccomp
+  refuses AF_UNIX), so S4 gives no page; the scope runner had the same srt filter.
 
