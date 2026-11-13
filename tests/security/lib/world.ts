@@ -102,6 +102,8 @@ export interface World {
     projAlice: string; projFalcon: string; projMkt: string; projShared: string; projTeam: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
+    /** a scheduled task of alice's (a template: no card), for her run history (listScheduleRuns) */
+    scheduleAlice: string
     budget: string; bobChat: string; suggestion: string
     teamCredential: string; aliceOwnCredential: string
     /** the DM of alice and erin, alice's message in it, a second one of hers to delete, and an image she sent */
@@ -300,6 +302,9 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await alice.ok('POST', `/api/rooms/${groupRoom}/messages`, { body: `${C.groupMsg} agenda`, clientMessageId: cm() })
   const groupLeaveRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'] })).id
 
+  // a scheduled task of alice's own (a template needs no card); its run history is hers alone
+  const scheduleAlice = (await alice.ok('POST', '/api/schedule-templates', { requestId: crypto.randomUUID(), templateId: 'daily-file-index', version: 1, sourcePath: 'shared', outputPath: 'users/alice/reports', time: '09:00' })).id
+
   const desktop = { alice: inst.client('alice-desktop', { client: 'desktop', window: 'win-alice-desk' }), bob: inst.client('bob-desktop', { client: 'desktop', window: 'win-bob-desk' }) }
   await desktop.alice.login('alice', PW.alice, 'desktop')
   await desktop.bob.login('bob', PW.bob, 'desktop')
@@ -312,7 +317,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion,
+      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice,
     },
   }
 }

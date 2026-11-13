@@ -222,6 +222,10 @@ export const Chat = z.object({
   /** I answered the AI here, and the answer waits for a free place among the team's running answers to go on (the AI
    * gave its place back while it waited for me). Absent = no. */
   waitingForPlace: z.literal(true).optional(),
+  /** a run of one of my own scheduled tasks (its first turn is the task's run; only for the task's owner): the task and
+   * how this run went (null while it runs). The lists fold the runs of one task into one row that opens the task
+   * (docs/DECISIONS.md "Scheduled runs fold in Recent"). Absent = not a run, or the task is gone. */
+  schedule: z.object({ id: z.string(), title: z.string(), templateId: z.string().nullable(), outcome: z.enum(['succeeded', 'problems', 'failed']).nullable() }).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it

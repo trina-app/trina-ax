@@ -72,6 +72,16 @@ export function dateBucket(iso: string, now = new Date()): DateBucket {
   return 'older'
 }
 
+/** How long something took, in the person's words: "45 sec", "3 min", "1 hr 5 min" (Intl units, no i18n keys). */
+export function formatElapsed(ms: number, locale: Locale): string {
+  const unit = (n: number, u: 'second' | 'minute' | 'hour') => new Intl.NumberFormat(TAG[locale], { style: 'unit', unit: u, unitDisplay: 'short' }).format(n)
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return unit(s, 'second')
+  const m = Math.round(s / 60)
+  if (m < 60) return unit(m, 'minute')
+  return m % 60 ? `${unit(Math.floor(m / 60), 'hour')} ${unit(m % 60, 'minute')}` : unit(m / 60, 'hour')
+}
+
 export function fmtDuration(s: number) {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }

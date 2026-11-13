@@ -31,7 +31,7 @@ export function ListIcon({ children, className }: { children: ReactNode; classNa
 type RowLink = { [data: `data-${string}`]: string | undefined }
 
 /**
- * One row of a list. `to` makes it a link (with `state`), else `onClick` a button. `icon`: a lucide icon (drawn in a
+ * One row of a list. `to` makes it a link (with `state`), else `onClick` a button, else a row that opens nothing. `icon`: a lucide icon (drawn in a
  * ListIcon). `meta`: a second line, small and faint ("나만 · 3시간 전", a notice's time). `end`: what sits at the row's
  * right (a count, a dot, a ›). `selected`: the place on screen (aria-current, a fill); `unread`: semibold in ink.
  * `wrap`: the name may take two lines. `nameTitle`: the whole name on hover when it is cut.
@@ -56,7 +56,8 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
 }) {
   const cls = clsx(
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 56px)
-    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
+    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
+    (to || onClick) && 'hover:bg-hover',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
     selected && 'bg-hover',
   )
@@ -82,10 +83,15 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
         <Link to={to} state={state} onClick={onClick} aria-current={selected ? 'page' : undefined} className={cls} data-testid={testId} {...link}>
           {body}
         </Link>
-      ) : (
+      ) : onClick ? (
         <button type="button" onClick={onClick} className={cls} data-testid={testId} {...link}>
           {body}
         </button>
+      ) : (
+        // neither: a row that opens nothing (a scheduled run that did not start has no chat), no hover
+        <div className={cls} data-testid={testId} {...link}>
+          {body}
+        </div>
       )}
     </li>
   )

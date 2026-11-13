@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
+import { storedRunOutcome } from './schedule-outcome'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isInternalChat } from './internal-chats'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
@@ -219,7 +220,17 @@ export class ChatStore {
       ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),
       ...(pinned ? { pinnedAt: iso(pinned) } : {}),
       ...(folder ? { folderId: folder } : {}),
+      ...(o.viewer && o.viewer === r.user_id && r.title_source === 'schedule' ? this.runOf(r.id, r.user_id) : {}),
     }
+  }
+  /** Chat.schedule: the own task a run chat is a run of (its scheduled turn), and how that run went; nothing once the
+   *  task is deleted (the chat is then an ordinary chat in the lists again). */
+  private runOf(chatId: string, userId: string): Pick<Chat, 'schedule'> {
+    const r = this.db.query(`SELECT s.id, s.title, s.template_id, t.status, t.run_outcome FROM turns t JOIN schedules s ON s.id = t.schedule_id AND s.user_id = t.user_id
+      WHERE t.chat_id = ? AND t.user_id = ? AND t.schedule_id IS NOT NULL ORDER BY t.started_at LIMIT 1`).get(chatId, userId) as { id: string; title: string; template_id: string | null; status: string; run_outcome: string | null } | null
+    if (!r) return {}
+    const outcome = r.status === 'queued' || r.status === 'running' ? null : storedRunOutcome({ status: r.status, run_outcome: r.run_outcome })
+    return { schedule: { id: r.id, title: r.title, templateId: r.template_id, outcome } }
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
    * the chat on screen (never since it was made: after it was made), and how it ended when not well (Chat.lastOutcome:

@@ -38,6 +38,7 @@
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
+import { foldRuns } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
@@ -949,8 +950,9 @@ function ProjectPage() {
               <button type="button" onClick={() => setImporting(true)} className="mt-1 inline-flex min-h-6 items-center text-sm text-accent-text hover:underline pointer-coarse:min-h-11" data-testid="project-import">{t('projects.page.import')}</button>
             )}
             <ul className="divide-y divide-line">
-              {chats?.map((c) => (
-                <li key={c.id}>
+              {/* the runs of one scheduled task started here: one row that opens the task (nav/TaskRunsRow.tsx) */}
+              {chats && foldRuns(chats, (c) => (
+                <li>
                   <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
                 </li>
               ))}
