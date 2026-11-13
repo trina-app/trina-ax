@@ -160,3 +160,23 @@ test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s
   await expect(panel(page).getByTestId('trina-list')).toBeVisible()
   await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
 })
+
+test('트리나에게 묻기 while Home is already on show puts the focus in its box, as from another page; ⇧⌘O too', async ({ page }) => {
+  await start(page)
+  await page.goto('/')
+  const box = page.getByTestId('composer-input')
+  await expect(box).toBeVisible()
+  // the focus elsewhere first (a document load leaves it out of the box)
+  await page.getByTestId('nav-search').focus()
+  await panel(page).getByTestId('new-chat').click()
+  await expect(box).toBeFocused()
+  // from another page, as before
+  await page.getByTestId('nav-scheduled').click()
+  await expect(page).toHaveURL(/\/scheduled$/)
+  await panel(page).getByTestId('new-chat').click()
+  await expect(box).toBeFocused()
+  // the shortcut on Home itself
+  await page.getByTestId('nav-search').focus()
+  await page.keyboard.press('Control+Shift+O')
+  await expect(box).toBeFocused()
+})

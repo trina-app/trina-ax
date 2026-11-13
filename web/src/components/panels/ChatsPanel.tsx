@@ -16,6 +16,7 @@ import { useUi } from '../../store/ui'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PeoplePicker } from '../rooms/PeoplePicker'
 import { IconButton } from '../ui'
+import { LoadError } from '../LoadError'
 import { PanelFrame, panelRow } from './PanelFrame'
 import { RoomsByKind } from './RoomsByKind'
 
@@ -58,7 +59,8 @@ export function ChatsPanel() {
         </>
       }
     >
-      {failed && !anyRoom ? null : <RoomsByKind />}
+      {/* a list that could not be read: the calm notice with 다시 시도, as 트리나's list has it (components/LoadError.tsx) */}
+      {failed && !anyRoom ? <LoadError error={failed} onRetry={() => useRooms.getState().loadRooms()} what="rooms" minor className="mx-1 mt-2" /> : <RoomsByKind />}
       <PeoplePicker open={picking} onClose={() => setPicking(false)} />
     </PanelFrame>
   )

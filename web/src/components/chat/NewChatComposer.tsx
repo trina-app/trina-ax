@@ -21,7 +21,7 @@ import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine } from './WhoSees'
 
-export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
+export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, resetKey = 0, autoFocus, focusKey, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
   /** one of my chat folders the new chat goes in (a folder's +; docs/DECISIONS.md "List folders on
    * screen"): filed once it is made, before it opens */
@@ -35,6 +35,8 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   /** a new value starts the box again with `initialText` (a chosen example or question) */
   resetKey?: number
   autoFocus?: boolean
+  /** a new value takes the focus again (Composer `focusKey`) */
+  focusKey?: string
   placeholder?: string
   /** the first message went out (its chat opens next) */
   onSent?: (chatId: string) => void
@@ -111,6 +113,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       initialText={initialText}
       skill={skill}
       autoFocus={autoFocus}
+      focusKey={focusKey}
       placeholder={placeholder}
       who={who}
       sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
