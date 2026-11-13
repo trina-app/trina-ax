@@ -117,7 +117,7 @@ test('hosted: set once → Drive and the four apps sign in directly with it and 
   expect(set.body).toMatchObject({ available: true, active: true, canGoBack: true, setBy: { id: 'carol', name: 'Carol Park' }, people: 0, shared: 0 })
   expect(set.body.setAt).toBeString()
   expect(fs.statSync(drive.clientFile).mode & 0o777).toBe(0o600)
-  for (const app of APPS) expect(getSetting(A.ctx.db, clientSettingKey(app))).toEqual({ by: 'drive' })
+  for (const app of APPS) expect(getSetting<{ by: string }>(A.ctx.db, clientSettingKey(app))).toEqual({ by: 'drive' })
   expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action='google.own_app_set'").all()).toEqual([{ detail: JSON.stringify({ replaced: false }) }])
 
   // all five sign in directly with the company's app; the hosting service is never asked

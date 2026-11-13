@@ -33,8 +33,10 @@ export function AppConnectorCard({ logo, name, line, lineTone, action, children,
 
 export interface CardMenuItem { label: string; onSelect: () => void; danger?: boolean; disabled?: boolean; testId: string }
 
-/** ⋯ on a card: the few things you rarely do with it (reconnect, disconnect). Arrow keys move, Esc and Tab close. */
-export function CardMenu({ label, items, testId }: { label: string; items: CardMenuItem[]; testId: string }) {
+/** ⋯ on a card: the few things you rarely do with it (reconnect, disconnect). Arrow keys move, Esc and Tab close.
+ * `startOnPhone`: the ⋯ is a SettingRow's control, which a phone puts at the start under the line, so the menu opens
+ * from its left edge there (from its right edge on wider screens, where the control is on the right). */
+export function CardMenu({ label, items, testId, startOnPhone }: { label: string; items: CardMenuItem[]; testId: string; startOnPhone?: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])]
@@ -62,7 +64,7 @@ export function CardMenu({ label, items, testId }: { label: string; items: CardM
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={label} className="absolute right-0 z-30 mt-1 min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid={`${testId}-items`}>
+        <div role="menu" aria-label={label} className={`absolute right-0 z-30 mt-1 ${startOnPhone ? 'max-md:right-auto max-md:left-0 ' : ''}w-max max-w-[min(20rem,calc(100vw-2rem))] min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg`} data-testid={`${testId}-items`}>
           {items.map((it) => (
             <button key={it.testId} type="button" role="menuitem" disabled={it.disabled}
               className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-hover focus:bg-hover focus:outline-none disabled:opacity-50 ${it.danger ? 'text-danger' : ''}`}

@@ -8,9 +8,9 @@
 // Chromium, so no image tool is needed). The URL and password are arguments, never stored here. Use made-up data only:
 // the shots are committed to a public repository. Playwright comes from the web workspace (web/node_modules).
 //
-// Shots with `mock` show states a development server cannot reach, such as Slack added through the hosting service:
-// they run against the web e2e mock server instead (made-up team "Acme", owner olga), which sets each state through
-// its test control, and only with --mock. Shots with `mockToo` run with --mock too, on the made-up files and scheduled
+// Shots with `mock` show states a development server cannot reach, such as Slack added through the hosting service or
+// the company's own Google app on a hosted team: they run against the web e2e mock server instead (made-up team "Acme",
+// owner olga, member bob), which sets each state through its test controls, and only with --mock. Shots with `mockToo` run with --mock too, on the made-up files and scheduled
 // tasks MOCK_SEED adds (the navigation's own shots: the rail and its lists look the same on either server); the others
 // need the demo seed's data and are left out then:
 //
@@ -46,9 +46,12 @@ interface Shot {
   crop?: string
   /** extra space around the cropped element, in CSS pixels */
   pad?: number
-  /** the web e2e mock server's Slack state for this shot (POST /__test/slack: SlackAdmin and MySlack fields over a
-   * connected own app); such a shot runs only with --mock */
-  mock?: { admin?: Record<string, unknown>; mine?: Record<string, unknown> }
+  /** the web e2e mock server's state for this shot; such a shot runs only with --mock. `slack`: POST /__test/slack
+   * (SlackAdmin and MySlack fields over a connected own app); `googleOwnApp`: POST /__test/google-own-app (the company's
+   * own Google app); `googleApps`: POST /__test/google-apps, in order (a person's Google app connection) */
+  mock?: { slack?: { admin?: Record<string, unknown>; mine?: Record<string, unknown> }; googleOwnApp?: Record<string, unknown>; googleApps?: Record<string, unknown>[] }
+  /** signed in as this person instead (the mock's member bob) */
+  as?: { user: string; password: string }
   /** also taken with --mock, on MOCK_SEED's data */
   mockToo?: boolean
 }
@@ -58,6 +61,29 @@ const click = (sel: string) => async (p: Page) => { await p.locator(sel).first()
 const SLACK_NEW = { mode: 'own', official: true, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0 }
 /** Slack added through the hosting service, connected (no own app's links or https line) */
 const SLACK_ADDED = { ...SLACK_NEW, mode: 'official', enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', state: 'connected', signIn: true }
+/** Acme on the hosting service, Google sign-in through Trina's app (Google sign-in row with Use your company's app) */
+const GOOGLE_HOSTED = { hosted: true, active: false, canGoBack: true, by: null, at: null, people: 14, shared: 2 }
+/** after Save: the company's app, set by the owner */
+const GOOGLE_OWN = { ...GOOGLE_HOSTED, active: true, by: { id: 'olga', name: 'Olga' }, at: '2026-11-13T02:00:00.000Z' }
+const BOB = { user: 'bob', password: 'bob password 1' }
+/** the dialog opened from Gmail's Team settings, then Next `n` times (step 3 with the ID and secret, so step 4 opens) */
+const ownAppDialog = (n: number) => async (p: Page) => {
+  await p.locator('[data-testid="gsign-use"]').click(); await p.waitForTimeout(400)
+  for (let i = 0; i < n; i++) {
+    if (i === 2) {
+      await p.locator('[data-testid="drive-setup-manual"]').click()
+      await p.locator('[data-testid="drive-setup-id"]').fill('123456789-acme.apps.googleusercontent.com')
+      await p.locator('[data-testid="drive-setup-secret"]').fill('made-up-secret')
+    }
+    await p.locator('[data-testid="gsign-next"]').click(); await p.waitForTimeout(300)
+  }
+  // focus rings and tooltips stay out of the shot
+  await p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur(), ''); await p.waitForTimeout(200)
+}
+const ownAppRow = async (p: Page) => {
+  await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'center' }), '[data-testid="gsign-row"]'); await p.waitForTimeout(400)
+}
+const DIALOG = '[role="dialog"] >> nth=-1'
 /** What --mock adds after its reset, in English, for the `mockToo` shots: a team glossary in shared/ and two scheduled
  * tasks (the mock's test controls /__test/file and /__test/schedule) */
 const MOCK_SEED: [string, Record<string, unknown>][] = [
@@ -98,16 +124,30 @@ const SHOTS: Shot[] = [
   { file: 'settings/settings-phone', path: '/settings/profile', phone: true },
   { file: 'search/palette', path: '/', mockToo: true, prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(600) }, crop: '[data-testid="search-palette"]' },
   // Slack (docs/site/use/slack.md), from the mock server (--mock): the hosting service serves it, workspace "Acme"
-  { file: 'slack/connected-apps', path: '/admin/connectors', mock: { admin: SLACK_NEW }, prepare: async (p) => {
+  { file: 'slack/connected-apps', path: '/admin/connectors', mock: { slack: { admin: SLACK_NEW } }, prepare: async (p) => {
     await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'center' }), '[data-testid="connector-card"][data-id="slack"]'); await p.waitForTimeout(400)
   }, crop: 'main' },
-  { file: 'slack/add-to-slack', path: '/admin/connectors/slack', mock: { admin: SLACK_NEW }, crop: 'main' },
-  { file: 'slack/connected', path: '/admin/connectors/slack?slack=installed', mock: { admin: SLACK_ADDED }, crop: 'main' },
-  { file: 'slack/removed', path: '/admin/connectors/slack', mock: { admin: { ...SLACK_ADDED, tokens: false, botName: null, state: 'off', lastError: 'removed', linked: 3 } }, crop: 'main' },
+  { file: 'slack/add-to-slack', path: '/admin/connectors/slack', mock: { slack: { admin: SLACK_NEW } }, crop: 'main' },
+  { file: 'slack/connected', path: '/admin/connectors/slack?slack=installed', mock: { slack: { admin: SLACK_ADDED } }, crop: 'main' },
+  { file: 'slack/removed', path: '/admin/connectors/slack', mock: { slack: { admin: { ...SLACK_ADDED, tokens: false, botName: null, state: 'off', lastError: 'removed', linked: 3 } } }, crop: 'main' },
   { file: 'slack/linked', path: '/settings/connectors?slack=linked', crop: '[data-testid="settings-dialog"]', prepare: async (p) => {
     // the dialog focuses its close button, which then shows a focus ring and its tooltip in the shot
     await p.evaluate((s) => { (document.activeElement as HTMLElement | null)?.blur(); document.querySelector(s)?.scrollIntoView({ block: 'center' }) }, '[data-testid="slack-account"]'); await p.waitForTimeout(400)
-  }, mock: { mine: { available: true, workspace: 'Acme', signIn: true, link: { slackUserId: 'U0OLGA', slackName: 'Olga', linkedAt: '2026-11-12T01:30:00.000Z' } } } },
+  }, mock: { slack: { mine: { available: true, workspace: 'Acme', signIn: true, link: { slackUserId: 'U0OLGA', slackName: 'Olga', linkedAt: '2026-11-12T01:30:00.000Z' } } } } },
+  // the company's own Google app (docs/site/use/google-own-app.md), from the mock server (--mock): Acme on the hosting
+  // service, Gmail's page in Admin › Connected apps
+  { file: 'google-own-app/row-trina', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_HOSTED }, prepare: ownAppRow, crop: '[data-testid="team-settings"]' },
+  { file: 'google-own-app/dialog-start', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_HOSTED }, prepare: ownAppDialog(0), crop: DIALOG },
+  { file: 'google-own-app/dialog-cloud', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_HOSTED }, prepare: ownAppDialog(1), crop: DIALOG },
+  { file: 'google-own-app/dialog-upload', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_HOSTED }, prepare: ownAppDialog(2), crop: DIALOG },
+  { file: 'google-own-app/dialog-confirm', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_HOSTED }, prepare: ownAppDialog(3), crop: DIALOG },
+  { file: 'google-own-app/row-company', path: '/admin/connectors/gmail', mock: { googleOwnApp: GOOGLE_OWN }, prepare: async (p) => {
+    await ownAppRow(p); await p.locator('[data-testid="gsign-menu"]').click(); await p.waitForTimeout(300)
+  }, crop: '[data-testid="team-settings"]' },
+  { file: 'google-own-app/member-reconnect', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: async (p) => {
+    await p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur(), ''); await p.waitForTimeout(300)
+  }, mock: { googleOwnApp: GOOGLE_OWN, googleApps: [{ app: 'gmail', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'needs_reconnect' } }] } },
+  { file: 'google-own-app/row-company-phone', path: '/admin/connectors/gmail', phone: true, mock: { googleOwnApp: GOOGLE_OWN }, prepare: ownAppRow, crop: '[data-testid="gsign-row"]' },
 ]
 
 function args() {
@@ -143,8 +183,8 @@ async function main() {
     const r = await ctx.request.post(`${o.url}/__test/${what}`, { data })
     if (!r.ok()) throw new Error(`the mock server refused /__test/${what} (${r.status()}): is --url the web e2e mock server?`)
   }
-  const contextFor = async (phone: boolean, signedOut: boolean) => {
-    const key = `${phone}-${signedOut}`
+  const contextFor = async (phone: boolean, signedOut: boolean, as?: { user: string; password: string }) => {
+    const key = `${phone}-${signedOut}-${as?.user ?? ''}`
     if (contexts.has(key)) return contexts.get(key)!
     const ctx = await browser.newContext({
       viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 800 }, deviceScaleFactor: 2,
@@ -154,8 +194,8 @@ async function main() {
       // sign in through the form, as a person would (the API refuses requests without the browser's own headers)
       const p = await ctx.newPage()
       await p.goto(`${o.url}/login`)
-      await p.locator('input[type="text"], input[autocomplete="username"], input[name="username"]').first().fill(o.user)
-      await p.locator('input[type="password"]').first().fill(o.password)
+      await p.locator('input[type="text"], input[autocomplete="username"], input[name="username"]').first().fill(as?.user ?? o.user)
+      await p.locator('input[type="password"]').first().fill(as?.password ?? o.password)
       await p.keyboard.press('Enter')
       await p.waitForTimeout(2000)
       if ((await p.evaluate(() => location.pathname, '')) === '/login') throw new Error('sign-in failed')
@@ -176,10 +216,12 @@ async function main() {
   // the --only of a mock shot without --mock (or the other way round) takes nothing: say so
   if (!todo.length) console.error(`No shot to take${o.only ? ` for --only ${o.only}` : ''}${SHOTS.some((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock !== o.mock) ? (o.mock ? ': these shots need a development server, without --mock' : ': these shots need --mock and the web e2e mock server') : ''}`)
   for (const s of todo) {
-    const ctx = await contextFor(!!s.phone, !!s.signedOut)
+    const ctx = await contextFor(!!s.phone, !!s.signedOut, s.as)
     const page = await ctx.newPage()
     try {
-      if (s.mock) await control(ctx, 'slack', s.mock)
+      if (s.mock?.slack) await control(ctx, 'slack', s.mock.slack)
+      if (s.mock?.googleOwnApp) await control(ctx, 'google-own-app', s.mock.googleOwnApp)
+      for (const g of s.mock?.googleApps ?? []) await control(ctx, 'google-apps', g)
       await page.goto(o.url + s.path)
       await page.waitForLoadState('networkidle')
       await page.addStyleTag({ content: HIDE })

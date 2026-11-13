@@ -137,7 +137,7 @@ Drop the file you downloaded from Google, or choose it. If you would rather type
 opens two fields for the **Client ID** and **Client secret**. A file that does not list both return addresses is
 refused, with a line saying which one to add in Google Cloud.
 
-![The dialog, Add it here: a drop area for the downloaded Google file, and the link Enter the ID and secret instead](../images/google-own-app/dialog-upload.webp "The dialog, step 3: Add it here")
+![The dialog, Add it here: the button to upload the file downloaded from Google, a line saying it can also be dropped there, and Enter the ID and secret instead](../images/google-own-app/dialog-upload.webp "The dialog, step 3: Add it here")
 
 #### Check and save
 The last step, **Before you save**, says what changes, with your team's numbers: how many people will connect Google
