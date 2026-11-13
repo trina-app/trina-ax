@@ -63,13 +63,15 @@ test('saved: it stays, on the screen and in the account', async () => {
 })
 
 test('two quick picks: an earlier answer never undoes a later pick; a failed later pick goes back to what the account has', async () => {
-  // dark, then system; dark fails after system was picked: system stays
+  // dark, then system; dark fails after system was picked: system stays, and the older failure says nothing (one save
+  // at a time, in the order of the picks: lib/optimistic.ts)
   const a = session().setTheme('dark').catch(() => 'failed')
   const b = session().setTheme('system')
   await tick()
   saves[0]!.answer(false)
-  expect(await a).toBe('failed')
+  expect(await a).toBeUndefined()
   expect(currentTheme()).toBe('system')
+  await tick()
   saves[1]!.answer(true)
   await b
   expect([currentTheme(), account()]).toEqual(['system', 'system'])
@@ -80,16 +82,18 @@ test('two quick picks: an earlier answer never undoes a later pick; a failed lat
   await tick()
   saves[0]!.answer(true)
   await c
+  await tick()
   saves[1]!.answer(false)
   expect(await d).toBe('failed')
   expect([currentTheme(), storedTheme(), account()]).toEqual(['dark', 'dark', 'dark'])
-  // both not saved: back to what was in use before both
+  // both not saved: back to what the account has (dark); only the newest says so
   saves = []
   const e = session().setTheme('light').catch(() => 'failed')
   const f = session().setTheme('system').catch(() => 'failed')
   await tick()
   saves[0]!.answer(false)
+  await tick()
   saves[1]!.answer(false)
-  expect([await e, await f]).toEqual(['failed', 'failed'])
+  expect([await e, await f]).toEqual([undefined, 'failed'])
   expect([currentTheme(), storedTheme(), account()]).toEqual(['dark', 'dark', 'dark'])
 })

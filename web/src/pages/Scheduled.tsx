@@ -15,6 +15,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatRelative } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
 import { newChatPath } from '../lib/newChat'
+import { optimistic, optimisticPending } from '../lib/optimistic'
 import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
@@ -33,6 +34,9 @@ import { Tooltip } from '../components/Tooltip'
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
+/** a task's on / off: its queue (lib/optimistic.ts) */
+const scheduleKey = (id: string) => `schedule:${id}:enabled`
+
 /** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a
  * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
  * list is read again at that time, lib/scheduleText.ts nextDueRead), and after a reset connection, so the "Last run"
@@ -50,7 +54,8 @@ function useScheduleList() {
     try {
       const r = await api.call(API.listSchedules)
       if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
+      // an on / off still on its way stays as on screen (the read may be from before it)
+      setItems(r.items.map((x) => (optimisticPending(scheduleKey(x.id)) ? shown.current?.find((y) => y.id === x.id) ?? x : x)))
       setTz(r.timeZone)
       setError(null)
     } catch (e) {
@@ -508,12 +513,17 @@ export function ScheduledTask() {
     return () => { live = false }
   }, [])
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+  // on / off shows at once (lib/optimistic.ts); a refusal puts back what the server has, with one toast
   const toggle = async (x: Schedule) => {
     const generation = life.current
-    try {
-      const u = await api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled: !x.enabled } })
-      if (generation === life.current) replace(u)
-    } catch (e) { fail(e) }
+    const enabled = !x.enabled
+    await optimistic({
+      key: scheduleKey(x.id), from: x.enabled, to: enabled,
+      show: (v) => { if (generation === life.current) replace({ ...x, enabled: v }) },
+      send: () => api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled } }),
+      confirmed: (u) => u.enabled,
+      settle: (u) => { if (generation === life.current) replace(u) },
+    })
   }
   // "다시 확인": the task's card, here; resuming is answering it
   const [review, setReview] = useState<ScheduleReviewCard | null>(null)
