@@ -133,5 +133,5 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
 /** 내 프로젝트: a project only I see: a personal one (in my own folder), or a team project nobody else sees by its rules
  * (just me, or me and the admins by their role: Project.alone); never one I only manage. Everything else is 팀
  * 프로젝트. A server without the count: by its folder. */
-const onlyMine = (p: Project) =>
+export const onlyMine = (p: Project) =>
   p.folderPath.startsWith('users/') || (p.member !== false && p.audience !== undefined && (p.audience <= 1 || !!p.alone))

@@ -67,6 +67,7 @@ import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { NewProjectDialog } from '../components/NewProjectDialog'
+import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { isProjectsFolder } from '../lib/projectFolders'
@@ -379,21 +380,38 @@ export function ProjectList() {
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {items?.map((p, i) => (
-            <li key={p.id} className="group relative" data-testid="project-card">
-              {/* the card stays marked while its "…" menu is open */}
-              <Link to={`/projects/${p.id}`} className="block h-full rounded-2xl border border-line bg-surface p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover" data-row-focus>
-                {/* clear of the "…" in the card's corner; the icon stays on the first line of a long name */}
-                <span className="flex items-start gap-2 pr-8 font-medium max-md:pr-10">
-                  <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
-                </span>
-                <ProjectCardLines project={p} />
-              </Link>
-              <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />
-            </li>
-          ))}
-        </ul>
+        {/* the same sections as 프로젝트's list (panels/ProjectsPanel.tsx): 팀 프로젝트, 내 프로젝트, then, quieter, the team
+            projects the owner or an admin only manages (not a member: their name and members only) */}
+        {(() => {
+          const groups: { key: string; label: string; list: Project[]; quiet?: boolean }[] = [
+            { key: 'team', label: t('projectsPanel.team'), list: (items ?? []).filter((p) => p.member !== false && !onlyMine(p)) },
+            { key: 'mine', label: t('projectsPanel.mine'), list: (items ?? []).filter((p) => p.member !== false && onlyMine(p)) },
+            { key: 'other', label: t('projects.otherTeam'), list: (items ?? []).filter((p) => p.member === false), quiet: true },
+          ]
+          return groups.filter((g) => g.list.length).map((g) => (
+            <section key={g.key} aria-labelledby={`projects-${g.key}`} className="mt-6 first:mt-0" data-testid={`projects-section-${g.key}`}>
+              <h2 id={`projects-${g.key}`} className={`mb-2 text-xs font-medium tracking-wide ${g.quiet ? 'text-faint' : 'text-muted'}`}>{g.label}</h2>
+              <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {g.list.map((p) => {
+                  const i = items!.indexOf(p)
+                  return (
+                    <li key={p.id} className="group relative" data-testid="project-card">
+                      {/* the card stays marked while its "…" menu is open */}
+                      <Link to={`/projects/${p.id}`} className={`block h-full rounded-2xl border border-line p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover ${g.quiet ? 'bg-subtle' : 'bg-surface'}`} data-row-focus>
+                        {/* clear of the "…" in the card's corner; the icon stays on the first line of a long name */}
+                        <span className="flex items-start gap-2 pr-8 font-medium max-md:pr-10">
+                          <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
+                        </span>
+                        <ProjectCardLines project={p} />
+                      </Link>
+                      <ProjectCardMenu project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))
+        })()}
       </div>
       {creating && <NewProjectDialog onClose={() => setCreating(false)} onMade={(p) => navigate(`/projects/${p.id}`)} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}

@@ -76,8 +76,9 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       >
         {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {rights.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{title}</span>
-        {project && <span className="ml-auto max-w-[45%] shrink-0 truncate text-xs font-normal text-faint" title={project.name} data-testid="chat-row-project">{project.name}</span>}
+        {/* the title wins: it keeps at least 60% of the row and the project tag (at most 40%) is cut first */}
+        <span className={clsx('truncate', project && 'min-w-[60%]')}>{title}</span>
+        {project && <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs font-normal text-faint" title={project.name} data-testid="chat-row-project">{project.name}</span>}
         {sideRoom && <span className="shrink-0 truncate text-xs font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in

@@ -131,7 +131,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // safe operations (1A): the switch is off-limits and says why; a new chat in the project is a chat of one person
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
@@ -674,7 +674,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const id = ((await (await post(page, '/api/projects', { name: 'Solo', scope: 'team', instructions: '' })).json()) as { id: string }).id
       expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
-      await expect(seenLine(page)).toHaveText('나만 봐요')
+      await expect(seenLine(page)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       // the 멤버 line says the same words
       await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
       // one quiet line, on a phone too: the button is no taller than the text (its 44 px tap box is drawn outside it)
@@ -683,7 +683,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'project box, only me')
       await shots(page, 'project-only-me')
       // Olga may change the members: the line opens the dialog; Bob added (the confirm first)
-      await seenLine(page).getByRole('button', { name: '나만 봐요' }).click()
+      await seenLine(page).getByRole('button', { name: '새 채팅은 나만 볼 수 있어요.' }).click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
       await page.getByTestId('project-participants-search').fill('Bob')
       await page.getByTestId('participant-add-user-bob').click()
@@ -724,7 +724,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const own = ((await (await b.request.post('/api/projects', { headers: H, data: { name: 'Solo Bob', scope: 'team', instructions: '' } })).json()) as { id: string }).id
       expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
       await b.goto(`/projects/${own}`)
-      await expect(seenLine(b)).toHaveText('나만 봐요')
+      await expect(seenLine(b)).toHaveText('새 채팅은 나만 볼 수 있어요.')
       await expect(b.getByTestId('project-members')).toContainText('나만 봐요')
       await expect(seenLine(b).getByRole('button')).toHaveCount(1)
       await shots(b, 'project-member-alone')

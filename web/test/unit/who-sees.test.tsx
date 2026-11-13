@@ -51,7 +51,7 @@ describe('the words', () => {
     expect(whoSees({ audience: 3 })).toEqual({ kind: 'people', n: 3 })
     expect(ko('chat.whoMe')).toBe('나만 봐요')
     expect(ko('chat.whoMeAdmins')).toBe('나와 관리자만 봐요')
-    expect(translate('en', 'chat.whoMe')).toBe('Only you')
+    expect(translate('en', 'chat.whoMe')).toBe('Only me')
     expect(translate('en', 'chat.whoMeAdmins')).toBe('You and admins')
   })
 
@@ -86,7 +86,7 @@ describe('the project box', () => {
 
   test('an admin vs a member caller, each alone in a shared project of theirs', async () => {
     // the owner or an admin alone: the count (which includes every admin) is 1
-    expect(await box(project({ audience: 1, alone: true }), 'owner')).toEqual({ text: '나만 봐요', button: true, inRow: true, opened: 1 })
+    expect(await box(project({ audience: 1, alone: true }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: true, inRow: true, opened: 1 })
     // a member alone: the owner and the admins are counted, and nobody else sees it by a rule
     expect(await box(project({ audience: 3, alone: true }), 'member')).toEqual({ text: '나와 관리자만 봐요', button: true, inRow: true, opened: 1 })
     // someone else added
@@ -99,13 +99,13 @@ describe('the project box', () => {
     // a member of someone else's project: the same words, nothing to open
     expect(await box(project({ audience: 4, membersEditable: false, createdBy: { id: 'jun', name: 'Jun' } }), 'member')).toEqual({ text: '새 채팅은 멤버 4명이 볼 수 있어요.', button: false, inRow: true, opened: 0 })
     // a team project that does not share its chats: the new chat is mine alone, and members do not change that
-    expect(await box(project({ audience: 4, shareChats: false }), 'owner')).toEqual({ text: '나만 봐요', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ audience: 4, shareChats: false }), 'owner')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
     // a personal project: never shared, never clickable
-    expect(await box(project({ folderPath: 'users/mia/projects/notes', audience: 1, shareChats: undefined, membersEditable: undefined }), 'member')).toEqual({ text: '나만 봐요', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ folderPath: 'users/mia/projects/notes', audience: 1, shareChats: undefined, membersEditable: undefined }), 'member')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
     // safe operations (1A): a new chat is never shared
-    expect(await box(project({ audience: 4 }), 'owner', { confidential: true })).toEqual({ text: '나만 봐요', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ audience: 4 }), 'owner', { confidential: true })).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
     // a folder in the trash: no shared new chat either (the page shows no box then)
-    expect(await box(project({ audience: 2, inTrash: true }), 'admin')).toEqual({ text: '나만 봐요', button: false, inRow: true, opened: 0 })
+    expect(await box(project({ audience: 2, inTrash: true }), 'admin')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', button: false, inRow: true, opened: 0 })
   })
 
   test('the box of a chat without a project (Home) has no line: its page says it', async () => {
@@ -137,7 +137,8 @@ describe('the project page\'s 멤버 line: members only in projects/, the same w
     const owner = await row(project({ audience: 1, alone: true }), 'owner')
     expect(owner.row).toContain('나만 봐요')
     expect(owner.row).not.toContain('1명')
-    expect(owner.box).toBe('나만 봐요')
+    // the box says it as a sentence about the new chat, the same shape as the shared one
+    expect(owner.box).toBe('새 채팅은 나만 볼 수 있어요.')
     // more people: its members, "4명", the box "새 채팅은 멤버 4명이 …"
     const more = await row(project({ audience: 4 }), 'member')
     expect(more.row).toBe(`${ko('projects.participants')}${ko('projects.membersN', { n: 4 })}${ko('projects.manage')}`)
