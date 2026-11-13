@@ -1,5 +1,5 @@
-// What a row of the AI chats says about its chat (the sidebar's 트리나 기록 and 모두 보기, the phone's drawer, Home's
-// latest chats on a phone): one session marker at the row's right end (docs/DECISIONS.md "Session markers",
+// What a row of the AI chats says about its chat (the Trina list on the 트리나 panel and
+// the phone's 트리나 tab): one session marker at the row's right end (docs/DECISIONS.md "Session markers",
 // lib/sessionMarkers.ts): "?" in a 16 px amber pill (the rooms' "@" shape) while the AI waits for my answer or an answer
 // failed or paused that I have not seen; a 12 px grey ring while an answer runs or waits its turn (standing still with
 // reduced motion); an 8 px accent dot for an answer I have not seen. Nothing on an idle row. From the chat list itself

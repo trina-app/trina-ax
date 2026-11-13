@@ -25,6 +25,7 @@ import { boxShellTool } from '../../server/src/devenv/tool'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
+import { componentC } from '../../server/src/team-files/component'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
@@ -340,7 +341,7 @@ describe('a project run reads only what everyone in the project may read (QA TC-
 })
 
 const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!, { start: 'projects/falcon' })
-const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
+const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, start: 'projects/falcon' as string | null, work: null as string | null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'], platform: 'linux' as const }
 
 describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
@@ -822,6 +823,35 @@ describe('the team setting', () => {
   })
 })
 
+describe('macOS: the person\'s own folder in a run (Mac mini, 2026-11-12)', () => {
+  test('an admin\'s run writes her own folder (users/ is not hidden as a whole), other people\'s folders stay hidden, and Files lists what the run wrote', async () => {
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER, platform: 'darwin' })
+    try {
+      turnOnTeam()
+      const chat = (await h.api('carol').call(API.createChat, { body: {} })).id
+      for (const u of ['alice', 'bob', 'carol']) fs.mkdirSync(path.join(h.team, 'users', u), { recursive: true })
+      const r = await shell('carol', null, chat).call({ command: 'echo ok' })
+      expect(out(r)).toContain('Exit code 0.')
+      const s = lastSettings()
+      const users = path.join(h.team, 'users')
+      // srt's Seatbelt profile writes a deny inside an allowed folder after the allows: users/ as a whole would hide her own
+      expect(s.filesystem.denyRead).not.toContain(users)
+      expect(s.filesystem.denyRead).not.toContain(path.join(users, 'carol'))
+      expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([path.join(users, 'alice'), path.join(users, 'bob')]))
+      expect(s.filesystem.allowWrite).toContain(path.join(users, 'carol'))
+      // nothing else in the team folder is writable in a chat with no project: not another person's folder, not shared
+      for (const w of s.filesystem.allowWrite) if (w.startsWith(h.team + '/')) expect(w).toBe(path.join(users, 'carol'))
+      // what the run writes there (as a dev account) is a team file of hers
+      fs.writeFileSync(path.join(users, 'carol', 'chart.png'), 'png')
+      const tree = componentC(h.ctx).files.tree('carol', 'users/carol', undefined)
+      expect(JSON.stringify(tree)).toContain('chart.png')
+    } finally {
+      setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
+      turnOnTeam()
+    }
+  })
+})
+
 describe('a command follows the person, not the project', () => {
   test('a project chat: starts in the project folder; reads only what everyone who sees the project may read (QA TC-095)', async () => {
     const r = await alice().call({ command: 'echo hello' })
@@ -915,7 +945,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux' }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })

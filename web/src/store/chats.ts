@@ -37,7 +37,7 @@ type Pending = { deltas: Delta[]; steps: ServerEventData<'message.step'>[]; done
 interface ChatsState {
   chats: Chat[]
   /** shared project chats on screen that are not in my list (I neither made them nor wrote in them: Chat.shared.mine is
-   * false): kept up to date by chat.updated without being added to the sidebar (docs/DECISIONS.md "Shared project
+   * false): kept up to date by chat.updated without being added to my history (docs/DECISIONS.md "Shared project
    * chats") */
   others: Record<string, Chat>
   chatsCursor: string | null

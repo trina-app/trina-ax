@@ -5,7 +5,7 @@ import { translate } from '../../src/i18n'
 describe('recovery drafts', () => {
   for (const locale of ['ko', 'en', 'id'] as const) {
     test(`${locale}: prepare, merge verbatim, and do not duplicate repeated requests`, () => {
-      const request = translate(locale, 'files.summary.askOwnFolderPrompt', { path: '전사 공유 › guide.md' })
+      const request = translate(locale, 'files.summary.askOwnFolderPromptFiles', { path: '전사 공유 › guide.md' })
       expect(request).toContain('전사 공유 › guide.md')
       // "my folder" in words, never the person's id (docs/DECISIONS.md "Plain words in errors, cards and steps")
       expect(request).not.toContain('users/')
@@ -17,13 +17,13 @@ describe('recovery drafts', () => {
       expect(mergeDraft(merged, request)).toBe(merged)
       expect(mergeDraft(request, request)).toBe(request)
       expect(mergeDraft(existing, '')).toBe(existing)
-      const other = translate(locale, 'files.summary.askOwnFolderPrompt', { path: '전사 공유 › other.md' })
+      const other = translate(locale, 'files.summary.askOwnFolderPromptFiles', { path: '전사 공유 › other.md' })
       expect(mergeDraft(merged, other)).toBe(`${merged}\n\n${other}`)
       // A person can remove the request and prepare it again.
       expect(mergeDraft(existing, request)).toBe(merged)
     })
     test(`${locale}: hidden-path request does not invent a source path`, () => {
-      const request = translate(locale, 'files.summary.askOwnFolderHiddenPrompt')
+      const request = translate(locale, 'files.summary.askOwnFolderHiddenPromptFiles')
       expect(request).not.toContain('users/')
       expect(request).not.toContain('{folder}')
       expect(request).not.toContain('{path}')

@@ -3,7 +3,7 @@
 //   it "다시 연결하는 중…" with a small spinner, and [다시 시도]. It reads again by itself (lib/autoRetry.ts) and goes away
 //   when a read works, so the data shows without a click. One place says it: while the app's connection banner shows
 //   (Layout.tsx), or the message box says its message was not sent for the connection (useSaysConnection), or another
-//   place on screen says it already (the main one first, the sidebar's last: `minor`), only a quiet spinner.
+//   place on screen says it already (the main one first, the list panel's last: `minor`), only a quiet spinner.
 // - Anything else (the server answered with an error): the red ErrorNote as before, the server's words or `text`.
 //   `soft`: a part that is extra on its page (Home's 「팀에 준비된 것」) gets the calm notice with "불러오지 못했어요"
 //   instead, and does not read by itself.
@@ -34,7 +34,7 @@ export function useSaysConnection(on: boolean) {
 }
 
 /** Whether this place says it: nothing else does, and of the places it is the highest rank, then the first. A place
- * that is not drawn (the computer's sidebar, hidden while a phone shows its drawer) does not take the voice. */
+ * that is not drawn (a hidden list panel) does not take the voice. */
 function useSpeaks(on: boolean, rank: number, el: RefObject<HTMLElement | null>): boolean {
   const [id] = useState(() => nextVoice++)
   useLayoutEffect(() => {
@@ -68,7 +68,7 @@ export function CalmNotice({ icon, title, detail, action, className, testId, sta
 }) {
   return (
     <div ref={rootRef} role="status" className={clsx('flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-subtle px-3 py-2.5 text-sm text-ink', className)} data-testid={testId} data-state={state} data-what={what}>
-      {/* at least ~12rem for the words: in a narrow place (the sidebar, a phone) the button wraps below instead */}
+      {/* at least ~12rem for the words: in a narrow place (the list panel, a phone) the button wraps below instead */}
       <span className="flex min-w-0 flex-[1_1_12rem] items-start gap-2.5">
         <span className="mt-0.5 shrink-0 text-muted" aria-hidden>{icon}</span>
         <span className="min-w-0">
@@ -92,7 +92,7 @@ export interface LoadErrorProps {
   soft?: boolean
   /** the place, for its tests (data-what) */
   what?: string
-  /** a side list (the sidebar's): it says it only when no other place on screen does */
+  /** a side list (the list panel's): it says it only when no other place on screen does */
   minor?: boolean
   className?: string
 }

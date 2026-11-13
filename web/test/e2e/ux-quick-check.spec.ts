@@ -108,18 +108,21 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await expect(page.getByTestId('plugin-license-list').first()).toContainText('LicenseRef-HWP-Notices')
 })
 
-test('a phone: a cut row of tabs fades at that edge', async ({ page }) => {
+test('a phone: a cut row fades at that edge', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await phone(page)
-  // (Admin's menu was such a row; on a phone it is a list now, docs/DECISIONS.md "Admin and Settings on phones")
-  // the search palette's type tabs
-  await page.keyboard.press('ControlOrMeta+k')
-  const tabs = page.getByTestId('search-palette').getByRole('tablist')
-  await expect(tabs).toBeVisible()
-  await expect.poll(() => fade(tabs)).toEqual([false, true])
-  await tabs.evaluate((el) => { el.scrollLeft = el.scrollWidth })
-  await expect.poll(() => fade(tabs)).toEqual([true, false])
+  // (Admin's menu was such a row, then the search palette's type tabs; on a phone both are a list or a picker now,
+  // docs/DECISIONS.md "Admin and Settings on phones", 079271860) an answer's table wider than the phone
+  await page.getByTestId('composer-input').fill('big numbers')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+  const row = page.getByTestId('md-table-scroll').last()
+  await expect(row).toBeVisible()
+  expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  await expect.poll(() => fade(row)).toEqual([false, true])
+  await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
+  await expect.poll(() => fade(row)).toEqual([true, false])
 })
 
 test('Files on a phone: the search box takes the width the buttons leave, its placeholder whole', async ({ page }) => {

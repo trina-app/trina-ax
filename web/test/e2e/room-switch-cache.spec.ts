@@ -7,6 +7,7 @@
 // the rooms are switched as a person does (the sidebar at 1440, the list and ‹ at 390).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { navRoomsList, showRooms } from './nav'
 
 test.use({ serviceWorkers: 'block' })
 
@@ -74,7 +75,10 @@ async function openRoom(page: Page, rid: string, phone: boolean) {
   if (phone) {
     if (await page.getByTestId('room-back').isVisible()) await page.getByTestId('room-back').click()
     await page.locator(`[data-testid="rooms-row"][href="/rooms/${rid}"]`).click()
-  } else await page.locator(`[data-testid="sidebar-rooms-list"] a[href="/rooms/${rid}"]`).click()
+  } else {
+    await showRooms(page)
+    await navRoomsList(page).locator(`a[href="/rooms/${rid}"]`).click()
+  }
   await expect(page).toHaveURL(new RegExp(`/rooms/${rid}$`))
 }
 

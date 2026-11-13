@@ -249,7 +249,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
 }
 
 /** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
- * 대화에서" (the room's name as the sidebar shows it). */
+ * 대화에서" (the room's name as the 대화 list shows it). */
 function useViewerWhere(roomId: string): string | null {
   const t = useT()
   const title = useRoomTitle()

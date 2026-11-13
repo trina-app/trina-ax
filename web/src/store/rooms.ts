@@ -273,7 +273,7 @@ export function withRoom(d: RoomsData, room: Room): RoomsData {
 }
 
 /** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
- * only marked (the sidebar, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
+ * only marked (the 대화 list, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
  * unpins it (docs/DECISIONS.md "Pinned conversations"). */
 export function withHidden(d: RoomsData, roomId: string, hidden: boolean): RoomsData {
   return { ...d, rooms: d.rooms.map((r) => {
@@ -316,7 +316,7 @@ export interface SendInput { body: string; mentions: string[]; mentionsAll?: boo
 interface RoomsState extends RoomsData {
   kept: Record<string, KeptTimeline>
   loaded: boolean
-  /** the list could not be read (an older server without rooms: the sidebar group stays away) */
+  /** the list could not be read (an older server without rooms: the 대화 list stays empty) */
   failed: unknown
   /** what decides the room sound besides each room's level (GET /api/rooms alerts; null: not read yet or an older
    * server); read again with the list when my notification settings change (store/live.ts room_alerts_changed) */

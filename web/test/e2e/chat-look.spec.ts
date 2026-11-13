@@ -6,6 +6,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { tabBar } from './nav'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
 
@@ -101,7 +102,9 @@ test("the chat's name opens its link, rename and delete, after the project it is
   await expect(page.getByRole('heading', { level: 1, name: 'Launch plan' })).toBeVisible()
   const name = page.getByTestId('chat-menu')
   await name.click()
-  // "링크 복사" first (every made chat has it), then Rename
+  // "상단에 고정" first (anyone who sees the chat may pin it, TC-419), "링크 복사" (every made chat has it), then Rename
+  await expect(page.getByTestId('chat-pin')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-copy-link')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-rename')).toBeFocused()
@@ -219,7 +222,7 @@ test('on a phone the newest answer shows its actions, an older answer or my mess
   await expect(page.getByTestId('composer-phone-footer')).toHaveText(ONLY_ME)
   expect((await page.getByTestId('composer-phone-footer').boundingBox())!.height).toBeLessThanOrEqual(26)
   await expect(page.getByTestId('chat-back')).toBeVisible()
-  await expect(page.getByTestId('menu-open')).toBeHidden()
+  await expect(tabBar(page)).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await audit(page, 'chat on a phone')
   await ctx.close()

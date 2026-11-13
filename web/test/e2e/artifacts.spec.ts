@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openNewChat } from './nav'
 
 const PORT = Number(process.env.MOCK_PORT ?? 19143)
 
@@ -111,7 +112,7 @@ test.describe('slow device', () => {
     // used once: closed, then back in the chat from another page, it stays closed
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
-    await page.getByTestId('new-chat').click()
+    await openNewChat(page)
     await expect(page).toHaveURL(/\/$/)
     await page.getByRole('link', { name: 'make an artifact' }).click()
     await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')

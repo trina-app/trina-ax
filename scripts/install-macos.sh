@@ -25,6 +25,15 @@
 #   --allow-unsigned      accept bundles without a release signature (development and test builds)
 #   --no-power            do not change sleep / power-failure settings (pmset); for test installs on a laptop
 #   --skip-tmutil         do not add Time Machine exclusions
+#   --dev-env             turn on the dev environment (the default; docs/DECISIONS.md "Dev environment on a Mac team
+#                         server"): the AI's commands run on this Mac in srt's sandbox (Seatbelt), each run as one of
+#                         the dev slot accounts (scripts/dev-env/srt/install-srt-mac.sh). Needs the internet once (node
+#                         and srt). A failure is a warning: the server runs without it. Team admins turn it off in the
+#                         team settings
+#   --no-dev-env          turn it off and remove it from this Mac (uninstall-srt-mac.sh); kept for later repairs (until
+#                         --dev-env) in root/dev-env.off
+#   --dev-slots N         runs at the same time (dev slot accounts <server account without "server">dev1..N, ports
+#                         47901..47900+N on 127.0.0.1; default 8, 2-16)
 #   --check               validate the arguments, the bundle (version, files, CPU type) and the engines, print the
 #                         plan and exit; needs no root and changes nothing
 #
@@ -56,6 +65,7 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 ID=mycel SRV_USER=_axserver AGT_USER=_axagent PORT=47820 TLS_PORT=8443 PROXY_PORT=47821
 FROM="" ALLOW_UNSIGNED=0 POWER=1 TMUTIL=1 CODEX_MODELS=""
+DEV_ENV="" DEV_SLOTS=8 DEV_PORT_BASE=47900   # DEV_ENV: 1 / 0 as given, "" = as before (on unless root/dev-env.off)
 ENGINES=()
 WARNINGS=()
 die() { echo "install: $*" >&2; exit 1; }
@@ -90,6 +100,9 @@ while [ $# -gt 0 ]; do
     --allow-unsigned) ALLOW_UNSIGNED=1; shift ;;
     --no-power) POWER=0; shift ;;
     --skip-tmutil) TMUTIL=0; shift ;;
+    --dev-env) DEV_ENV=1; shift ;;
+    --no-dev-env) DEV_ENV=0; shift ;;
+    --dev-slots) val "$@"; DEV_SLOTS=$2; shift 2 ;;
     --check) CHECK=1; shift ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
@@ -105,6 +118,13 @@ for u in "$SRV_USER" "$AGT_USER"; do [[ "$u" =~ ^_[a-z][a-z0-9]{2,30}$ ]] || die
 for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "$p" -le 65535 ] || die "bad port $p"; done
 [ "$PORT" != 0 ] && [ "$PROXY_PORT" != 0 ] || die "only --tls-port may be 0 (off)"
 [ "$PORT" != "$PROXY_PORT" ] && [ "$PORT" != "$TLS_PORT" ] && [ "$PROXY_PORT" != "$TLS_PORT" ] || die "--port, --tls-port and --proxy-port must differ"
+[[ "$DEV_SLOTS" =~ ^[0-9]{1,2}$ ]] && [ "$DEV_SLOTS" -ge 2 ] && [ "$DEV_SLOTS" -le 16 ] || die "--dev-slots must be 2-16"
+for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do
+  [ "$p" -le "$DEV_PORT_BASE" ] || [ "$p" -gt $((DEV_PORT_BASE + DEV_SLOTS)) ] || die "port $p is one of the dev environment's ports $((DEV_PORT_BASE + 1))-$((DEV_PORT_BASE + DEV_SLOTS))"
+done
+# the dev slot accounts: _axserver -> _axdev1.._axdevN (group _axdev); another server account name gets "dev" added
+case "$SRV_USER" in *server) DEV_PREFIX="${SRV_USER%server}dev" ;; *) DEV_PREFIX="${SRV_USER}dev" ;; esac
+[[ "$DEV_PREFIX" =~ ^_[a-z][a-z0-9]{0,30}dev$ ]] || die "cannot name the dev slot accounts after $SRV_USER"
 [ -n "$FROM" ] && [ -f "$FROM/VERSION" ] || die "--from must be a build-bundle output folder"
 FROM=$(cd "$FROM" && pwd -P)
 VERSION=$(tr -d '[:space:]' < "$FROM/VERSION")
@@ -229,7 +249,9 @@ say "accounts: $SRV_USER=$SRV_UID:$SRV_GRP $AGT_USER=$AGT_UID:$AGT_GRP"
 for d in server launcher; do
   launchctl bootout "system/$LABEL.$d" >/dev/null 2>&1 || true
 done
-for u in "$SRV_UID" "$AGT_UID"; do
+# the dev slot accounts: their processes are runs of the dev environment, which end with the server
+DEV_UIDS=$(dscl . -list /Users | grep -E "^${DEV_PREFIX}[0-9]{1,2}$" | while read -r u; do id -u "$u"; done || true)
+for u in "$SRV_UID" "$AGT_UID" $DEV_UIDS; do
   # anything run as the account (sudo -u, e.g. the admin commands) gets a per-user launchd domain whose agents
   # (distnoted) launchd starts again after a kill: end the domain first
   launchctl bootout "user/$u" >/dev/null 2>&1 || true
@@ -326,6 +348,31 @@ if [ "$ROOT_KEEP" = 0 ]; then
   printf '%s\n' "$VERSION" > "$ITMP/root-version"
   install -o root -g wheel -m 644 "$ITMP/root-version" "$BASE/root/VERSION"
 fi
+# ---- the dev environment (scripts/dev-env/srt/install-srt-mac.sh): on unless --no-dev-env (now or earlier) ----
+SRT_MAC="$(cd "$(dirname "$0")" && pwd -P)/dev-env/srt"
+DEVENV_ON=0 DEVENV_ACL=""
+if [ "$DEV_ENV" = 0 ]; then
+  printf 'off (--no-dev-env)\n' > "$ITMP/dev-env.off"; install -o root -g wheel -m 644 "$ITMP/dev-env.off" "$BASE/root/dev-env.off"
+elif [ "$DEV_ENV" = 1 ]; then rm -f "$BASE/root/dev-env.off"; fi
+if [ -f "$BASE/root/dev-env.off" ]; then
+  if dscl . -read "/Groups/$DEV_PREFIX" >/dev/null 2>&1 || [ -f "/etc/sudoers.d/$ID-devenv" ]; then
+    say "turning the dev environment off (--no-dev-env)"
+    bash "$SRT_MAC/uninstall-srt-mac.sh" --id "$ID" --base "$BASE" --server-user "$SRV_USER" --prefix "$DEV_PREFIX" || warn "uninstall-srt-mac.sh failed; some of the dev environment may stay"
+  fi
+  say "dev environment: off (root/dev-env.off; --dev-env turns it on)"
+elif [ ! -f "$SRT_MAC/install-srt-mac.sh" ]; then
+  warn "the dev environment is not turned on: $SRT_MAC/install-srt-mac.sh is missing"
+else
+  say "dev environment: node, srt, $DEV_SLOTS dev slot accounts ${DEV_PREFIX}1..${DEV_PREFIX}$DEV_SLOTS, sudoers rule, folder ACL"
+  if DEVENV_ACL=$(bash "$SRT_MAC/install-srt-mac.sh" --id "$ID" --base "$BASE" --server-user "$SRV_USER" --prefix "$DEV_PREFIX" \
+      --slots "$DEV_SLOTS" --bun "$BUNDLE/bin/bun" --name "$PRODUCT_NAME") && [ -n "$DEVENV_ACL" ]; then
+    DEVENV_ON=1
+  else
+    warn "the dev environment could not be turned on; the server runs without it. Retry: run this installer again (or --no-dev-env)"
+  fi
+fi
+DEV_SLOT_LIST=$(for n in $(seq 1 "$DEV_SLOTS"); do printf '%s%s,' "$DEV_PREFIX" "$n"; done | sed 's/,$//')
+
 TMPF=$(mktemp)
 cat > "$TMPF" <<EOF
 # $PRODUCT_NAME ($ID) engine firewall, loaded into anchor "$ANCHOR" by root/pf-load. Generated by install-macos.sh.
@@ -334,6 +381,15 @@ cat > "$TMPF" <<EOF
 pass out quick proto tcp from any to 127.0.0.1 port $PROXY_PORT user $AGT_USER keep state
 block drop out quick user $AGT_USER
 EOF
+if [ "$DEVENV_ON" = 1 ]; then
+  cat >> "$TMPF" <<EOF
+# The dev slot accounts (the dev environment's runs, and their srt proxies) never reach the server's ports, on any
+# address (Seatbelt already allows a run only its proxy and its own port: this is the second layer). Nothing from
+# outside this Mac reaches a run's port (a dev server that listens on every address).
+block return out quick proto { tcp udp } from any to any port { $PORT $PROXY_PORT $([ "$TLS_PORT" = 0 ] || echo "$TLS_PORT") } user { $(echo "$DEV_SLOT_LIST" | tr ',' ' ') }
+block drop in quick on ! lo0 proto { tcp udp } from any to any port $((DEV_PORT_BASE + 1)):$((DEV_PORT_BASE + DEV_SLOTS))
+EOF
+fi
 pfctl -n -a "$ANCHOR" -f "$TMPF" >/dev/null 2>&1 || { rm -f "$TMPF"; die "pf rules do not parse"; }
 install -o root -g wheel -m 644 "$TMPF" "$BASE/root/pf.anchor"; rm -f "$TMPF"
 
@@ -538,6 +594,15 @@ write_plist() {  # label user group throttle keepalive(true/false) interval umas
   install -o root -g wheel -m 644 "$tmp" "$f"; rm -f "$tmp"
 }
 ENV_SRV="<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>$(xml "$BASE/data")</string><key>MYCEL_INSTALL_BASE</key><string>$(xml "$BASE")</string><key>MYCEL_LABEL</key><string>$LABEL</string><key>MYCEL_WEB_DIST</key><string>$(xml "$BASE/app/current/web")</string>"
+if [ "$DEVENV_ON" = 1 ]; then
+  # the limits of all runs together, as the Linux devenv slice: half of the memory; the process table (kern.maxproc,
+  # 4000 on a Mac, shared with everything else) less 1200, shared by the slots
+  POOL_MIB=$(( $(sysctl -n hw.memsize) / 1048576 / 2 ))
+  PIDS_MAX=$(( ($(sysctl -n kern.maxproc) - 1200) / DEV_SLOTS )); [ "$PIDS_MAX" -le 512 ] || PIDS_MAX=512; [ "$PIDS_MAX" -ge 64 ] || PIDS_MAX=64
+  ACL_ENV=$(printf '%s\n' "$DEVENV_ACL" | paste -sd ';' -)
+  ENV_SRV="$ENV_SRV<key>MYCEL_DEV_ENV</key><string>1</string><key>MYCEL_DEV_ENV_SLOTS</key><string>$DEV_SLOT_LIST</string><key>MYCEL_DEV_ENV_PORT_BASE</key><string>$DEV_PORT_BASE</string><key>MYCEL_DEV_ENV_POOL_MIB</key><string>$POOL_MIB</string><key>MYCEL_DEV_ENV_PIDS_MAX</key><string>$PIDS_MAX</string><key>MYCEL_DEV_ENV_ACL</key><string>$(xml "$ACL_ENV")</string>"
+  say "dev environment: on; all runs together at most ${POOL_MIB} MiB, $PIDS_MAX processes per run, ports $((DEV_PORT_BASE + 1))-$((DEV_PORT_BASE + DEV_SLOTS))"
+fi
 ENV_AGT="<key>PATH</key><string>/usr/bin:/bin</string><key>HOME</key><string>$(xml "$BASE/agent/home")</string>"
 write_plist "$LABEL.server" "$SRV_USER" "$SRV_GRP" 2 true 0 23 "$LOGS/crash/server.log" "$ENV_SRV" "${BOOT_ARGS[@]}"
 write_plist "$LABEL.launcher" "$AGT_USER" "$AGT_GRP" 1 true 0 63 "$LOGS/crash/launcher.log" "$ENV_AGT" "${LAUNCH_ARGS[@]}"

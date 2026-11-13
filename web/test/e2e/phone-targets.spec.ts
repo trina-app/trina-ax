@@ -26,7 +26,10 @@ async function tooSmall(page: Page, only?: string): Promise<{ small: Control[]; 
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(300)
   return page.evaluate((only) => {
-    const bottom = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect().top ?? innerHeight
+    // the phone's tab bar, unless a menu sheet is drawn over it (the message box's ＋ since TC-251): then the screen's bottom
+    const tr = document.querySelector('[data-testid="tab-ai"]')?.getBoundingClientRect()
+    const over = tr && document.elementFromPoint(tr.left + tr.width / 2, tr.top + tr.height / 2)?.closest('[role="menu"]')
+    const bottom = tr && !over ? tr.top : innerHeight
     const sel = 'button, a[href], [role=tab], [role=menuitem], input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea, label:has(input[type=checkbox])'
     const small: Control[] = []
     const fields: Control[] = []

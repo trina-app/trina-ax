@@ -330,3 +330,26 @@ async function act(select: ReturnType<Awaited<ReturnType<typeof mount>>['get']>,
   })
 }
 void BEN
+
+test('폰 알림 (phoneWhen): its own section between 작업·연결 알림 and 이 기기, on by default; off sends "always"; an older server shows none', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  prefs = { ...defaults(), phoneWhen: 'away' }
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notifications-phone'), 'the 폰 section')
+    const body = m.container.ownerDocument!.body
+    const ids = body.querySelectorAll('[data-testid]').map((e) => e.getAttribute('data-testid')).filter((x) => ['notifications-work', 'notifications-phone', 'notifications-device'].includes(x!))
+    expect(ids).toEqual(['notifications-work', 'notifications-phone', 'notifications-device'])
+    expect(m.get('notifications-phone').textContent).toContain(ko('notifications.phoneAwayDesc'))
+    await press(m, 'notification-phone-away')
+    await m.until(() => sent.some((s) => s.key === 'PATCH /api/notification-preferences'), 'the PATCH')
+    expect(sent.filter((s) => s.key === 'PATCH /api/notification-preferences').map((s) => s.body)).toEqual([{ phoneWhen: 'always' }])
+  } finally { await m.unmount() }
+  prefs = defaults()
+  const old = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await old.until(() => old.find('notifications-work'), 'the work section')
+    expect(old.find('notifications-phone')).toBeFalsy()
+  } finally { await old.unmount() }
+})

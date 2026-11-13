@@ -12,6 +12,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.en
@@ -21,7 +22,7 @@ const middle = (b: { y: number; height: number }) => b.y + b.height / 2
 
 /** 나 › Admin › a page, as a person taps it */
 async function openAdmin(page: Page, id: string, url: RegExp) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId(`admin-row-${id}`).click()

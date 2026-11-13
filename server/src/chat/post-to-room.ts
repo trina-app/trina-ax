@@ -29,7 +29,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
-import { isUuid7, PostToRoomInput, uuidv7 } from '@mycel/shared'
+import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { opaqueParts } from '../tools/url-gate'
 import { answerNote, nearestThreadOf, plainRoomRefs, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
@@ -86,7 +86,7 @@ const memberCount = (db: import('bun:sqlite').Database, roomId: string) => (db.q
 function placeName(p: AnswerSharePlace, L: Locale): string {
   switch (p.kind) {
     case 'folder': return p.path ? `${p.path.replace(/\/+$/, '')}/` : tr('postRoomTeamFolder', L)
-    case 'mine': return tr('postRoomMine', L)
+    case 'mine': return ownFolderWord() === 'files' ? ownFolderLabel(L) : tr('postRoomMine', L)
     case 'service': return p.name
     case 'room': return tr('postRoomPlaceRoom', L, { name: p.name || tr('postRoomEveryone', L) })
     case 'conversation': return tr('postRoomConversation', L)

@@ -292,6 +292,10 @@ test('R4: "N connected" opens who it is for, who connected and when, never a key
   await expect(bob).toContainText('Connected')
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
+    // the app takes the new look on the system's change event (lib/theme.ts), and its colours move there by
+    // transitions: axe in the middle of one reads a mix no one sees for long (a11y.spec.ts audit)
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(scheme === 'dark')
+    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))))
     const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).include('[role="dialog"]').analyze()
     expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
   }

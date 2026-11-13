@@ -9,6 +9,7 @@ import FileBody, { bodyRenderer, useFileBlob, type BodyRenderer, type FileBlob, 
 import { translate, useLocaleStore } from '../../src/i18n'
 import { closeImageViewer, getImageViewer } from '../../src/lib/imageViewer'
 import { previewKind, type PreviewKind } from '../../src/lib/preview'
+import { aiName } from '../../src/lib/tabs'
 import type { PreviewFile } from '../../src/lib/sidePanel'
 import { useSession } from '../../src/store/session'
 import type { Me } from '@mycel/shared/api'
@@ -164,7 +165,7 @@ test('the card, busy and error states from the bytes read', async () => {
   const held = { kind: 'pdf', blob: null, error: failed('unsupported', 'Download only'), downloadOnly: true } as const
   const heldTeam = await body(teamPdf, held)
   expect(heldTeam.get('preview-unsupported').textContent).toContain('Download only')
-  expect(heldTeam.get('preview-download-only-ai').textContent).toBe(en('files.askAiDownloadOnly'))
+  expect(heldTeam.get('preview-download-only-ai').textContent).toBe(en('files.askAiDownloadOnly', { name: aiName(en) }))
   expect((await body(room, held)).find('preview-download-only-ai')).toBeNull()
 
   // too many photo conversions on the server now: "try again" reads it again

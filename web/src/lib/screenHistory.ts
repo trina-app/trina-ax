@@ -31,7 +31,7 @@ import { createPath, NavigationType, parsePath, UNSAFE_createBrowserHistory, typ
 import { historySettled, stepping } from './historySteps'
 import { TAB_STACKS_KEY } from './localData'
 import { chainOf, rootTab, sameScreen, screenOf } from './screens'
-import { TAB_ROOT, type Tab } from './tabs'
+import { isTabNow, TAB_ROOT, type Tab } from './tabs'
 
 type History = HistoryRouterProps['history']
 type Listener = Parameters<History['listen']>[0]
@@ -49,11 +49,11 @@ export interface Plan { back: number; replace?: Item; push: Item[] }
  * the screen on show is left out of the stack saved for the tab it leaves (a chat just deleted). */
 export interface SwitchOptions { root?: boolean; drop?: boolean }
 
-/** An entry's tab as this build knows it: an entry kept from a build with other tabs (파일, before QA TC-255; a reload or
- * a web view restored after the update) takes its first entry's tab now. */
+/** An entry's tab as this build knows it: an entry saved under a tab that is gone (a reload or a web view restored
+ * after an update) takes its first entry's tab now. */
 export function knownTab(sc: Partial<Pick<Scr, 'tab' | 'root' | 'trail'>>): Tab | null {
   const tab = sc.tab ?? null
-  if (tab === null || Object.hasOwn(TAB_ROOT, tab)) return tab
+  if (tab === null || isTabNow(tab)) return tab
   const first = sc.root ?? sc.trail?.[0]
   return first ? screenOf(first.p).tab : null
 }
@@ -105,12 +105,11 @@ export function planFor(trail: readonly Item[], target: Item, kind: 'push' | 're
 
 // --- the stacks a tab tap saves and puts back (this tab's life; never another person's; sign-out clears them) ---
 
-const STACKS = TAB_STACKS_KEY
 type Saved = { user: string; stacks: Partial<Record<Tab, Item[]>> }
 
 function loadSaved(user: string): Saved {
   try {
-    const v = JSON.parse(sessionStorage.getItem(STACKS) ?? 'null') as Saved | null
+    const v = JSON.parse(sessionStorage.getItem(TAB_STACKS_KEY) ?? 'null') as Saved | null
     if (v && v.user === user && v.stacks && typeof v.stacks === 'object') return v
   } catch { /* none */ }
   return { user, stacks: {} }
@@ -118,7 +117,7 @@ function loadSaved(user: string): Saved {
 
 function save(saved: Saved) {
   try {
-    sessionStorage.setItem(STACKS, JSON.stringify(saved))
+    sessionStorage.setItem(TAB_STACKS_KEY, JSON.stringify(saved))
   } catch { /* private mode: this page's life only */ }
 }
 
@@ -446,14 +445,20 @@ export function switchTab(tab: Tab, user: string, o?: SwitchOptions): boolean {
 
 /**
  * Home as a new chat: a chat's ✦ and a chat deleted while on screen (QA TC-255). On a phone whose stack is another tab's
- * (a project's chat on 프로젝트, a chat a notification opened on 대화) it is a switch to 트리나 at its root, so Home never
- * goes on top of that tab's stack; `drop`: the chat on show is left out of the stack saved for that tab (it was
- * deleted). Elsewhere (트리나's own stack, a computer) a navigation to `/`, as before.
+ * (a chat a notification opened on 대화) it is a switch to 트리나 at its root, so Home never goes on top of that tab's
+ * stack; `drop`: the chat on show is left out of the stack saved for that tab (it was deleted). Elsewhere (트리나's own
+ * stack, a computer) a navigation to `/`. On a phone 트리나's root is its list: `compose` (the ✦) opens the new chat
+ * (/new) on it, a deleted chat goes back to the list.
  */
-export function openHome(navigate: (to: string) => void, user: string, o: { drop?: boolean } = {}) {
+export function openHome(navigate: (to: string) => void, user: string, o: { drop?: boolean; compose?: boolean } = {}) {
   const tab = stackNow()?.tab
-  if (made && isPhone() && tab && tab !== 'ai') return void made.switchTab('ai', user, { root: true, drop: o.drop })
-  navigate('/')
+  const compose = !!o.compose && isPhone()
+  if (made && isPhone() && tab && tab !== 'ai') {
+    made.switchTab('ai', user, { root: true, drop: o.drop })
+    if (compose) navigate('/new')
+    return
+  }
+  navigate(compose ? '/new' : '/')
 }
 
 /** The signed-in app shows its first entry (components/BottomTabs.tsx): see ScreenHistory.settleOpened. */

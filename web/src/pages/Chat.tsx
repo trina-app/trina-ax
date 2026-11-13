@@ -76,7 +76,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
-  // visible and the list says an answer came since: Chat.unseen; the sidebar's dot and "?" go, in every window and on
+  // visible and the list says an answer came since: Chat.unseen; the history row's dot and "?" go, in every window and on
   // every device)
   useEffect(() => {
     useSessionMarkers.getState().setOnScreen(chatId)
@@ -350,7 +350,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // users/<their id> (server/src/chat/prompt.ts); no raw path or id in their message
   const askOwnFolder = (path: string) => {
     if (busy) return
-    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPrompt', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPrompt'))
+    composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
   if (loadError && isApiError(loadError, 'not_found'))
@@ -414,7 +414,7 @@ function ChatView({ chatId }: { chatId: string }) {
         </div>
         {isDesktop() && <BrowserToggle />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id)} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
           <AiMark />
         </IconButton>
       </div>

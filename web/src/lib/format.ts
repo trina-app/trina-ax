@@ -59,7 +59,7 @@ export function formatRelative(iso: string, locale: Locale, now = Date.now()): s
   return formatDate(iso, locale)
 }
 
-/** Sidebar groups: today / yesterday / last 7 days / last 30 days / older. */
+/** History groups by date: today / yesterday / last 7 days / last 30 days / older. */
 export type DateBucket = 'today' | 'yesterday' | 'week' | 'month' | 'older'
 export function dateBucket(iso: string, now = new Date()): DateBucket {
   const d = new Date(iso)

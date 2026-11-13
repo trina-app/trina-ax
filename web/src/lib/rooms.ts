@@ -215,8 +215,9 @@ export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | nul
   return 0
 }
 
-/** The total for the 대화 tab: every room's own badge, added; a muted room's never (its badge is grey), nor a hidden
- * one's (docs/DECISIONS.md "대화 숨기기": what comes for me brings it back first, and then it counts). */
+/** Every room's own badge, added (messages, not rooms; the 대화 tab and the rail count conversations instead:
+ * components/rail/railBadges.ts chatsMark); a muted room's never (its badge is grey), nor a hidden one's
+ * (docs/DECISIONS.md "대화 숨기기": what comes for me brings it back first, and then it counts). */
 export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>)[]): number {
   return rooms.reduce((n, r) => n + (r.muted || r.hidden ? 0 : roomUnread(r)), 0)
 }

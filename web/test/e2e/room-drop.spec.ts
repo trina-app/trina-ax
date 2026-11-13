@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type JSHandle, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { navLists } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 // the room's answers come through page.route, which does not see what the app's service worker fetches
@@ -194,8 +195,8 @@ test('text dragged over the room is left alone; a file dropped where nothing tak
   await page.keyboard.press('Escape')
   // the sidebar takes no file: the page-wide guard says "none" and takes the drop, so the browser does not open it;
   // text keeps the browser's way
-  const outside = await page.evaluate((b64) => {
-    const el = document.querySelector('[data-testid="sidebar-scroll"]')!
+  const lists = await navLists(page, 'chats')
+  const outside = await lists.evaluate((el, b64) => {
     const fire = (type: string, dt: DataTransfer) => {
       const e = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt })
       el.dispatchEvent(e)

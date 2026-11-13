@@ -1,0 +1,1 @@
+- **Rooms**: an empty message box keeps its hint on one line (cut at the end) instead of growing, at the largest text size or with a wide system font; the hover bar's ⋯ and the message box's + no longer sit 1 px off with such a font.

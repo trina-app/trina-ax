@@ -8,12 +8,12 @@ const QUEUE_PREFIX = 'mycel.queue:'
 export const UPLOADS_KEY = 'mycel.uploads'
 /** lib/mobile-push.ts OFF_HERE_PREFIX: a person switched push off for this phone (Settings › Notifications) */
 const PUSH_OFF_HERE_PREFIX = 'mycel.phonePush.offHere:'
-/** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened. `.v2`:
- * the tabs since QA TC-255 (프로젝트 in place of 파일), so a stack saved under the old tabs is never put back under
- * another one; the old key is only cleared */
-export const TAB_STACKS_KEY = 'mycel.tabStacks.v2'
-const OLD_TAB_STACKS_KEY = 'mycel.tabStacks'
-/** what each place of the new navigation's rail had open (lib/rail.ts), this browser tab */
+/** the phone's other tabs' stacks (lib/screenHistory.ts), in sessionStorage: the addresses that person opened. `.v3`:
+ * the tabs 트리나 · 대화 · 파일 · 나, so a stack saved under older tabs is never put back under another one; the old keys
+ * (the first tabs, and `.v2`: 프로젝트 in place of 파일, QA TC-255) are only cleared */
+export const TAB_STACKS_KEY = 'mycel.tabStacks.v3'
+const OLD_TAB_STACKS_KEYS = ['mycel.tabStacks', 'mycel.tabStacks.v2']
+/** what each place of the rail had open (lib/rail.ts), this browser tab */
 export const RAIL_LAST_KEY = 'mycel.rail.last'
 
 /** Why an upload stops when the person signs out or the session ends, as opposed to a cancel: nothing is dropped on the
@@ -55,6 +55,6 @@ export function clearLocalData(s: Store | null = local()) {
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
   try {
-    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, OLD_TAB_STACKS_KEY, RAIL_LAST_KEY]) sessionStorage.removeItem(k)
+    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, ...OLD_TAB_STACKS_KEYS, RAIL_LAST_KEY]) sessionStorage.removeItem(k)
   } catch { /* storage blocked */ }
 }

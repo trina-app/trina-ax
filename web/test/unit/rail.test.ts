@@ -1,4 +1,4 @@
-// The new navigation's rail (lib/rail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1):
+// The rail (lib/rail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1):
 // - every route of the signed-in app (App.tsx, the routes under <Layout />) has a decision here: one rail place or
 //   none. A route added to App.tsx without one fails this test, so no page is left with nothing lit by mistake;
 // - the places: 트리나 (Home, chats, projects, scheduled tasks, team skills, deleted history, connector consent, the
@@ -9,8 +9,7 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { RAIL_ITEMS, RAIL_ROOT, railOf, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
-import { navRailOn } from '../../src/lib/navRail'
+import { RAIL_ITEMS, RAIL_ROOT, railHere, railHereKept, railLinkState, railOf, railState, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
 import { clearLocalData } from '../../src/lib/localData'
 import { installDom } from './dom-host'
 
@@ -37,6 +36,7 @@ function layoutRoutes(): string[] {
 /** The decision for each route, as App.tsx writes it (without the leading "/"; "" is Home). */
 const DECIDED: Record<string, RailItem | null> = {
   '': 'ai',
+  new: 'ai',
   'c/:chatId': 'ai',
   rooms: 'chats',
   'rooms/:roomId': 'chats',
@@ -83,7 +83,7 @@ describe('every route has a place or none', () => {
 describe('the places', () => {
   test('four, in the order of the phone tabs: 트리나 · 대화 · 파일 · 활동', () => {
     expect(RAIL_ITEMS).toEqual(['ai', 'chats', 'files', 'activity'])
-    for (const i of RAIL_ITEMS) expect(railOf(RAIL_ROOT[i])).toBe(i)
+    for (const i of RAIL_ITEMS) expect(railOf(new URL(RAIL_ROOT[i], 'http://x').pathname)).toBe(i)
   })
 
   test("Activity's 멘션·스레드 is 대화's; the rest of Activity is 활동", () => {
@@ -119,7 +119,15 @@ describe('what each place remembers', () => {
     expect(last).toEqual({ ai: '/c/abc', chats: '/activity?in=chats' })
     expect(railTarget('ai', 'chats', last)).toBe('/c/abc')
     expect(railTarget('ai', 'ai', last)).toBe('/')
-    expect(railTarget('files', 'ai', last)).toBe('/files')
+    expect(railTarget('files', 'ai', last)).toBe('/files?view=recent')
+  })
+
+  test('the owner\'s setup steps are never kept: 트리나 opens the list, not the wizard (UX review S3)', () => {
+    rememberRail('/c/abc')
+    rememberRail('/welcome')
+    rememberRail('/welcome', '?step=files')
+    expect(useRailMemory.getState().last.ai).toBe('/c/abc')
+    expect(railOf('/welcome')).toBe('ai')
   })
 
   test('a kept address is a path of this app (never //host)', () => {
@@ -142,10 +150,30 @@ describe('what each place remembers', () => {
   })
 })
 
-describe('the switch', () => {
-  test('on only when the server says so (Me.server.navRail)', () => {
-    expect(navRailOn(null)).toBe(false)
-    expect(navRailOn({ server: { version: '0', dev: false } } as never)).toBe(false)
-    expect(navRailOn({ server: { version: '0', dev: false, navRail: true } } as never)).toBe(true)
+describe("a page opened from another place's list (phase P3: a notice's chat opened from 활동)", () => {
+  test("the entry's state names the place lit; never on an address of no place", () => {
+    expect(railState({ rail: 'activity' })).toBe('activity')
+    expect(railState({ rail: 'nope' })).toBeNull()
+    expect(railState(null)).toBeNull()
+    expect(railHere('/c/abc', '', { rail: 'activity' })).toBe('activity')
+    expect(railHere('/c/abc', '', null)).toBe('ai')
+    expect(railHere('/admin/members', '', { rail: 'activity' })).toBeNull()
+  })
+
+  test('kept while the page tidies its address in place (a replace with no state); another page lights its own', () => {
+    expect(railHereKept('/projects/p1', '?members=1', { rail: 'activity' })).toBe('activity')
+    expect(railHereKept('/projects/p1', '', null)).toBe('activity')
+    expect(railHereKept('/c/abc', '', null)).toBe('ai')
+    expect(railHereKept('/projects/p1', '', null)).toBe('ai')
+  })
+
+  test('kept as what is open in 활동, and a press on 활동 opens it with 활동 lit again', () => {
+    rememberRail('/c/abc', '', { rail: 'activity' })
+    const { last } = useRailMemory.getState()
+    expect(last).toEqual({ activity: '/c/abc' })
+    expect(railTarget('activity', 'ai', last)).toBe('/c/abc')
+    expect(railLinkState('activity', '/c/abc')).toEqual({ rail: 'activity' })
+    expect(railLinkState('activity', '/activity?n=1')).toBeUndefined()
+    expect(railLinkState('ai', '/c/abc')).toBeUndefined()
   })
 })

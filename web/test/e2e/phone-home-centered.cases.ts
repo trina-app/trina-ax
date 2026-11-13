@@ -21,6 +21,7 @@ import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab, tabBar } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -95,7 +96,7 @@ async function greetingCentred(page: Page) {
 
 /** the card right above the tab bar, the tab bar in sight */
 async function cardOnTabs(page: Page) {
-  const tabs = page.getByTestId('bottom-tabs')
+  const tabs = tabBar(page)
   await expect(tabs).toBeVisible()
   const dock = await box(page.getByTestId('home-dock')), bar = await box(tabs)
   expect(Math.abs(dock.y + dock.height - bar.y)).toBeLessThanOrEqual(1)
@@ -175,7 +176,7 @@ async function cardOnKeyboard(page: Page) {
   // and the text and send in sight
   const input = await box(page.getByTestId('composer-input'))
   expect(input.y).toBeGreaterThanOrEqual(0)
-  await expect(page.getByTestId('bottom-tabs')).toBeHidden()
+  await expect(tabBar(page)).toBeHidden()
 }
 
 /** As the owner: the team's start with bob in its group and the four kept skills; signed out after. */
@@ -227,7 +228,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
     open: async (page) => {
       await teamWithSkills(page)
       await signIn(page, BOB)
-      await page.getByTestId('tab-ai').click()
+      await openTab(page, 'ai')
     },
     ready: (page) => page.getByTestId('team-prepared'),
   },
@@ -239,7 +240,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
         owner: { id: 'olga', name: 'Olga' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false,
       } } })
       await signIn(page, BOB)
-      await page.getByTestId('tab-ai').click()
+      await openTab(page, 'ai')
     },
     ready: (page) => page.getByTestId('member-welcome'),
   },
@@ -261,7 +262,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await teamWithSkills(page)
       await page.route('**/api/me/ai-access', (r) => r.fulfill({ json: { usable: false, action: 'ask_owner', requested: false } }))
       await signIn(page, BOB)
-      await page.getByTestId('tab-ai').click()
+      await openTab(page, 'ai')
     },
     ready: (page) => page.getByTestId('home-top').locator(':scope > *').first(),
   },
@@ -346,9 +347,9 @@ export function homeCenteredCases() {
         // 4. Switch tabs and come back (대화: a tab whatever the other tabs are; after a focus too, twice): the box is not
         // focused by itself
         for (let round = 0; round < 2; round++) {
-          await page.getByTestId('tab-chats').click()
+          await openTab(page, 'chats')
           await expect(page.getByTestId('composer-input')).toHaveCount(0)
-          await page.getByTestId('tab-ai').click()
+          await openTab(page, 'ai')
           await expect(page).toHaveURL(/\/$/)
           await expect(page.getByTestId('composer-input')).toBeVisible()
           await notFocused(page)

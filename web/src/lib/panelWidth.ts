@@ -1,7 +1,7 @@
 // The width of a panel set by dragging its divider (components/PanelDivider.tsx): the right-hand panel beside the chat
 // (file preview, artifact, Browser pane: components/SidePanelFrame.tsx) and a thread beside its room
 // (components/rooms/ThreadPanel.tsx). Kept per device as a FRACTION of the row the panel shares with the column on its
-// left (that column + the panel), so it stays sensible when the window or the sidebar changes size; px would overflow a
+// left (that column + the panel), so it stays sensible when the window or the list panel changes size; px would overflow a
 // smaller window.
 
 /** One resizable panel: where its width is remembered, its own minimum and the minimum of the column beside it. */

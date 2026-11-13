@@ -4,7 +4,7 @@
 //   waits on me, else an accent dot while one has an answer I have not seen. No number: the window title and the Dock
 //   carry the number.
 // - 대화: how many conversations have something unread (muted and hidden ones left out, as the phone's 대화 tab leaves
-//   them out), not how many messages; an amber "?" while a room's AI waits on me. A mention or a followed thread's reply
+//   them out), not how many messages. A mention or a followed thread's reply
 //   is inside its room's count already; when only Activity's conversation rows are unread (a room read since, a notice
 //   left), a dot, so 멘션·스레드 never loses its mark when 활동 stops counting it.
 // - 활동: the unread notices that are not conversation rows (store/inbox.ts useNoticeUnread), the same number as the

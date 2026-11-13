@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { HWP_PLUGIN_ID, HwpReason, type HwpPage } from '@mycel/shared/hwp'
 import { api, API, isApiError } from '../../lib/api'
 import { useT } from '../../i18n'
+import { aiName } from '../../lib/tabs'
 import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
 
@@ -99,7 +100,7 @@ export default function HwpView({ source, download, startPage }: { source: HwpSo
     </nav>
     {replaced && <p className="text-center text-sm text-warn" role="status" data-testid="hwp-replaced">{t('hwp.replaced')}</p>}
     {shown && <>
-      <p className="text-xs text-muted">{t('hwp.limitations')}</p>
+      <p className="text-xs text-muted">{t('hwp.limitations', { name: aiName(t) })}</p>
       <img src={shown.url} width={shown.meta.width} height={shown.meta.height} alt={t('hwp.page', { page, count: shown.meta.pageCount })} className="mx-auto h-auto max-w-full bg-white shadow-sm" data-testid="hwp-page" />
     </>}
   </section>

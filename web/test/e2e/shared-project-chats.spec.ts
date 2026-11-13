@@ -14,6 +14,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { chatList } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const FOOTER_START = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.'
@@ -175,9 +176,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
-      // not his to rename, delete, edit or answer again: the title's menu has 링크 복사 only, no edit, no "regenerate", no engine
+      // not his to rename, delete, edit or answer again: the title's menu has 상단에 고정 (anyone who sees it, TC-419) and
+      // 링크 복사 only, no edit, no "regenerate", no engine
       await b.getByTestId('chat-menu').click()
-      await expect(b.getByRole('menuitem')).toHaveText(['링크 복사'])
+      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사'])
       await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)
@@ -453,8 +455,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // his chat list (he wrote in the chat) in a second window of his: the drawer on a phone
       const b2 = await b.context().newPage()
       await b2.goto('/')
-      if (vp.phone) await b2.getByTestId('menu-open').click()
-      const inList = b2.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list').getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
+      const inList = (await chatList(b2)).getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
       await expect(inList).toHaveCount(1)
       const from = frames.length
       expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()

@@ -2,7 +2,8 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn, adv } from './helpers'
+import { navRail, openRail, reset, signIn, adv } from './helpers'
+import { openNewChat, openTab } from './nav'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -36,9 +37,8 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await reset(page)
   await signIn(page)
   await page.goto('/files')
-  const newChat = page.getByTestId('new-chat')
   const input = page.getByTestId('composer-input')
-  await newChat.click()
+  await openNewChat(page)
   await expect(input).toBeFocused()
   await input.fill('Keep this draft')
   await page.goto('/files')
@@ -87,7 +87,8 @@ test.describe('home focus on touch devices', () => {
   test('loading home, choosing a preset and starting a chat do not force input focus', async ({ page }) => {
     await reset(page)
     await signIn(page, { username: 'bob', password: 'bob password 1' })
-    await page.goto('/')
+    // the phone's new-chat box is its own page (/new; `/` is the 트리나 list)
+    await page.goto('/new')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
     await expect(page.getByTestId('team-prepared')).toBeVisible()
@@ -98,7 +99,7 @@ test.describe('home focus on touch devices', () => {
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
     // a phone starts a new chat from the 트리나 tab (the top bar has no new-chat icon)
-    await page.getByTestId('tab-ai').tap()
+    await openTab(page, 'ai')
     await expect(input).not.toBeFocused()
   })
 })
@@ -153,6 +154,25 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
+// The new navigation (lib/navRail.ts): the rail and each of its four lists, with marks on the places, light and dark.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the rail and its four lists have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page)
+    await navRail(page)
+    await page.route('**/api/notifications?*', (route) => route.fulfill({ json: { items: [], nextCursor: null, unreadCount: 4, roomUnreadCount: 1 } }))
+    await signIn(page)
+    await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: '주간 보고 초안' } })
+    await page.reload()
+    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      await openRail(page, item)
+      await expect(page.locator('#rail-panel')).toBeVisible()
+      await audit(page, `rail: ${item}`)
+    }
+  })
+}
+
 // Chat continuity: an answer paused at the per-answer limit with the long-conversation note, a step the time limit
 // paused, and a message waiting to send (paused after Stop, with its edit / don't-send / "Send now" controls).
 for (const scheme of ['light', 'dark'] as const) {
@@ -198,7 +218,10 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await audit(page, 'home (phone)')
+  // 파일's places, then the team folder's own top (a phone's /files is the places)
   await page.goto('/files')
+  await audit(page, 'files places (phone)')
+  await page.goto('/files?team=1')
   await expect(page.getByTestId('file-table')).toBeVisible()
   await audit(page, 'files (phone)')
   await longPress(page, page.getByTestId('file-row').first())
@@ -305,6 +328,12 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-audience').first()).toBeVisible()
   await audit(page, `admin/integrations, a team connection${where}`)
   await page.goto('/admin/connectors')
+  // a phone has no Add: adding a service by its address is a computer's job (Discover's line says so)
+  if (where.includes('phone')) {
+    await expect(page.getByTestId('connector-custom-note')).toBeVisible()
+    await expect(page.getByTestId('integration-add')).toHaveCount(0)
+    return
+  }
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
@@ -342,8 +371,12 @@ async function auditTeamIcon(page: Page, where: string, path = '/admin/settings'
   await audit(page, `team logo (refused)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
-  await page.getByTestId('team-icon-previews').click()
-  await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  // the sidebar previews are a computer's (a phone has no button for them, TC-269)
+  if (where.includes('phone')) await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  else {
+    await page.getByTestId('team-icon-previews').click()
+    await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  }
   await audit(page, `team logo (set)${where}`)
 }
 

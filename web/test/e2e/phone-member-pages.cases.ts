@@ -16,7 +16,8 @@
 // runs in WebKit (the iPhone app's engine: phone-member-pages.webkit.spec.ts) and Chromium (Android's).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { backLabelHasRoom, reset, signIn } from './helpers'
+import { openProjectsTab, openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const en = DICTS.en
@@ -63,7 +64,7 @@ async function security(page: Page) {
   const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
   const items = Array.from({ length: 3 }, (_, i) => ({ id: `0192f0a0-0000-7000-8000-${String(i).padStart(12, '0')}`, client: 'web', userAgent: ua, createdAt: at, lastSeenAt: at, expiresAt: at, current: i === 0 }))
   await page.route('**/api/me/sessions', (r) => r.fulfill({ json: { items } }))
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-security').click()
   await expect(page).toHaveURL(/\/settings\/security$/)
 }
@@ -75,6 +76,8 @@ async function backNamed(page: Page, name: string, fits: boolean) {
   await expect(label).toHaveText(name)
   const movable = (await page.getByTestId('settings-dialog').getByTestId('phone-page-bar').getAttribute('data-fit')) !== null
   if (!fits && !movable) return
+  // no room in this font for ‹ with its name beside the whole title (Linux's wider DejaVu Sans): ‹ alone, still named
+  if (!fits && !(await backLabelHasRoom(label))) return await expect(label).toBeHidden()
   await expect(label).toBeVisible()
   await expect(label).toHaveAttribute('data-fits', '')
   // the whole label is in sight, inside the bar and clear of the title
@@ -94,8 +97,7 @@ export function memberPageCases() {
     const { qa, launch } = await twoProjects(page)
     await page.goto('/')
     // 1. Projects: the 프로젝트 tab since QA TC-255 (it was Trina ☰ › Projects)
-    await page.getByTestId('tab-projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
+    await openProjectsTab(page)
     const rows = page.getByTestId('project-row')
     await expect(rows).toHaveCount(2)
     await shot(page, 'projects')
@@ -199,7 +201,7 @@ export function memberPageCases() {
       await r.fulfill({ json: { avatarVersion: 1 } })
     })
     // Me › Profile
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-me').click()
     await expect(page).toHaveURL(/\/settings\/profile$/)
     await expect(page.getByTestId('profile-form')).toBeVisible()

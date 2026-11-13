@@ -19,21 +19,29 @@
 // (트리나에게 허용한 것, 브라우저, 개발 환경 사이트) are one page, 트리나에게 허용한 것, with a part for each that is shown
 // (PHONE_FOLDED; their old addresses open it), every section has no "나에게만 적용" line (all of 나 is just for you),
 // its bar has a place for the section's one action (SettingsBar.tsx: Memory's "+"), and 로그아웃 asks first.
+// On a phone (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") the list is headed "나" (not "설정": the tab says 나) and starts with the team: its logo and name, and for
+// owners and admins 팀원 초대 and 관리자 (the computer's team menu; 관리자 moves here from the rows under the photo);
+// after the photo, 활동 with its count, the status ("상태 설정") and "자리 비움으로 표시" (the computer's account menu).
 import clsx from 'clsx'
-import { Bell, ChevronRight, LogOut, Search, Shield, X } from 'lucide-react'
+import { ArrowLeftRight, Bell, ChevronRight, LogOut, Search, Shield, Smile, UserPlus, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
-import { api, API } from '../../lib/api'
+import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { api, API, errorText } from '../../lib/api'
 import { useGoBack } from '../../lib/back'
 import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { browserSettingsBridge } from '../../lib/desktop'
+import { switchTeam, useTeamSwitchWay } from '../../lib/teamSwitch'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useNoticeUnread } from '../../store/inbox'
-import { isAdmin, useMeStrict } from '../../store/session'
+import { isAdmin, useMeStrict, useSession } from '../../store/session'
+import { toast } from '../../store/ui'
 import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
+import { PresenceDot } from '../Presence'
+import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
+import { openTeamInvite, TeamLogo } from '../TeamMenu'
 import { BottomTabs } from '../BottomTabs'
 import { useLogout } from '../../lib/logout'
 import { PhonePushLine } from './PushNotifications'
@@ -165,8 +173,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         ) : (
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
             {/* a phone starts on the title, not on a hidden ✕; a computer still starts on its first button */}
-            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none">
-              {t('settings.title')}
+            <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none" data-testid="settings-title">
+              {phone ? t('tabs.me') : t('settings.title')}
             </h2>
             <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
               <X size={18} />
@@ -244,8 +252,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   )
 }
 
-/** The 나 list on a phone: who is signed in (it opens the profile), what needs me (the Activity page with its count, the
- * phone app's notifications when they are off, 관리자 for owners and admins), the sections in their groups (알림, the
+/** The 나 list on a phone: the team (PhoneTeamGroup: 팀원 초대 and 관리자 for owners and admins), who is signed in (it
+ * opens the profile), what needs me (the Activity page with its count, my status and away, the phone app's notifications
+ * when they are off), the sections in their groups (알림, the
  * notification settings, in its own), and 로그아웃. Every row pushes its page, so Back comes back here. */
 function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: React.Ref<HTMLElement> }) {
   const t = useT()
@@ -259,7 +268,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
     if (await confirmDialog({ title: t('settings.logoutConfirm'), confirm: t('auth.logout'), danger: true })) void logout()
   }
   return (
-    <nav ref={navRef} aria-label={t('settings.title')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
+    <nav ref={navRef} aria-label={t('tabs.me')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
+      <PhoneTeamGroup />
       <PhoneListGroup testId="settings-me-group">
         <li className="group/row">
           <Link to="/settings/profile" className="flex items-center gap-3 px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2" data-testid="settings-me">
@@ -273,7 +283,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           </Link>
         </li>
       </PhoneListGroup>
-      {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
+      {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab), my status and away */}
       <PhoneListGroup testId="settings-phone-top">
         <PhoneListRow
           icon={<Bell size={16} />}
@@ -287,7 +297,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           ) : undefined}
           testId="settings-inbox"
         />
-        {isAdmin(me) && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
+        <PhoneStatusRows />
       </PhoneListGroup>
       {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
       <PhonePushLine />
@@ -301,5 +311,57 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
       </PhoneListGroup>
     </nav>
+  )
+}
+
+/** The 나 tab's team: the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
+ * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
+ * phone app (or the desktop app at a phone's width) "다른 팀으로 전환…" for everyone (lib/teamSwitch.ts: the app's own
+ * screen; a plain browser has none). */
+function PhoneTeamGroup() {
+  const t = useT()
+  const me = useMeStrict()
+  const navigate = useNavigate()
+  const admin = isAdmin(me)
+  const canSwitch = useTeamSwitchWay() !== null
+  return (
+    <PhoneListGroup testId="settings-team-group">
+      <li className="flex items-center gap-3 px-4 py-3" data-testid="settings-team">
+        <TeamLogo className="size-8 rounded-lg" />
+        <span className="min-w-0 flex-1 truncate font-medium">{me.team.name}</span>
+      </li>
+      {admin && <PhoneListRow icon={<UserPlus size={16} />} title={t('teamMenu.invite')} onClick={() => void openTeamInvite(navigate, null)} chevron testId="settings-invite" />}
+      {admin && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
+      {canSwitch && <PhoneListRow icon={<ArrowLeftRight size={16} />} title={t('teamMenu.switch')} onClick={switchTeam} chevron testId="settings-switch-team" />}
+    </PhoneListGroup>
+  )
+}
+
+/** The 나 tab's status rows (the computer's account menu has the same): my status message ("상태 설정",
+ * or what it says now) and "자리 비움으로 표시" / "접속 중으로 표시". */
+function PhoneStatusRows() {
+  const t = useT()
+  const locale = useLocale()
+  const me = useMeStrict()
+  const status = useMyStatusWords()
+  const away = !!me.user.prefs.away
+  const toggleAway = () => void useSession.getState().setAway(!away).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  return (
+    <>
+      <PhoneListRow
+        icon={status ? <span className="text-base leading-none">{status.emoji}</span> : <Smile size={16} />}
+        title={status ? status.words : t('status.set')}
+        onClick={() => openStatusDialog(null)}
+        chevron
+        testId="settings-status"
+      />
+      <PhoneListRow
+        icon={<span className="[--presence-bg:var(--c-canvas)]"><PresenceDot state={away ? 'online' : 'away'} size={10} /></span>}
+        title={away ? t('presence.setActive') : t('presence.setAway')}
+        onClick={toggleAway}
+        chevron={false}
+        testId="settings-away"
+      />
+    </>
   )
 }

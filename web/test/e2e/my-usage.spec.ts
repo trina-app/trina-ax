@@ -5,6 +5,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { openUsage } from './nav'
 
 const t = DICTS.en
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -16,8 +17,7 @@ async function audit(page: Page, where: string) {
 }
 
 async function openFromMenu(page: Page) {
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-usage').click()
+  await openUsage(page)
   await expect(page).toHaveURL(/\/settings\/usage$/)
   const usage = page.getByTestId('my-usage')
   await expect(usage).toBeVisible()

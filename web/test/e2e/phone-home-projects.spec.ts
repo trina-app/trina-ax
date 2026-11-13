@@ -11,6 +11,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { chatList, openProjectsTab, openTab, tabBar, tabButton } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -55,7 +56,7 @@ test.describe('TC-253: Home on a phone', () => {
     await teamWithSkills(page)
     await signIn(page, BOB)
     // 1. Open the Trina tab
-    await page.getByTestId('tab-ai').click()
+    await openTab(page, 'ai')
     await expect(page).toHaveURL(/\/$/)
     const block = page.getByTestId('team-prepared')
     await expect(block).toBeVisible()
@@ -101,10 +102,7 @@ test.describe('TC-253: Home on a phone', () => {
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     await expect(page.getByTestId('home-scroll')).not.toContainText('Weekly numbers')
-    await page.getByTestId('menu-open').click()
-    await expect(page.locator('[data-drawer]').getByTestId('recents-list')).toContainText('Weekly numbers')
-    await page.keyboard.press('Escape')
-    await expect(page.locator('[data-drawer]')).toBeHidden()
+    await expect(await chatList(page)).toContainText('Weekly numbers')
 
     // 2. Scroll: on a short screen (a small phone, the keyboard up) what is above the box scrolls; the box stays at the
     // bottom, never under the top bar
@@ -117,7 +115,7 @@ test.describe('TC-253: Home on a phone', () => {
     expect(Math.round(atBottom.y)).toBe(Math.round(atTop.y))
     const bar = await box(page, 'phone-topbar')
     expect(atTop.y).toBeGreaterThanOrEqual(bar.y + bar.height)
-    const floor = (await page.getByTestId('bottom-tabs').isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
+    const floor = (await tabBar(page).isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
     expect(Math.abs(atTop.y + atTop.height - floor)).toBeLessThanOrEqual(1)
   })
 
@@ -128,7 +126,7 @@ test.describe('TC-253: Home on a phone', () => {
       owner: { id: 'olga', name: 'Olga' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false,
     } } })
     await signIn(page, BOB)
-    await page.getByTestId('tab-ai').click()
+    await openTab(page, 'ai')
     const card = page.getByTestId('member-welcome')
     await expect(card).toBeVisible()
     await expect(page.getByTestId('home-top').getByTestId('member-welcome')).toBeVisible()
@@ -209,8 +207,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await call(page, 'POST', '/__test/file', { path: 'marketing/sub/notes.md', text: '# Notes' })
 
     // 1. Projects (the 프로젝트 tab, QA TC-255): "+" in the bar, no intro paragraph or orange button in the page
-    await page.getByTestId('tab-projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
+    await openProjectsTab(page)
     const bar = page.getByTestId('phone-page-bar')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['projects.title'])
     const plus = bar.getByTestId('project-new')
@@ -265,7 +262,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await expect(page.getByRole('link', { name: t['projects.open'], exact: true })).toHaveCount(0)
     await filesRow.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files$`))
-    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['files.title'])
     await expect(bar.getByTestId('topbar-back-label')).toHaveText('Launch')
     const files = page.getByTestId('project-file')
@@ -276,7 +273,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await files.filter({ hasText: 'sub' }).click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files\\?dir=sub$`))
     await expect(bar.getByTestId('topbar-title')).toHaveText('sub')
-    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
     // a file opens in the file sheet over it; Back closes the sheet, not the screen
     await files.filter({ hasText: 'notes.md' }).click()
     await expect(page.getByTestId('file-panel')).toBeVisible()

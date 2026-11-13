@@ -1,39 +1,40 @@
-// The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
-// 채팅"; called like "@트리나" in the Trina edition, with the face it has in rooms: rooms/AiFace.tsx), then my rooms by
-// latest activity, each with its last line, when, and my unread count. Rows are separated by hairlines on computers
-// and by their own spacing on phones, no cards.
-// "새 대화" opens the people list for a DM or a group chat (also asked for with /rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
-// chat icon, components/Layout.tsx): no second title row here.
+// The rooms list (/rooms): the 대화 tab on phones, my rooms by latest activity, each with its last line, when, and my
+// unread count, separated by their own spacing, no cards. On a computer the 대화 panel beside the page is the list
+// (panels/ChatsPanel.tsx, with its ⊕ 새 대화), so this page says to pick one and keeps only what the panel has not: the
+// hidden conversations.
+// "새 대화" opens the people list for a DM or a group chat (also asked for with /rooms?new=1). The app's top bar is the
+// header ("대화" and the new chat icon, components/PhoneTopBar.tsx): no second title row here.
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
-// Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come right after the AI's row, all of them, the most
-// recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
-// On a phone the list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
+// The list has the 대화 panel's sections in its order (panels/RoomsByKind.tsx roomsByKind): 고정 (all my pins, the most
+// recently pinned first, a pin after the name), my folders (one with nothing in it is left out here), 팀 대화방 (전체
+// first), 그룹 대화, 1:1 대화, each under its name. Someone with no 1:1 or group conversation yet gets one quiet line
+// under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
+// The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 import clsx from 'clsx'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
-import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
+import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
+import { plainLine, roomUnread } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { useRoomNoticeUnread } from '../store/inbox'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
-import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { useFolders } from '../components/nav/NavFolders'
+import { roomsByKind } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
-import { Button, PageHeader, Skeleton, useMediaQuery } from '../components/ui'
-import { useNavRail } from '../lib/navRail'
+import { Button, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
@@ -63,52 +64,54 @@ export default function Rooms() {
     }, { replace: true })
   }, [asked, setParams])
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
-  // the new navigation on a computer (lib/navRail.ts): the 대화 panel beside the page is the list (with its ⊕ 새 대화), so
-  // the page says to pick one and keeps only what the panel has not: the hidden conversations
-  const navRail = useNavRail()
+  // a computer: the 대화 panel beside the page is the list (with its ⊕ 새 대화), so the page says to pick one and keeps
+  // only what the panel has not: the hidden conversations
   const computer = useMediaQuery('(min-width: 768px)')
-  const railPage = navRail && computer
+  const titleOf = useRoomTitle()
+  const locale = useLocale()
+  const folders = useFolders('rooms', !computer)
   if (resuming) return <div className="h-full" />
-  const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
   const hidden = everyRoom.filter((r) => r.hidden)
-  if (railPage)
+  if (computer)
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
           <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
           {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         </div>
+        {/* /rooms?new=1 (a link that asks for a new conversation) opens the people list here too */}
+        <PeoplePicker open={picking} onClose={() => setPicking(false)} />
       </div>
     )
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
-      <div className="max-md:hidden">
-        <PageHeader
-          title={t('rooms.title')}
-          actions={
-            <Button size="sm" onClick={() => setPicking(true)} data-testid="rooms-page-new-dm">
-              <Plus size={14} aria-hidden /> {t('rooms.newChat')}
-            </Button>
-          }
-        />
-      </div>
       <div className="mx-auto w-full max-w-2xl">
-        <ul className="divide-y divide-line border-b border-line max-md:divide-y-0 max-md:border-b-0">
-          {/* computers only: a phone has the AI as its own tab (트리나), first in the tab bar */}
-          <li className="max-md:hidden">
-            <Link to="/" className={row} data-testid="rooms-ai">
-              <AiFace size={40} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-base font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
-                <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
-              </span>
-            </Link>
-          </li>
+        <ul>
           <ChatsActivityRow className={row} />
-          {rooms.map((r) => (
-            <RoomListRow key={r.id} room={r} className={row} />
-          ))}
         </ul>
+        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, folders)
+          .filter((s) => s.rooms.length > 0)
+          .map((s) => {
+            const key = s.folder ? `folder-${s.folder.id}` : s.key
+            return (
+              <section key={key} aria-labelledby={`rooms-section-${key}`} data-testid="rooms-section" data-section={s.key}>
+                <h2 id={`rooms-section-${key}`} className="truncate px-4 pt-4 pb-1 text-xs font-semibold text-faint sm:px-6">
+                  {s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
+                </h2>
+                <ul>
+                  {s.rooms.map((r) => (
+                    <RoomListRow key={r.id} room={r} className={row} />
+                  ))}
+                </ul>
+              </section>
+            )
+          })}
+        {loaded && !failed && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
+          <button type="button" onClick={() => setPicking(true)} className="mt-2 flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm text-muted hover:text-ink sm:px-6" data-testid="rooms-start-hint">
+            <Plus size={16} aria-hidden />
+            {t('rooms.startHint')}
+          </button>
+        )}
         {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         {!loaded && <Skeleton lines={4} className="px-4 py-4 sm:px-6" />}
         {loaded && !!failed && (
@@ -123,12 +126,12 @@ export default function Rooms() {
   )
 }
 
-/** A phone's first row: 멘션·스레드, the conversations' part of Activity (a page of this tab), a dot while one is unread. */
+/** The first row: 멘션·스레드, the conversations' part of Activity (a page of this tab), a dot while one is unread. */
 function ChatsActivityRow({ className }: { className: string }) {
   const t = useT()
   const unread = useRoomNoticeUnread() > 0
   return (
-    <li className="md:hidden">
+    <li>
       <Link to={CHATS_ACTIVITY} className={className} data-testid="rooms-activity">
         <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
           <AtSign size={18} />

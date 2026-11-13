@@ -224,7 +224,7 @@ describe('the Projects list', () => {
       await open(m, 'Acme sales')
       await m.click(within(card(m, 'Acme sales'), 'project-card-delete')!)
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
-      // the trash by the sidebar's name for it (no copy of it in the sentence), the team's days (the default here)
+      // the trash by the Trina list's name for it (no copy of it in the sentence), the team's days (the default here)
       expect(dialog.textContent).toContain(ko('projects.deleteBodyShared', { days: 7, trash: ko('sidebar.trash') }))
       expect(dialog.textContent).toContain(`"${ko('sidebar.trash')}"`)
       // no red line that says they are deleted for good

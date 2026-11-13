@@ -19,6 +19,8 @@ export interface SpawnSpec {
   /** stdout and stderr go here (the same file for a job); never a pipe */
   stdoutFile: string
   stderrFile: string
+  /** the folders the run may write (the settings' allowWrite). macOS gives them the dev accounts' ACL again first */
+  writable?: string[]
 }
 
 export interface Spawned {
@@ -36,7 +38,8 @@ export interface UnitInfo {
 }
 
 export interface SrtSystem {
-  spawn(s: SpawnSpec): Spawned
+  /** macOS picks a slot and grants the ACL first, so it may be async */
+  spawn(s: SpawnSpec): Spawned | Promise<Spawned>
   /** stop the run's unit (SIGTERM, SIGKILL after the stop timeout). Never throws. */
   stop(runId: string, pid?: number): Promise<void>
   unit(runId: string): Promise<UnitInfo>

@@ -238,7 +238,8 @@ describe('보안·기기: signing another device out', () => {
 })
 
 describe('Files rows on a phone', () => {
-  const page = () => mount(<MemoryRouter initialEntries={['/files']}><Files /></MemoryRouter>)
+  // the team folder's own top (/files on a phone is 파일's places: components/panels/FilesPanel.tsx)
+  const page = () => mount(<MemoryRouter initialEntries={['/files?team=1']}><Files /></MemoryRouter>)
   // a top folder's row shows its word (docs/DECISIONS.md "Team folder basics"): found by it, opened by its path
   const WORD: Record<string, string> = { shared: '전사 공유', skills: '팀 스킬', groups: '부서' }
   const row = (m: { container: FakeElement }, name: string) => m.container.querySelectorAll('tr[data-testid="file-row"]').find((r) => r.textContent?.includes(WORD[name] ?? name))!

@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { makeJpeg, makePng, SVG } from '../../../tests/lib/images'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { teamLogo } from './nav'
 
 const file = (name: string, mimeType: string, b: Uint8Array) => ({ name, mimeType, buffer: Buffer.from(b) })
 const iconHrefs = (page: Page) => page.evaluate(() => [...document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')].map((l) => `${l.getAttribute('rel')} ${l.getAttribute('href')}`))
@@ -35,7 +36,7 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   const other = await page.context().newPage() // another window of the same person
   await other.goto('/')
   await expect(other.getByTestId('composer-input')).toBeVisible()
-  await expect(other.getByTestId('sidebar-logo')).toHaveAttribute('src', '/favicon.svg')
+  await expect(teamLogo(other)).toHaveAttribute('src', '/favicon.svg')
 
   await page.goto('/admin/settings')
   const card = page.getByTestId('team-icon')
@@ -63,8 +64,8 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   const v = (await card.getAttribute('data-version'))!
   await expect(page.getByTestId('team-icon-status')).toHaveText('팀 로고를 쓰고 있어요.')
   await expect(page.getByTestId('team-icon-upload')).toHaveText('로고 바꾸기')
-  await expect(page.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v}`)
-  await expect.poll(() => page.getByTestId('sidebar-logo').evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(256)
+  await expect(teamLogo(page)).toHaveAttribute('src', `/team-icon?v=${v}`)
+  await expect.poll(() => teamLogo(page).evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(256)
   // the preview behind "Show previews": the sidebar header with the logo beside the team name, light and dark
   await page.getByTestId('team-icon-previews').click()
   for (const scheme of ['light', 'dark']) {
@@ -78,7 +79,7 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   // only the sidebar's: no tab or home-screen previews any more
   await expect(card.locator('img')).toHaveCount(3)
   // the other window's sidebar follows through the realtime notice; its tab icon does not
-  await expect(other.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v}`)
+  await expect(teamLogo(other)).toHaveAttribute('src', `/team-icon?v=${v}`)
   expect(await iconHrefs(other)).toEqual(PRODUCT_LINKS)
   expect(await iconHrefs(page)).toEqual(PRODUCT_LINKS)
 
@@ -97,8 +98,8 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   await expect(card).not.toHaveAttribute('data-version', v)
   const v2 = (await card.getAttribute('data-version'))!
   expect(v2).toMatch(/^[0-9a-f]{16}$/)
-  await expect(page.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v2}`)
-  await expect(other.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v2}`)
+  await expect(teamLogo(page)).toHaveAttribute('src', `/team-icon?v=${v2}`)
+  await expect(teamLogo(other)).toHaveAttribute('src', `/team-icon?v=${v2}`)
   expect(await iconHrefs(page)).toEqual(PRODUCT_LINKS)
   expect(await iconHrefs(other)).toEqual(PRODUCT_LINKS)
   await expectProductIcons(visitor)
@@ -110,8 +111,8 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   await expect(page.getByRole('dialog')).toContainText(`사이드바에 기본 ${PRODUCT.displayName} 아이콘이 다시 보여요.`)
   await page.getByRole('dialog').getByRole('button', { name: '지우기' }).click()
   await expect(page.getByText('기본 아이콘으로 되돌렸어요.')).toBeVisible()
-  await expect(page.getByTestId('sidebar-logo')).toHaveAttribute('src', '/favicon.svg')
-  await expect(other.getByTestId('sidebar-logo')).toHaveAttribute('src', '/favicon.svg')
+  await expect(teamLogo(page)).toHaveAttribute('src', '/favicon.svg')
+  await expect(teamLogo(other)).toHaveAttribute('src', '/favicon.svg')
   await expect(card).toHaveAttribute('data-version', '')
   await expect(page.getByTestId('team-icon-status')).toHaveText(`지금은 기본 ${PRODUCT.displayName} 아이콘을 쓰고 있어요.`)
   expect(await iconHrefs(page)).toEqual(PRODUCT_LINKS)
@@ -134,7 +135,7 @@ test('a member signing in with a logo set: the logo in the sidebar, the product\
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/admin.*$/, '') })
   const member = await ctx.newPage()
   await signIn(member, { username: 'bob', password: 'bob password 1' })
-  await expect(member.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v}`)
+  await expect(teamLogo(member)).toHaveAttribute('src', `/team-icon?v=${v}`)
   expect(await iconHrefs(member)).toEqual(PRODUCT_LINKS)
   expect(await member.evaluate(() => (document.querySelector('link[rel=icon]') as HTMLLinkElement).href)).toMatch(/\/icons\/favicon-16\.png$/)
   const r = await member.request.put('/api/admin/team-icon?type=image%2Fpng', { headers: { 'x-mycel-csrf': '1', 'content-type': 'application/octet-stream' }, data: Buffer.from(makePng(64, 64)) })
@@ -142,7 +143,8 @@ test('a member signing in with a logo set: the logo in the sidebar, the product\
   await ctx.close()
 })
 
-test('phone width: the previews keep the sidebar\'s logo size and the page does not scroll sideways', async ({ page }) => {
+// a phone has no sidebar previews (they show a computer's sidebar, TC-269 0462e64dc): no button for them, none drawn
+test('phone width: no sidebar previews, and the page does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
@@ -150,8 +152,8 @@ test('phone width: the previews keep the sidebar\'s logo size and the page does 
   await page.goto('/admin/settings/general')
   await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
-  await page.getByTestId('team-icon-previews').click()
-  for (const scheme of ['light', 'dark']) expect((await page.getByTestId(`team-icon-preview-${scheme}`).getByTestId('team-icon-preview-logo').boundingBox())!.width).toBe(20)
+  await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  for (const scheme of ['light', 'dark']) await expect(page.getByTestId(`team-icon-preview-${scheme}`)).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 })
 
@@ -161,10 +163,11 @@ test('the sidebar header shows a non-square logo cropped, not stretched', async 
   await page.goto('/admin/settings')
   await page.getByTestId('team-icon-input').setInputFiles(file('wide.png', 'image/png', makePng(240, 120)))
   await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
-  const logo = page.getByTestId('sidebar-logo')
+  const logo = teamLogo(page)
   await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(240)
   const box = (await logo.boundingBox())!
-  expect([box.width, box.height]).toEqual([28, 28])
+  // the rail's top: 36 px
+  expect([box.width, box.height]).toEqual([36, 36])
   expect(await logo.evaluate((el) => getComputedStyle(el).objectFit)).toBe('cover')
 })
 
@@ -191,19 +194,4 @@ test('main takes focus without an outline; a button inside it still shows its ri
   for (let i = 0; i < 8 && (await page.evaluate(() => document.activeElement?.tagName)) !== 'BUTTON'; i++) await page.keyboard.press('Tab')
   const inside = await page.evaluate(() => ({ in: !!document.activeElement?.closest('main'), style: getComputedStyle(document.activeElement!).outlineStyle }))
   expect(inside).toEqual({ in: true, style: 'solid' })
-})
-
-test('phone width: the menu header keeps the product mark next to the AI name, the logo shows on computers', async ({ page }) => {
-  await reset(page)
-  await signIn(page)
-  await page.goto('/admin/settings')
-  await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
-  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/')
-  await page.getByRole('button', { name: '메뉴 열기' }).click()
-  const drawer = page.locator('[data-drawer]')
-  await expect(drawer.getByTestId('sidebar-logo-phone')).toBeVisible()
-  await expect(drawer.getByTestId('sidebar-logo-phone')).toHaveAttribute('src', '/favicon.svg')
-  await expect(drawer.getByTestId('sidebar-logo')).toBeHidden()
 })

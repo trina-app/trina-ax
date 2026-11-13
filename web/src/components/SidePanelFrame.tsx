@@ -2,7 +2,7 @@
 // (components/PanelDivider.tsx: drag or the arrow keys to resize, double-click to reset; the chat keeps 360 px, a room
 // with its thread open 420 + 320 px). Phones (< 768 px) get the full-screen sheet and no divider.
 // "크게 보기" (PanelExpandButton, in the file and artifact panels' headers): the box takes the whole area beside the
-// sidebar (components/Layout.tsx hides the page) and the divider goes; side by side again, the divider comes back and
+// rail and its list panel (components/Layout.tsx hides the page) and the divider goes; side by side again, the divider comes back and
 // sets the width it remembers.
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
@@ -24,7 +24,7 @@ export default function SidePanelFrame({ children, besideThread = false, expande
       data-testid="side-panel"
       data-expanded={expanded || undefined}
       className={clsx(
-        // big: the sidebar's own edge is the line on its left
+        // big: the column on its left (the list panel or the rail) draws the line
         'min-w-0 border-line outline-none md:relative bg-surface',
         !expanded && 'md:border-l',
         // phones: a full-screen sheet over everything (no edge of its own), ending on the keyboard while it is up

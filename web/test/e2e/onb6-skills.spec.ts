@@ -13,6 +13,7 @@ import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openTrinaRow } from './nav'
 
 /** the product as the catalog and the sources name it beside "트리나에게 묻기" (web/src/lib/tabs.ts namedProduct) */
 const NAMED = PRODUCT_NAMED_AFTER_AI ? DICTS.ko['rooms.aiName'] : PRODUCT.displayName
@@ -166,7 +167,7 @@ test('Team skills › 내 스킬 가져오기 (owner, during the setup): a check
   await toSkillsStep(page)
   // the step brings no own skills: they go in from Team skills
   await noOwnPart(page)
-  await page.getByTestId('nav-skills').click()
+  await openTrinaRow(page, 'skills')
   await page.getByTestId('skill-bring').click()
   await expect(page.getByTestId('bring-sheet')).toBeVisible()
   // the AI's check of the folder held (the mock answers checking until the page ends it)

@@ -58,7 +58,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
                 <span title={x.path || undefined}>{x.path ? t('files.summary.rejectedLine', { path: words.path(x.path, ' › ') }) : t('files.summary.rejectedHidden')}</span>
               </span>
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onAskOwnFolder(x.path)}>
-                {t('files.summary.askOwnFolder')}
+                {t('files.summary.askOwnFolderFiles')}
               </Button>
             </li>
           ))}
