@@ -37,6 +37,8 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await reset(page)
   await signIn(page)
   await page.goto('/files')
+  // the app is up (its keys are listened to once the page is drawn)
+  await expect(page.getByTestId('file-table')).toBeVisible()
   const input = page.getByTestId('composer-input')
   // ⇧⌘O from another page: a new entry, the box takes the focus (the rail's 트리나 already opens Home itself, so its
   // 트리나에게 묻기 replaces Home in place and the focus stays on that button: as dev shows it, until the redesign)
