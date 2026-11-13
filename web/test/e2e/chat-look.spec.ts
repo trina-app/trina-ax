@@ -102,7 +102,9 @@ test("the chat's name opens its link, rename and delete, after the project it is
   await expect(page.getByRole('heading', { level: 1, name: 'Launch plan' })).toBeVisible()
   const name = page.getByTestId('chat-menu')
   await name.click()
-  // "링크 복사" first (every made chat has it), then Rename
+  // "상단에 고정" first (anyone who sees the chat may pin it, TC-419), "링크 복사" (every made chat has it), then Rename
+  await expect(page.getByTestId('chat-pin')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-copy-link')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-rename')).toBeFocused()

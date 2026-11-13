@@ -143,7 +143,8 @@ test('a member signing in with a logo set: the logo in the sidebar, the product\
   await ctx.close()
 })
 
-test('phone width: the previews keep the sidebar\'s logo size and the page does not scroll sideways', async ({ page }) => {
+// a phone has no sidebar previews (they show a computer's sidebar, TC-269 0462e64dc): no button for them, none drawn
+test('phone width: no sidebar previews, and the page does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
@@ -151,8 +152,8 @@ test('phone width: the previews keep the sidebar\'s logo size and the page does 
   await page.goto('/admin/settings/general')
   await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
-  await page.getByTestId('team-icon-previews').click()
-  for (const scheme of ['light', 'dark']) expect((await page.getByTestId(`team-icon-preview-${scheme}`).getByTestId('team-icon-preview-logo').boundingBox())!.width).toBe(20)
+  await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  for (const scheme of ['light', 'dark']) await expect(page.getByTestId(`team-icon-preview-${scheme}`)).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 })
 

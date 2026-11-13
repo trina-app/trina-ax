@@ -737,7 +737,9 @@ test.describe('a phone (390 px), the conversation', () => {
     await touchDrag(page, handle, 150)
     await expect(sheet(page)).toHaveAttribute('data-size', 'part')
     await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
-    await touchDrag(page, handle, 300)
+    // held still before the finger lifts: a quick lift would leave the browser a fling, and the next tap (on 💬
+    // below) would only stop that fling, without a click, as on an Android phone
+    await touchMove(page, handle, 0, 300, { hold: 150 })
     await expect(sheet(page)).toHaveCount(0)
     await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
     await expect(page.getByTestId('image-viewer-stage')).not.toHaveAttribute('inert', '')

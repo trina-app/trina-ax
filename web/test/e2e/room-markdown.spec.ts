@@ -68,7 +68,22 @@ test('a room message in Markdown: formatting, line breaks, a mention and a plain
   await expect(xss.getByText('click')).toBeVisible()
   await expect(xss.locator('a[href^="javascript"]')).toHaveCount(0)
   await expect(xss.locator('a[href="https://evil.example/t.png"]')).toBeVisible()
-  await xss.getByText('click').click()
+  // a click on the word itself (the words around it are the same paragraph: its middle can be the picture's card,
+  // which opens the picture's address in a new tab, as a link does)
+  const word = await xss.getByText('click').evaluate((p) => {
+    const walk = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const at = n.textContent!.indexOf('click')
+      if (at < 0) continue
+      const r = document.createRange()
+      r.setStart(n, at)
+      r.setEnd(n, at + 5)
+      const b = r.getBoundingClientRect()
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+    }
+    return null
+  })
+  await page.mouse.click(word!.x, word!.y)
   await page.waitForTimeout(300)
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined()
   expect(dialogs).toEqual([])

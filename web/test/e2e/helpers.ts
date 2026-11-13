@@ -39,8 +39,9 @@ export async function signIn(page: Page, who = OWNER) {
   await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
-/** Errors other than the expected 401 of GET /api/me before signing in. */
-export const realErrors = (errors: string[]) => errors.filter((e) => !/status of 401/.test(e))
+/** Errors other than the expected 401 of GET /api/me before signing in, and WebKit's notice that it does not know
+ * index.html's interactive-widget=resizes-content (only Chromium reads it): about our own markup, no error of the page. */
+export const realErrors = (errors: string[]) => errors.filter((e) => !/status of 401/.test(e) && !/^Viewport argument key "interactive-widget" not recognized/.test(e))
 
 /** A field of the add-connection dialog that sits under its collapsed "Advanced" (type, sign-in, write rule, who connects,
  * who may use it): opens Advanced first when it is closed. `root`: the page or the dialog. */
@@ -62,3 +63,19 @@ export async function openRail(page: Page, item: 'ai' | 'chats' | 'files' | 'act
   await button.click()
   await expect(button).toHaveAttribute('aria-current', 'page')
 }
+
+/** Whether a phone bar's ‹ label (PhonePageBar.tsx) has room beside the bar's title in this browser's font, as the bar
+ * measures it ('moved': ‹ with its label, the whole title and the right side). Where it has none the bar shows ‹ alone,
+ * on purpose; the label's room depends on the system font (wider on the Linux CI's DejaVu Sans than on a phone). */
+export function backLabelHasRoom(label: Locator): Promise<boolean> {
+  return label.evaluate((el) => {
+    const bar = el.closest('[data-testid="phone-page-bar"]') as HTMLElement
+    const st = getComputedStyle(bar)
+    const room = bar.clientWidth - (parseFloat(st.paddingLeft) || 0) - (parseFloat(st.paddingRight) || 0)
+    const r = document.createRange()
+    r.selectNodeContents(bar.children[1]!)
+    const right = Math.max(44, bar.children[2]?.firstElementChild?.getBoundingClientRect().width ?? 0)
+    return 44 - 10 + el.scrollWidth + 8 + r.getBoundingClientRect().width + 8 + right <= room + 1
+  })
+}
+
