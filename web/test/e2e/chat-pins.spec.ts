@@ -5,6 +5,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -80,7 +81,7 @@ test.describe('a phone (390 px)', () => {
     await signIn(page)
     await someChats(page, 4)
     await page.reload()
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     const s = side(page)
     const list = s.getByTestId('recents-list')
     await expect(list.locator('li a[href^="/c/"]')).toHaveCount(4)

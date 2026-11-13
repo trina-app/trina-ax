@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { drawerButton, openDrawer, openNewChat } from './nav'
 
 /** the row in the sidebar on screen (the wide one, or the phone's drawer) */
 const rowOf = (page: Page, id: string, inDrawer = false) => (inDrawer ? page.locator('[data-drawer]') : page).getByTestId('recents-list').locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).first()
@@ -18,7 +19,7 @@ async function startAndLeave(page: Page, text: string): Promise<string> {
   await page.getByTestId('send').click()
   await expect(page).toHaveURL(/\/c\//)
   const id = idOf(page)
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(page).toHaveURL(/\/$/)
   return id
 }
@@ -77,7 +78,7 @@ test('"?" for a card and for a failed answer; the filter shows them and the runn
   const asked = idOf(page)
   // on screen: the card's "?" stays (it waits on me until answered), named by the AI's question
   await expect(rowOf(page, asked).getByRole('img', { name: '어느 분기를 볼까요?' })).toBeVisible()
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(rowOf(page, failed).getByRole('img', { name: '멈췄어요: 오류' })).toBeVisible({ timeout: 20_000 })
   await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId('recents-list').getByTestId('chat-marker')).toHaveCount(3)
@@ -111,7 +112,7 @@ test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the c
   await page.getByTestId('send').click()
   await expect(page.getByTestId('ask-card')).toBeVisible()
   const asked = idOf(page)
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   const sideAsk = rowOf(page, asked).getByTestId('marker-ask')
   await expect(sideAsk).toBeVisible()
@@ -168,7 +169,7 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   await expect(page.getByTestId('tab-chats-unread')).toHaveAttribute('data-ai-waits', '')
   await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('?')
   await expect(page.getByTestId('tab-chats-unread')).toContainText('18')
-  await expect(page.getByTestId('menu-open')).toBeVisible()
+  await expect(drawerButton(page)).toBeVisible()
   await expect(page.getByTestId('menu-dot')).toHaveCount(0)
 })
 
@@ -192,7 +193,7 @@ test.describe('a phone (390 px)', () => {
     // Home lists no chats (the drawer has them: QA TC-253)
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     // the drawer: the dot left of the always-shown "···"
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     const row = rowOf(page, id, true)
     await expect(row.getByTestId('marker-new')).toBeVisible()
     const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '기록 메뉴' }).boundingBox()]

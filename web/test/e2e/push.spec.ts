@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { tabBar } from './nav'
 
 test('push stays off until an explicit click and can be revoked across devices without provider traffic', async ({ page }) => {
   await reset(page)
@@ -211,7 +212,7 @@ test.describe('the web ask', () => {
       const line = page.getByTestId('web-push-ask-bottom')
       await reveal(page, line)
       await expect(page.getByTestId('web-push-ask-top')).toBeHidden()
-      const [ask, tabs] = [await line.boundingBox(), await page.getByTestId('bottom-tabs').boundingBox()]
+      const [ask, tabs] = [await line.boundingBox(), await tabBar(page).boundingBox()]
       expect(Math.round(ask!.y + ask!.height)).toBeLessThanOrEqual(Math.round(tabs!.y) + 1)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     })

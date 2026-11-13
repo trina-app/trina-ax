@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn, adv } from './helpers'
+import { openNewChat, openTab } from './nav'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -36,9 +37,8 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await reset(page)
   await signIn(page)
   await page.goto('/files')
-  const newChat = page.getByTestId('new-chat')
   const input = page.getByTestId('composer-input')
-  await newChat.click()
+  await openNewChat(page)
   await expect(input).toBeFocused()
   await input.fill('Keep this draft')
   await page.goto('/files')
@@ -98,7 +98,7 @@ test.describe('home focus on touch devices', () => {
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
     // a phone starts a new chat from the 트리나 tab (the top bar has no new-chat icon)
-    await page.getByTestId('tab-ai').tap()
+    await openTab(page, 'ai')
     await expect(input).not.toBeFocused()
   })
 })

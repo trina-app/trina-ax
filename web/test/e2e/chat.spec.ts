@@ -1,6 +1,7 @@
 import { CHAT_ERROR_MESSAGES, CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openNewChat } from './nav'
 import { DICTS } from '../../src/i18n'
 
 async function ask(page: Page, text: string) {
@@ -355,7 +356,7 @@ for (const [who, as, expected, absent] of [
     await signIn(page, as)
     for (const [i, reason] of (['lockdown', 'engine_missing'] as const).entries()) {
       if (i) {
-        await page.getByTestId('new-chat').click()
+        await openNewChat(page)
         // the new chat's own message box: the last chat's ("답장하기") can still be on screen for a moment
         await expect(page).toHaveURL(/\/$/)
         await expect(page.getByTestId('assistant-message')).toHaveCount(0)
@@ -388,7 +389,7 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await signIn(page)
   await ask(page, 'banana bread recipe')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByPlaceholder('기록·대화 메시지, 파일, 프로젝트 등 검색').fill('banana')
   await expect(page.getByRole('option', { name: /banana bread recipe/ })).toBeVisible()

@@ -8,6 +8,7 @@ import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer, tabBar } from './nav'
 
 const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
 /** the PATCH that saves the size to the account */
@@ -141,7 +142,7 @@ test.describe('on a 390px phone', () => {
     }
     // the drawer
     await page.goto('/')
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await expect(page.getByRole('dialog', { name: ko['sidebar.label'] })).toBeVisible()
     expect(await sideways(page), 'drawer').toEqual([])
   })
@@ -161,7 +162,7 @@ test.describe('the tab labels on a 360px phone at 140 %', () => {
       await page.goto('/projects')
       await expect(page.getByTestId('projects-team-folder-row')).toBeVisible()
       expect(await rootSize(page)).toBe('22.4px')
-      const tabs = page.getByTestId('bottom-tabs')
+      const tabs = tabBar(page)
       await expect(tabs.getByRole('link')).toHaveCount(4)
       for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-projects', t['tabs.projects']], ['tab-me', t['tabs.me']]] as const) {
         const link = tabs.getByTestId(id)

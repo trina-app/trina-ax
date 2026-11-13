@@ -6,6 +6,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openNewChat } from './nav'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
 
@@ -34,7 +35,7 @@ test('with no text: needs attention, recents and actions; tabs and arrow keys', 
   await reset(page)
   await signIn(page)
   await seed(page)
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await open(page)
   const attention = palette(page).getByTestId('search-section-attention')
   await expect(attention.getByRole('option', { name: /아침 요약/ })).toBeVisible()

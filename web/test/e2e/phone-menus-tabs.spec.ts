@@ -9,6 +9,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -151,7 +152,7 @@ for (const lang of ['ko', 'en'] as const) {
       await page.getByTestId('send').click()
       await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
       await page.getByTestId('chat-back').click()
-      await page.getByTestId('menu-open').click()
+      await openDrawer(page)
       await page.getByRole('button', { name: t['sidebar.search'] }).first().click()
       const palette = page.getByTestId('search-palette')
       await expect(palette).toBeVisible()
@@ -282,7 +283,7 @@ for (const lang of ['ko', 'en'] as const) {
       await page.getByTestId('send').click()
       await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
       await page.getByTestId('chat-back').click()
-      await page.getByTestId('menu-open').click()
+      await openDrawer(page)
       const drawer = page.locator('[data-drawer]')
       const filter = drawer.getByTestId('recents-filter')
       // a small square in the line of 트리나 기록, taking taps from 44px around it (touch-hit)
@@ -374,7 +375,7 @@ test('the phone\'s tabs, pickers and sheets have no serious accessibility proble
   await expect(page.getByTestId('schedule-delete-row')).toBeAttached()
   await audit(page, 'scheduled task')
   await page.goto('/')
-  await page.getByTestId('menu-open').click()
+  await openDrawer(page)
   await page.locator('[data-drawer]').getByTestId('recents-filter').click()
   await audit(page, 'drawer filter sheet', '[data-drawer]')
   await page.keyboard.press('Escape')

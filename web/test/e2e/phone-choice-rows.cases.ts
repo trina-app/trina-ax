@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.en
@@ -78,7 +79,7 @@ export function phoneCases() {
 
   test('TC-378 General: "Team default language  English ›" and the time zone are rows; a pick waits for Save', async ({ page }) => {
     // Admin › Team settings › General, as a person taps it
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-settings').click()
     await page.getByTestId('team-settings-row-general').click()
@@ -208,7 +209,7 @@ export function phoneCases() {
   })
 
   test('TC-378 Me › Usage: "Period  This month ›" opens a sheet; a pick changes the numbers at once', async ({ page }) => {
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-row-usage').click()
     await expect(page).toHaveURL(/\/settings\/usage$/)
     await expect(page.getByTestId('my-usage-period')).toBeVisible()

@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { accountButton, openAccountMenu, openDrawer, openStatusDialog } from './nav'
 import { routeRoom, routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -31,8 +32,7 @@ async function status(page: Page, user: string, body: Record<string, unknown> | 
 }
 const sidebarRow = (page: Page, name: string) => page.getByTestId('sidebar-room-row').filter({ hasText: name })
 async function openDialog(page: Page) {
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-status').click()
+  await openStatusDialog(page)
   await expect(page.getByTestId('status-dialog')).toBeVisible()
 }
 
@@ -43,7 +43,7 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
     { id: '019a5f00-0000-7000-8000-00000000b002', author: BOB, body: '좋아요' },
   ] })
   await signIn(page)
-  await expect(page.getByTestId('account-menu').getByTestId('status-emoji')).toHaveCount(0)
+  await expect(accountButton(page).getByTestId('status-emoji')).toHaveCount(0)
   await openDialog(page)
   const dialog = page.getByRole('dialog', { name: '상태 설정' })
   // five suggestions, each with when it clears
@@ -59,7 +59,7 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
   await expect(dialog).toHaveCount(0)
 
   // my account row: the emoji after my name; my menu's item says it
-  const mine = page.getByTestId('account-menu').getByTestId('status-emoji')
+  const mine = accountButton(page).getByTestId('status-emoji')
   await expect(mine).toHaveText('📅')
   // the room: my author line has it, Bob's has none
   await page.goto(`/rooms/019a5f00-0000-7000-8000-00000000a001`)
@@ -76,13 +76,13 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
   await expect(page.getByTestId('room-run').nth(0).getByTestId('status-emoji')).toHaveText('📅')
 
   // a click on my own emoji opens the dialog with it; "상태 지우기" takes it away everywhere
-  await page.getByTestId('account-menu').getByTestId('status-emoji').click()
+  await accountButton(page).getByTestId('status-emoji').click()
   await expect(dialog).toBeVisible()
   await expect(dialog.getByTestId('status-text')).toHaveValue('회의 중')
   await expect(dialog.getByTestId('status-clear-keep')).toHaveAttribute('aria-checked', 'true')
   await dialog.getByTestId('status-clear').click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('account-menu').getByTestId('status-emoji')).toHaveCount(0)
+  await expect(accountButton(page).getByTestId('status-emoji')).toHaveCount(0)
   await expect(page.getByTestId('room-run').nth(0).getByTestId('status-emoji')).toHaveCount(0)
 })
 
@@ -100,15 +100,15 @@ test('my own words, an emoji from the grid; Esc closes the dialog without saving
   await expect(page.getByTestId('status-clear-today')).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('account-menu').getByTestId('status-emoji')).toHaveCount(0)
+  await expect(accountButton(page).getByTestId('status-emoji')).toHaveCount(0)
   // again, saved with "지우지 않음"
   await openDialog(page)
   await page.getByTestId('status-text').fill('<b>Reviewing</b>')
   await page.getByTestId('status-clear-never').click()
   await page.getByTestId('status-save').click()
   // no emoji picked: 💬; the words are text, never markup
-  await expect(page.getByTestId('account-menu').getByTestId('status-emoji')).toHaveText('💬')
-  await page.getByTestId('account-menu').getByTestId('status-emoji').hover()
+  await expect(accountButton(page).getByTestId('status-emoji')).toHaveText('💬')
+  await accountButton(page).getByTestId('status-emoji').hover()
   await expect(page.getByRole('tooltip')).toHaveText('<b>Reviewing</b>')
 })
 
@@ -170,9 +170,9 @@ test('leave with chosen days: a later first day shows nothing yet; the dates com
   await page.getByTestId('status-save').click()
   await expect(page.getByTestId('status-dialog')).toHaveCount(0)
   // not yet: no emoji after my name
-  await expect(page.getByTestId('account-menu').getByTestId('status-emoji')).toHaveCount(0)
+  await expect(accountButton(page).getByTestId('status-emoji')).toHaveCount(0)
   // the menu's item says when it starts; the dialog has the days
-  await page.getByTestId('account-menu').click()
+  await openAccountMenu(page)
   await expect(page.getByTestId('account-status')).toHaveText(/휴가 중/)
   await page.getByTestId('account-status').click()
   await expect(page.getByTestId('status-from')).toHaveValue(seoulDay(2))
@@ -185,14 +185,14 @@ test.describe('a phone', () => {
   test('the drawer\'s row opens the sheet; my status shows there', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     const row = page.locator('[data-drawer]').getByTestId('my-status-row')
     await expect(row).toHaveText('상태 설정')
     await row.click()
     await page.getByTestId('status-suggestion').filter({ hasText: '집중하는 중' }).click()
     await page.getByTestId('status-save').click()
     await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await expect(page.locator('[data-drawer]').getByTestId('my-status-row')).toHaveText(/^🎧집중하는 중 · (오전|오후) \d{1,2}:\d\d까지$/)
   })
 })
@@ -272,7 +272,7 @@ test.describe('screens for review', () => {
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
-      await page.getByTestId('menu-open').click()
+      await openDrawer(page)
       await page.locator('[data-drawer]').getByTestId('my-status-row').click()
       await expect(page.getByTestId('status-dialog')).toBeVisible()
       await shot(page, 'status-390-light-dialog.png')
@@ -280,7 +280,7 @@ test.describe('screens for review', () => {
       await shot(page, 'status-390-light-dialog-filled.png')
       await page.getByTestId('status-save').click()
       await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-      await page.getByTestId('menu-open').click()
+      await openDrawer(page)
       await expect(page.locator('[data-drawer]').getByTestId('my-status-row')).toContainText('Out sick')
       await shot(page, 'status-390-light-drawer.png')
       await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })

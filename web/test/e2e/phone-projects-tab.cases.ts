@@ -17,6 +17,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { tabBar } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 import { DICTS } from '../../src/i18n'
@@ -81,7 +82,7 @@ export function projectsTabCases() {
     await signIn(page)
     const { project, chat } = await launch(page)
     await page.goto('/')
-    const tabs = page.getByTestId('bottom-tabs')
+    const tabs = tabBar(page)
     await expect(tabs.getByRole('link')).toHaveText([ai, t['tabs.chats'], t['tabs.projects'], t['tabs.me']])
     await expect(tabs.getByTestId('tab-files')).toHaveCount(0)
     await expect(tab(page, 'tab-ai')).toHaveAttribute('aria-current', 'page')

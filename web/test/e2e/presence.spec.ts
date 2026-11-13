@@ -9,6 +9,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { accountButton, openAccountMenu } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -123,7 +124,7 @@ test('the member list: each person\'s dot, mine too; no serious accessibility pr
 
 test('자리 비움으로 표시: one item in the account menu, kept in my account, and back', async ({ page }) => {
   await start(page)
-  await page.getByTestId('account-menu').click()
+  await openAccountMenu(page)
   const item = page.getByTestId('account-away')
   await expect(item).toHaveText('자리 비움으로 표시')
   const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/me/away'))
@@ -131,10 +132,10 @@ test('자리 비움으로 표시: one item in the account menu, kept in my accou
   expect((await put).postDataJSON()).toEqual({ away: true })
   // the menu closed, the keyboard back on its button
   await expect(page.getByTestId('account-dropdown')).toHaveCount(0)
-  await expect(page.getByTestId('account-menu')).toBeFocused()
+  await expect(accountButton(page)).toBeFocused()
   expect((await (await page.request.get('/api/me')).json()).user.prefs.away).toBe(true)
   await page.reload()
-  await page.getByTestId('account-menu').click()
+  await openAccountMenu(page)
   await expect(page.getByTestId('account-away')).toHaveText('접속 중으로 표시')
   await page.getByTestId('account-away').click()
   await expect.poll(async () => (await (await page.request.get('/api/me')).json()).user.prefs.away).toBeUndefined()
@@ -203,9 +204,9 @@ test('screenshots at 1440: the sidebar with all three states, the DM header, the
     if (scheme === 'light') {
       sizes['sidebar-online'] = await measure(sidebarRow(page, 'Bob'), sidebarRow(page, 'Bob').getByTestId('sidebar-room'))
       sizes['sidebar-away'] = await measure(sidebarRow(page, '김소라'), sidebarRow(page, '김소라').getByTestId('sidebar-room'))
-      sizes['account-row'] = await measure(page.getByTestId('account-menu'), page.getByTestId('account-menu').locator('span.truncate'))
+      sizes['account-row'] = await measure(accountButton(page), accountButton(page).locator('span.truncate'))
     }
-    await page.getByTestId('account-menu').click()
+    await openAccountMenu(page)
     await shot(`after-account-menu-1440-${scheme}`)
     await page.keyboard.press('Escape')
     await page.goto(`/rooms/${DM}`)

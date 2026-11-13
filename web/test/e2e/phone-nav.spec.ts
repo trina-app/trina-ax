@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { drawerButton, openDrawer, openTab, openTrinaRow, tabBar } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -21,26 +22,26 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await reset(page)
   await signIn(page)
   await expect(page).toHaveURL(/\/$/)
-  const tabs = page.getByTestId('bottom-tabs')
+  const tabs = tabBar(page)
   await expect(tabs.getByRole('link')).toHaveText([ai, t['tabs.chats'], t['tabs.projects'], t['tabs.me']])
   await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('composer-input')).toBeVisible()
   const bar = page.getByTestId('phone-topbar')
   await expect(bar.getByTestId('topbar-title')).toHaveText(ai)
-  await expect(bar.getByTestId('menu-open')).toBeVisible()
+  await expect(drawerButton(bar)).toBeVisible()
   await expect(page.getByTestId('topbar-new-chat')).toHaveCount(0)
   await expect(page.getByTestId('topbar-new-dm')).toHaveCount(0)
   // the bar's buttons are 44 px
-  const menu = (await bar.getByTestId('menu-open').boundingBox())!
+  const menu = (await drawerButton(bar).boundingBox())!
   expect(Math.round(menu.width)).toBeGreaterThanOrEqual(44)
   expect(Math.round(menu.height)).toBeGreaterThanOrEqual(44)
 
   // 대화: its name and ⊕ a new conversation; no ☰, no pinned AI row
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   await expect(bar.getByTestId('topbar-title')).toHaveText(t['tabs.chats'])
   await expect(page.getByTestId('topbar-new-dm')).toBeVisible()
-  await expect(page.getByTestId('menu-open')).toHaveCount(0)
+  await expect(drawerButton(page)).toHaveCount(0)
   await expect(page.getByTestId('rooms-ai')).toBeHidden()
   // ⊕ asks for the people list with ?new=1, which opens it and leaves the address (Back closes it: lib/backCloses.ts)
   await page.getByTestId('topbar-new-dm').click()
@@ -63,7 +64,7 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
 
   // 나: 활동 (Activity) first, 관리자 right below for the owner; 알림 (the settings) stays in its group
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await expect(dialog.getByTestId('settings-inbox')).toBeVisible()
   await expect(dialog.getByTestId('settings-phone-top').getByRole('link')).toHaveText([t['inbox.title'], t['sidebar.admin']])
@@ -72,7 +73,7 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page).toHaveURL(/\/activity$/)
   await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
   await expect(page.getByTestId('tab-me')).toHaveAttribute('aria-current', 'page')
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await dialog.getByTestId('settings-admin').click()
   await expect(page).toHaveURL(/\/admin$/)
   // Admin's list draws its own bar: ‹ named after the 나 list (docs/DECISIONS.md "Admin and Settings on phones")
@@ -88,7 +89,7 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
 test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px rows, and its pages have ‹ and their name', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.getByTestId('menu-open').click()
+  await openDrawer(page)
   const drawer = page.getByRole('dialog', { name: t['sidebar.label'] })
   await expect(drawer).toBeVisible()
   for (const name of [t['sidebar.search'], t['sidebar.scheduled'], t['sidebar.skills'], t['sidebar.trash']]) {
@@ -105,11 +106,11 @@ test('the drawer is the AI\'s history: no new chat, Inbox or Admin rows, 44 px r
   await expect(drawer.getByRole('link', { name: ai }).first()).toBeVisible()
   if (PRODUCT_NAMED_AFTER_AI) await expect(drawer.getByText(PRODUCT.displayName, { exact: true })).toBeHidden()
 
-  await drawer.getByTestId('nav-skills').click()
+  await openTrinaRow(drawer, 'skills')
   await expect(page).toHaveURL(/\/skills$/)
   await expect(page.getByTestId('topbar-title')).toHaveText(t['skills.title'])
   await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('menu-open')).toHaveCount(0)
+  await expect(drawerButton(page)).toHaveCount(0)
   const before = await historyLength(page)
   await page.getByTestId('topbar-back').click()
   await expect(page).toHaveURL(/\/$/)
@@ -133,7 +134,7 @@ test('an AI chat\'s ‹ goes back where it came from; the browser\'s back then n
   await expect(page).toHaveURL(/\/c\//)
   const chat = page.url()
   await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1, { timeout: 20_000 })
-  await expect(page.getByTestId('bottom-tabs')).toHaveCount(0)
+  await expect(tabBar(page)).toHaveCount(0)
   // the header's new chat (트리나에게 묻기) is the ✦ of a room's header (rooms/AiFace.tsx AiMark): drawn 24 (the sparkle
   // 18) in its 44 px button
   const ask = page.getByTestId('chat-new')
@@ -186,7 +187,7 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   // one badge per thing: the drawer has no Inbox count, ☰ no dot
   await expect(page.getByTestId('menu-unread')).toHaveCount(0)
 
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await page.getByTestId('rooms-row').first().click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`))
   await expect(page.getByTestId('room-back')).toBeVisible()
@@ -229,7 +230,7 @@ test('a thread on a phone: the phone\'s back goes thread → room → 대화, th
   await signIn(page)
   const thread = new RegExp(`/rooms/${id}/t/${rootId}$`), inRoom = new RegExp(`/rooms/${id}$`)
   const open = async () => {
-    await page.getByTestId('tab-chats').click()
+    await openTab(page, 'chats')
     await expect(page).toHaveURL(/\/rooms$/)
     await page.getByTestId('rooms-row').first().click()
     await expect(page).toHaveURL(inRoom)

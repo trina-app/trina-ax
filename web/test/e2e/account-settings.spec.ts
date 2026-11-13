@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { accountButton, openAccountMenu, openSettings, openTab, tabBar } from './nav'
 
 const t = DICTS.en
 
@@ -38,7 +39,7 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
 
 test('the account menu opens above the profile line, moves with the keyboard, and the theme is not in it', async ({ page }) => {
   await start(page)
-  const button = page.getByTestId('account-menu')
+  const button = accountButton(page)
   await button.click()
   const menu = page.getByTestId('account-dropdown')
   await expect(menu).toBeVisible()
@@ -84,8 +85,7 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   await start(page)
   await page.getByRole('link', { name: t['sidebar.projects'] }).click()
   await expect(page).toHaveURL(/\/projects$/)
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-settings').click()
+  await openSettings(page)
   await expect(page).toHaveURL(/\/settings$/)
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await expect(dialog).toBeVisible()
@@ -107,7 +107,7 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/projects$/)
-  await expect(page.getByTestId('account-menu')).toBeFocused()
+  await expect(accountButton(page)).toBeFocused()
   // the browser's back button after closing does not open it again
   await page.goBack()
   await expect(page.getByRole('dialog', { name: t['settings.title'] })).toHaveCount(0)
@@ -132,12 +132,12 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await page.setViewportSize({ width: 390, height: 760 })
   await start(page)
   await page.goto('/rooms')
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await expect(page).toHaveURL(/\/settings$/)
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
-  await expect(dialog.getByTestId('bottom-tabs')).toBeVisible()
+  await expect(tabBar(dialog)).toBeVisible()
   await expect(dialog.getByTestId('settings-close')).toBeHidden()
   await expect(dialog.getByTestId('settings-logout')).toBeVisible()
   await dialog.getByTestId('settings-me').click()
@@ -157,7 +157,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(dialog.getByTestId('settings-group-connections').getByRole('link').first()).toHaveAttribute('href', '/settings/connectors')
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
-  await dialog.getByTestId('tab-chats').click()
+  await openTab(dialog, 'chats')
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/rooms$/)
 })
@@ -181,7 +181,7 @@ test('Deleted chats: in the account menu on a wide screen; on a phone a row of t
   await page.goto('/')
   let side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
   await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
-  await side.getByTestId('account-menu').click()
+  await openAccountMenu(side)
   await side.getByTestId('account-trash').click()
   await expect(page).toHaveURL(/\/trash$/)
   await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
@@ -189,7 +189,7 @@ test('Deleted chats: in the account menu on a wide screen; on a phone a row of t
   await page.goto('/')
   await page.getByRole('button', { name: t['sidebar.open'] }).click()
   side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-  await expect(side.getByTestId('account-menu')).toBeHidden()
+  await expect(accountButton(side)).toBeHidden()
   await expect(side.getByRole('link', { name: t['sidebar.files'] })).toHaveCount(0)
   await side.getByRole('link', { name: t['sidebar.trash'] }).click()
   await expect(page).toHaveURL(/\/trash$/)

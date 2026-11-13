@@ -19,6 +19,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.en
@@ -38,7 +39,7 @@ const backLabel = (page: Page) => page.getByTestId('admin-back-label')
 
 /** 나 › Admin › System, as a person taps it */
 async function openSystem(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
   await page.getByTestId('admin-row-system').click()
@@ -316,7 +317,7 @@ export function systemFollowUps() {
   test('TC-270 step 3: AI apps with the connector off: the Off status and "Set this up on a computer", no setup commands; the app rows stay', async ({ page }) => {
     await page.route('**/api/connectors/remote', (route) => route.fulfill({ json: remoteOff }))
     await signIn(page)
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-ai-apps').click()
     await expect(page).toHaveURL(/\/admin\/ai-apps$/)
@@ -340,7 +341,7 @@ export function systemFollowUps() {
   test('every item\'s page and group names the page ‹ returns to, whole: an engine\'s page under "‹ Team AI accounts" (TC-381)', async ({ page }) => {
     await signIn(page)
     // the row's steps: Team AI accounts › Claude Code
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-admin').click()
     await page.getByTestId('admin-row-providers').click()
     await page.locator('[data-testid="engine-row"][data-engine="claude-code"]').click()

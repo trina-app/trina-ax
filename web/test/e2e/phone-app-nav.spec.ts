@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
@@ -55,7 +56,7 @@ test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, 
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
 
   // (1) the 대화 tab's root: iOS no swipe; Android's Back goes to the start tab…
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
   const before = await loads(page)
@@ -67,7 +68,7 @@ test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, 
   expect(await loads(page)).toBe(before)
 
   // a room above the 대화 list: Back goes to the list
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await page.getByTestId('rooms-row').filter({ hasText: '마케팅팀' }).click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM}$`))
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
@@ -124,7 +125,7 @@ test('an app without nav-v1 hears no nav (an older store build never answers it)
   await app(page, false)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  await page.getByTestId('tab-chats').click()
+  await openTab(page, 'chats')
   await expect(page).toHaveURL(/\/rooms$/)
   const before = await loads(page)
   await page.evaluate(openScript(`/rooms/${ROOM}`))

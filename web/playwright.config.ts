@@ -36,6 +36,7 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 30_000,
-    env: { MOCK_PORT: String(PORT) },
+    // MOCK_NAV_RAIL=1: the whole run in the new navigation (the rail on computers; web/test/e2e/nav.ts)
+    env: { MOCK_PORT: String(PORT), ...(process.env.MOCK_NAV_RAIL ? { MOCK_NAV_RAIL: process.env.MOCK_NAV_RAIL } : {}) },
   },
 })

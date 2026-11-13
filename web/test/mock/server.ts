@@ -245,6 +245,10 @@ const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_a
 /** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
 const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
+/** the new navigation's switch after a reset: off, as on a real server today, unless the run asks for the new navigation
+ * (`MOCK_NAV_RAIL=1`, web/test/e2e/nav.ts); POST /__test/nav-rail still changes it per test */
+const NAV_RAIL_DEFAULT = process.env.MOCK_NAV_RAIL === '1'
+
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
@@ -623,7 +627,7 @@ export class MockServer {
     this.deckTier = 'quick'
     this.allConfidential = false
     this.roomAiMentions = true
-    this.navRail = false
+    this.navRail = NAV_RAIL_DEFAULT
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -766,8 +770,9 @@ export class MockServer {
   /** POST /__test/room-ai-mentions {on}: "@트리나" in a room (Me.server.roomAiMentions); on in the mock, off on a real server */
   roomAiMentions = true
   /** POST /__test/nav-rail {on}: the new navigation (Me.server.navRail); off in the mock as on a real server, so every
-   * suite runs today's layout and the new suites turn it on (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1) */
-  navRail = false
+   * suite runs today's layout and the new suites turn it on (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1).
+   * `MOCK_NAV_RAIL=1` starts every reset with it on: the whole e2e run in the new navigation (web/test/e2e/nav.ts) */
+  navRail = NAV_RAIL_DEFAULT
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   access(path: string, user: User): 'none' | 'read' | 'write' {

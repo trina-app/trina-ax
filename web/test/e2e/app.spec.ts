@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { isNewNav, openDrawer, openTab } from './nav'
 import { PRODUCT } from '@mycel/shared'
 
 test('a dropped WebSocket shows "reconnecting", resumes, and the answer continues', async ({ page }) => {
@@ -134,17 +135,19 @@ test.describe('phone width', () => {
   test('drawer sidebar, full-screen panel, no horizontal scroll', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await expect(page.getByTestId('new-chat')).not.toBeVisible()
-    await page.getByRole('button', { name: '메뉴 열기' }).click()
-    // the drawer is the AI's history: a new chat is the 트리나 tab itself (Home, where this opened)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('button', { name: '검색' })).toBeVisible()
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByTestId('new-chat')).toBeHidden()
-    // 프로젝트 is a tab on a phone, with the team folder as its last row: neither is a row of the drawer (QA TC-255)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '파일' })).toHaveCount(0)
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '프로젝트', exact: true })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await page.getByTestId('tab-projects').click()
-    await page.getByTestId('projects-team-folder-row').click()
+    // today's ☰ drawer is the AI's history: a new chat is the 트리나 tab itself (Home, where this opened); the new phone
+    // tabs have no drawer (their own suites: phase P5)
+    if (!(await isNewNav(page))) {
+      await expect(page.getByTestId('new-chat')).not.toBeVisible()
+      const drawer = await openDrawer(page)
+      await expect(drawer.getByRole('button', { name: '검색' })).toBeVisible()
+      await expect(drawer.getByTestId('new-chat')).toBeHidden()
+      // 프로젝트 is a tab on a phone, with the team folder as its last row: neither is a row of the drawer (QA TC-255)
+      await expect(drawer.getByRole('link', { name: '파일' })).toHaveCount(0)
+      await expect(drawer.getByRole('link', { name: '프로젝트', exact: true })).toHaveCount(0)
+      await page.keyboard.press('Escape')
+    }
+    await openTab(page, 'files')
     await page.getByTestId('file-row').filter({ hasText: 'marketing' }).getByRole('button').first().click()
     await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first().click()
     const panel = page.getByTestId('file-panel')

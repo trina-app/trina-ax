@@ -14,6 +14,7 @@ import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer, openStatusDialog, tabBar } from './nav'
 import { ROOM_ID, routeRoom, type MockMessage, type MockRoom } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -144,7 +145,7 @@ test('a DM and a thread at their bottom: the newest message stays right above th
 test('the 트리나 tab: the tab bar steps aside while the keyboard is up, and comes back when it goes down', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  const tabs = page.getByTestId('bottom-tabs')
+  const tabs = tabBar(page)
   await expect(tabs).toBeVisible()
   await page.getByTestId('composer-input').tap()
   for (const kind of ['app', 'safari'] as const) {
@@ -304,7 +305,7 @@ test('the emoji sheet: its search with the keyboard up stays in sight, and so do
 
 async function openStatus(page: Page) {
   await page.goto('/')
-  await page.getByTestId('menu-open').click()
+  await openDrawer(page)
   await page.locator('[data-drawer]').getByTestId('my-status-row').click()
   await expect(page.getByTestId('status-dialog')).toBeVisible()
 }
@@ -347,8 +348,7 @@ test.describe('a computer', () => {
   test('the status dialog still puts the keyboard in its box', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await page.getByTestId('account-menu').click()
-    await page.getByTestId('account-status').click()
+    await openStatusDialog(page)
     await expect(page.getByTestId('status-text')).toBeFocused()
   })
 })
@@ -412,8 +412,7 @@ test.describe('screens for review', () => {
       await openRoom(page)
       await page.getByTestId('room-input').fill(DRAFT)
       await page.screenshot({ path: path.join(dir, '1440-light-room.png') })
-      await page.getByTestId('account-menu').click()
-      await page.getByTestId('account-status').click()
+      await openStatusDialog(page)
       await expect(page.getByTestId('status-text')).toBeFocused()
       await page.screenshot({ path: path.join(dir, '1440-light-status.png') })
     })

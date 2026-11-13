@@ -11,6 +11,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer, openTab, tabBar } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -55,7 +56,7 @@ test.describe('TC-253: Home on a phone', () => {
     await teamWithSkills(page)
     await signIn(page, BOB)
     // 1. Open the Trina tab
-    await page.getByTestId('tab-ai').click()
+    await openTab(page, 'ai')
     await expect(page).toHaveURL(/\/$/)
     const block = page.getByTestId('team-prepared')
     await expect(block).toBeVisible()
@@ -101,7 +102,7 @@ test.describe('TC-253: Home on a phone', () => {
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     await expect(page.getByTestId('home-scroll')).not.toContainText('Weekly numbers')
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await expect(page.locator('[data-drawer]').getByTestId('recents-list')).toContainText('Weekly numbers')
     await page.keyboard.press('Escape')
     await expect(page.locator('[data-drawer]')).toBeHidden()
@@ -117,7 +118,7 @@ test.describe('TC-253: Home on a phone', () => {
     expect(Math.round(atBottom.y)).toBe(Math.round(atTop.y))
     const bar = await box(page, 'phone-topbar')
     expect(atTop.y).toBeGreaterThanOrEqual(bar.y + bar.height)
-    const floor = (await page.getByTestId('bottom-tabs').isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
+    const floor = (await tabBar(page).isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
     expect(Math.abs(atTop.y + atTop.height - floor)).toBeLessThanOrEqual(1)
   })
 
@@ -128,7 +129,7 @@ test.describe('TC-253: Home on a phone', () => {
       owner: { id: 'olga', name: 'Olga' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false,
     } } })
     await signIn(page, BOB)
-    await page.getByTestId('tab-ai').click()
+    await openTab(page, 'ai')
     const card = page.getByTestId('member-welcome')
     await expect(card).toBeVisible()
     await expect(page.getByTestId('home-top').getByTestId('member-welcome')).toBeVisible()

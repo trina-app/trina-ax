@@ -6,6 +6,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openDrawer, openSettings } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const card = (page: Page, id: string) => page.locator(`[data-testid="connector-card"][data-id="${id}"]`)
@@ -19,8 +20,7 @@ test('Settings opens Connectors: Discover lists the Google ones first (QA TC-138
   await signIn(page)
   // no sidebar item since 2026-11-12: the account menu's Settings, its Connectors section
   await expect(page.getByTestId('nav-connectors')).toHaveCount(0)
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-settings').click()
+  await openSettings(page)
   await page.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
@@ -210,7 +210,7 @@ test('phone width: the page and an app\'s page fit; Me has Connectors, the drawe
   await googleApps(page, { client: 'app' })
   await signIn(page)
   await page.goto('/')
-  await page.getByTestId('menu-open').click()
+  await openDrawer(page)
   await expect(page.locator('[data-testid="nav-connectors"]:visible')).toHaveCount(0)
   await page.goto('/settings')
   await page.getByTestId('settings-row-connectors').click()

@@ -6,6 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openDrawer } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 const SORA = { id: 'sora', name: '김소라' }
@@ -157,7 +158,7 @@ export function overlayBackCases() {
   test('the drawer\'s filter: its row\'s choices (a second sheet) close with one Back, then the drawer; a choice leaves no entry', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     const drawer = page.locator('[data-drawer]')
     const filter = drawer.getByTestId('recents-filter')
     await filter.click()
@@ -185,7 +186,7 @@ export function overlayBackCases() {
   test('search\'s type picker: one Back closes the picker and search stays; a choice leaves no entry', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await page.locator('[data-drawer]').getByTestId('drawer-search').click()
     const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
     await expect(search).toBeVisible()
@@ -229,7 +230,7 @@ export function overlayBackCases() {
     await reset(page)
     await signIn(page)
     await expect(page).toHaveURL(/\/$/)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await page.locator('[data-drawer]').getByTestId('nav-scheduled').click()
     await expect(page).toHaveURL(/\/scheduled$/)
     await page.getByTestId('new-task-phone').click()
@@ -269,7 +270,7 @@ export function overlayBackCases() {
     await page.goto('/rooms')
     await expect(page.getByTestId('rooms-page')).toBeVisible()
     await page.goto('/')
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await page.locator('[data-drawer]').getByTestId('drawer-search').click()
     const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
     await expect(search).toBeVisible()
@@ -288,7 +289,7 @@ export function overlayBackCases() {
     await reset(page)
     await signIn(page)
     const start = await historyLength(page)
-    await page.getByTestId('menu-open').click()
+    await openDrawer(page)
     await page.locator('[data-drawer]').getByTestId('nav-skills').click()
     await expect(page).toHaveURL(/\/skills$/)
     // one step at most: the drawer's entry is the new page's, none is left under it

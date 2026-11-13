@@ -3,6 +3,7 @@
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openNewChat } from './nav'
 
 const SLOW = 'slow answer please, slow slow slow slow slow slow slow slow slow slow'
 const lastAnswer = (page: Page) => page.getByTestId('assistant-message').last()
@@ -128,7 +129,7 @@ test('leaving the chat in the middle of an edit does not hold the waiting messag
   await page.getByTestId('outbox-item').getByTestId('outbox-edit').click()
   await expect(page.getByTestId('outbox-edit-input')).toBeFocused()
   // another screen of the app (no reload) while the answer still runs: the edit ends like Cancel
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(page).not.toHaveURL(new RegExp(`${chatPath}$`))
   await expect(page.getByTestId('outbox-edit-input')).toHaveCount(0)
   await page.goBack()

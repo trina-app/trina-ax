@@ -17,6 +17,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const en = DICTS.en
@@ -63,7 +64,7 @@ async function security(page: Page) {
   const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
   const items = Array.from({ length: 3 }, (_, i) => ({ id: `0192f0a0-0000-7000-8000-${String(i).padStart(12, '0')}`, client: 'web', userAgent: ua, createdAt: at, lastSeenAt: at, expiresAt: at, current: i === 0 }))
   await page.route('**/api/me/sessions', (r) => r.fulfill({ json: { items } }))
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-security').click()
   await expect(page).toHaveURL(/\/settings\/security$/)
 }
@@ -199,7 +200,7 @@ export function memberPageCases() {
       await r.fulfill({ json: { avatarVersion: 1 } })
     })
     // Me › Profile
-    await page.getByTestId('tab-me').click()
+    await openTab(page, 'me')
     await page.getByTestId('settings-me').click()
     await expect(page).toHaveURL(/\/settings\/profile$/)
     await expect(page.getByTestId('profile-form')).toBeVisible()

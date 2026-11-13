@@ -10,6 +10,7 @@ import { CSRF_HEADER } from '@mycel/shared/api'
 import { WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 
 const t = DICTS.en
 const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' } as const
@@ -46,7 +47,7 @@ async function phoneApp(page: Page) {
 /** Me (the 나 tab), then one of its rows */
 async function me(page: Page, row?: string) {
   await page.goto('/')
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await expect(page.getByTestId('settings-menu')).toBeVisible()
   if (row) await page.getByTestId(row).click()
 }
