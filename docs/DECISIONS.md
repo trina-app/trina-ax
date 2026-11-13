@@ -24372,6 +24372,42 @@ the same visits showed no skeleton: the phone's 프로젝트 list reads the proj
 - **Not changed**: a folder's own listing on the Files page (`/files?path=…`) still reads when opened, with its
   skeleton; it pages, climbs on not_found and has many paths, which is a larger change than this one.
 
+## Lists, Search and Settings open at once (perf/lists-cache, 2026-11-13)
+
+Measured on a private copy of the local QA team, Fast 3G + 4x CPU, as qa-member, a place opened again after one other
+place: 팀 스킬, 예약 작업, 활동, 멘션, a thread, Settings › Connectors and Notifications showed the skeleton on every
+visit; 팀 스킬 asked five things one after another; ⌘K read six lists on every open; opening Settings read
+`/api/me/credentials` and the "paused for review" banner's `/api/schedules` again; the Trina list read
+`/api/chats/groups` (20 KB) again on most navigations (its show-again age was 5 s).
+- **One small keyed cache** (`web/src/store/listCache.ts`) instead of a store per list: `readCached(key, read)` keeps one
+  request at a time per key (a screen shown joins a read on its way; `fresh`, after an event, reads once more after it),
+  `putCached` for a change made here (an answer to a read started before it is dropped and read again), `minAgeMs`
+  for screens opened many times a minute, `markStale(prefix)` from the realtime events whether a screen shows or not.
+  Screens with state of their own (a Google sign-in under way, paging, switches being saved) start from what they kept
+  (`peekCached`) and write back what the server said (`rememberCached`); they still read again when they mount.
+- **팀 스킬**: two rounds side by side (overview, my suggestions, the changes and the skill list together; then what the
+  overview says there is to review) instead of five in a row; all kept.
+- **Search** shows its lists at once and reads one again only after 30 s (`SEARCH_LIST_AGE_MS`) or a change that marks
+  it stale (skills, tasks, connections, chats, projects here, access, a reconnect that could not resume); the unread count
+  is the window's own (`store/inbox.ts`), not a read of its own. A task or a connection made on another device can take
+  up to 30 s to show there.
+- **Scheduled tasks**, its banner and Search share one list; the banner mounting again reads it only after 5 min or an
+  event. A change made on the page reaches the kept list also when its answer comes after the page went.
+- **Settings**: the "own AI connections" flag is kept for a minute (the team's AI choices changing marks it stale);
+  Connectors (connections, Drive, Google apps, asks, team templates, requests, Slack), Notifications (as the server
+  last said them, never a switch still being saved) and the devices list start from what was there.
+- **활동, 멘션, a thread**: the last list is shown and read again behind it. A thread closed a moment ago (the last 10,
+  one page of replies) opens with its replies; any change in it meanwhile, a reconnect that could not resume, or leaving
+  the room forgets it, so it opens from the server as before. The Trina list's groups are read again on show after a
+  minute (a change marks them stale at once, as before).
+- **Access**: everything kept is emptied at sign-out and when another person signs in (`dropPersonStores`); a read
+  started before that never lands.
+- After, same copy: no skeleton on those revisits (Settings › AI providers still shows one: that page is Admin's);
+  팀 스킬's first visit 1.88 s → 1.37 s (1440), 1.80 s → 1.24 s (390); ⌘K's second and third opens 6 requests → 1 and 0;
+  `/api/chats/groups` and `/api/me/credentials` no longer read on those revisits.
+- **Not changed**: a notice opened on its own (`/activity?n=`), the skill form's own read of the list and the review
+  dialog read as before; Admin's pages are another change.
+
 ## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
 
 Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install
