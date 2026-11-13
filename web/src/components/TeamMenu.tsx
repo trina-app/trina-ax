@@ -16,7 +16,7 @@ import { create } from 'zustand'
 import { teamIconUrl } from '@mycel/shared'
 import { useT } from '../i18n'
 import { teamAddressShown } from '../lib/team-address'
-import { switchTeam, teamSwitchWay } from '../lib/teamSwitch'
+import { switchTeam, useTeamSwitchWay } from '../lib/teamSwitch'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
@@ -42,7 +42,7 @@ export function TeamMenu() {
   const admin = isAdmin(me)
   // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환…" for everyone, so a
   // member gets the menu too; a plain browser is one team per address
-  const canSwitch = teamSwitchWay() !== null
+  const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
   const addressId = useId()
   const hide = (focusBack: boolean) => {

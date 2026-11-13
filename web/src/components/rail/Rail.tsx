@@ -2,7 +2,8 @@
 // (TeamMenu.tsx: its menu for owners and admins: Invite people, Admin), then four places, each an icon with its name under it (the owner, 2026-11-07: no icon
 // without words): 트리나 · 대화 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx:
 // status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
-// the place already lit opens its start; 트리나 with its "?" opens the first chat that waits on me. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
+// the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that
+// waits on me. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
 // the photo in order; Up/Down/Home/End move between them too. The rail takes no shortcut of its own.
 import clsx from 'clsx'
 import { Bell, FolderOpen, MessageCircle, PanelLeftOpen } from 'lucide-react'
@@ -43,7 +44,8 @@ export function Rail({ showList }: { showList: boolean }) {
   // never waits below the project groups (UX review S2); without one the place opens as any place does
   const waiting = useWaitingChats()
   const onScreen = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
-  const firstWaiting = marks.ai?.kind === 'ask' ? waiting.find((c) => c.id !== onScreen) : undefined
+  // only from another place: the lit 트리나 opens its start, where the waiting row sits on top (never a loop between chats)
+  const firstWaiting = marks.ai?.kind === 'ask' && current !== 'ai' ? waiting.find((c) => c.id !== onScreen) : undefined
   const label: Record<RailItem, string> = { ai: aiName(t), chats: t('tabs.chats'), files: t('sidebar.files'), activity: t('inbox.title') }
   const icon = (item: RailItem, lit: boolean): ReactNode =>
     item === 'ai' ? <AiTabIcon active={lit} /> : item === 'chats' ? <MessageCircle size={22} aria-hidden /> : item === 'files' ? <FolderOpen size={22} aria-hidden /> : <Bell size={22} aria-hidden />

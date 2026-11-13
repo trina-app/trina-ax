@@ -11706,7 +11706,8 @@ press on 트리나 opened "What is your company website?" instead of the chats.
   setup row on every panel stays the way to the steps.
 - **One number**: the setup row's count is the step it opens, as the steps' own bar numbers it ("설정 이어서 하기 · 1/5"
   opens "1/5 회사 소개"); it said "0/5" (the steps done) beside the bar's "1/5". `stepPosition` serves both. With one
-  step left the row still names it ("남은 일: 팀 파일"). Amends W5's "2/5 = the steps done".
+  step left the row still names it ("남은 일: 팀 파일"). Amends W5's "2/5 = the steps done". Known edge: with only
+  put-off steps left the row opens the earliest and says its number ("1/5" after "3/5"), as the bar does there.
 - Tests: `web/test/unit/rail.test.ts`, `web/test/unit/welcome.test.tsx`, `web/test/unit/setup-row.test.tsx`.
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
@@ -11763,9 +11764,11 @@ the Trina list above. The walk: a member with six projects saw the rail's "?" bu
 out of sight at 1440×900; 삭제한 기록 needed a scroll for anyone with projects.
 
 - **The rail's 트리나 with "?"** opens the first chat that waits on me (one not on screen), wherever it sits; without a
-  "?" it opens what was open there, as any place. The list scrolls the open chat's row into sight (the least scroll).
+  "?" it opens what was open there, as any place. Only from another place: the lit 트리나 opens its start (the waiting
+  row is there), so two waiting chats never make a loop. The list scrolls the open chat's row into sight (the least scroll).
 - **"? 답을 기다려요 N"**: one quiet row on top of the Trina list (computer panel and phone tab) while any chat waits; it
-  opens the first. No card. "Waiting" is the rail's own rule (`waitingChats`: rows that show "?", from the same chats
+  opens the first. No card. It counts the questions and cards that wait for my answer; a stopped run keeps its "?" on
+  its row and on the rail. The rail's "?" uses the rail's own rule (`waitingChats`: rows that show "?", from the same chats
   and markers as `useAttention`), so the row, the rail and the rows agree.
 - **예약 작업 · 팀 스킬 · 삭제한 기록** stay pinned under the list on a computer (`PanelFrame` `bottom`), never scrolled
   away; leaner than a header menu, which is the filter's. A phone keeps them at the list's end: a pinned block would sit
@@ -17971,7 +17974,7 @@ final UX walk found the dead end: a folder just made in 트리나 was missing fr
 given, and both labels read "폴더 · 나만 보여요", as if one set.
 
 - **Labels**: "트리나 폴더 · 나만 보여요" in the Trina list, "대화 폴더 · 나만 보여요" in 대화 (en "Trina folders" /
-  "Conversation folders"; id, ja, es alike). The AI's name comes from the edition (`aiName`).
+  "Chat folders", as the tab is "Chats"; id, ja, es alike). The AI's name comes from the edition (`aiName`).
 - **A row's "폴더로 옮기기"** opens a small menu headed with its kind ("대화 폴더"): that list's folders and "새 폴더 만들어
   넣기". With none of that kind yet, one quiet line under it: "대화 폴더는 트리나 폴더와 따로 있어요." (the reverse for a
   chat), read out with "새 폴더 만들어 넣기".

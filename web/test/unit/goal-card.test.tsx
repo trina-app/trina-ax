@@ -466,9 +466,9 @@ describe('the top of Home: one thing', () => {
     globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
     try {
       const t = await top('owner')
-      // the count and the total are lib/welcome.ts's (the steps decide how many there are): 회사 소개 saved counts as done
-      // without a deck (docs/DECISIONS.md "W6"), so 1 of them; a phone counts the steps it shows (no 도구 연결: 4)
-      expect(t.resume).toBe(`${translate('ko', 'setupRow.resume')} · 1/${stepTotal(null, true, false)}`)
+      // the count and the total are lib/welcome.ts's (the steps decide how many there are): the step the row opens, as the
+      // steps' bar numbers it; 회사 소개 saved, so 내 스킬, 2 of them; a phone counts the steps it shows (no 도구 연결: 4)
+      expect(t.resume).toBe(`${translate('ko', 'setupRow.resume')} · 2/${stepTotal(null, true, false)}`)
       expect(stepTotal(null, true, false)).toBe(4)
       expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
     } finally { globalThis.matchMedia = media }

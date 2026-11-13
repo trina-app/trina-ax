@@ -61,8 +61,8 @@ list can show only some chats, for example the ones that are answering or wait f
 A folder sorts your list, nothing more: it holds no files and never changes who sees a chat. Make one with **+** on
 **트리나 폴더**, then use a chat's **···** › **폴더로 옮기기** (Move to folder), or drag the chat onto the folder. A folder's
 **···** renames it, moves it up or down, or deletes it; deleting a folder keeps its chats in your list. A project's chats
-stay in their project. The **대화** list has its own **대화 폴더** (Conversation folders) for rooms and direct messages:
-a Trina folder holds Trina chats only, and a conversation folder holds conversations only.
+stay in their project. The **대화** list has its own **대화 폴더** (Chat folders) for rooms and direct messages:
+a Trina folder holds Trina chats only, and a chat folder holds conversations only.
 
 ## Several chats at once
 

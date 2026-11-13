@@ -30,7 +30,7 @@ import { api, API, errorText } from '../../lib/api'
 import { useGoBack } from '../../lib/back'
 import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { browserSettingsBridge } from '../../lib/desktop'
-import { switchTeam, teamSwitchWay } from '../../lib/teamSwitch'
+import { switchTeam, useTeamSwitchWay } from '../../lib/teamSwitch'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
@@ -323,6 +323,7 @@ function PhoneTeamGroup() {
   const me = useMeStrict()
   const navigate = useNavigate()
   const admin = isAdmin(me)
+  const canSwitch = useTeamSwitchWay() !== null
   return (
     <PhoneListGroup testId="settings-team-group">
       <li className="flex items-center gap-3 px-4 py-3" data-testid="settings-team">
@@ -331,7 +332,7 @@ function PhoneTeamGroup() {
       </li>
       {admin && <PhoneListRow icon={<UserPlus size={16} />} title={t('teamMenu.invite')} onClick={() => void openTeamInvite(navigate, null)} chevron testId="settings-invite" />}
       {admin && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
-      {teamSwitchWay() && <PhoneListRow icon={<ArrowLeftRight size={16} />} title={t('teamMenu.switch')} onClick={switchTeam} chevron testId="settings-switch-team" />}
+      {canSwitch && <PhoneListRow icon={<ArrowLeftRight size={16} />} title={t('teamMenu.switch')} onClick={switchTeam} chevron testId="settings-switch-team" />}
     </PhoneListGroup>
   )
 }

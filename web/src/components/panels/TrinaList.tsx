@@ -122,11 +122,15 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const [moving, setMoving] = useState<Chat | null>(null)
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   // the chat on screen in sight in the list (the rail's "?" or the waiting row opened one far down): the least scroll
+  // once per chat opened (a new read of the groups while I browse never pulls the list back)
   const listRef = useRef<HTMLDivElement>(null)
+  const scrolledTo = useRef<string | null>(null)
   useEffect(() => {
-    if (!openChat || !groups) return
+    if (!openChat || scrolledTo.current === openChat) return
     const row = listRef.current?.querySelector<HTMLElement>(`[data-chat-id="${CSS.escape(openChat)}"]`)
-    row?.scrollIntoView?.({ block: 'nearest' })
+    if (!row) return
+    scrolledTo.current = openChat
+    row.scrollIntoView?.({ block: 'nearest' })
   }, [openChat, groups])
 
   // what each opened group reads (so a new read of the groups can read it again)
@@ -313,8 +317,11 @@ const noop = () => {}
  * the first one that is not on screen already (UX review S2: the waiting chat sank under six project groups). */
 function WaitingRow() {
   const t = useT()
+  const requests = useChats((s) => s.requests)
+  const cards = useMemo(() => cardChats(requests), [requests])
   const navigate = useNavigate()
-  const waiting = useWaitingChats()
+  // a question or card that waits for my answer (a stopped run keeps its "?" on its row, not here: the words would be wrong)
+  const waiting = useWaitingChats().filter((c) => c.waiting || cards.has(c.id))
   const onScreen = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
   if (!waiting.length) return null
   const first = waiting.find((c) => c.id !== onScreen) ?? waiting[0]!
