@@ -429,8 +429,8 @@ body.driving #toolbar::after {
   padding: 4px 8px;
   background: var(--panel);
 }
-/* "Trina is using the browser": on the toolbar's own surface, a small pulsing accent dot, plain text, and Stop as a
-   solid ink button (its shape carries it, not a colour wash) */
+/* "Trina is using the browser": on the toolbar's own surface, a small pulsing accent dot (the row's one accent), plain
+   regular text, and Stop as an ordinary secondary button (no colour wash, no solid ink pill) */
 .driving-bar {
   display: none;
   align-items: center;
@@ -452,7 +452,6 @@ body.driving .driving-bar {
   animation: ai-pulse 1.6s ease-out infinite;
 }
 .driving-bar .label {
-  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -463,16 +462,14 @@ body.driving .driving-bar {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--text);
-  background: var(--text);
-  color: var(--panel);
-  font-weight: 600;
+  padding: 3px 10px;
+  border: 1px solid var(--field-border);
+  background: var(--panel);
+  color: var(--text);
   line-height: 1.2;
 }
 .driving-bar .stop:hover {
-  opacity: 0.86;
+  background: var(--hover);
 }
 .driving-bar .stop-mark {
   width: 8px;
@@ -491,10 +488,11 @@ body.driving .driving-bar {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
   }
 }
+/* the site question: an ordinary card (panel, 1px edge); "Allow once" is its one accent button */
 .prompt {
   margin-top: 8px;
   background: var(--panel);
-  border: 2px solid var(--accent);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
 }
@@ -504,6 +502,7 @@ body.driving .driving-bar {
 }
 .prompt h2 {
   font-size: 14px;
+  font-weight: 600;
   margin: 0 0 4px;
   word-break: break-all;
 }
@@ -700,10 +699,18 @@ body.driving .driving-bar {
   flex: 1;
   word-break: break-all;
 }
+/* no tab and the AI not at work: the page background, one muted line in the middle */
+.stage:has(> .empty) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .empty {
   margin: 0;
   padding: 24px 16px;
+  max-width: 360px;
   color: var(--muted);
+  font-weight: 400;
   text-align: center;
 }
 /* a page on its way, before it has drawn: one quiet line, not a colour */

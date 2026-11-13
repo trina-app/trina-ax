@@ -25654,3 +25654,29 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
 - **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the
   only share is an AI answer to a room, `chat/ShareToRoom.tsx`); building one is its own task. "Save for later" has no
   counterpart.
+
+## The browser pane follows the app's theme; calm site question and Stop (fix/browser-pane-calm-colours, 2026-11-13, the owner, QA TC-906)
+
+- **Why:** the owner's screenshot (11-13): beside a light chat window the pane was near-black, with an orange bar, a
+  black Stop pill and a black site-question card with a thick orange border ("너무 주황색에 검은색임"). The orange bar and
+  the orange page wash came from desktop builds before 0.5.0 (fixed by "AI가 브라우저를 쓰는 동안" above). What was still
+  true on dev: the pane's colours followed the **computer's** look (`prefers-color-scheme`), so a computer in dark mode
+  drew a dark pane beside a team page set to Light; Stop was a solid ink pill; the site card kept a 2 px accent border.
+- **Now:** the team page tells the desktop app the look chosen in Settings (`DesktopBridge.setTheme`, optional; called
+  from `web/src/lib/theme.ts applyTheme`), and the app sets Electron's `nativeTheme.themeSource` to it (light, dark or
+  system). The pane's toolbar, the window's colour and the app's own screens follow. **Side effect: sites open in the
+  in-app browser now follow the app's theme too** (their `prefers-color-scheme` is the app's choice, not the
+  computer's): with the app on Light and the computer on Dark, a site that has a dark look shows its light one. Only the
+  team page can set it; a site in the in-app browser has no bridge (e2e). Older pages never call it (the pane follows the
+  computer, as before); older desktop apps lack it.
+- **Look** (`desktop/src/ui/ui.css`, the existing tokens from `web/src/theme.edition.css`): "Trina is using the
+  browser" in regular weight with the pulsing accent dot as its one accent; **Stop** an ordinary secondary button
+  (`--panel`, 1 px `--field-border`); the site question an ordinary card (`--panel`, 1 px `--line`, 10 px radius), title
+  and muted body, **Allow once** the only primary (accent) button, Always allow / Allow all websites / Deny secondary
+  (Deny no longer red). This replaces "Stop as a solid ink pill" and "the site question card keeps its accent border"
+  above; the 2 px accent line over the page stays the signal. Empty pane: the muted hint centred on `--bg`.
+- **Resize edge** (QA TC-907): already shipped in 0.5.0 (`common/pane-width.ts`). Hardened: the toolbar page is told the
+  edge again after it loads, and an older answer to its first ask never replaces a width it was told.
+- Tests: `tests/unit/e-pane-width.test.ts` (colours, one primary button, the theme wiring, the edge re-tell),
+  e2e `desktop/e2e/pane-look.spec.ts` (setTheme sets themeSource and the window colour; a site in the pane cannot call it; screenshots of the empty pane).
+- Version impact: **patch** (visual fix; one optional bridge call, no data change).

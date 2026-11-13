@@ -52,6 +52,7 @@ const bridge: DesktopBridge = {
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   teamMenu: () => ipcRenderer.send('bridge:team-menu'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
+  setTheme: (theme) => ipcRenderer.send('bridge:set-theme', String(theme)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
   copyImage: (png) => ipcRenderer.invoke('bridge:copy-image', png instanceof Uint8Array ? png : new Uint8Array(0)),
   browserSettings: {

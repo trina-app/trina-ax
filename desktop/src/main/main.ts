@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, Menu, nativeImage, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
@@ -307,6 +307,12 @@ function registerIpc() {
     } catch {
       return false
     }
+  })
+  // the look chosen on the team page (Settings: light, dark or system) becomes the whole app's look (themeSource): the
+  // app's own screens (the browser toolbar's ui.css) and the window's colour follow it, and so do the sites open in the
+  // in-app browser: their prefers-color-scheme is now the app's theme, not the computer's. Only the team page may set it
+  ipcMain.on('bridge:set-theme', (e, t: unknown) => {
+    if (fromApp(e) && (t === 'light' || t === 'dark' || t === 'system') && nativeTheme.themeSource !== t) nativeTheme.themeSource = t
   })
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)

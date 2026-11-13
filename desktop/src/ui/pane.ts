@@ -257,7 +257,7 @@ function promptCard(p: PanePrompt, more: number) {
       !isPrivate && sites.teamAllowsAll
         ? h('button', { type: 'button', 'data-testid': 'prompt-allow-all', onclick: () => { sites = { ...sites, siteAccess: 'all' }; ui.pane.setSiteAccess('all'); ui.pane.answer(p.id, 'once') } }, tr('allowAll.confirm'))
         : null,
-      h('button', { type: 'button', class: 'danger', onclick: () => ui.pane.answer(p.id, 'deny') }, tr('perm.deny')),
+      h('button', { type: 'button', onclick: () => ui.pane.answer(p.id, 'deny') }, tr('perm.deny')),
     ),
     more > 0 ? h('p', { class: 'more', 'data-testid': 'prompts-more' }, tr('pane.promptsMore', { n: String(more) })) : null,
   )
@@ -420,9 +420,15 @@ edge.addEventListener('keydown', (e) => {
   e.preventDefault()
   ui.pane.resizeKey(e.key, e.shiftKey)
 })
-ui.pane.onWidth(applyWidth)
+// the main process tells every change; the first ask covers what it told before this page listened. An answer to the
+// ask that comes after a told change is older than it and must not put back a stale width (or hide the edge)
+let widthTold = false
+ui.pane.onWidth((w: PaneWidth) => {
+  widthTold = true
+  applyWidth(w)
+})
 void ui.pane.width().then((w) => {
-  if (w) applyWidth(w)
+  if (w && !widthTold) applyWidth(w)
 })
 
 const observer = new ResizeObserver((entries) => {
