@@ -21,7 +21,7 @@
 // only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
 // the project's page instead (there they can add themselves), not to "folder not found".
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
@@ -35,7 +35,10 @@ import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
-import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
+import { iconKind, previewKind, serverPreview, type FileIconKind } from '../lib/preview'
+import { isMenuKey, teamFileLink } from '../lib/fileMenu'
+import { canCopyImage } from '../lib/copyImage'
+import { copyImageFrom, useCopyFileLink } from '../components/FileMenu'
 import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
 import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -1309,6 +1312,13 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   // pressed them on their group's folder only to read "only an admin can")
   const changeable = writable && !e.fixed
   const menuId = useId()
+  // a right-click on the row (the menu key, Shift+F10): its ⋯ menu at the pointer; Shift keeps the browser's own
+  const [menuRequest, setMenuRequest] = useState(0)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const openMenuAt = (at: { x: number; y: number }) => {
+    setMenuAt(at)
+    setMenuRequest((n) => n + 1)
+  }
   // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
   // does not open it; while something is selected (`selecting`) a tap does the same instead of opening. Phones also show
   // the row in two lines (the name; date · size) and offer "Select" in its ⋯
@@ -1334,9 +1344,16 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   const icon = (I: typeof FileIcon) => <I size={14} className="shrink-0" aria-hidden />
   const fixedWhy = writable && e.fixed ? `${menuId}-fixed` : undefined
   const aiWhy = aiOff ? `${menuId}-ai-off` : undefined
+  // the right-click menu's own items (components/FileMenu.tsx, as on a room's picture): 이미지 복사 for a picture, read
+  // through the file's own address (a HEIC photo as the server's JPEG), and 링크 복사, the app's address of the file or
+  // folder (only people who may open it can)
+  const copyLink = useCopyFileLink()
+  const picture = !folder && previewKind(e.name) === 'image' && canCopyImage() ? { src: serverPreview(e.name) ? api.url(API.preview, { query: { path: e.path } }) : fileUrl(e.path, 'inline'), thumb: false } : null
   const items: MenuItem[] = [
     ...(pressSelect && !selecting && !dim ? [{ label: t('files.selectRow'), icon: icon(SquareCheck), onSelect: () => onCheck(false), testId: 'file-select' }] : []),
     ...(!folder && previewKind(e.name) ? [{ label: t('common.preview'), icon: icon(Eye), onSelect: run(onOpen), testId: 'file-preview' }] : []),
+    ...(picture ? [{ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: run(() => copyImageFrom(picture, t)), testId: 'file-copy-image' }] : []),
+    { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void copyLink(teamFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
     { label: t(chatItemKey(folder), { name: aiName(t) }), icon: icon(folder ? MessageSquarePlus : Sparkles), onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
     ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
@@ -1411,7 +1428,19 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           onPointerCancel={endPress}
           onPointerLeave={endPress}
           // a phone's own long-press menu (Android) does not open over the selection
-          onContextMenu={(ev) => (press.current || pressed.current) && ev.preventDefault()}
+          onContextMenu={(ev) => {
+            if (press.current || pressed.current) return ev.preventDefault()
+            if (dim || ev.shiftKey) return
+            ev.preventDefault()
+            const r = ev.currentTarget.getBoundingClientRect()
+            openMenuAt(ev.button === 2 || ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : { x: r.left, y: r.bottom })
+          }}
+          onKeyDown={(ev) => {
+            if (dim || !isMenuKey(ev)) return
+            ev.preventDefault()
+            const r = ev.currentTarget.getBoundingClientRect()
+            openMenuAt({ x: r.left, y: r.bottom })
+          }}
           // phones: a row of 48px or more to tap, and a long press selects the row, not its text
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-12 max-md:gap-3 max-md:py-1.5 max-md:select-none max-md:hover:no-underline max-md:[-webkit-touch-callout:none]"
           title={dim ? dimTitle : undefined}
@@ -1482,6 +1511,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
             footer={footer}
             muted
             buttonRef={menuTrigger}
+            openRequest={menuRequest}
+            at={menuAt}
             buttonClassName="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:size-11"
             sheetTitle={words.name(e.path, e.name)}
             testId="file-menu"

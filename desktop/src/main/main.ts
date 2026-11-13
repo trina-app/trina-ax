@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, Menu, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { app, clipboard, ClipboardItem, Menu, nativeImage, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
@@ -29,6 +29,7 @@ import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
+import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
@@ -295,6 +296,18 @@ function registerIpc() {
     Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
   })
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
+  // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
+  // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
+  ipcMain.handle('bridge:copy-image', async (e, bytes: unknown) => {
+    const png = fromApp(e) ? clipboardPng(bytes) : null
+    if (!png || nativeImage.createFromBuffer(Buffer.from(png.buffer, png.byteOffset, png.byteLength)).isEmpty()) return false
+    try {
+      await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })])
+      return true
+    } catch {
+      return false
+    }
+  })
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))

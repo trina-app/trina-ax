@@ -228,7 +228,7 @@ test('a click on the backdrop, ✕ and Back close it; Back stays on the room', a
   await expect(page.getByTestId('room-message')).toHaveCount(2)
 })
 
-test('the desktop app\'s 이미지 복사 gets the original: the viewer\'s picture is on the page, the one under the pointer', async ({ page }) => {
+test('the desktop app\'s 이미지 복사 gets the original: the viewer\'s picture is on the page, the one under the pointer (Shift+right-click; a plain one opens the app\'s menu, file-menu.spec.ts)', async ({ page }) => {
   await openRoom(page)
   await page.evaluate(() => {
     const w = window as unknown as { __menus: { tag: string; src: string; prevented: boolean }[] }
@@ -247,9 +247,12 @@ test('the desktop app\'s 이미지 복사 gets the original: the viewer\'s pictu
     return { tag: el?.tagName, testId: el?.dataset.testid, framed: window !== window.top }
   }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
   expect(top).toEqual({ tag: 'IMG', testId: 'image-viewer-original', framed: false })
+  await page.keyboard.down('Shift')
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
+  await page.keyboard.up('Shift')
   const menus = () => page.evaluate(() => (window as unknown as { __menus: { tag: string; src: string; prevented: boolean }[] }).__menus)
   await expect.poll(menus).toHaveLength(1)
+  await expect(page.getByRole('menu')).toHaveCount(0)
   expect((await menus())[0]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringMatching(new RegExp(`/api/rooms/${ROOM_ID}/files/${SHOT_ID}$`)) })
   // the right-click did not zoom or close it
   await expect(viewer(page)).toBeVisible()

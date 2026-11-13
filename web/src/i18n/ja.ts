@@ -4925,6 +4925,8 @@ export const ja: Record<MessageKey, string> = {
   "viewer.thumbOnly": "縮小版を表示しています。元の画像はダウンロードして見てください。",
   "viewer.failed": "元の画像を読み込めませんでした。縮小版を表示しています。",
   "viewer.noPicture": "この画像はここでは表示できません。",
+  "fileMenu.copyImage": "画像をコピー",
+  "fileMenu.linkCopied": "リンクをコピーしました。開ける人だけがこのリンクで見られます。",
   "viewer.copied": "画像をコピーしました",
   "viewer.copiedThumb": "元の画像の代わりに、画面の小さな画像をコピーしました。",
   "viewer.copiedScaled": "画像が大きすぎるため、縮小してコピーしました。",
