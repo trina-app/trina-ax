@@ -866,7 +866,7 @@ function ProjectPage() {
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
-            <h2 id="pj-chats" className="mb-1 text-sm text-muted">
+            <h2 id="pj-chats" className="mb-1 text-title-sm font-semibold">
               {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>
             {!chats && <Skeleton lines={3} />}
