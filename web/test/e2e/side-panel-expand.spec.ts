@@ -1,11 +1,12 @@
 // "크게 보기" on the right-hand panel (components/SidePanelFrame.tsx PanelExpandButton, components/Layout.tsx): the panel
-// takes the area beside the sidebar and the page behind it (the AI chat, the Files list) is hidden; Esc or the button
+// takes the area beside the rail and its list and the page behind it (the AI chat, the Files list) is hidden; Esc or the button
 // brings it back side by side at the divider's width; a second Esc closes it; closing ends it (not remembered); no
 // button on a phone, where the panel is full screen already. SHOTS_DIR=<dir> saves 1440 light screenshots of both.
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { navRight } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const ko = DICTS.ko
@@ -14,12 +15,11 @@ const main = (page: Page) => page.locator('main#main')
 const expandButton = (page: Page) => page.getByRole('button', { name: ko['preview.expand'], exact: true })
 const sideBySideButton = (page: Page) => page.getByRole('button', { name: ko['preview.sideBySide'], exact: true })
 const width = async (page: Page) => Math.round((await panel(page).boundingBox())!.width)
-/** the area right of the sidebar (the row's first column): what a big panel fills */
-const pageArea = (page: Page) =>
-  page.evaluate(() => {
-    const row = document.querySelector('[data-testid="side-panel"]')!.parentElement!
-    return Math.round(row.getBoundingClientRect().right - row.firstElementChild!.getBoundingClientRect().right)
-  })
+/** the area right of the navigation (the rail and its list panel): what a big panel fills */
+const pageArea = async (page: Page) => {
+  const right = await page.evaluate(() => Math.round(document.querySelector('[data-testid="side-panel"]')!.parentElement!.getBoundingClientRect().right))
+  return right - (await navRight(page))
+}
 
 /** A plain 320 × 200 PNG (one colour). */
 function png(w = 320, h = 200) {

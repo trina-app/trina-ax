@@ -18,6 +18,11 @@
 //                        that message (rooms/store.ts seesFrom) and to whom no old answer from there on is hidden
 //                        (room_hidden_answers, rooms/history.ts), but for the person who read it: what is hidden from
 //                        them was never given to them
+//   {type:'slack', id, userId, kind, name}  Slack messages the AI read as the person `userId` with their own Slack
+//                        token (integrations/slack/read.ts): the conversation's id (C…, G…, D…; 'search' for a search
+//                        result Slack named no conversation of), its kind and a channel's name. Only that person is
+//                        known to see it here (who is in a Slack conversation is not mapped to accounts); "Post to
+//                        channel" lets the conversation the answer goes back to through (post-check.ts)
 //   {type:'name', path}  a Slack chat (the sub-folders its listings
 //                        showed): a team path whose name the tools showed or
 //                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
@@ -40,6 +45,7 @@ import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
 export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection' } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
+  | { type: 'slack'; id: string; userId: string; kind?: 'channel' | 'private' | 'dm' | 'group'; name?: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
 export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : s.type === 'user' && s.via ? `user:${s.id}:${s.via}` : `${s.type}:${s.id}`)
@@ -138,6 +144,7 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
+  if (s.type === 'slack') return new Set(people.some((p) => p.id === s.userId) ? [s.userId] : [])
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
@@ -258,6 +265,7 @@ export function sourceLabel(db: Database, s: ReadSource, me: string, text: { min
   if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? (o.place ? o.place(segs.join('/')) : segs.join('/')) : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   if (s.type === 'drive_share') return shareRow(db, s.id)?.name ?? 'Google Drive'
+  if (s.type === 'slack') return slackPlaceName(s)
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
   return row ? (row.path === '' ? text.root : at(row.path)) : '?'
 }
@@ -271,4 +279,10 @@ export function roomName(db: Database, roomId: string, own = false): string {
   if (r.kind === 'team' && r.name) return r.name
   const names = (db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name LIMIT 4').all(roomId) as { name: string }[]).map((x) => x.name)
   return names.join(', ') || '?'
+}
+
+/** Where Slack messages came from, in words (a card, the post notice): a channel by its name, never a person's name. */
+export function slackPlaceName(s: Extract<ReadSource, { type: 'slack' }>): string {
+  if ((s.kind === 'channel' || s.kind === 'private') && s.name) return `Slack #${s.name}`
+  return s.kind === 'group' || s.kind === 'dm' ? 'Slack direct messages' : 'Slack'
 }

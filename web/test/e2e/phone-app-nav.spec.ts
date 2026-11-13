@@ -51,7 +51,9 @@ test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, 
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  // the start tab's root: no swipe; Android's Back leaves the app
+  // the start tab's root (the 트리나 list; signIn leaves a phone on the new-chat box, /new, above it): no swipe;
+  // Android's Back leaves the app
+  await openTab(page, 'ai')
   await expect(page).toHaveURL(/\/$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
 
@@ -93,7 +95,7 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  // the team folder (파일 › 팀 폴더, QA TC-255): a step above the 파일 tab's root
+  // the team folder's top (파일 › 팀 폴더, /files?team=1): a step above the 파일 tab's root (its places)
   await openTab(page, 'files')
   await expect(page).toHaveURL(/\/files$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })

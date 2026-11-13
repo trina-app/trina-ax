@@ -24937,6 +24937,74 @@ Activity cleared notices one click at a time.
   cases); the side chat's grant cases stay in b-chat-rooms-fewer-cards. Settings › 트리나에게 허용한 것 and the admin
   switch are in web/test/e2e/ai-allowances.spec.ts.
 
+## Slack: one connect links and allows reading (feat/slack-read-one-connect, 2026-11-13, the owner)
+
+- **Why:** the owner tested in real Slack (2026-11-13): after "Connect Trina AX account" the AI could not read any Slack
+  message (not even the thread it was asked in), did not know the question came from Slack, and when asked "can you
+  see Slack?" offered a "connect card" that does not exist. The owner: "한번에 다 연결이 가능해야해" (everything connects in
+  one step). This supersedes "Slack 커넥터"'s "the question's text only" and its "no channel history" line.
+- **Decision: one sign-in does both.** "Sign in with Slack" is Slack's OAuth v2 page with user scopes only
+  (`user_scope`, never a bot `scope`): it proves who signed in (`authed_user.id`, then `auth.test` of the token it
+  gave: the same person of the workspace) and gives that person's user token, kept sealed per person (SecretBox in the
+  Slack key directory, AAD bound to the person). The same redirect URL as before
+  (`/api/integrations/slack/oauth/callback`), so an app set up by hand needs no new address.
+- **User scopes, the least that reads:** `channels:history groups:history im:history mpim:history` (a thread, a
+  conversation), `channels:read groups:read im:read mpim:read` (a conversation's name and kind, a channel by name),
+  `users:read` (who wrote), `search:read` (search). No write scope, no files. The bot's scopes do not grow: the bot
+  reads no channel history.
+- **What the AI may read is what the person sees in Slack**, through their own token: tools `slack_read_thread`,
+  `slack_read_channel`, `slack_search` (turn tool provider `slack`, never in shared, confidential or draft chats). A
+  question from Slack also carries where it was asked (workspace, channel, thread) and the thread so far (at most 50
+  messages / 12,000 characters), read with the asker's token, so "summarize this thread" needs no tool call. Slack
+  messages are framed as other people's words (data, never instructions), and every `<` in them becomes ‹.
+- **Read scope:** a new source `{type:'slack', id: conversation, userId}`: only the reader is known to see it (who is
+  in a Slack conversation is not mapped to accounts). Saving it where more people can see asks first. "Post to channel"
+  shows its notice for Slack messages from another conversation (another channel, a DM, a search result), named
+  "Slack #name" or "Slack direct messages" (never a person); the conversation the answer is posted back to needs none.
+- **Already linked, no token:** Settings › Connectors › Slack shows "Allow reading Slack"; in Slack, the first question
+  of a thread gets the same button (ephemeral) next to "working…", a link straight to Slack's page. That flow needs no
+  app session when it comes back (a phone's browser): Slack itself says who allowed it, and it must be the linked Slack
+  account, else the token is revoked at once. Once allowed, the question is answered again with the thread. The first
+  answer is not held back. The one-time e-mail link page goes straight on to Slack's page after "Link".
+- **No made-up cards:** the AI's instructions always say how Slack is reached for this person (not set up / not linked /
+  linked without reading / reading) and that there is no card for it; `connect_service` refuses Slack (by name or a
+  slack.com address) with the same sentence.
+- **A Slack app without the user scopes yet:** Slack refuses the page (`invalid_scope` and the like): linking goes on
+  at the old OpenID Connect sign-in in the same click (no reading), `slack_config.read_scopes` becomes `missing`, and
+  Admin › Connected apps › Slack shows "Update Slack permissions" (own app: the scopes to add in OAuth & Permissions,
+  then reinstall, then "I updated them"; the official app: Add to Slack again). A grant with fewer scopes: linked, the
+  token revoked, the same prompt.
+- **Every way out revokes:** Unlink, a disabled or deleted account (the database unlinks it; the connector's sweep
+  revokes), another workspace saved, Remove, and Slack refusing the token on a read: `auth.revoke` with the person's own
+  token (needs no client secret), then the row is deleted. Audited: `slack.read_allowed`, `slack.read_ended`.
+- **The official app (the hosting service):** the team server has no client secret there, so the hosting service does
+  the exchange: new broker calls `signin/read/start` and `signin/read/redeem` (shared/src/cloud-protocol/slack-broker.ts,
+  MIT), the user token handed over sealed to a one-time X25519 key of the request like the bot token, with its own
+  additional data (`slackBrokerUserSealAad`). New paths (not new fields: the control plane refuses unknown keys), so an
+  older hosting service answers 404 and linking falls back to the old sign-in; reading then says it is not available.
+  What the hosting service must build is in docs/SLACK.md "The hosting service's part".
+- **Slack's rate limit for non-Marketplace apps** (docs.slack.dev changelog 2025-05-29, "Rate limit changes for
+  non-Marketplace apps", and its 2025-06-03 clarification): `conversations.history` and `conversations.replies` at 1
+  request a minute and at most 15 messages for commercially distributed apps that are not Marketplace-approved, new
+  installs from 2025-05-29; internal customer-built apps keep their limits. The official Trina AX app is exactly such an
+  app (unless it is Marketplace-approved); the team's own app is internal. So the official app asks for 15 at a time,
+  a 429 is told to the AI in words ("about once a minute; try again or use slack_search") and never waited out, and
+  the instructions tell the AI to prefer search. `search.messages`, `conversations.info`, `conversations.list` and
+  `users.info` are not named by that change. Slack recommends `assistant.search.context` over the legacy
+  `search.messages`; it is left for later (it needs other scopes).
+- **Migration:** `348_c_slack_read.sql` (`slack_user_tokens`; `slack_signin_flows.kind/method/question`;
+  `slack_config.read_scopes`).
+- **Review of #674 (2026-11-13), changed:** the team's own app asks Slack for the user scopes only after the owner's
+  "I updated them" or a grant that had them (`read_scopes = 'ok'`): Slack shows its own error page with no way back for
+  scopes an app lacks, so asking an older app for them would stop linking. `read_scopes = 'missing'` comes only from
+  what the server learned itself (fewer scopes granted, the hosting service's `missing_scope`), never from a browser's
+  address, and is audited (`slack.read_scopes`). Slack messages shown to the AI taint the chat (`session_tainted`), as a
+  connection's answer does, also the thread in the instructions (marked by the turn after a new session starts:
+  `TurnToolProvider.seen`). A token not kept is dropped and revoked only when it cannot be anyone's working token here
+  (one token per person and app). Long threads are read to the end; the question is always last. A hosting service
+  without `signin/read/*` is remembered for 10 minutes. A disabled or deleted account's token is revoked at once
+  (`Services.accountHooks`).
+
 ## Phone notifications when I'm away — no phone push while I'm at Trina (feat/push-when-away, 2026-11-13, product owner)
 
 넣을 곳: trina-ax core (`server/src/notifications/away.ts`, `server/src/notifications/push-service.ts`,
@@ -25031,3 +25099,14 @@ default.
   audited (`ai.always_allow`). The team switch is the existing `roomAlwaysAllow` (on by default), now titled
   "'Always allow' on confirmation cards": off, no card offers it and the rows are ignored, not deleted. Room folder
   grants made before keep working until they lapse; new ones are no longer made.
+
+## Ask a member to connect: the member from a search with pictures (fix/ask-member-dialog, 2026-11-13, QA TC-188)
+
+- **Why:** the popup's Member was the browser's own dropdown ("Name (id)", no pictures, no search), a three-line
+  paragraph opened it, every field had a long note, and "Choose a member." was red before anything was filled in.
+- **How (`web/src/components/integrations/RequestDialog.tsx`):** the member is picked with the people search Folder
+  permissions and Team skills use (`pages/admin/AddNamed.tsx`, members only, in the flow), not a second picker; once
+  picked, one row (picture, name, id) with Change. AddNamed gained optional props (label, test id, no-match words,
+  error wiring, autofocus); its two other users are unchanged. One short line on top, short notes of the popup's own
+  (the team dialog's shared words stay), the 7 days under Member. Red only after Send (no error on leaving a field).
+- **Unchanged:** what is sent and the 7-day wait.

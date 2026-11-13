@@ -9,6 +9,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openSearch } from './nav'
 
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const TEAM = id(9101), GROUP = id(9102), MSG = id(31), QUOTE_CHAT = id(8001)
@@ -162,8 +163,8 @@ test.describe('phone width', () => {
       await reset(page)
       await signIn(page)
       await page.goto('/')
-      await page.getByRole('button', { name: '메뉴 열기' }).click()
-      await page.getByRole('button', { name: '검색' }).first().click()
+      // the 트리나 tab's 🔍 (the drawer is gone)
+      await openSearch(page)
       await expect(palette(page)).toBeVisible()
       await input(page).fill('견적서')
       await expect(palette(page).getByTestId('search-room-file')).toHaveCount(1)

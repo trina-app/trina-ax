@@ -8,7 +8,7 @@ import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { newChatButton, showChats, tabBar } from './nav'
+import { newChatButton, phoneTrinaHome, showChats, tabBar } from './nav'
 
 const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
 /** the PATCH that saves the size to the account */
@@ -129,9 +129,10 @@ test.describe('on a 390px phone', () => {
     await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
     await signIn(page)
     expect(await rootSize(page)).toBe('22.4px')
-    for (const [path, ready] of [['/', 'composer-input'], ['/rooms', 'rooms-page'], ['/files', 'content-search-input'], ['/settings', 'settings-dialog'], ['/settings/profile', 'text-size'], ['/admin/members', 'members-list']] as const) {
+    // (a phone's / is 트리나's list, its new chat /new; /files is 파일's places, the team folder's top /files?team=1)
+    for (const [path, ready] of [['/', phoneTrinaHome(page)], ['/new', page.getByTestId('composer-input')], ['/rooms', page.getByTestId('rooms-page')], ['/files', page.getByTestId('phone-files-home')], ['/files?team=1', page.getByTestId('file-row').first()], ['/settings', page.getByTestId('settings-dialog')], ['/settings/profile', page.getByTestId('text-size')], ['/admin/members', page.getByTestId('members-list')]] as const) {
       await page.goto(path)
-      await expect(page.getByTestId(ready)).toBeVisible()
+      await expect(ready).toBeVisible()
       await page.waitForTimeout(300)
       expect(await sideways(page), path).toEqual([])
     }

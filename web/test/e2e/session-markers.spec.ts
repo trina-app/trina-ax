@@ -176,17 +176,18 @@ test.describe('a phone (390 px)', () => {
     await page.getByTestId('send').click()
     await expect(page).toHaveURL(/\/c\//)
     const id = idOf(page)
+    // ‹ goes back to the new chat's box it was sent from (a phone's /new)
     await page.getByTestId('chat-back').click()
-    await expect(page).toHaveURL(/\/$/)
+    await expect(page).toHaveURL(/\/new$/)
     // the answer ends while the chat is not on screen: after the wait, one toast with [열기]; the ☰ dot lights (accent)
     const toast = page.getByTestId('toast').filter({ hasText: '새 답' })
     await expect(toast).toBeVisible({ timeout: 25_000 })
+    // the new chat's box lists no chats (the 트리나 tab has them: QA TC-253)
+    await expect(page.getByTestId('home-recents')).toHaveCount(0)
+    // the 트리나 tab (the bar is not on /new): its mark lights; its list has the dot left of the always-shown "···"
+    await showChats(page)
     await expect(phoneAiMark(page)).toBeVisible()
     await expect(phoneAiMark(page)).not.toHaveAttribute('data-ask', '')
-    // Home lists no chats (the drawer has them: QA TC-253)
-    await expect(page.getByTestId('home-recents')).toHaveCount(0)
-    // the drawer: the dot left of the always-shown "···"
-    await showChats(page)
     const row = rowOf(page, id)
     await expect(row.getByTestId('marker-new')).toBeVisible()
     const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '기록 메뉴' }).boundingBox()]

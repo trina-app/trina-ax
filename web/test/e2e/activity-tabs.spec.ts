@@ -1,5 +1,6 @@
 // Activity's tabs (web/src/pages/Activity.tsx): every tab keeps the page where it is. The column is measured on each
-// tab at 1440 and 390 wide, with a long list under All (the page scrolls) and a short one under Mentions (it does not):
+// tab at 1440 and 390 wide (on a computer 활동's list is the panel beside the rail: the tabs are 대화's 멘션·스레드, All ·
+// Mentions · Threads), with a long list under All (the page scrolls) and a short one under Mentions (it does not):
 // the tabs and the first row start at the same x on every tab. The tab's focus ring is inside the tab, so the tab
 // list's scroll box does not cut it. With SHOTS=1 it also saves each tab into $SHOTS_DIR (default test-results/activity-tabs).
 import { expect, test, type Page } from '@playwright/test'
@@ -31,7 +32,8 @@ async function routeInbox(page: Page) {
 // scroll bars that take room, as on Windows or a Mac with a mouse (headless Chromium hides them by default)
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
-const TABS = ['all', 'dms', 'mentions', 'threads'] as const
+const PHONE_TABS = ['all', 'dms', 'mentions', 'threads'] as const
+const COMPUTER_TABS = ['all', 'mentions', 'threads'] as const
 const SIZES = [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const
 
 for (const [name, viewport, mobile] of SIZES) {
@@ -41,7 +43,8 @@ for (const [name, viewport, mobile] of SIZES) {
     await reset(page)
     await signIn(page)
     await routeInbox(page)
-    await page.goto('/activity')
+    const TABS = mobile ? PHONE_TABS : COMPUTER_TABS
+    await page.goto(mobile ? '/activity' : '/activity?in=chats')
     await expect(page.getByTestId('notification-item').first()).toBeVisible()
     // scroll bars that take room, as on Windows or a Mac with a mouse (with the launch option above; CSSOM, since the
     // page's CSP refuses a style tag)

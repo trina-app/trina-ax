@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { activityRows, openNotice } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -31,8 +32,8 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   // the admin: the notice opens Notion's page in Admin; the list shows who asked, with Add
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/activity')
-  const notice = page.getByTestId('notification-service-request-link')
+  // (a computer: its row in the 활동 panel opens it beside the list, as itself while it has its button)
+  const notice = (await openNotice(page, 'Notion')).getByTestId('notification-service-request-link')
   await expect(notice.getByTestId('notification-text')).toContainText('Notion')
   await notice.click()
   await expect(page).toHaveURL(/\/admin\/connectors\/notion$/)
@@ -59,9 +60,10 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   // the member: it is ready, and the page offers no ask any more
   await page.context().clearCookies()
   await signIn(page, BOB)
+  // (its row in the 활동 panel opens its page)
   await page.goto('/activity')
-  const ready = page.getByTestId('notification-service-ready-link')
-  await expect(ready.getByTestId('notification-text')).toContainText('Notion')
+  const ready = (await activityRows(page)).filter({ hasText: 'Notion' })
+  await expect(ready).toHaveCount(1)
   await ready.click()
   await expect(page).toHaveURL(/\/connectors\/notion$/)
   await expect(page.getByTestId('service-ask')).toHaveCount(0)

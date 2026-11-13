@@ -11,7 +11,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { folderLabel, PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openProjectsTab, openTab, openTrinaRow, tabButton } from './nav'
+import { openProjectsTab, openTab, openTrinaRow, settingsDialog, tabButton } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -104,6 +104,9 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
   await reset(page)
   await signIn(page)
   await folders(page)
+  // signIn leaves a phone on the new-chat box (/new, no tab bar): its ‹ to 트리나's list first, then count from there
+  await openTab(page, 'ai')
+  await expect(page).toHaveURL(/\/$/)
   const start = await len(page)
   for (const id of ['files', 'chats', 'me', 'chats'] as const) {
     await tab(page, id).click()
@@ -141,7 +144,7 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
 
   // 나 inside 메모리: back to the 나 list
   await tab(page, 'me').click()
-  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+  const dialog = settingsDialog(page)
   await dialog.getByTestId('settings-row-memory').click()
   await expect(page).toHaveURL(/\/settings\/memory$/)
   expect(await idx(page)).toBe(1)
@@ -154,7 +157,7 @@ test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to th
   await reset(page)
   await signIn(page)
   // Connectors is a row of 나's list (Settings › Connectors, QA TC-400), not an item of the 트리나 list
-  await tab(page, 'me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-connectors').click()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(tab(page, 'me')).toHaveAttribute('aria-current', 'page')
@@ -172,7 +175,7 @@ test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to th
 
   // 활동 from 나: "‹ 설정"; 팀 스킬 from the 트리나 list: "‹ 트리나"
   await tab(page, 'me').click()
-  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+  const dialog = settingsDialog(page)
   await dialog.getByTestId('settings-inbox').click()
   await expect(page).toHaveURL(/\/activity$/)
   await expect(page.getByTestId('topbar-back-label')).toHaveText(t['settings.title'])
@@ -263,7 +266,7 @@ test('a stack deeper than an entry keeps: a tab tap still goes back to its first
   expect(await idx(page)).toBe(0)
 })
 
-test('a sheet\'s item that opens a screen already in the stack (예약 작업 ＋ › 채팅으로 설명하기): one step back to it, still in the app', async ({ page }) => {
+test('a sheet\'s item that opens a new screen (예약 작업 ＋ › 채팅으로 설명하기): one entry for it, Back to 예약 작업, still in the app', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await openTrinaRow(page, 'scheduled')

@@ -60,12 +60,16 @@ test.describe('first-run setup in an English browser', () => {
     await page.goto('/admin')
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
-    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back
+    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back. The row is on the list
+    // panels: Admin draws none beside the rail, so the ✕ is pressed on Home and the row looked for there again
+    await page.goto('/')
     await page.getByTestId('setup-row-hide').click()
     await expect(page.getByTestId('setup-row')).toHaveCount(0)
+    await page.goto('/admin')
     await page.getByTestId('owner-setup-show').click()
-    await expect(page.getByTestId('setup-row-link')).toBeVisible()
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
+    await page.goto('/')
+    await expect(page.getByTestId('setup-row-link')).toBeVisible()
     // the owner has no language of their own: "team default (한국어)" is the chosen one
     await page.goto('/settings/profile')
     await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')

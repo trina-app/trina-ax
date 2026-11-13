@@ -75,8 +75,9 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
   await page.reload()
   await expect(page.getByTestId('room-run').nth(0).getByTestId('status-emoji')).toHaveText('📅')
 
-  // a click on my own emoji opens the dialog with it; "상태 지우기" takes it away everywhere
-  await accountButton(page).getByTestId('status-emoji').click()
+  // the dialog opened again (my photo's menu › 상태 설정: the emoji is part of the photo's button) has it; "상태 지우기"
+  // takes it away everywhere
+  await openDialog(page)
   await expect(dialog).toBeVisible()
   await expect(dialog.getByTestId('status-text')).toHaveValue('회의 중')
   await expect(dialog.getByTestId('status-clear-keep')).toHaveAttribute('aria-checked', 'true')
