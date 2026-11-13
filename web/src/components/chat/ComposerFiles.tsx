@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
@@ -29,7 +29,7 @@ import { formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, splitOversize, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { dragKind, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
@@ -116,8 +116,12 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const addFiles = async (all: File[]) => {
     if (!all.length || !computer) return
     onError(null)
-    const list = all.slice(0, Math.max(0, room()))
-    if (list.length < all.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    // a file over what the server takes is refused here, before anything is read or sent (the sha256 of a huge file
+    // would take minutes before the server could say no)
+    const { fit, tooBig } = splitOversize(all)
+    const list = fit.slice(0, Math.max(0, room()))
+    if (list.length < fit.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(UPLOAD_SESSION_MAX, locale) }))
     if (!list.length) return
     const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
