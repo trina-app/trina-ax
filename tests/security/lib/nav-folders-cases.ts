@@ -22,6 +22,9 @@ const noCanary = (text: string, who: Who, what: string) => {
   if (who !== 'memberIn' && text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}: ${what} showed alice's folder name`)
 }
 /** a new chat of `c`'s person with no project */
+// someone who must change the password first is stopped before any lookup (403 password_change_required): a refusal that
+// names nothing, as good as the 404 the others get
+const pwGate = (who: Who, r: { status: number; json: any }) => who === 'pwchange' && r.status === 403 && r.json?.error?.code === 'password_change_required'
 const ownChat = async (c: Client) => (await c.ok('POST', '/api/chats', {})).id as string
 
 export const NAV_FOLDER_SPECS: Record<string, Spec> = {
@@ -51,13 +54,13 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
     build: async (c, w) => c.patch(`/api/nav-folders/${await aliceFolder(w, 'chats')}`, { name: `${NAV_FOLDER_CANARY} chats` }), scope: 'own-alice',
     check: (r, _w, who) => {
       noCanary(r.text, who, 'a rename')
-      if (who !== 'memberIn' && r.status !== 401 && r.status !== 404) throw new Error(`${who}: renaming alice's folder answered ${r.status}, not 404`)
+      if (who !== 'memberIn' && r.status !== 401 && r.status !== 404 && !pwGate(who, r)) throw new Error(`${who}: renaming alice's folder answered ${r.status}, not 404`)
     },
   },
   // deleting: alice's own only (a new folder of hers each time, so each persona aims at one that is there)
   deleteNavFolder: {
     build: async (c, w) => c.del(`/api/nav-folders/${await aliceFolder(w, 'chats', true)}`), scope: 'own-alice',
-    check: (r, _w, who) => { if (who !== 'memberIn' && r.status === 403) throw new Error(`${who}: deleting alice's folder answered 403, not 404`) },
+    check: (r, _w, who) => { if (who !== 'memberIn' && r.status === 403 && !pwGate(who, r)) throw new Error(`${who}: deleting alice's folder answered 403, not 404`) },
   },
   // ordering names my own ids; alice's id in someone else's request is ignored (and never echoed back)
   orderNavFolders: {
@@ -90,7 +93,7 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
         if (project.status !== 409) throw new Error(`a project chat went into a folder: ${project.status}`)
         return
       }
-      if (r.status === 403) throw new Error(`${who}: alice's chat answered 403, not 404`)
+      if (r.status === 403 && !pwGate(who, r)) throw new Error(`${who}: alice's chat answered 403, not 404`)
       const chat = await ownChat(me).catch(() => null)
       if (!chat) return
       const put = await me.req('PUT', `/api/chats/${chat}/folder`, { folderId: folder })
