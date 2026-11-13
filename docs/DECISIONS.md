@@ -25649,3 +25649,40 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
 - **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the
   only share is an AI answer to a room, `chat/ShareToRoom.tsx`); building one is its own task. "Save for later" has no
   counterpart.
+
+## post_to_room to a person (feat/ai-send-to-person, 2026-11-13, the owner, QA TC-898..901)
+
+"Tell bob the meeting is at 10 tomorrow" (in Korean "bob에게 내일 회의 10시라고 보내줘") in my own AI chat said "no room
+matching" when bob and I had never chatted: post_to_room only found rooms I am in. Amends "post_to_room" above. Plan:
+docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
+
+- **A teammate by name.** `room` is matched against my rooms first, as before. When none matches, against the team's
+  active people but me (`rooms/reader.ts findPeople`): the whole name beats a part of it (two letters at least), the
+  username counts only in full, "님"/"씨" after it are dropped. Several equally good: nothing is posted and the AI gets
+  them (`room="person:<id>"`) to ask the user, then calls again with the chosen one. A person named in full who has no
+  1:1 chat with me, next to rooms that match by name (a group chat with them in it): asked too, never sent to the room.
+  Disabled and deleted accounts and I myself are never found, by name or by `person:<id>`; the answer for them is the
+  same as for nobody.
+- **The 1:1 chat is made on Send, not before.** With a 1:1 chat already there it is that room, unchanged. With none,
+  the card asks "Send this to {name} in a new 1:1 chat?" ("{name}님과의 새 1:1 대화로 보낼까요?"); the checks of
+  "대화방에 보내기" run with that person as the audience (`answer-share.ts preparePendingDm`: who cannot see a source or
+  open a linked file, hidden answers, the sending budget), and nothing is made. On Send the check runs again, the chat is
+  made by the app's own rule (`Rooms.openDm`: an active person of this team, not me; nobody new becomes reachable), then
+  checked once more as that room and sent. A key names a 1:1 chat by its two people (`keyRoomOf`, `dm:<dm_key>`), so the
+  card's key is the made room's key when nothing changed; a change refuses ("ask again"). [보내지 않기], no answer, or a
+  refusal before the chat is made leaves no room behind. A change found after it is made leaves an empty 1:1 chat, as
+  opening one in the app does. The person turned off while the card waited: refused, nothing made.
+- **Own words.** `own_words: true` posts `text` as my own message with no AI-answer quote (no `answer_at`), for what I
+  dictated ("X라고 보내줘"). Not with `note` (refused: the text is the whole message). The card labels it "Your message,
+  sent under your name" and shows exactly what goes; it is never cut (a text too long is refused before the card). The
+  same checks run: the AI wrote the words and may have read things the other person cannot. Without it, nothing changes:
+  the text is quoted as the AI's answer. Not chosen: a separate `message` field (two text fields for one message, and the
+  AI could fill both).
+- **Audit.** The `room.answer_share` row adds `ownWords: true` and `openedDm: true` when they apply. Making the 1:1
+  chat gets no row of its own: as for every 1:1 chat (`Rooms.openDm`), the audit log is the admins' and must not tell
+  them who talks to whom; the row names the room by its kind only.
+- **Unchanged.** Always one card (or "Always allow", the owner's 2026-11-13 rule, which covers this post like any other);
+  every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
+  template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
+  `own_words`, and to ask when several match.
+- No migration.

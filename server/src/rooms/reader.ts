@@ -150,6 +150,50 @@ export function findRoom(db: Database, userId: string, ref: string): Found {
   return views.length === 1 ? { one: views[0]! } : { many: views }
 }
 
+/** A teammate post_to_room can reach (findPeople): `dmRoomId` is our 1:1 chat when there is one I am in; `exact`: the
+ * name or username was given in full, not a part of it. */
+export interface Teammate { id: string; name: string; dmRoomId: string | null; exact: boolean }
+/** How post_to_room names a teammate found by findPeople (`room: "person:<id>"`), for the candidates it gives back */
+export const PERSON_REF = 'person:'
+
+/**
+ * The teammates `ref` names (post_to_room "tell bob …", docs/DECISIONS.md "post_to_room to a person"): the active people
+ * of this team but me, the same people the app's new 1:1 chat may open (Rooms.openDm), so nothing becomes reachable that
+ * was not. `person:<id>` is that person; else a name: the person's name as a whole beats a part of it (two letters at
+ * least), the username counts in full only, and "님" or "씨" after it are dropped as for rooms. Several equally good
+ * matches: all of them, the first 10 (the AI asks). None: null.
+ */
+export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[] } | null {
+  const raw = ref.trim()
+  const people = db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]
+  const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
+    .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
+  const out = (p: { id: string; name: string }, exact: boolean): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact })
+  if (raw.startsWith(PERSON_REF)) {
+    const p = people.find((x) => x.id === raw.slice(PERSON_REF.length))
+    return p ? { one: out(p, true) } : null
+  }
+  const qs = [...new Set([norm(raw.replace(/^@+/, '')), norm(strip(raw.replace(/^@+/, '')))].filter((q) => q.length > 0))]
+  if (!qs.length) return null
+  let best = 0
+  let hits: (typeof people)[number][] = []
+  for (const p of people) {
+    const name = norm(p.name), user = norm(p.username)
+    let score = 0
+    for (const q of qs) {
+      if (q === name) score = Math.max(score, 90)
+      else if (q === user) score = Math.max(score, 80)
+      else if (q.length >= 2 && name.length >= 2 && name.includes(q)) score = Math.max(score, 60)
+    }
+    if (!score) continue
+    if (score > best) { best = score; hits = [] }
+    if (score === best) hits.push(p)
+  }
+  if (!hits.length) return null
+  const found = hits.slice(0, 10).map((p) => out(p, best >= 80))
+  return found.length === 1 ? { one: found[0]! } : { many: found }
+}
+
 /** The room's title as titleOf gives it, from the rows alone (no counts): what a name is matched against. */
 function lightTitle(db: Database, room: RoomRow, me: MemberRow): string {
   if (room.kind !== 'dm' && room.name) return room.name

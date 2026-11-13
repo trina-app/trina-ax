@@ -240,7 +240,7 @@ describe('where it may not post', () => {
 
   test('a room I am not in reads like one that does not exist; several rooms of one name are listed', async () => {
     const r = await turn('alice', post({ room: rooms.finance, text: 'x' }))
-    expect(r.content).toContain('Nothing was posted: no room matching')
+    expect(r.content).toContain('Nothing was posted: no room and no teammate matching')
     expect(r.card).toBeNull()
     const u = await turn('alice', post({ room: uuidv7(), text: 'x' }))
     expect(u.content.replace(/"[^"]*"/, '')).toBe(r.content.replace(/"[^"]*"/, ''))
@@ -399,5 +399,139 @@ describe('injection, retries and changes', () => {
     expect(r.card!.question).toMatch(/\(3명\)에 보낼까요\?$/)
     expect(r.content).toContain('changed while the card waited')
     expect(authored(g, 'bob')).toBe(before)
+  })
+})
+
+// To a person (docs/DECISIONS.md "post_to_room to a person"): "tell gina the meeting is at 10" reaches a teammate the
+// user never chatted with. Last in this file: it adds people to the team (the everyone room's count above stays 5).
+describe('to a teammate by name', () => {
+  const dmOf = (a: string, b: string) => (h.ctx.db.query("SELECT id FROM rooms WHERE kind = 'dm' AND dm_key = ?").get([a, b].sort().join('|')) as { id: string } | null)?.id ?? null
+  beforeAll(() => {
+    const add = h.ctx.db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES (?, ?, ?, 'member', ?, ?)")
+    add.run('gina', 'gina', 'Gina Han', 'active', null)
+    add.run('hana', 'hkim', 'Hana Kim', 'active', null)
+    add.run('hanap', 'hpark', 'Hana Park', 'active', null)
+    add.run('hanak', 'hkimura', 'Hana Kimura', 'active', null)
+    add.run('ivan', 'ivan', 'Ivan Seo', 'disabled', null)
+    add.run('jun', 'jun', 'Jun Ko', 'active', new Date().toISOString())
+  })
+
+  test('findPeople: exact name or username beats a part of a name; several equally good are all given; me, disabled and deleted people never', async () => {
+    const { findPeople } = await import('../../server/src/rooms/reader')
+    const db = h.ctx.db
+    const one = (ref: string, me = 'alice') => { const f = findPeople(db, me, ref); return f && 'one' in f ? f.one : f }
+    expect(one('Gina Han')).toEqual({ id: 'gina', name: 'Gina Han', dmRoomId: null, exact: true })
+    expect(one('gina')).toMatchObject({ id: 'gina', exact: true })
+    expect(one('Gina Han님')).toMatchObject({ id: 'gina', exact: true })
+    expect(one('Gin')).toMatchObject({ id: 'gina', exact: false })
+    expect(one('person:gina')).toMatchObject({ id: 'gina', exact: true })
+    // "Hana Kim" in full beats "Hana Kimura", which holds it
+    expect(one('Hana Kim')).toMatchObject({ id: 'hana', exact: true })
+    const many = findPeople(db, 'alice', 'Hana')
+    expect(many && 'many' in many ? many.many.map((t) => t.id).sort() : many).toEqual(['hana', 'hanak', 'hanap'])
+    // never me, a disabled account or a deleted one, by name or by id
+    expect(findPeople(db, 'alice', 'Alice Kim')).toBeNull()
+    expect(findPeople(db, 'alice', 'person:alice')).toBeNull()
+    expect(findPeople(db, 'alice', 'Ivan Seo')).toBeNull()
+    expect(findPeople(db, 'alice', 'person:ivan')).toBeNull()
+    expect(findPeople(db, 'alice', 'Jun Ko')).toBeNull()
+    expect(findPeople(db, 'alice', 'person:jun')).toBeNull()
+    expect(findPeople(db, 'alice', 'Nobody Here')).toBeNull()
+  })
+
+  test('no 1:1 chat yet, the user\'s own words: the card says a new 1:1 chat and shows exactly the message; the chat is made only on [Send]; the message is plain, no AI quote; audited', async () => {
+    const text = 'The meeting is at 10 tomorrow.'
+    expect(dmOf('alice', 'gina')).toBeNull()
+    let during: string | null = 'not checked'
+    const before = audits('alice').length
+    const r = await turn('alice', post({ room: 'Gina', text, own_words: true }), { answer: 'send', meanwhile: () => { during = dmOf('alice', 'gina') } })
+    expect(r.card!.origin).toBe('server')
+    expect(r.card!.question).toBe('Send this to Gina Han in a new 1:1 chat?')
+    expect(r.card!.details).toEqual([{ label: 'Your message, sent under your name', text }])
+    // nothing made while the card waited
+    expect(during).toBeNull()
+    const dm = dmOf('alice', 'gina')!
+    expect(dm).toBeTruthy()
+    const msgs = await messagesAs('alice', dm)
+    expect(msgs.length).toBe(1)
+    expect(msgs[0]).toMatchObject({ authorKind: 'user', body: text, mentions: [] })
+    expect(msgs[0]!.author?.id).toBe('alice')
+    expect(msgs[0]!.sharedAnswer ?? null).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', room_id: dm, message_id: msgs[0]!.id })
+    expect(JSON.parse(r.content).note).toContain('a new 1:1 chat, made now')
+    expect(JSON.parse(r.content).note).toContain('in their own words (no AI quote)')
+    expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: 'Send to room · 1:1 chat with Gina Han', posted: { roomId: dm, messageId: msgs[0]!.id } })
+    const a = audits('alice')
+    expect(a.length).toBe(before + 1)
+    // the 1:1 chat by its kind only, never its id or the other person
+    expect(a.at(-1)).toEqual({ target: msgs[0]!.id, kind: 'dm', people: 0, confirmed: true, cut: false, files: 0, via: 'ai', ownWords: true, openedDm: true })
+  })
+
+  test('the 1:1 chat is there now: an AI summary goes to it quoted as the AI\'s answer, as before', async () => {
+    const dm = dmOf('alice', 'gina')!
+    const r = await turn('alice', post({ room: 'Gina Han', text: 'Summary: launch moved to Dec 3.' }), { answer: 'send' })
+    expect(r.card!.question).toBe('Send this to 1:1 chat with Gina Han (2 people)?')
+    expect(r.card!.details).toEqual([{ label: 'What will be sent', text: 'Summary: launch moved to Dec 3.' }])
+    const m = (await messagesAs('alice', dm)).at(-1)!
+    expect(m.body).toBe('Summary: launch moved to Dec 3.')
+    expect(m.sharedAnswer).toEqual({ at: 0, cut: false })
+    const a = audits('alice').at(-1)!
+    expect(a.ownWords).toBeUndefined()
+    expect(a.openedDm).toBeUndefined()
+  })
+
+  test('[Don\'t send] or no answer: nothing sent and no 1:1 chat made', async () => {
+    const no = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch at 12?', own_words: true }), { answer: 'no' })
+    expect(no.card!.question).toBe('Send this to Hana Kim in a new 1:1 chat?')
+    expect(no.content).toContain('The user chose not to send it')
+    expect(dmOf('alice', 'hana')).toBeNull()
+    const late = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch at 1?', own_words: true }), { answer: null })
+    expect(late.content).toContain('the card got no answer in time')
+    expect(dmOf('alice', 'hana')).toBeNull()
+  })
+
+  test('several people match: no card, the AI gets them to ask; the chosen person:<id> then gets the card', async () => {
+    const r = await turn('alice', post({ room: 'Hana', text: 'Lunch?', own_words: true }))
+    expect(r.card).toBeNull()
+    expect(r.content).toContain('several rooms or people match "Hana"')
+    expect(r.content).toContain('Ask the user which one they mean')
+    for (const [id, name] of [['hana', 'Hana Kim'], ['hanap', 'Hana Park'], ['hanak', 'Hana Kimura']]) expect(r.content).toContain(`- ${name} · a teammate, no 1:1 chat with the user yet · room="person:${id}"`)
+    const pick = await turn('alice', post({ room: 'person:hanap', text: 'Lunch?', own_words: true }), { answer: 'no' })
+    expect(pick.card!.question).toBe('Send this to Hana Park in a new 1:1 chat?')
+    expect(dmOf('alice', 'hanap')).toBeNull()
+  })
+
+  test('a person named in full with no 1:1 chat, next to a room that matches by name: asked, not sent to the room', async () => {
+    const g = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['hana', 'hanap'] } })).id
+    const before = authored(g, 'alice')
+    const r = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch?', own_words: true }))
+    expect(r.card).toBeNull()
+    expect(r.content).toContain(`room_id=${g}`)
+    expect(r.content).toContain('- Hana Kim · a teammate, no 1:1 chat with the user yet · room="person:hana"')
+    expect(authored(g, 'alice')).toBe(before)
+  })
+
+  test('own_words with a note is refused before any card; no teammate of that name says so', async () => {
+    const r = await turn('alice', post({ room: 'Gina', text: 'x', note: 'y', own_words: true }))
+    expect(r.card).toBeNull()
+    expect(r.content).toContain('with own_words the text is the whole message')
+    const none = await turn('alice', post({ room: 'Ivan Seo', text: 'x', own_words: true }))
+    expect(none.card).toBeNull()
+    expect(none.content).toContain('no room and no teammate matching "Ivan Seo"')
+    expect(dmOf('alice', 'ivan')).toBeNull()
+  })
+
+  test('the blocks stay: a sub-agent or a confidential chat makes no 1:1 chat and sends nothing', async () => {
+    const sub = await turn('bob', fake({ agents: [{ id: 'toolu_PTR2', type: 'general-purpose', description: 'Tell her', steps: [{ tool: 'post_to_room', args: { room: 'Gina Han', text: 'hi', own_words: true }, sayChildResult: true }] }] }))
+    expect(sub.card).toBeNull()
+    expect(sub.content).toContain('Nothing was posted: only the main assistant can post to a room')
+    expect(dmOf('bob', 'gina')).toBeNull()
+    const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chat)
+    const conf = await turn('bob', post({ room: 'Gina Han', text: 'secret', own_words: true }), { chat })
+    expect(conf.card).toBeNull()
+    expect(dmOf('bob', 'gina')).toBeNull()
+    const off = postToRoomOff({ shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId: chat, locale: 'en' } as never })
+    expect(off!.summary).toBe('post_to_room -> refused: scheduled run')
   })
 })

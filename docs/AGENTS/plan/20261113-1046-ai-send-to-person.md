@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 10:46
 - Branch: `feat/ai-send-to-person`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (post_to_room), server/src/rooms (name lookup), shared/src/tools.ts. Why: chat and rooms are
   Team AX core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor, one new optional tool input and a new way the existing tool reaches people.
@@ -51,4 +51,7 @@ and tool-list tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned (docs/DECISIONS.md "post_to_room to a person"). Differences: a person named in full with no 1:1
+chat is also asked about when a room matches by name (a group chat with them in it), so the post never lands in the
+group by accident; making the 1:1 chat has no audit row of its own (openDm's rule: admins must not learn who talks to
+whom), the share row carries `openedDm` instead. No web change. PR: not opened yet.
