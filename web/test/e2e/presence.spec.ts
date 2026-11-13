@@ -61,7 +61,7 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   const header = page.getByTestId('room-members-button')
   const headerFace = faceIn(page.getByTestId('room'))
   await expect(headerFace).toHaveAttribute('data-presence', 'online')
-  await expect(header).toHaveAccessibleName(/Bob ?, 접속 중/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 접속 중$/)
   // on a computer the phone's dot before the name is not shown
   await expect(header.getByTestId('presence-dot')).toBeHidden()
 
@@ -69,7 +69,7 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'away')
   await expect(headerFace).toHaveAttribute('data-presence', 'away')
   await expect(headerFace.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'away')
-  await expect(header).toHaveAccessibleName(/Bob ?, 자리 비움/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 자리 비움$/)
   // hollow: the background inside a ring
   const away = await headerFace.getByTestId('presence-dot').evaluate((e) => getComputedStyle(e).boxShadow)
   expect(away).toContain('inset')
@@ -85,7 +85,7 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(page.getByTestId('room').getByTestId('presence-dot')).toHaveCount(0)
   await expect(navRoomsList(page).getByTestId('presence-dot')).toHaveCount(0)
   // the header still says it, for a screen reader
-  await expect(header).toHaveAccessibleName(/Bob ?, 오프라인/)
+  await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 오프라인$/)
 })
 
 test('a reload brings the list back with the new connection (it is a state, sent after each hello)', async ({ page }) => {
@@ -161,7 +161,7 @@ test.describe('phone', () => {
     await expect(header.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'away')
     await tell(page, [{ id: 'bob', state: 'offline' }])
     await expect(header.getByTestId('presence-dot')).toHaveCount(0)
-    await expect(header).toHaveAccessibleName(/Bob ?, 오프라인/)
+    await expect(header).toHaveAccessibleName(/^Bob 대화방 정보 열기 ?, 오프라인$/)
   })
 })
 

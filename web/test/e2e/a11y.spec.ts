@@ -328,6 +328,12 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-audience').first()).toBeVisible()
   await audit(page, `admin/integrations, a team connection${where}`)
   await page.goto('/admin/connectors')
+  // a phone has no Add: adding a service by its address is a computer's job (Discover's line says so)
+  if (where.includes('phone')) {
+    await expect(page.getByTestId('connector-custom-note')).toBeVisible()
+    await expect(page.getByTestId('integration-add')).toHaveCount(0)
+    return
+  }
   await page.getByTestId('integration-add').click()
   await (await adv(page, 'integration-access')).getByTestId('integration-access-pick').check()
   await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
@@ -365,8 +371,12 @@ async function auditTeamIcon(page: Page, where: string, path = '/admin/settings'
   await audit(page, `team logo (refused)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
-  await page.getByTestId('team-icon-previews').click()
-  await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  // the sidebar previews are a computer's (a phone has no button for them, TC-269)
+  if (where.includes('phone')) await expect(page.getByTestId('team-icon-previews')).toHaveCount(0)
+  else {
+    await page.getByTestId('team-icon-previews').click()
+    await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
+  }
   await audit(page, `team logo (set)${where}`)
 }
 

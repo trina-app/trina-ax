@@ -121,6 +121,10 @@ test('desktop app: Settings > Browser shows the same setting; "all" only after t
   const errors = watchConsole(page)
   await page.addInitScript(fakeDesktop)
   await signIn(page)
+  // the desktop app's own browser setting alone: a team that does not let members allow all sites for the AI's web reads
+  // (the mock's team does since 62ebed684, and then the page's switch is the server value, with the page's confirm
+  // first for an app that does not show the risk sentence itself)
+  expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { webAllowAll: false } })).ok()).toBe(true)
   await page.goto('/settings')
   await page.getByRole('link', { name: '브라우저', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\/browser$/)

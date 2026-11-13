@@ -164,7 +164,10 @@ test('while an IME writes, the box paints its own letters (so its underline show
     const data = (img: HTMLImageElement) => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d')!; g.drawImage(img, 0, 0); return g.getImageData(0, 0, c.width, c.height).data }
     const p = data(x), q = data(y)
     let n = 0
-    for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i]! - q[i]!) + Math.abs(p[i + 1]! - q[i + 1]!) + Math.abs(p[i + 2]! - q[i + 2]!) > 60) n++
+    // by brightness: where the system smooths text by subpixel (Linux), the box's own letters get coloured fringes the
+    // layer's grey-smoothed letters have not, at the same place and weight; a letter moved or doubled still differs
+    const lum = (d: Uint8ClampedArray, i: number) => 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!
+    for (let i = 0; i < p.length; i += 4) if (Math.abs(lum(p, i) - lum(q, i)) > 40) n++
     return n / (p.length / 4)
   }, [`data:image/png;base64,${before.toString('base64')}`, `data:image/png;base64,${during.toString('base64')}`])
   expect(differ).toBeLessThan(0.002)

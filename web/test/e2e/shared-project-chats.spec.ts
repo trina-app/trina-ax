@@ -176,9 +176,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
-      // not his to rename, delete, edit or answer again: the title's menu has 링크 복사 only, no edit, no "regenerate", no engine
+      // not his to rename, delete, edit or answer again: the title's menu has 상단에 고정 (anyone who sees it, TC-419) and
+      // 링크 복사 only, no edit, no "regenerate", no engine
       await b.getByTestId('chat-menu').click()
-      await expect(b.getByRole('menuitem')).toHaveText(['링크 복사'])
+      await expect(b.getByRole('menuitem')).toHaveText(['상단에 고정', '링크 복사'])
       await b.keyboard.press('Escape')
       await expect(b.getByTestId('chat-title')).toHaveText(/출시 일정/)
       await expect(b.getByTestId('edit-message')).toHaveCount(0)

@@ -174,13 +174,15 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
   await expect(panel.getByTestId('edit-skill-locked')).toHaveCount(0)
   await shot('skills-line-panel-1360')
-  await page.setViewportSize({ width: 375, height: 800 })
-  await expect(panel.getByTestId('edit-skill-editors')).toBeVisible()
-  await shot('skills-line-panel-375')
-  await page.setViewportSize({ width: 1360, height: 860 })
   await panel.getByTestId('edit-close').click()
   await page.getByRole('dialog', { name: '바꾼 규칙을 버릴까요?' }).getByRole('button', { name: '버리기', exact: true }).click()
   await expect(panel).toHaveCount(0)
+  // a phone: the rule editor is a page of its own (`&rules=`, since 1d63c17a1), with the same line
+  await page.setViewportSize({ width: 375, height: 800 })
+  await page.goto(`/admin/folders?folder=${encodeURIComponent('skills/재무')}&rules=${encodeURIComponent('skills/재무')}`)
+  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
+  await shot('skills-line-panel-375')
+  await page.setViewportSize({ width: 1360, height: 860 })
 
   // the Team skills page says the same as the tree; the group's rule is a row of its dialog
   await page.goto('/skills')
@@ -365,7 +367,9 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await page.getByTestId('send').click()
   card = page.getByTestId('ask-card')
   const preview = card.getByTestId('skill-preview')
-  await expect(preview).toContainText('skills/weekly.md')
+  // the file in words since the plain-words pass (795113c5a), its path on hover
+  await expect(preview.getByTestId('skill-preview-path')).toHaveText('팀 스킬 › weekly.md')
+  await expect(preview.getByTestId('skill-preview-path')).toHaveAttribute('title', 'skills/weekly.md')
   await expect(preview).toContainText('새 파일')
   await expect(preview.getByTestId('skill-preview-count')).toHaveText('+6 −0줄')
   await expect(preview.getByTestId('skill-preview-diff')).toContainText('+name: 주간 보고서')

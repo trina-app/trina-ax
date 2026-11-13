@@ -18,7 +18,7 @@
 // - TC-269 step 2: a plugin's page is the plugin alone: no plugin search and no upload button above it.
 import { expect, test, type Page } from '@playwright/test'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
-import { reset, signIn } from './helpers'
+import { backLabelHasRoom, reset, signIn } from './helpers'
 import { openTab } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
@@ -260,8 +260,10 @@ const TEAM_SETTINGS_IDS = ['general', 'data', 'members', 'voice', 'ai', 'limits'
 async function expectBackNamed(page: Page, name: string, where: string) {
   const label = backLabel(page)
   await expect(label, where).toHaveText(name)
-  await expect(label, where).toBeVisible()
   await expect(page.getByTestId('admin-back')).toHaveAccessibleName(t['tabs.backTo'].replace('{page}', name))
+  // no room in this font for ‹ with its name beside the whole title (Linux's wider DejaVu Sans): ‹ alone, still named
+  if (!(await backLabelHasRoom(label))) return await expect(label, where).toBeHidden()
+  await expect(label, where).toBeVisible()
   const l = (await label.boundingBox())!
   // the title's text (its box is the bar's middle column)
   const title = await bar(page).evaluate((el) => {

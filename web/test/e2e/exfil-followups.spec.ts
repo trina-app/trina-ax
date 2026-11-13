@@ -110,7 +110,8 @@ test('admins see tasks waiting for their owner: who and when, never the title or
   await expect(list).toContainText('부터 멈춤')
   await expect(list).not.toContainText('아침 요약')
   await expect(list).not.toContainText('feeds.example.com')
-  await expect(page.getByText('확인을 기다리는 예약 작업')).toBeVisible()
+  // the admin's own waiting task also shows the banner ("…예약 작업 1개") above the page: the card's heading here
+  await expect(page.getByRole('heading', { name: '확인을 기다리는 예약 작업' })).toBeVisible()
 })
 
 for (const scheme of ['light', 'dark'] as const) {

@@ -16,7 +16,7 @@
 // runs in WebKit (the iPhone app's engine: phone-member-pages.webkit.spec.ts) and Chromium (Android's).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { backLabelHasRoom, reset, signIn } from './helpers'
 import { openProjectsTab, openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
@@ -76,6 +76,8 @@ async function backNamed(page: Page, name: string, fits: boolean) {
   await expect(label).toHaveText(name)
   const movable = (await page.getByTestId('settings-dialog').getByTestId('phone-page-bar').getAttribute('data-fit')) !== null
   if (!fits && !movable) return
+  // no room in this font for ‹ with its name beside the whole title (Linux's wider DejaVu Sans): ‹ alone, still named
+  if (!fits && !(await backLabelHasRoom(label))) return await expect(label).toBeHidden()
   await expect(label).toBeVisible()
   await expect(label).toHaveAttribute('data-fits', '')
   // the whole label is in sight, inside the bar and clear of the title

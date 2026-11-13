@@ -67,7 +67,8 @@ test('SW first-run, invalid hints, sign-in choice and blocked storage have bound
     })
     await server.mode('stop')
     await page.reload()
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    // nothing stored: the device's own language (this browser's ko-KR, QA TC-207); English only when that is none of ours
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ko')
     await page.evaluate(() => {
       localStorage.setItem('mycel.recentLocale', 'unexpected')
       localStorage.setItem('mycel.locale', 'id')
@@ -76,8 +77,9 @@ test('SW first-run, invalid hints, sign-in choice and blocked storage have bound
     await expect(page.getByRole('heading')).toHaveText(id['conn.cantReach'])
     await page.addInitScript(() => Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('blocked', 'SecurityError') } }))
     await page.reload()
-    await expect(page.getByRole('heading')).toHaveText(en['conn.cantReach'])
-    await expect(page.getByRole('button', { name: en['common.retry'], exact: true })).toBeVisible()
+    // storage blocked: nothing can be read, so the device's language again
+    await expect(page.getByRole('heading')).toHaveText(ko['conn.cantReach'])
+    await expect(page.getByRole('button', { name: ko['common.retry'], exact: true })).toBeVisible()
   } finally { await server.close() }
 })
 
