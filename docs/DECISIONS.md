@@ -11614,7 +11614,7 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
 - Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
   `web/test/e2e/nav-rail-flag.spec.ts`.
-- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+- Version impact (before P6): none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
 - **On by default since P6** (feat/nav-rail-p6-on, 2026-11-13, owner: finish the redesign now): absent = on, so every
   server shows the rail and the new phone tabs; `"navRail": false` in `server.json` is the kill switch for one release
   (Me then has no `navRail` and the web draws the old sidebar and tabs), and P7 removes it with the old path. The wire
@@ -11623,7 +11623,9 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   `POST /__test/nav-rail {on:false}` for the old layout). User docs, the phone's "company profile" line (the 트리나 tab,
   no ☰), `docs/DESIGN-SYSTEM.md` and the docs screenshots (`scripts/docs/screenshots.ts`: the navigation's shots also
   run with `--mock`, `mockToo`, on English made-up files and tasks) changed with it; one `changes/nav-rail.md` fragment
-  for the whole redesign. Tests: `tests/unit/b-nav-rail-flag.test.ts` (on by default, `false` off).
+  for the whole redesign (named after the redesign, not the branch: one note for all its phases). The push and
+  notification hints that said "Inbox" / 알림함 say Activity / 활동, the place's name on the rail. Tests:
+  `tests/unit/b-nav-rail-flag.test.ts` (on by default, `false` off). Version impact: minor (visible navigation change).
 
 ## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
 
