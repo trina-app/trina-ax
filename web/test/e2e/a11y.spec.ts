@@ -2,7 +2,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn, adv } from './helpers'
+import { navRail, openRail, reset, signIn, adv } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -150,6 +150,25 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'admin system')
     await page.goto('/settings/profile')
     await audit(page, 'settings')
+  })
+}
+
+// The new navigation (lib/navRail.ts): the rail and each of its four lists, with marks on the places, light and dark.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the rail and its four lists have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page)
+    await navRail(page)
+    await page.route('**/api/notifications?*', (route) => route.fulfill({ json: { items: [], nextCursor: null, unreadCount: 4, roomUnreadCount: 1 } }))
+    await signIn(page)
+    await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: '주간 보고 초안' } })
+    await page.reload()
+    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      await openRail(page, item)
+      await expect(page.locator('#rail-panel')).toBeVisible()
+      await audit(page, `rail: ${item}`)
+    }
   })
 }
 
