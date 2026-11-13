@@ -272,6 +272,22 @@ bun scripts/release/hosting.ts resume stable                                    
   rollout을 보지 않는다(제어판이 고른다); 멈춘 머리의 `minFrom`을 제어판이 어떻게 읽는지는 그쪽 레포에서 확인한다.
 - 시험: `tests/unit/release-hold.test.ts`(계산, 업데이트, 임시 키·임시 피드로 스크립트), `TestScheduledUpdateHeld`(root 타이머).
 
+### 지금 모두에게 (promote a good release)
+
+좋은 stable 릴리스의 단계적 배포를 앞당겨 끝낸다: 모든 서버·사무실이 지금 스스로 받는다(처음부터 `Rollout: all`로 낸 것처럼). 새 버전을
+낼 필요가 없다.
+
+- 키와 토큰이 이 맥에 없으면 GitHub에서: Actions → **Feed** → Run workflow(main에서), action `promote`, channel `stable`, version(머리가
+  지금 말하는 버전, 예: `0.5.3`). 먼저 dry_run 그대로 돌려 무엇을 올릴지 보고, 다시 dry_run을 끄고 돌린다. 끝에 `held`가 두 머리를 보여 준다.
+  같은 워크플로로 `hold`(reason 필수)·`resume`·`held`도 된다. release.yml과 같은 concurrency 그룹이라 릴리스가 올라가는 동안에는 기다린다.
+  다만 GitHub은 그룹마다 기다리는 run을 하나만 두므로, 릴리스 run이 기다리는 중에 Feed를 돌리면 그 릴리스 run이 취소된다: 그때는 돌리지
+  않는다(`held`는 읽기만 해서 다른 그룹). main에서 도므로 `release` environment에 "v* 태그만" 규칙을 넣게 되면 main도 허용해야 한다.
+- 키가 있는 곳에서는 `bun scripts/release/hosting.ts promote stable --version 0.5.3 [--dry-run]`.
+- 하는 일(`promoteRollout`): 두 머리의 rollout을 percent 100, ramp 없음, salt 그대로, 새 `changedAt`으로 다시 서명한다. `minFrom`과 버전 파일은
+  그대로다. ramp를 모르는 서버(percent만), hold를 모르는 서버, urgent·beta 모두 100%로 읽는다. 앞의 머리를 본 서버는 `changedAt`이 더
+  나중이라 이것을 받는다(newerHeadSeen). 이미 모두에게 가는 머리는 그대로 둔다.
+- 멈춘 머리는 promote하지 않는다(먼저 `resume`: 멈춤은 사람이 내린 결정이라 promote가 덩달아 풀지 않게). 사무실 목록이 다른 버전이면 그대로 둔다.
+
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.
 - GitHub Release 파일 확인: 받은 폴더에서 `bun scripts/release/release-ci.ts verify-sums SHA256SUMS`(이 빌드의 공개키로 `.sig`를 확인한 뒤 옆의 파일 sha256을 본다).
