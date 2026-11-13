@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 10:27
 - Branch: `fix/connector-signin-approved-apps`
-- Status: in progress
+- Status: done
 - Where: `server/src/integrations/connections/` (oauth.ts, service.ts, text.ts), `server/src/routes/integrations.ts`,
   `shared/src/service-catalog.ts`. Why: connectors are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Sign-in that failed now works where the service takes a client metadata document, and a
@@ -79,4 +79,17 @@ network check once.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `oauth.ts chooseClient` holds the client choice (the stored or a newly registered app, the
+preflight, then the metadata document); service.ts calls it. The document is served by `routes/integrations.ts`
+with the addresses of the configured public address that matches the request's host (so https behind a tunnel). A
+registration 4xx is now `oauth_approved_apps_only` (it was `oauth_unsupported`, "try an API key"); a service with no
+registration address but a metadata document gets the document too. Own apps skip the preflight (their refusals have
+their own words). `net.ts` gained a test-only hook (`answerForTests`) so recorded metadata can be replayed.
+
+Tests: `tests/unit/c-integrations-approved-apps.test.ts` (fake `/mcp-strict` service, the limit, the reason's words,
+Netlify, and a table over all 41 recorded catalog probes in `tests/fixtures/connectors/sign-in-metadata.json`);
+`tests/network/catalog-sign-in.test.ts` (`bun run check:connectors`): all 42 listed addresses answered 401 with
+usable metadata on 2026-11-13. Which services the document fixes (Canva, Vercel, Railway and Indeed advertise it)
+can only be shown on the deployed server, which the services must be able to reach.
+
+PR: to be opened after review.

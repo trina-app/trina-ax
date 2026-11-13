@@ -3,8 +3,10 @@
 // dynamic client registration, PKCE, refresh, revocation), a plain REST API with a key, and a service that repeats
 // the key it got (/echo/*, MCP tools echo_*: tests that the AI never sees it). Services that register no apps (signed
 // in at with an own app, its client secret checked at the token address): the MCP server /mcp-own, whose authorization
-// server /as-own has no registration address, and the REST API /oauth-api/v1 that takes the issued tokens. One https server on 127.0.0.1 with a test
-// certificate; the tests' lookup sends the name svc.test there (web_fetch's test allowance).
+// server /as-own has no registration address, and the REST API /oauth-api/v1 that takes the issued tokens. A service that
+// lets only apps it approved sign in (/mcp-strict, its authorization server /as-strict, set with `strict`): its
+// registration or its sign-in page refuses the app, and it may take a client metadata document instead. One https
+// server on 127.0.0.1 with a test certificate; the tests' lookup sends the name svc.test there (web_fetch's test allowance).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -14,6 +16,10 @@ import type { NetOptions } from '../../server/src/integrations/connections/net'
 export const SVC_HOST = 'svc.test'
 export const MCP_KEY = 'CANARY-mcp-key-4411'
 export const API_KEY = 'CANARY-api-key-9273'
+
+const CALLBACK = '/api/integrations/oauth/callback'
+/** a client ID that is the address of a client metadata document (the server's, at any team address) */
+const metadataClient = (id: string | undefined) => !!id && /^https:\/\/[^/]+\/api\/integrations\/oauth\/client-metadata\.json$/.test(id)
 
 export interface Seen { method: string; path: string; headers: Record<string, string>; body: string }
 
@@ -100,6 +106,12 @@ export class FakeServices {
   listStatus: number | null = null
   /** tools/call answers with this HTTP status */
   callStatus: number | null = null
+  /** /as-strict (a service that lets only apps it approved sign in, like Canva, Figma or Vercel): `register`, the
+   * registration's answer status instead of registering (403 Figma, 400 Vercel); `refuseRegistered`, its sign-in page
+   * answers 400 "Invalid redirect URI." for a registered app (Canva); `metadata`, it says it takes a client metadata
+   * document and its sign-in page takes one (`metadataRefused`: says so, but refuses it); `page`, the sign-in page's
+   * answer instead of all that (a challenge, a slow page); `noRegistration`, no registration address at all */
+  strict: { register?: number | null; refuseRegistered?: boolean; metadata?: boolean; metadataRefused?: boolean; noRegistration?: boolean; page?: (() => Promise<Response>) | null } = {}
   /** requests to this path wait until `until` settles (a service slow to answer: a test holds a check open while it
    * does something else, then lets it go on). Keep it under net()'s timeoutMs. */
   hold: { path: string; until: Promise<void> } | null = null
@@ -128,7 +140,7 @@ export class FakeServices {
   authorize(authorizationUrl: string, iss = `${this.base}/as`): { code: string; state: string; iss: string } {
     const u = new URL(authorizationUrl)
     const p = Object.fromEntries(u.searchParams)
-    const client = this.clients.get(p.client_id!)
+    const client = this.clients.get(p.client_id!) ?? (metadataClient(p.client_id) ? { redirectUris: [new URL(CALLBACK, p.client_id).href] } : undefined)
     if (!client || !client.redirectUris.includes(p.redirect_uri!) || p.response_type !== 'code' || p.code_challenge_method !== 'S256' || !p.code_challenge || !p.state) throw new Error('bad authorization request')
     const code = 'code-' + crypto.randomBytes(8).toString('hex')
     this.codes.set(code, { clientId: p.client_id!, redirectUri: p.redirect_uri!, challenge: p.code_challenge, resource: p.resource ?? '' })
@@ -278,6 +290,33 @@ export class FakeServices {
       if (p === '/oauth-api/v1/tasks') return Response.json({ tasks: [{ id: 1, title: 'Write the plan' }] })
       return Response.json({ code: 'NOT_FOUND' }, { status: 404 })
     }
+    // ---- a service that lets only apps it approved sign in (strict) ----
+    if (p === '/mcp-strict') {
+      const token = /^Bearer (.+)$/.exec(auth)?.[1]
+      const exp = token ? this.access.get(token) : undefined
+      if (!exp || exp <= this.now) return new Response('sign in', { status: 401, headers: { 'www-authenticate': `Bearer resource_metadata="${this.base}/.well-known/oauth-protected-resource/mcp-strict"` } })
+      return this.mcp(again(), auth)
+    }
+    if (p === '/.well-known/oauth-protected-resource/mcp-strict') return Response.json({ resource: `${this.base}/mcp-strict`, authorization_servers: [`${this.base}/as-strict`] })
+    if (p === '/.well-known/oauth-authorization-server/as-strict') return Response.json({
+      issuer: `${this.base}/as-strict`, authorization_endpoint: `${this.base}/as-strict/authorize`, token_endpoint: `${this.base}/as/token`,
+      ...(this.strict.noRegistration ? {} : { registration_endpoint: `${this.base}/as-strict/register` }), code_challenge_methods_supported: ['S256'], response_types_supported: ['code'],
+      ...(this.strict.metadata || this.strict.metadataRefused ? { client_id_metadata_document_supported: true } : {}),
+    })
+    if (p === '/as-strict/register' && req.method === 'POST') {
+      if (this.strict.register) return Response.json({ error: 'invalid_redirect_uri', error_description: 'redirect_uri not in allowlist' }, { status: this.strict.register })
+      const j = JSON.parse(body)
+      const id = 'client-' + crypto.randomBytes(4).toString('hex')
+      this.clients.set(id, { redirectUris: j.redirect_uris })
+      return Response.json({ client_id: id, redirect_uris: j.redirect_uris, token_endpoint_auth_method: 'none' }, { status: 201 })
+    }
+    if (p === '/as-strict/authorize' && req.method === 'GET') {
+      if (this.strict.page) return this.strict.page()
+      const id = u.searchParams.get('client_id') ?? ''
+      if (metadataClient(id)) return this.strict.metadata ? new Response('<html><body>Sign in</body></html>', { headers: { 'content-type': 'text/html' } }) : new Response('Invalid client_id', { status: 400 })
+      if (this.strict.refuseRegistered) return new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })
+      return new Response('<html><body>Sign in</body></html>', { headers: { 'content-type': 'text/html' } })
+    }
     if (p === '/.well-known/oauth-authorization-server/as') return Response.json({
       issuer: `${this.base}/as`, authorization_endpoint: `${this.base}/as/authorize`, token_endpoint: `${this.base}/as/token`,
       registration_endpoint: `${this.base}/as/register`, revocation_endpoint: `${this.base}/as/revoke`, code_challenge_methods_supported: ['S256'], response_types_supported: ['code'],
@@ -308,7 +347,7 @@ export class FakeServices {
       }
       if (f.grant_type === 'refresh_token') {
         if (this.delayRefresh) await this.delayRefresh()
-        if (!this.refresh.has(f.refresh_token ?? '') || !this.clients.has(clientId)) return Response.json({ error: 'invalid_grant' }, { status: 400 })
+        if (!this.refresh.has(f.refresh_token ?? '') || !(this.clients.has(clientId) || metadataClient(clientId))) return Response.json({ error: 'invalid_grant' }, { status: 400 })
         this.refreshCount++
         const t = this.tokenAnswer()
         if (this.rotateRefresh) this.refresh.delete(f.refresh_token!)

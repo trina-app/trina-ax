@@ -1,0 +1,283 @@
+// Services that let only apps they approved sign in (server/src/integrations/connections/oauth.ts chooseClient,
+// preflight, clientMetadata): a refused registration (Figma's 403, Vercel's 400) or a sign-in page that refuses the
+// registered app (Canva's "Invalid redirect URI.") is said plainly (oauth_approved_apps_only, never "try an API key"),
+// unless the service takes a client metadata document, which this server publishes; the preflight lets a challenge
+// page, a slow page or a network error through. A table over the listed services' recorded metadata (fixtures from
+// unauthenticated probes, 2026-11-13). And sign-ins that never finished do not fill the personal connection limit.
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
+import { catalogAt, officialService, SERVICE_CATALOG } from '../../shared/src/service-catalog'
+import { harness, withOwner, type Client, type Harness } from './a-lib'
+import { FakeServices, MCP_KEY } from '../lib/fake-services'
+import { integrationsOf, MAX_PERSONAL } from '../../server/src/integrations/connections/service'
+import { getRow } from '../../server/src/integrations/connections/store'
+import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
+import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
+import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
+
+setDefaultTimeout(30_000)
+
+const TEAM = 'https://team.example.com'
+const DOC = `${TEAM}${CLIENT_METADATA_PATH}`
+const LOCALES = ['ko', 'en', 'id', 'ja', 'es'] as const
+let h: Harness, olga: Client, fake: FakeServices
+let seq = 0
+beforeAll(() => { fake = new FakeServices() })
+afterAll(() => fake?.stop())
+beforeEach(async () => {
+  h = await harness('int-approved-' + ++seq, { publicOrigins: [TEAM] })
+  olga = await withOwner(h)
+  fake.strict = {}
+  fake.now = Date.now()
+  integrationsOf(h.ctx, { net: fake.net(), now: () => fake.now })
+})
+afterEach(async () => { await h?.close() })
+
+/** the person's browser on the team's public https address (a service can fetch the metadata document from it) */
+const PUBLIC = { origin: TEAM }
+const callback = (q: Record<string, string>) => '/api/integrations/oauth/callback?' + new URLSearchParams(q)
+const strict = () => olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Strict', url: `${fake.base}/mcp-strict`, auth: 'oauth' }, PUBLIC)
+const authorize = async (id: string, headers: Record<string, string> = PUBLIC) => olga.try('POST', `/api/integrations/${id}/authorize`, {}, headers)
+const clientOf = (r: { body: any }) => new URL(r.body.authorizationUrl).searchParams.get('client_id')
+const approvedOnly = TEXT.oauth_approved_apps_only
+
+describe('a service that lets only apps it approved sign in', () => {
+  test('registration refused (Figma 403, Vercel 400) and no metadata document: the plain reason, never "try an API key"', async () => {
+    for (const status of [403, 400]) {
+      fake.strict = { register: status }
+      const c = await strict()
+      const r = await authorize(c.id)
+      expect(r.status).toBe(400)
+      expect(r.body.error.message).toBe(approvedOnly.ko)
+      expect(r.body.error.message).not.toContain('API')
+      expect(getRow(h.ctx.db, c.id)).toMatchObject({ status: 'needs_auth', last_error: 'oauth_approved_apps_only' })
+      // the connection and the chat card say it in the reader's words
+      const listed = (await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)
+      expect(listed).toMatchObject({ status: 'needs_auth', lastErrorReason: 'oauth_approved_apps_only', lastError: approvedOnly.ko })
+      await olga.call('DELETE', `/api/integrations/${c.id}`)
+    }
+  })
+
+  test('registered, but the sign-in page refuses the app (Canva "Invalid redirect URI."): caught before the browser goes there', async () => {
+    fake.strict = { refuseRegistered: true }
+    const c = await strict()
+    const r = await authorize(c.id)
+    expect(r.status).toBe(400)
+    expect(r.body.error.message).toBe(approvedOnly.ko)
+    expect(fake.seen.some((s) => s.method === 'GET' && s.path.startsWith('/as-strict/authorize?'))).toBe(true)
+    // no flow waits for a sign-in that cannot finish
+    expect(h.ctx.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE integration_id = ?').get(c.id)).toEqual({ n: 0 })
+  })
+
+  test('the service takes a metadata document: its address is the client, through the token exchange and every refresh', async () => {
+    fake.strict = { refuseRegistered: true, metadata: true }
+    const c = await strict()
+    const r = await authorize(c.id)
+    expect(r.status).toBe(200)
+    expect(clientOf(r)).toBe(DOC)
+    expect(new URL(r.body.authorizationUrl).searchParams.get('redirect_uri')).toBe(`${TEAM}/api/integrations/oauth/callback`)
+    const cb = fake.authorize(r.body.authorizationUrl, `${fake.base}/as-strict`)
+    expect((await olga.raw('GET', callback(cb))).status).toBe(200)
+    const tokenCall = fake.seen.filter((s) => s.path === '/as/token').at(-1)!
+    expect(new URLSearchParams(tokenCall.body).get('client_id')).toBe(DOC)
+    expect(new URLSearchParams(tokenCall.body).get('client_secret')).toBeNull()
+    expect((await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)).toMatchObject({ status: 'connected', hasSecret: true })
+    // a refresh sends the same client ID (the fake refuses one it does not know)
+    fake.refreshCount = 0
+    fake.now += 3600_000 + 1
+    await olga.call('POST', `/api/integrations/${c.id}/refresh`, {})
+    expect(fake.refreshCount).toBe(1)
+    expect(new URLSearchParams(fake.seen.filter((s) => s.path === '/as/token').at(-1)!.body).get('client_id')).toBe(DOC)
+    // signing in again uses the stored client, no new registration
+    const regs = fake.seen.filter((s) => s.path === '/as-strict/register').length
+    const again = await authorize(c.id)
+    expect(clientOf(again)).toBe(DOC)
+    expect(fake.seen.filter((s) => s.path === '/as-strict/register').length).toBe(regs)
+  })
+
+  test('registration refused (Vercel 400, Railway 403) or none at all, with a metadata document: the document', async () => {
+    for (const s of [{ register: 400 }, { register: 403 }, { noRegistration: true }]) {
+      fake.strict = { ...s, metadata: true }
+      const c = await strict()
+      const r = await authorize(c.id)
+      expect(r.status).toBe(200)
+      expect(clientOf(r)).toBe(DOC)
+      await olga.call('DELETE', `/api/integrations/${c.id}`)
+    }
+  })
+
+  test('a document is never offered from an address a service cannot reach: localhost or plain http keep the plain reason', async () => {
+    fake.strict = { refuseRegistered: true, metadata: true }
+    const c = await strict()
+    // the browser on the harness's own address, http://team.localhost
+    const r = await authorize(c.id, { origin: 'http://team.localhost' })
+    expect(r.status).toBe(400)
+    expect(r.body.error.message).toBe(approvedOnly.ko)
+    expect(publicOrigin(TEAM)).toBe(true)
+    for (const o of ['http://team.example.com', 'https://localhost', 'https://team.localhost', 'https://10.0.0.5', 'https://[::1]', 'https://office', 'https://nas.local']) expect(publicOrigin(o), o).toBe(false)
+  })
+
+  test('the document is refused too: the plain reason', async () => {
+    fake.strict = { register: 403, metadataRefused: true }
+    const c = await strict()
+    const r = await authorize(c.id)
+    expect(r.status).toBe(400)
+    expect(r.body.error.message).toBe(approvedOnly.ko)
+  })
+
+  test('the preflight lets through a Cloudflare challenge (Ahrefs), a sign-in page, a redirect, a slow page and a network error', async () => {
+    const pages: (() => Promise<Response>)[] = [
+      async () => new Response('<!DOCTYPE html><title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/x.js"></script>', { status: 403, headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' } }),
+      async () => new Response('<html><script>var clientId = "x"; var redirect_uri = "y"</script><body>Log in</body></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      async () => new Response(null, { status: 302, headers: { location: 'https://login.example.com/' } }),
+      async () => new Response('<html><script>const client_id = 1</script>Not here</html>', { status: 404, headers: { 'content-type': 'text/html' } }),
+    ]
+    for (const page of pages) {
+      fake.strict = { page }
+      const c = await strict()
+      const r = await authorize(c.id)
+      expect(r.status).toBe(200)
+      expect(clientOf(r)).toMatch(/^client-/)
+      await olga.call('DELETE', `/api/integrations/${c.id}`)
+    }
+    // a slow sign-in page: let through once the preflight's time is up
+    const net = { ...fake.net(), timeoutMs: 800 }
+    fake.strict = { page: async () => { await Bun.sleep(1500); return new Response('late') } }
+    const url = `${fake.base}/as-strict/authorize?client_id=x`
+    const t = Date.now()
+    expect(await preflight(url, net)).toBe(false)
+    expect(Date.now() - t).toBeLessThan(1400)
+    // a name that does not resolve
+    expect(await preflight('https://nowhere.test/authorize', net)).toBe(false)
+    // and what counts as a refusal
+    for (const [status, body, refused] of [[400, 'Bad Request', true], [401, '{"error":"invalid_client"}', true], [403, 'redirect_uri is not registered', true], [403, 'Forbidden', false], [500, 'Invalid redirect URI', false]] as const) {
+      fake.strict = { page: async () => new Response(body, { status }) }
+      expect(await preflight(url, fake.net()), `${status} ${body}`).toBe(refused)
+    }
+  })
+
+  test('the metadata document: public JSON at its own address, the product name and this team\'s callback', async () => {
+    const res = await h.fetch(CLIENT_METADATA_PATH, { base: TEAM, via: 'direct' })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(await res.json()).toEqual({
+      client_id: DOC, client_name: PRODUCT.displayName, redirect_uris: [`${TEAM}/api/integrations/oauth/callback`],
+      grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none',
+    })
+    // through a tunnel the request reaches the server as plain http with the public host: the public https address
+    const tunneled = await h.fetch(CLIENT_METADATA_PATH, { base: 'http://team.example.com', via: 'direct' })
+    expect((await tunneled.json()).client_id).toBe(DOC)
+  })
+})
+
+describe('words', () => {
+  test('the reason in five languages, said to a member as "tell your admin"', () => {
+    for (const l of LOCALES) {
+      expect(TEXT.oauth_approved_apps_only[l].length).toBeGreaterThan(20)
+      expect(reasonText('oauth_approved_apps_only', l)).toBe(TEXT.oauth_approved_apps_only[l])
+      expect(reasonText('oauth_approved_apps_only', l, { address: true, key: false })).toBe(TEXT.keyMember[l])
+    }
+    expect(TEXT.oauth_approved_apps_only.en).not.toMatch(/API|client|OAuth|registration/i)
+  })
+})
+
+describe('sign-ins that never finished', () => {
+  const insert = (id: string, url: string, auth: string, secret: string | null) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, created_at, updated_at)
+    VALUES (?, 'personal', ?, ?, 'mcp', 'n', ?, ?, ?, 'connected', ?, ?, ?)`).run(id, ownerId(), ownerId(), id, url, auth, secret, new Date().toISOString(), new Date().toISOString())
+  const ownerId = () => (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id
+
+  test('a failed or closed sign-in does not count toward the limit; Connect again at the same address picks it up', async () => {
+    // 19 that work, and three failed tries at the same service plus two at other ones
+    for (let i = 0; i < MAX_PERSONAL - 1; i++) insert(`ok-${i}`, `${fake.base}/mcp-open?n=${i}`, 'none', null)
+    fake.strict = { register: 403 }
+    const first = await strict()
+    expect((await authorize(first.id)).status).toBe(400)
+    const second = await strict()
+    expect(second.id).toBe(first.id) // the same waiting connection, not another
+    expect((await authorize(second.id)).status).toBe(400)
+    for (const n of [1, 2]) await olga.call('POST', '/api/integrations', { kind: 'mcp', name: `Other ${n}`, url: `${fake.base}/mcp-strict?other=${n}`, auth: 'oauth' })
+    // the 20th connection that works is still allowed
+    const twentieth = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+    expect(twentieth.status).toBe('connected')
+    // and the limit itself holds for the 21st
+    const more = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Open', url: `${fake.base}/mcp-open`, auth: 'none' })
+    expect(more.status).toBe(409)
+    // a waiting one can still be added at a new address (it counts on its own)
+    expect((await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Third', url: `${fake.base}/mcp-strict?other=3`, auth: 'oauth' })).status).toBe(201)
+  })
+
+  test('connections waiting for a sign-in have a cap of their own; one with a stored sign-in is never reused', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, `${fake.base}/mcp-strict?w=${i}`, 'oauth', null)
+    const over = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'One more', url: `${fake.base}/mcp-strict?w=new`, auth: 'oauth' })
+    expect(over.status).toBe(409)
+    // Connect for an address that has one waiting still works (it is the same one)
+    expect((await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Again', url: `${fake.base}/mcp-strict?w=3`, auth: 'oauth' })).id).toBe('wait-3')
+    h.ctx.db.query("DELETE FROM integrations WHERE id LIKE 'wait-%'").run()
+    // signed in once (a stored sign-in): a new Connect makes its own
+    insert('signed', `${fake.base}/mcp-strict`, 'oauth', 'sealed')
+    expect((await strict()).id).not.toBe('signed')
+  })
+})
+
+describe('catalog', () => {
+  test('Netlify: the documented address and the one listed before are both official', () => {
+    for (const u of ['https://mcp.netlify.com/mcp', 'https://netlify-mcp.netlify.app/mcp']) {
+      expect(officialService(u)?.id, u).toBe('netlify')
+      expect(catalogAt(u)?.id, u).toBe('netlify')
+    }
+    expect(SERVICE_CATALOG.find((c) => c.id === 'netlify')!.url).toBe('https://mcp.netlify.com/mcp')
+  })
+})
+
+// ---- the listed services' recorded metadata ----
+interface Answer { status: number; headers?: Record<string, string>; json?: unknown; body?: string }
+interface Recorded { id: string; mcpUrl: string; initialize: Answer; get: Record<string, Answer>; register?: Answer; authorize?: Answer }
+const RECORDED: Recorded[] = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../fixtures/connectors/sign-in-metadata.json'), 'utf8')).services
+/** What a sign-in from a public https address comes to with each service's recorded answers. A metadata document's
+ * sign-in page was not recorded (it needs this server reachable): it is assumed to take the document, so "metadata"
+ * says only that the server will offer it. Only the deployed server shows whether the service then accepts it. */
+const EXPECTED: Record<string, 'registered' | 'metadata' | 'approved_only' | 'no_registration'> = {
+  canva: 'metadata', indeed: 'metadata', railway: 'metadata', vercel: 'metadata',
+  figma: 'approved_only', intercom: 'approved_only', square: 'approved_only',
+}
+/** the second probe of an address (Canva's documented api.canva.com, Atlassian's v1) */
+const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connect/v1/mcp' ? 'no_registration' : EXPECTED[r.id] ?? 'registered')
+
+function recordedNet(r: Recorded, server: { registration?: string; authorization?: string }): NetOptions {
+  const reply = (a: Answer) => ({ status: a.status, headers: a.headers ?? {}, body: a.json !== undefined ? JSON.stringify(a.json) : a.body ?? '' })
+  return {
+    answerForTests: async (url: string, req: NetRequest) => {
+      if (req.method === 'POST' && server.registration && url === server.registration) return r.register ? reply(r.register) : { status: 404 }
+      if (req.method === 'GET' && server.authorization && url.startsWith(server.authorization + '?')) {
+        if (new URL(url).searchParams.get('client_id') === DOC) return { status: 200, body: '<html>Sign in</html>' }
+        return r.authorize ? reply(r.authorize) : { status: 404 }
+      }
+      const a = r.get[url]
+      return a && a.status ? reply(a) : { status: 404 }
+    },
+  }
+}
+
+describe('the listed services, from their recorded metadata', () => {
+  test('every listed service has a recording', () => {
+    const ids = new Set(RECORDED.map((r) => r.id))
+    for (const c of SERVICE_CATALOG) expect(ids.has(c.id), c.id).toBe(true)
+  })
+  for (const r of RECORDED) {
+    test(`${r.id} (${new URL(r.mcpUrl).host}): ${expectedFor(r)}`, async () => {
+      const found = await discover(r.mcpUrl, recordedNet(r, {}), r.initialize.headers?.['www-authenticate'] ?? '')
+      expect(found.server.authorizationEndpoint).toMatch(/^https:\/\//)
+      const net = recordedNet(r, { registration: found.server.registrationEndpoint ?? undefined, authorization: found.server.authorizationEndpoint })
+      const redirect = `${TEAM}/api/integrations/oauth/callback`
+      const urlFor = (c: OAuthClient) => authorizationUrl({ ...found, client: c }, 'S'.repeat(43), 'C'.repeat(43))
+      let outcome: string
+      try {
+        const c = await chooseClient(found, TEAM, redirect, net, urlFor)
+        outcome = c.clientId === DOC ? 'metadata' : 'registered'
+      } catch (e: any) { outcome = e?.reason === 'oauth_no_registration' ? 'no_registration' : e?.reason === 'oauth_approved_apps_only' ? 'approved_only' : String(e) }
+      expect(outcome).toBe(expectedFor(r))
+    })
+  }
+})

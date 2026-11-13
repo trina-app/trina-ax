@@ -460,9 +460,23 @@ idle minutes; a 404 for it starts a new one.
   fallback; `issuer` must match, S256 must be offered when methods are listed) → dynamic client registration (RFC 7591,
   public client, our callback) → authorization code with PKCE S256, `state` and the `resource` indicator (RFC 8707);
   `iss` in the answer is checked when present (RFC 9207). A server without registration cannot be signed in to (use a
-  key). Tokens refresh ahead of expiry and after a 401, one refresh at a time per connection; `invalid_grant` means
+  key, or an own app below). Tokens refresh ahead of expiry and after a 401, one refresh at a time per connection; `invalid_grant` means
   "sign in again". Deleting a connection, or a change that drops its sign-in, removes the local tokens first and then
   asks the service to revoke them (RFC 7009, best effort).
+- **Services that accept only apps they approved.** Some refuse the app registered for them: the registration answers
+  4xx (Figma 403 outside its catalog, Vercel, Square, Intercom and Indeed 400 for a callback not on their list, Railway
+  403 "registration is disabled"), or the registration works but the sign-in page refuses it (Canva: HTTP 400 "Invalid
+  redirect URI." for any callback but localhost and claude.ai). So before the sign-in address goes to the browser the
+  server opens it once (no redirects, 5 s): HTTP 400, or another 4xx whose text names the redirect address or the
+  client, is a refusal; a sign-in page, a redirect, a Cloudflare challenge, a timeout or a network error let it go on.
+  After a refusal, a service whose metadata says `client_id_metadata_document_supported` is offered a **Client ID
+  Metadata Document** instead (MCP authorization 2025-11-25, draft-ietf-oauth-client-id-metadata-document): the client
+  ID is the address of `GET /api/integrations/oauth/client-metadata.json`, a public JSON document on the team's address
+  (the product name, the team's callback, authorization code and refresh, no secret), stored with the connection like a
+  registered client so the token exchange and refreshes use it. Only when the person's address is public https (not
+  localhost, an IP address or a local name): the service has to fetch the document. Without one, or when that is
+  refused too, the sign-in stops with `oauth_approved_apps_only` ("This service lets only apps it has approved sign
+  in…"), shown on the connection and the chat card; nobody on the team can fix it.
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
@@ -632,7 +646,7 @@ connections with their address and the first 1,000 characters of their notes.
 
 | Boundary | Limit |
 | --- | --- |
-| Connections | 20 personal per person, 50 team |
+| Connections | 20 personal per person, 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own, and Connect again at the same address picks the waiting one up |
 | Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
@@ -684,4 +698,8 @@ server with sessions and event streams, an OAuth authorization server with regis
 one without registration for own apps (`/mcp-own`, client secrets checked) and a REST API signed in at with OAuth,
 a REST API, and endpoints and MCP tools that repeat the key they got; reached through web_fetch's test-only address
 allowance), and the real-turn test at the end of
-`tests/unit/i-wiring.test.ts`. No real service is contacted.
+`tests/unit/i-wiring.test.ts`. No real service is contacted. `tests/unit/c-integrations-approved-apps.test.ts` adds a
+service that accepts only approved apps (`/mcp-strict`) and runs the client choice over every listed service's recorded
+metadata (`tests/fixtures/connectors/sign-in-metadata.json`). `bun run check:connectors` (`CONNECTOR_NETWORK=1`, never
+in the unit run) asks the real listed addresses: a 401 to an initialize without a sign-in, then the metadata as
+`discover` reads it. It registers nothing.
