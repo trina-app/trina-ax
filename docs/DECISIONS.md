@@ -12798,6 +12798,63 @@ push service (`pushManager.subscribe` always fails there).
   Its words are one live region that is always there (the reason replaces the question inside it); the buttons stay
   focusable while it works (`aria-busy`, not disabled); when it goes away under the keyboard's focus, the focus moves
   to `#main`.
+## First load: compressed files, one language, formatting on demand (perf/first-load, 2026-11-13)
+
+**Decision.** The first visit to a team downloads what the page needs and no more:
+
+- **Compressed files.** `bun run build` ends with `web/scripts/compress-dist.ts`: a Brotli (`.br`, quality 11) and a gzip
+  (`.gz`, level 9) copy next to every text file of `web/dist` (js, css, html, svg, json, the manifest, wasm, fonts;
+  `COMPRESSIBLE` in `server/src/routes/web-static.ts`) of at least 1 KB that it makes at least 10% smaller. The notice
+  folder (`licenses/`) has no copies: a bundle build writes it again. The server (`staticResponse`) sends the Brotli
+  copy when the browser takes `br`, else the gzip copy, else the file, with `Vary: Accept-Encoding` on every
+  compressible file. Browsers send `br` only over https (and to localhost), so an office address over plain http gets
+  gzip. Nothing is compressed on the fly; a build without the step (`build:app`, the dev server) sends files as before.
+  A copy older than its file by more than a minute (the file was changed after the build) is not used, and a copy is
+  never served under its own name (404).
+- **Revalidation.** Every file of the build and the app shell (not the iPhone banner page, not `/team-icon`, which has
+  its own) get an `ETag` (size, time and coding: each coding is its own representation) and `Last-Modified`, and a
+  matching `If-None-Match` gets `304` (`If-Modified-Since` alone is not answered with 304). The `no-cache` files (`index.html`,
+  `sw.js`, the manifest, icons) are asked for on each visit as before, but no longer sent again in full. Hashed files
+  keep `max-age=31536000, immutable`.
+- **One language.** Each of the five dictionaries is its own file, loaded when it is shown (`web/src/i18n/index.ts`
+  `loadLocale`). `main.tsx` asks `/api/me` at once and draws the page once the starting language is there: the one
+  picked on this browser, else the one the last person here used (the recovery rule, shown only on the loading
+  screen until the server answers), else English, so a returning person downloads one dictionary. At start the
+  session store loads the account's (or the sign-in page's) language before it shows that screen, so it does not come
+  up in English first. Later switches (`setLocale`: Settings, the sign-in switcher, signing in or out) happen once the
+  new language's words are here, a moment after the change; on a failure the screen keeps its language, and a tab of
+  an older build reloads once (`lib/chunk-reload.ts`). Under Bun every dictionary is
+  there from the start (`i18n/bundled.ts`): the tests, the e2e specs and `check:i18n` read `DICTS` unchanged; the web
+  build puts `bundled.web.ts` (none) in its place (`web/scripts/locales-on-demand.ts`). App code reads words only
+  through `translate`, `messageOf` and `hasMessage` (checked by `web/test/unit/i18n-on-demand.test.ts`).
+- **Formatting on demand.** `components/LazyMarkdown.tsx` stands in for `components/Markdown.tsx` (react-markdown,
+  GFM, KaTeX and its styles, with the rich copy of answers) in everything the first page pulls in: answers, room
+  messages, file previews, chat steps and skill examples. The code loads the first time one of them is drawn; until
+  then (about a second on a slow phone connection, once per visit; then cached) the text shows as it is, with its lines,
+  size and links, like the plain text `Markdown.tsx` shows when it cannot format. Copying an answer before it is loaded
+  copies the Markdown only. Once signed in, `main.tsx` loads it when the app is idle (`requestIdleCallback`, else after
+  2 s; manager's decision, 2026-11-13), so in practice nobody sees raw Markdown first; the sign-in page never loads it.
+  Pages that open later anyway (Projects, Skills, the artifact panel) import `Markdown.tsx` directly.
+- **No duplicate start-up reads.** The chat list (`lib/chatListLoad.ts`: the rail, the tab bar and the history list
+  each asked), AI access (`store/aiAccess.ts`: the banner and the welcome card) and `/api/me` (main.tsx and the Gate)
+  each share a read already on its way, and the chat list and AI access start the moment the session is known
+  (`main.tsx`), not after the signed-in screen's first render.
+
+**Measured** (private copy of the QA team, Chromium, Fast 3G + 4x CPU, empty cache, qa-member): Home at 1440 from
+4.70 MB of files and 30 s (the measuring cap; files done at 29.8 s) to 0.70 MB and 16.6 s; at 390 from 4.70 MB / 30 s
+to 0.70 MB / 15.9 s; the sign-in page from 4.70 MB and 29.6 s to its box to 0.71 MB and 14.3 s; duplicate start-up
+reads from 3x chat list + 2x AI access to none. What is left is mostly the number of files (about 110 small chunks
+over 6 connections at 560 ms each), not their size.
+
+**Why.** The cache audit of 2026-11-13 measured a first visit to Home at about 29 s on Fast 3G with a 4x slower CPU:
+4.7 MB of uncompressed files (an office server, the desktop app and self-hosted teams without Cloudflare get no
+compression), 2 MB of it all five languages and 1.2 MB the Markdown and math code, which even the sign-in page
+loaded. Precompressing at build costs about 20 s of build time and about 13 MB more in `web/dist` (and in bundles),
+and keeps the server doing no work per request.
+
+**Not done.** The sign-in page still loads the signed-in app's code (routes are not split by sign-in state). The
+signed-in screen's reads (rooms, projects, notices) still start after `/api/me` answers.
+
 ## No password for the team's official AI accounts (2026-11-07, product owner)
 
 **Decision.** Adding or replacing a team AI connection and starting a Claude or ChatGPT sign-in no longer ask for the

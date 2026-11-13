@@ -15,7 +15,7 @@ import type { PluginKind, PluginPermission, PluginPlatform } from '@mycel/shared
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
-import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
+import { hasMessage, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, EmptyState, IconButton, Modal, StickyHeader, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Tooltip } from '../../components/Tooltip'
@@ -53,7 +53,7 @@ function CommunityPlugins() {
 function refusal(t: T, e: unknown, locale: ReturnType<typeof useLocale>): string {
   const reason = isApiError(e) ? e.body.params?.reason : undefined
   const key = `plugins.error.${String(reason)}`
-  if (typeof reason === 'string' && key in DICTS.en) return t(key as MessageKey)
+  if (typeof reason === 'string' && hasMessage(key)) return t(key)
   return isApiError(e) ? t('plugins.error') : errorText(e, locale, t('error.network'))
 }
 

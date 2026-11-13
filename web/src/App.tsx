@@ -198,7 +198,8 @@ function Gate() {
   const settings = useSettingsOverlay()
 
   useEffect(() => {
-    void load()
+    // main.tsx asked already (before the first render); this one counts only when nothing did (tests mount Gate alone)
+    if (useSession.getState().status.kind === 'loading') void load()
   }, [load])
 
   useSessionLifecycle()

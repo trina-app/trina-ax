@@ -18,7 +18,7 @@ import {
   ACTIVITY_KINDS, ACTIVITY_RANGES, NO_FILTERS, dayLabel, filtersActive, groupActivity, inSentence, matchesQuery, pathQuery,
   rangeBounds, readFilters, writeFilters, type ActivityFilters, type ActivityKind, type ActivityRun,
 } from '../../lib/activity'
-import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
+import { currentLocale, hasMessage, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader, useMediaQuery } from '../../components/ui'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { useAdminBar, useUpTo } from './phoneBar'
@@ -462,7 +462,7 @@ export function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
     return words?.[currentLocale()] ?? e.action
   }
   const key = e.source === 'file' ? `audit.file.${e.action}` : `audit.act.${e.action}`
-  return key in DICTS.ko ? t(key as MessageKey) : e.action
+  return hasMessage(key) ? t(key) : e.action
 }
 
 /** Tool calls: whether the call was refused (permission) or failed. */

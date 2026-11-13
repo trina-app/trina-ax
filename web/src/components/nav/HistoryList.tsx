@@ -11,6 +11,7 @@ import { dateBucket, type DateBucket } from '../../lib/format'
 import { useT, type MessageKey } from '../../i18n'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
@@ -113,7 +114,8 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
   // a first read that failed: the calm notice in place of the list, which reads again by itself (components/LoadError.tsx);
   // it spun forever before. The error stays until a read works, so the notice stays while it reads again
   const [chatsError, setChatsError] = useState<unknown>(null)
-  const readChats = useCallback(() => loadChats(true).then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [loadChats])
+  // the first read is shared with the rail's marks (lib/chatListLoad.ts)
+  const readChats = useCallback(() => loadChatList().then(() => setChatsError(null), (e: unknown) => setChatsError(e ?? new Error('failed'))), [])
   useEffect(() => {
     if (!loaded) void readChats()
   }, [loaded, readChats])
