@@ -46,7 +46,8 @@ import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
-import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { useLogoutTo } from './lib/logout'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
 import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -375,10 +376,19 @@ export default function App() {
 export function AfterJoin() {
   const t = useT()
   const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
-  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet(), token: readJoinToken(window.location).token }))
+  const signOutToJoin = useLogoutTo()
   const told = useRef(false)
   useEffect(() => {
-    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    if (!target.joined && team && !told.current) {
+      told.current = true
+      // a shared computer: the next person can sign this one out and come back to the same link (the link is in the address only here)
+      const token = target.token
+      toast({
+        level: 'info', text: t('teamLink.alreadyIn', { team }), ms: 15000,
+        action: token ? { label: t('teamLink.signOutToJoin'), run: () => void signOutToJoin(`/join#t=${token}`) } : undefined,
+      })
+    }
     return () => clearAfterJoin()
     // once, on arriving
     // eslint-disable-next-line react-hooks/exhaustive-deps

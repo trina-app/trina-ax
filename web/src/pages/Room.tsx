@@ -483,6 +483,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         </button>
       )}
       </div>
+      {room?.gone ? (
+        // the other person was deleted from the team: the history stays readable, the box is gone
+        <p className="shrink-0 border-t border-line px-4 py-3 text-center text-sm text-muted" data-testid="room-peer-gone">{t('rooms.peerGone', { name: room.peers[0]?.name ?? t('rooms.goneUser') })}</p>
+      ) : (
       <RoomComposer
         roomId={roomId}
         members={members}
@@ -495,6 +499,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           if (detached) toBottom.current = true
         }}
       />
+      )}
       <MembersDialog
         open={showMembers}
         onClose={() => setShowMembers(false)}

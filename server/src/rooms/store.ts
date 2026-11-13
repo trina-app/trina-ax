@@ -521,7 +521,15 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
+    ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
   }
+}
+
+/** A DM whose other person was deleted from the team (their account is a tombstone, users.deleted_at): readable, closed to
+ * new messages. Never a group or team room: those go on without them. */
+export function dmPeerGone(db: Database, room: Pick<RoomRow, 'id' | 'kind'>): boolean {
+  if (room.kind !== 'dm') return false
+  return !!db.query('SELECT 1 FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND u.deleted_at IS NOT NULL LIMIT 1').get(room.id)
 }
 
 /** The list folder this member keeps the room in (Room.folderId; docs/DECISIONS.md "List folders"), or null: never while
