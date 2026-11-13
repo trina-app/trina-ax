@@ -82,8 +82,9 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
  * kept with it for those who join the room later (rooms/history.ts). The caller took the sending budget's token for the
  * request already (before its check): send takes none more. */
 /** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
- * button under an answer. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai' }
+ * button under an answer. `plain`: post_to_room's own_words, the person's own message with no AI-answer quote (no
+ * answer_at; checked and audited as a share). `openedDm`: the post made the 1:1 chat (audited as a flag, nobody named). */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -641,10 +642,10 @@ export class Rooms {
       // join the room later (rooms/history.ts)
       this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope)
         VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0, answer ? answer.scope : carried ?? null)
+        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}) } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)

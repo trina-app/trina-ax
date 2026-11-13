@@ -319,14 +319,18 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
  * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
  * places they may look themselves.
  */
-export async function answerCheck(ctx: AppContext, userId: string, roomId: string, chatId: string, messageId: string, answerPart: string) {
+export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string) {
   const db = ctx.db
+  const roomId = typeof to === 'string' ? to : null
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
   // for at most DECIDE_HISTORY_MS; one still waiting makes it unsendable (`hidden` below)
-  const target = roomRow(db, roomId)
-  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
-  // a disabled or deleted account still in the room reads nothing now: it misses every source and every file
-  const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
+  const target = roomId ? roomRow(db, roomId) : null
+  if (roomId && target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
+  // a disabled or deleted account still in the room reads nothing now: it misses every source and every file. A 1:1
+  // chat not made yet (post_to_room to a teammate): the other person is the audience
+  const audience = typeof to === 'string'
+    ? (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(to, userId) as { user_id: string }[]).map((r) => r.user_id)
+    : [...new Set(to.people)].filter((id) => id !== userId).sort()
   const use = branchUse(db, chatId, messageId)
   const onBranch = new Set(use.answers)
   // the hash rule looks at what turns on this branch saved
@@ -433,7 +437,14 @@ const unablePeople = (c: { audience: readonly string[]; rows: readonly Row[] }, 
   return ids.size
 }
 
-/** The key a "confirm" carries: what the person saw (never any id inside it can be read back). */
+/** What a key names as the room: a 1:1 chat by its two people (rooms.dm_key), so the key of a card shown before the chat
+ * was made (post_to_room to a teammate: keyRoomOfPair) is the key of the same state once it is made; any other room by
+ * its id. */
+export const keyRoomOf = (room: Pick<RoomRow, 'id' | 'kind' | 'dm_key'>): string => (room.kind === 'dm' && room.dm_key ? `dm:${room.dm_key}` : room.id)
+/** keyRoomOf of the 1:1 chat of two people, made or not (Rooms.openDm's dm_key) */
+export const keyRoomOfPair = (a: string, b: string): string => `dm:${[a, b].sort().join('|')}`
+
+/** The key a "confirm" carries: what the person saw (never any id inside it can be read back). `roomId`: keyRoomOf. */
 function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId: string, c: Check, prov: Prov): string {
   const state = JSON.stringify({
     v: 1, userId, roomId, messageId, members: c.audience,
@@ -443,7 +454,7 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
   return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
 
-export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }
+export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean }
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
@@ -466,7 +477,13 @@ export interface PreparedShare {
   /** the files the switches start as (the ones that may go) and the provenance with them attached */
   offered: ReadonlySet<string>; shown: Prov
   applies: boolean; key: string
+  /** post_to_room's own_words: the text is the person's own message, with no AI-answer quote (no answer_at) */
+  plain?: boolean
 }
+
+/** A share checked for a 1:1 chat that is not made yet (preparePendingDm): what shareChoice needs; `room.id` is the
+ * key's name for the pair (keyRoomOfPair). */
+export type PendingShare = Omit<PreparedShare, 'room' | 'me'> & { room: { id: string }; otherId: string }
 
 /**
  * The checks of "대화방에 보내기" up to the question whether it may go, for an answer of the person's own chat: the button
@@ -475,8 +492,9 @@ export interface PreparedShare {
  * order: a confidential conversation; a room I am in (404 like one that does not exist); the same clientMessageId again
  * (the first message: 'sent', nothing checked or counted again); the thread's first message; the sending budget (and one
  * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
+ * `o.budget`: false only for post_to_room's 1:1 chat just made on the yes, whose check before it took the budget.
  */
-export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId'>, locale: Locale): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
   const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
   if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
@@ -490,28 +508,50 @@ export async function prepareShare(ctx: AppContext, userId: string, chatId: stri
   }
   // a reply in a thread: its first message before anything else (it may be gone since the question was asked)
   if (b.threadRootId !== undefined && !rooms.threadRootOf(room.id, b.threadRootId, me)) fail('conflict', tr('answerShareThreadRoot', locale), { params: { reason: 'thread_root' } })
+  const r = await checkShare(ctx, userId, chatId, answer, b, room.id, keyRoomOf(room), locale, o.budget !== false)
+  return { status: 'prepared', room, me, ...r }
+}
+
+/** The budget and the check of prepareShare, for a room (its id) or a 1:1 chat not made yet (its people): the message's
+ * body, the check, and the key under `keyRoom` (keyRoomOf). */
+async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
+  const rooms = roomsOf(ctx)
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
-  rooms.takeSendToken(userId)
-  const { body, at, cut } = answerShareBody(b.note, answer.content, answerCutLine(locale))
+  if (budget) rooms.takeSendToken(userId)
+  // the person's own words (post_to_room's own_words): the text alone, no note, no quote; never cut (the tool refuses a
+  // text too long for one message before any card)
+  const { body, at, cut } = b.plain ? { body: answer.content.trim(), at: 0, cut: false } : answerShareBody(b.note, answer.content, answerCutLine(locale))
   // and one more for every LINKS_PER_TOKEN links past the first: a row per file is a count per file, so an answer made to
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
-  for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
-  const c = await answerCheck(ctx, userId, room.id, chatId, answer.messageId, body.slice(at))
+  if (budget) for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
+  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at))
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
   if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
   // (a room with nobody else in it: nobody to miss anything)
   const applies = c.audience.length > 0 && (c.rows.some((r) => r.unable.length > 0) || shown.missing.size > 0 || shown.unknown)
-  const key = confirmKeyOf(ctx, userId, room.id, answer.messageId, c, shown)
-  return { status: 'prepared', room, me, messageId: answer.messageId, body, at, cut, check: c, offered, shown, applies, key }
+  const key = confirmKeyOf(ctx, userId, keyRoom, answer.messageId, c, shown)
+  return { messageId: answer.messageId, body, at, cut, check: c, offered, shown, applies, key, ...(b.plain ? { plain: true } : {}) }
+}
+
+/**
+ * prepareShare for a 1:1 chat with `otherId` that does not exist yet (post_to_room to a teammate with no 1:1 chat): the
+ * same checks with the other person as the audience, and nothing made. The chat is made only after the person's yes
+ * (Rooms.openDm); prepareShare then runs on it, and its key is this one's when nothing changed (keyRoomOf).
+ */
+export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean }, locale: Locale): Promise<PendingShare> {
+  if (confidentialChat(ctx.db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
+  const keyRoom = keyRoomOfPair(userId, b.otherId)
+  const r = await checkShare(ctx, userId, chatId, answer, b, { people: [b.otherId] }, keyRoom, locale)
+  return { status: 'prepared', room: { id: keyRoom }, otherId: b.otherId, ...r }
 }
 
 /** What a "confirm" would show for one choice of attached files, and its key: the AI's card (chat/post-to-room.ts) asks
  * once with both choices, each bound to the key of the line it shows. */
-export async function shareChoice(ctx: AppContext, userId: string, p: PreparedShare, attached: ReadonlySet<string>): Promise<{ key: string; confirm: Extract<ShareAnswerToRoomResult, { status: 'confirm' }>; people: number; unableFiles: number; unableFilePeople: number }> {
+export async function shareChoice(ctx: AppContext, userId: string, p: PreparedShare | PendingShare, attached: ReadonlySet<string>): Promise<{ key: string; confirm: Extract<ShareAnswerToRoomResult, { status: 'confirm' }>; people: number; unableFiles: number; unableFilePeople: number }> {
   const prov = await p.check.provenance(attached)
-  const key = confirmKeyOf(ctx, userId, p.room.id, p.messageId, p.check, prov)
+  const key = confirmKeyOf(ctx, userId, 'kind' in p.room ? keyRoomOf(p.room) : p.room.id, p.messageId, p.check, prov)
   const confirm = await confirmOf(p.check, prov, key) as Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
   // the linked files that do not go and some member cannot open, and how many members that is
   const left = p.check.rows.filter((r) => !(r.rel && attached.has(r.rel)) && r.unable.length > 0)
@@ -524,7 +564,7 @@ export async function shareChoice(ctx: AppContext, userId: string, p: PreparedSh
  * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so);
  * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
  */
-export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
   const rooms = roomsOf(ctx)
   const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
@@ -543,7 +583,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
       const chosen = new Set(attach)
       const mine = await c.provenance(chosen)
       if (mine.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
-      const mineKey = confirmKeyOf(ctx, userId, room.id, p.messageId, c, mine)
+      const mineKey = confirmKeyOf(ctx, userId, keyRoomOf(room), p.messageId, c, mine)
       // the key is for the line as it reads with the files I chose (turning a switch off can bring a file's place into
       // it, an attached AI-made file what made it): the same state with another line is asked again for that choice
       if (b.confirmKey !== mineKey) return b.confirmKey === key ? await confirmOf(c, mine, mineKey, 'choice') : await confirmOf(c, shown, key, 'changed')
@@ -569,7 +609,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}) })
+    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

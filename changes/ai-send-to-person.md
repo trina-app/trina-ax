@@ -1,0 +1,2 @@
+- Ask Trina to "tell Bob the meeting is at 10 tomorrow" and it reaches Bob, even if you have never chatted with him. The card shows the message and says it starts a new 1:1 chat; the chat is made only when you press **Send**. When two people share the name, Trina asks which one you mean.
+- What you dictate ("tell Bob …") goes as your own message, word for word, not as a quoted AI answer. Sharing a summary or an answer still shows it as Trina's answer.
