@@ -4185,6 +4185,7 @@ export class MockServer {
     cancelGoogleAppTeamFlow: (c) => { this.googleApps.cancel(c.params.id!); return undefined },
     completeGoogleAppTeamFlow: (c) => {
       const app = this.gappId(c.params.app)
+      if (c.body.create && this.googleApps.app(app)!.team) fail('conflict', 409, 'google_app_team_exists', undefined, { reason: 'team_exists' })
       if (!this.googleApps.completeTeam(app, c.params.id!, { id: c.user.id, name: c.user.name })) fail('not_found', 404, 'google_app_flow_not_found')
       return this.googleApps.adminStatus(app, this.driveClient !== 'none')
     },
@@ -4193,7 +4194,11 @@ export class MockServer {
       if (!this.googleApps.setTeamAccess(app, c.body.access)) fail('not_found', 404, 'google_app_not_connected')
       return this.googleApps.adminStatus(app, this.driveClient !== 'none')
     },
-    removeGoogleAppTeam: (c) => this.googleApps.removeTeam(this.gappId(c.params.app)),
+    removeGoogleAppTeam: (c) => {
+      const app = this.gappId(c.params.app)
+      if (c.query.id && c.query.id !== `team-${app}`) return { removed: false, revocation: 'not_needed' as const }
+      return this.googleApps.removeTeam(app)
+    },
     setGoogleAppMembers: (c) => {
       this.googleApps.app(c.params.app) ?? fail('not_found', 404)
       // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")

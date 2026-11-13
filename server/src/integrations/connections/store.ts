@@ -202,6 +202,26 @@ export function signsTeamGoogleApp(db: Database, user: string, except?: string):
     WHERE i.scope = 'team' AND i.google_app IS NOT NULL AND i.secret_enc IS NOT NULL AND s.user_id = ? AND i.id != ? LIMIT 1`).get(user, except ?? '')
 }
 
+/** The Google address a connection's, a Drive connection's or a Drive share's account was confirmed with (JSON with
+ * `email`), lowercased; null when none is stored. */
+export function googleEmailOf(account: string | null | undefined): string | null {
+  try { const e = (JSON.parse(account ?? 'null') as { email?: unknown } | null)?.email; return typeof e === 'string' && e ? e.toLowerCase() : null } catch { return null }
+}
+
+/** Google revokes a whole grant (one Google account and app), so before asking it to revoke a token this server checks
+ * that no other sign-in here, of anyone, still uses the same Google account: a person's own Gmail, Calendar, Docs or
+ * Sheets, an account shared with the team, a Drive connection or a Drive shared with the team. Matched by the address
+ * confirmed at sign-in (the subjects differ: Google's userinfo for the apps, Drive's permissionId for Drive). An unknown
+ * address counts as in use (fail safe: nothing is revoked). `except`: the sign-in being removed. */
+export function googleAccountInUse(db: Database, email: string | null, except: { integration?: string; driveUser?: string; share?: string } = {}): boolean {
+  if (!email) return true
+  const e = email.toLowerCase()
+  const match = "lower(json_extract(account, '$.email')) = ?"
+  if (db.query(`SELECT 1 FROM integrations WHERE google_app IS NOT NULL AND secret_enc IS NOT NULL AND id != ? AND ${match} LIMIT 1`).get(except.integration ?? '', e)) return true
+  if (db.query(`SELECT 1 FROM drive_connections WHERE user_id != ? AND ${match} LIMIT 1`).get(except.driveUser ?? '', e)) return true
+  return !!db.query(`SELECT 1 FROM drive_team_shares WHERE secret_enc IS NOT NULL AND id != ? AND ${match} LIMIT 1`).get(except.share ?? '', e)
+}
+
 /** Is this person among the people an admin's template is for (templates.ts)? A template that is gone covers nobody.
  * A member's connection made from it is usable only while this holds (and the team's switch for members' own
  * connections does not apply: the admin registered the service). */

@@ -92,10 +92,11 @@ function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
   const ops = useMemo<SignInOps<GoogleAppAdminStatus>>(() => ({
     authorize: () => api.call(API.authorizeGoogleAppTeam, { params: { app }, body: {} }),
     poll: (id) => api.call(API.googleAppTeamFlow, { params: { app, id } }),
-    complete: (id) => api.call(API.completeGoogleAppTeamFlow, { params: { app, id }, body: {} }),
+    // a new one only when there is none yet: never replaces what another admin connected meanwhile
+    complete: (id) => api.call(API.completeGoogleAppTeamFlow, { params: { app, id }, body: isNew ? { create: true } : {} }),
     cancel: (id) => api.call(API.cancelGoogleAppTeamFlow, { params: { app, id } }),
     current: async () => (await api.call(API.googleAppsAdminStatus)).apps.find((x) => x.id === app)!,
-  }), [app])
+  }), [app, isNew])
   const f = useSignInFlow(ops, (st) => {
     onStatus(st)
     if (!isNew) { toast({ level: 'success', text: t('drive.status.connected') }); onClose(); return }
@@ -103,8 +104,8 @@ function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
   })
   const close = async () => {
     if (f.inProgress) await f.cancel()
-    // made here but never saved: removed again (used by nobody so far)
-    if (isNew && made) { try { await api.call(API.removeGoogleAppTeam, { params: { app } }) } catch {} }
+    // made here but never saved: removed again (used by nobody so far), only that one (by its id)
+    if (isNew && made) { try { await api.call(API.removeGoogleAppTeam, { params: { app }, query: { id: made.id } }) } catch {} }
     onClose()
   }
   const save = async () => {

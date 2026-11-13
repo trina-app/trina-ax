@@ -123,13 +123,17 @@ saves its people.
   Connectors, "Shared by an admin: <account>" when it includes them, and can still connect their own account.
 - **A member's own connection is never touched.** It is a different row (scope `personal`); a member who has both gets
   both, and the AI's list names the shared account and says to use the person's own unless they ask for the team's.
-- **Changes ask.** The shared connection's rule is "ask" and no screen changes it. A member's Always allow on its card
-  is their own (`integration_user_allow`), ends when they leave its rule, and ends when an admin signs in a different
+- **Changes ask.** The shared connection's rule is "ask" and no screen changes it: the AI asks each member before it
+  sends or changes something, unless that member chose Always allow on its card. That choice is their own (`integration_user_allow`), ends when they leave its rule, and ends when an admin signs in a different
   Google account. A scheduled run cannot send through it (nobody to ask).
 - **Its answers** may reach the people its rule includes (a team connection's read scope), not one person's.
-- **Removing it** deletes its tokens, rule and members' Always allow at once. Google is asked to revoke only when the
-  admin who signed it in has no other Google sign-in here (their own apps, Drive, a Drive share, another shared app);
-  likewise a person's own Disconnect (apps or Drive) does not revoke while they signed in a shared app. 팀장 넘기기 lists
+- **Removing it** deletes its tokens, rule and members' Always allow at once. Google revokes a whole grant, so it is
+  asked only when the admin who signed it in has no other Google sign-in here **and no sign-in of anyone here uses the
+  same Google account** (matched by the address confirmed at sign-in: a person's own app, another shared app, a Drive
+  connection or a Drive share). The same check guards a person's own Disconnect (apps or Drive) and stopping a Drive
+  share, so removing one never ends another person's connection.
+- **A new one never replaces another admin's.** The dialog completes with `create: true` (409 `team_exists` when
+  another admin connected one meanwhile), and closing it removes only the connection it made (`?id=`). 팀장 넘기기 lists
   it (`team_sign_ins`, `team_connection`) like other team sign-ins.
 - Data: a team row of `integrations` with `google_app` (at most one per app, migration 349's index), its sign-in a
   `google_app_flows` row with `scope = 'team'` (only the team completion takes it).

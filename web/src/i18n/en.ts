@@ -5176,7 +5176,7 @@ export const en: Record<MessageKey, string> = {
   "gapps.team.connect": "Connect for the team",
   "gapps.team.dialogTitle": "Share a {name} account with the team",
   "gapps.team.intro": "Sign in with the Google account the team will use. Only owners and admins can change or remove it.",
-  "gapps.team.audienceNote": "Only these people use it. Admins too only when they are included. The AI still asks them before it sends or changes anything.",
+  "gapps.team.audienceNote": "Only these people use it. Admins too only when they are included. The AI asks them before it sends or changes anything, unless they chose Always allow for it.",
   "gapps.team.edit": "Change people",
   "gapps.team.remove": "Remove",
   "gapps.team.removeTitle": "Remove the shared {name} account?",

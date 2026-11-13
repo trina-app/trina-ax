@@ -51,9 +51,9 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.authorizeGoogleAppTeam, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team')))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
   kit.handle(API.cancelGoogleAppTeamFlow, ({ auth, params }) => safe(() => svc().cancel(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
-  kit.handle(API.completeGoogleAppTeamFlow, ({ auth, params }) => safe(() => svc().completeTeam(auth.user.id, auth.session.id, appOf(params.app), params.id)))
+  kit.handle(API.completeGoogleAppTeamFlow, ({ auth, params, body }) => safe(() => svc().completeTeam(auth.user.id, auth.session.id, appOf(params.app), params.id, { create: body.create })))
   kit.handle(API.setGoogleAppTeam, ({ auth, params, body }) => safe(() => svc().setTeamAccess(auth.user.id, appOf(params.app), body.access)))
-  kit.handle(API.removeGoogleAppTeam, ({ auth, params }) => safe(() => svc().removeTeam(auth.user.id, appOf(params.app))))
+  kit.handle(API.removeGoogleAppTeam, ({ auth, params, query }) => safe(() => svc().removeTeam(auth.user.id, appOf(params.app), query.id)))
   kit.handle(API.setGoogleAppMembers, ({ auth, params, body }) => safe(() => {
     const app = appOf(params.app), st = svc().setMembers(auth.user.id, app, body.on)
     afterServiceSetup(ctx, app)

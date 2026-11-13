@@ -7,7 +7,7 @@ import { resolveLayout } from '../../system/layout'
 import { DRIVE_SCOPE, configKey, hash, readDriveConfig, type DriveConfig } from './config'
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
-import { signsTeamGoogleApp } from '../connections/store'
+import { googleAccountInUse, googleEmailOf, signsTeamGoogleApp } from '../connections/store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
@@ -441,6 +441,8 @@ export class GoogleDrive {
       || ownsLiveDriveShare(this.ctx.db, user)
       // an app's account they connected for the team (google-apps/service.ts "Shared with the team")
       || signsTeamGoogleApp(this.ctx.db, user)
+      // anyone's sign-in here with the same Google account (their own app, a shared one, a Drive share)
+      || googleAccountInUse(this.ctx.db, googleEmailOf(row?.account), { driveUser: user })
     let revocation: 'revoked' | 'unavailable' | 'not_needed'
     try { revocation = others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
     return { disconnected: true as const, revocation }

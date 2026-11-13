@@ -5132,7 +5132,7 @@ export const ja: Record<MessageKey, string> = {
   "gapps.team.connect": "チームに接続",
   "gapps.team.dialogTitle": "{name} アカウントをチームと共有",
   "gapps.team.intro": "チームで使うGoogleアカウントでログインします。変更や削除ができるのはオーナーと管理者だけです。",
-  "gapps.team.audienceNote": "選んだ人だけが使います。管理者も含めた場合だけ使えます。送信や変更の前には、AIがその人に確認します。",
+  "gapps.team.audienceNote": "選んだ人だけが使います。管理者も含めた場合だけ使えます。送信や変更の前にAIがその人に確認します。その人が常に許可を選んだ場合は確認しません。",
   "gapps.team.edit": "使う人を変更",
   "gapps.team.remove": "削除",
   "gapps.team.removeTitle": "共有の {name} アカウントを削除しますか?",

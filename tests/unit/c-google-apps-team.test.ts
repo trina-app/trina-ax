@@ -263,3 +263,49 @@ test('Google is not asked to revoke a grant the same admin still uses here; remo
   expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team')).body).toEqual({ removed: true, revocation: 'revoked' })
   expect(google.revoked).toHaveLength(1)
 })
+
+test('Google is never asked to revoke an account anyone else still uses here: own ↔ shared, both directions, and Drive', async () => {
+  // alice's own Gmail is the same Google account the team shares
+  const f = await apps.authorize('alice', 'alice-session', 'gmail')
+  expect(await apps.callback(google.authorize(f.authorizationUrl, 'teambox'), browser('alice'))).toBe(true)
+  await apps.complete('alice', 'alice-session', 'gmail', f.flowId)
+  await connectTeam('carol')
+  await send('carol', 'PUT', '/api/admin/google-apps/gmail/team', { access: everyone })
+  // alice disconnects her own: the shared one keeps working
+  expect((await send('alice', 'DELETE', '/api/integrations/google-apps/gmail')).body.revocation).toBe('not_needed')
+  expect(google.revoked).toEqual([])
+  expect(apps.teamView('gmail')!.status).toBe('connected')
+  // the other way: bob's own Gmail is teambox; the shared one goes, bob's stays
+  const g = await apps.authorize('bob', 'bob-session', 'gmail')
+  expect(await apps.callback(google.authorize(g.authorizationUrl, 'teambox'), browser('bob'))).toBe(true)
+  await apps.complete('bob', 'bob-session', 'gmail', g.flowId)
+  expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team')).body).toEqual({ removed: true, revocation: 'not_needed' })
+  expect(google.revoked).toEqual([])
+  expect(apps.view('bob', 'gmail').status).toBe('connected')
+  // Drive in the mix: erin's Drive is the same account (any letter case); removing the shared one and bob's own leave it
+  A.ctx.db.query("INSERT INTO drive_connections (id, user_id, config_key, account, scopes, secret_enc, key_version, status, expires_at, created_at, updated_at) VALUES ('d1','erin','k',?,'[]','x',1,'connected','2099-01-01','t','t')")
+    .run(JSON.stringify({ subject: 'perm-1', name: 'Team box', email: 'TeamBox@acme.example' }))
+  expect((await send('bob', 'DELETE', '/api/integrations/google-apps/gmail')).body.revocation).toBe('not_needed')
+  await connectTeam('carol')
+  expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team')).body.revocation).toBe('not_needed')
+  expect(google.revoked).toEqual([])
+  // nobody else uses it any more: asked
+  A.ctx.db.query("DELETE FROM drive_connections WHERE id='d1'").run()
+  await connectTeam('carol')
+  expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team')).body.revocation).toBe('revoked')
+  expect(google.revoked).toHaveLength(1)
+})
+
+test('a dialog that makes a new shared account never replaces or removes one another admin connected meanwhile', async () => {
+  // carol starts a new one; dana finishes hers first
+  const f = await apps.authorize('carol', 'carol-session', 'gmail', 'team')
+  expect(await apps.callback(google.authorize(f.authorizationUrl, 'teambox'), browser('carol'))).toBe(true)
+  await connectTeam('dana', 'gmail', 'otherbox')
+  const danas = teamId()!
+  await expect(apps.completeTeam('carol', 'carol-session', 'gmail', f.flowId, { create: true })).rejects.toMatchObject({ reason: 'team_exists', status: 409 })
+  expect(apps.teamView('gmail')!.account.email).toBe('otherbox@acme.example')
+  // carol's dialog closes: it removes only what it made (by id), not dana's
+  expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team?id=someone-elses')).body).toEqual({ removed: false, revocation: 'not_needed' })
+  expect(teamId()).toBe(danas)
+  expect((await send('carol', 'DELETE', `/api/admin/google-apps/gmail/team?id=${danas}`)).body.removed).toBe(true)
+})

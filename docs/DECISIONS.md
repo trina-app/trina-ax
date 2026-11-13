@@ -25314,9 +25314,12 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   the app's page. Scheduled runs cannot send through it. Considered and not done: forbidding Always allow on a shared
   mailbox; kept consistent with every other team connection and the owner's "Always allow means done".
 - **The admin who signed it in** is recorded in `team_sign_ins` so 팀장 넘기기 lists it. It stays when that admin leaves
-  (a shared mailbox is the team's, unlike a Drive share of an admin's own Drive). Revocation at Google follows the "last
-  sign-in" rule per person: neither the shared account's removal nor a person's own Disconnect (apps or Drive) asks
-  Google while the same person keeps another Google sign-in here, a shared one included.
+  (a shared mailbox is the team's, unlike a Drive share of an admin's own Drive). Revocation at Google: Google revokes a whole
+  grant, so removing the shared account, a person's own Disconnect (apps or Drive) and stopping a Drive share ask Google
+  only when neither the same person keeps another Google sign-in here nor anyone's sign-in here uses the same Google
+  account (`store.ts googleAccountInUse`, matched by the confirmed address; an unknown address counts as in use). Found
+  in review: a member's own Gmail on the team's mailbox account, disconnected, would have ended the shared one for
+  everyone.
 - **Google Drive unchanged**: "Drives shared with the team" (#95) already is its shared mode (read-only, chosen folders).
 - Version impact: **minor** (new admin feature and endpoints, optional fields, an add-only migration).
 - Tests: `tests/unit/c-google-apps-team.test.ts`.

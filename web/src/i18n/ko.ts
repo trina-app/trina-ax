@@ -5176,7 +5176,7 @@ export const ko = {
   "gapps.team.connect": "팀에 연결",
   "gapps.team.dialogTitle": "{name} 계정을 팀과 함께 쓰기",
   "gapps.team.intro": "팀이 쓸 Google 계정으로 로그인해요. 팀장과 관리자만 바꾸거나 없앨 수 있어요.",
-  "gapps.team.audienceNote": "고른 사람만 써요. 관리자도 포함될 때만 써요. 보내거나 바꾸기 전에는 AI가 그 사람에게 먼저 물어요.",
+  "gapps.team.audienceNote": "고른 사람만 써요. 관리자도 포함될 때만 써요. 보내거나 바꾸기 전에 AI가 그 사람에게 먼저 물어요. 그 사람이 항상 허용을 골랐으면 묻지 않아요.",
   "gapps.team.edit": "쓰는 사람 바꾸기",
   "gapps.team.remove": "없애기",
   "gapps.team.removeTitle": "함께 쓰는 {name} 계정을 없앨까요?",

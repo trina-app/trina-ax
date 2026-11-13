@@ -318,7 +318,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/admin/google-apps/:app/team/authorize` | Admin | Owners and admins: start the Google sign-in of the account shared with the team for one app. |
 | `GET` | `/api/admin/google-apps/:app/team/flows/:id` | Admin | Poll the shared account sign-in started by this same signed-in session. |
 | `DELETE` | `/api/admin/google-apps/:app/team/flows/:id` | Admin | Cancel this shared account sign-in. |
-| `POST` | `/api/admin/google-apps/:app/team/flows/:id/complete` | Admin | Confirm the Google account shown: it becomes the team's shared account for the app (a new one is used by nobody until its people are saved; a reconnect keeps them). Members' own connections are not touched. |
+| `POST` | `/api/admin/google-apps/:app/team/flows/:id/complete` | Admin | Confirm the Google account shown: it becomes the team's shared account for the app (a new one is used by nobody until its people are saved; a reconnect keeps them). `create`: only when there is none yet (else 409 team_exists: another admin connected one meanwhile). Members' own connections are not touched. |
 | `PUT` | `/api/admin/google-apps/:app/team` | Admin | Who may use the shared account: everyone, groups or people (the same rule as a team connection). |
 | `DELETE` | `/api/admin/google-apps/:app/team` | Admin | Remove the shared account at once; Google is asked to revoke only when no other sign-in here uses the same Google account. |
 | `PUT` | `/api/admin/google-apps/:app/members` | Admin | The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once the app is set up). |

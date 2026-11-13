@@ -90,7 +90,7 @@ export class MockGoogleApps {
   }
   teamView(a: App): GoogleAppTeam | null {
     if (!a.team) return null
-    return { status: 'connected', account: a.team.account, access: a.team.access, usedBy: this.countOf(a.team.access), connectedBy: a.team.by, connectedAt: new Date().toISOString() }
+    return { id: `team-${[...this.apps.entries()].find(([, x]) => x === a)![0]}`, status: 'connected', account: a.team.account, access: a.team.access, usedBy: this.countOf(a.team.access), connectedBy: a.team.by, connectedAt: new Date().toISOString() }
   }
   /** the shared account's sign-in (the server checks the admin role) */
   authorizeTeam(id: GoogleAppId, userId: string) {

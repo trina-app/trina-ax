@@ -37,7 +37,7 @@ import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
 import { integrationsOf } from '../connections/service'
 import { memberAllows } from '../connections/tools'
-import { accessOf, activeUser, connectionAad, getRow, isAdmin, mayUse, savedTools, selectRows, setAccess, signsTeamGoogleApp, usersOf, type Row } from '../connections/store'
+import { accessOf, activeUser, connectionAad, getRow, isAdmin, mayUse, savedTools, selectRows, setAccess, signsTeamGoogleApp, googleAccountInUse, googleEmailOf, usersOf, type Row } from '../connections/store'
 import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './catalog'
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
@@ -401,7 +401,8 @@ export class GoogleApps {
     }
     const token = secret?.tokens.refreshToken ?? null
     if (!token) return { disconnected: true, revocation: 'not_needed' }
-    if (this.otherSignIns(user)) return { disconnected: true, revocation: 'not_needed' }
+    // another sign-in of this person, or anyone's sign-in here with the same Google account (a shared one too)
+    if (this.otherSignIns(user) || googleAccountInUse(this.db, googleEmailOf(row?.account), { integration: row?.id })) return { disconnected: true, revocation: 'not_needed' }
     return { disconnected: true, revocation: await this.revoke(secret!, token) }
   }
   /** Another Google sign-in of this person is left here (their own apps, their Drive, a Drive they share with the team, an
@@ -431,7 +432,7 @@ export class GoogleApps {
     if (!row) return null
     const signer = (this.db.query("SELECT u.id, u.name FROM team_sign_ins s JOIN users u ON u.id = s.user_id WHERE s.kind = 'team_connection' AND s.target_id = ?").get(row.id) as { id: string; name: string } | null)
     return {
-      status: this.stateOf(row, setupOf(this.ctx, app).key), account: accountOf(row) ?? { name: null, email: null },
+      id: row.id, status: this.stateOf(row, setupOf(this.ctx, app).key), account: accountOf(row) ?? { name: null, email: null },
       access: accessOf(this.db, row.id), usedBy: usersOf(this.db, row.id).size, connectedBy: signer, connectedAt: row.updated_at,
     }
   }
@@ -440,11 +441,13 @@ export class GoogleApps {
    * nobody until its people are saved (setTeamAccess); a reconnect keeps its people and tool switches, and members'
    * Always allow goes when the account is another one (they chose it for the old account). No member's own connection
    * is read or written. */
-  async completeTeam(user: string, session: string, app: GoogleAppId, id: string): Promise<GoogleAppAdminStatus> {
+  async completeTeam(user: string, session: string, app: GoogleAppId, id: string, o: { create?: boolean } = {}): Promise<GoogleAppAdminStatus> {
     const f = this.ownFlow(user, session, app, id, 'team')
     const { setup, s } = this.ready(f, app)
     const now = new Date(this.now()).toISOString()
     const existing = this.teamRow(app)
+    // a dialog that makes a new one never replaces the account another admin connected meanwhile
+    if (o.create && existing) throw new GoogleAppError('team_exists', 409)
     const rowId = existing?.id ?? newId()
     let sealed
     try { sealed = this.box.seal(connectionAad({ id: rowId, scope: 'team', owner_user_id: null }), this.secretFor(app, setup, s)) } catch { throw new GoogleAppError('key_unsafe', 503) }
@@ -453,6 +456,7 @@ export class GoogleApps {
     this.db.transaction(() => {
       const flow = this.db.query("UPDATE google_app_flows SET state='completed', secret_enc=NULL WHERE id=? AND state='ready'").run(id).changes
       if (!flow) throw new GoogleAppError('flow_not_ready', 409)
+      if (o.create && this.teamRow(app)) throw new GoogleAppError('team_exists', 409)
       if (existing) {
         this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, account=?, status='connected', last_error=NULL, version=version+1, updated_at=? WHERE id=?")
           .run(sealed.enc, sealed.keyVersion, account, now, existing.id)
@@ -504,9 +508,13 @@ export class GoogleApps {
 
   /** Remove the shared account at once (its rule, members' Always allow and its tools go with it); Google is asked to
    * revoke only when the admin who signed it in has no other Google sign-in here. Members' own connections stay. */
-  async removeTeam(user: string, app: GoogleAppId): Promise<{ removed: boolean; revocation: 'revoked' | 'unavailable' | 'not_needed' }> {
+  /** `onlyId`: remove it only when it is this connection (a dialog that made it, and closes before saving its people,
+   * never removes one another admin made or replaced meanwhile). */
+  async removeTeam(user: string, app: GoogleAppId, onlyId?: string): Promise<{ removed: boolean; revocation: 'revoked' | 'unavailable' | 'not_needed' }> {
     this.admin(user)
-    const row = this.teamRow(app)
+    const found = this.teamRow(app)
+    if (found && onlyId !== undefined && found.id !== onlyId) return { removed: false, revocation: 'not_needed' }
+    const row = found
     const signer = row ? (this.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(row.id) as { user_id: string } | null)?.user_id ?? null : null
     const secret = row ? this.secretOf(row) : null
     this.db.transaction(() => {
@@ -521,7 +529,7 @@ export class GoogleApps {
     audit(this.db, { actor: user, action: 'google_app.team_removed', target: row.id, detail: { app } })
     const token = secret?.tokens.refreshToken ?? null
     // whose grant it is, is known only from who signed it in; unknown: Google is not asked (fail safe for other sign-ins)
-    if (!token || !signer || this.otherSignIns(signer, row.id)) return { removed: true, revocation: 'not_needed' }
+    if (!token || !signer || this.otherSignIns(signer, row.id) || googleAccountInUse(this.db, googleEmailOf(row.account), { integration: row.id })) return { removed: true, revocation: 'not_needed' }
     return { removed: true, revocation: await this.revoke(secret!, token) }
   }
 

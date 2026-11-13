@@ -5132,7 +5132,7 @@ export const es: Record<MessageKey, string> = {
   "gapps.team.connect": "Conectar para el equipo",
   "gapps.team.dialogTitle": "Compartir una cuenta de {name} con el equipo",
   "gapps.team.intro": "Inicia sesión con la cuenta de Google que usará el equipo. Solo los propietarios y administradores pueden cambiarla o quitarla.",
-  "gapps.team.audienceNote": "Solo estas personas la usan. Los administradores, solo si están incluidos. La IA les pregunta antes de enviar o cambiar algo.",
+  "gapps.team.audienceNote": "Solo estas personas la usan. Los administradores, solo si están incluidos. La IA les pregunta antes de enviar o cambiar algo, salvo que hayan elegido Permitir siempre para ella.",
   "gapps.team.edit": "Cambiar personas",
   "gapps.team.remove": "Quitar",
   "gapps.team.removeTitle": "¿Quitar la cuenta compartida de {name}?",

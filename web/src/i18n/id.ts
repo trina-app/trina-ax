@@ -5176,7 +5176,7 @@ export const id: Record<MessageKey, string> = {
   "gapps.team.connect": "Hubungkan untuk tim",
   "gapps.team.dialogTitle": "Bagikan akun {name} dengan tim",
   "gapps.team.intro": "Masuk dengan akun Google yang akan dipakai tim. Hanya pemilik dan admin yang bisa mengubah atau menghapusnya.",
-  "gapps.team.audienceNote": "Hanya orang-orang ini yang memakainya. Admin juga hanya jika termasuk. AI tetap bertanya dulu sebelum mengirim atau mengubah sesuatu.",
+  "gapps.team.audienceNote": "Hanya orang-orang ini yang memakainya. Admin juga hanya jika termasuk. AI bertanya dulu sebelum mengirim atau mengubah sesuatu, kecuali mereka memilih Selalu izinkan untuknya.",
   "gapps.team.edit": "Ubah orang",
   "gapps.team.remove": "Hapus",
   "gapps.team.removeTitle": "Hapus akun {name} bersama?",
