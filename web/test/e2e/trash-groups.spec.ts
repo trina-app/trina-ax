@@ -151,3 +151,26 @@ test('another person’s personal delete is never listed, not even to the owner 
   await expect(item(page, 'users/bob/notes/todo.md').getByTestId('trash-where')).toHaveText('My files › notes')
 })
 
+test('390px: Restore keeps the page gutter, ending where the switch above it ends', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await seed(page, [ADMIN, MEMBER])
+  await page.goto('/files?view=trash')
+  const sheet = item(page, 'shared/Sales/price-sheet.xlsx')
+  await sheet.getByTestId('trash-copies-toggle').click()
+  await expect(page.getByTestId('trash-copy')).toHaveCount(2)
+  const toggle = (await page.getByRole('tablist', { name: t['files.trashWho'] }).boundingBox())!
+  const right = toggle.x + toggle.width
+  const buttons = await page.locator('[data-testid="trash-restore"], [data-testid="trash-copy-restore"]').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))
+  expect(buttons.length).toBe(3)
+  for (const r of buttons) {
+    expect(390 - r).toBeGreaterThanOrEqual(16)
+    expect(Math.abs(r - right)).toBeLessThanOrEqual(1)
+  }
+  // the titles stay flush with the line above (the row's inset bleeds out on the left)
+  const note = (await page.getByTestId('trash-note').boundingBox())!
+  const icon = (await sheet.locator('[aria-hidden="true"]').first().boundingBox())!
+  expect(Math.abs(icon.x - note.x)).toBeLessThanOrEqual(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+

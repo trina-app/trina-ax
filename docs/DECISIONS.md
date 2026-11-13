@@ -26328,6 +26328,9 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   margin, so the hover fill reaches out past the words, as the files box's and the old skills list's `-mx-3` did), its
   "···" and `actions` move out with it so every time and tag still ends at one x, and a read name is ink at 400 (a
   panel's read rows stay muted). Type stays the list tokens' (15 px on a computer, 16 px on a phone).
+- **A phone keeps the page's right gutter** (QA TC-1040, 2026-11-14): below 768 px the row bleeds on the left only, and
+  its "···" and `actions` end at the content's right edge (where a page's switch or a heading's action ends), 16 px
+  from the screen, not on it. The titles stay flush with the heading; a computer keeps the bleed on both sides.
 - **Where**: the project page's chats and folded scheduled task (ProjectChatRow, ProjectTaskRow), 팀 스킬's skills
   (AvailableSkills) and its share reviews. The panels, the phone tabs, the drawer and the dialogs' lists keep the
   default (`rowBox`: 30 px, 48 px on a phone). The task page's runs (two-line rows, already about 50 px) and the project

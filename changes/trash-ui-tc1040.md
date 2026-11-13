@@ -5,3 +5,5 @@
 - **Deleted by me / Everyone** appears when your trash has other people's deletes.
 - The long note is one line with your team's retention ("removed for good 30 days after they're deleted"), and each row
   says when it goes ("in 18 days", the date on hover).
+- On phones, the buttons and "···" of the trash, a project's Trina history and Team skills lists keep the page's
+  margin on the right instead of touching the screen's edge.
