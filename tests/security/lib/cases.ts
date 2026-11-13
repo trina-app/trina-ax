@@ -295,6 +295,10 @@ export const SPECS: Record<string, Spec> = {
   runScheduleNow: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/run', {}), scope: 'self' },
   scheduleEditCard: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/edit', { kind: 'task', title: 'x', prompt: 'x x x', repeat: 'daily', time: '09:00', projectId: null }), scope: 'self' },
   editSchedule: { build: (c) => c.put('/api/schedules/00000000-0000-7000-8000-000000000000', { kind: 'template', time: '09:00', sourcePath: 'shared', outputPath: 'users/x' }), scope: 'self' },
+  // a task's run history: alice's task is hers alone; anyone else signed in (another member, an admin, the team owner)
+  // gets 404, never a 403 that would say the task is there (tests/unit/schedule-runs.test.ts)
+  listScheduleRuns: { build: (c, w) => c.get(`/api/schedules/${w.ids.scheduleAlice}/runs`), scope: 'own-alice',
+    check: (r, _w, who) => { if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who}: alice's run history answered ${r.status}, not 404`) } },
   // nobody's task (each person's own waiting task is covered in tests/unit/schedule-review.test.ts, incl. 404 to others)
   getScheduleReview: { build: (c) => c.get('/api/schedules/00000000-0000-7000-8000-000000000000/review'), scope: 'nobody' },
   confirmScheduleReview: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/review', { requestId: 'schedule-review-x', answer: 'resume' }), scope: 'self' },
