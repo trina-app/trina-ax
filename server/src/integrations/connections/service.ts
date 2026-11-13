@@ -35,6 +35,8 @@ export const MAX_PERSONAL = 20
  * the inbox notice says what to do, notifyTemplateReconnect) */
 export const INTEGRATIONS_CHANGED = { type: 'notice', data: { level: 'info', code: 'integrations_changed', message: '' } } as const
 export const MAX_TEAM = 50
+/** a connection that waits for its first sign-in (no sign-in stored): the web's awaitingFirstSignIn, as SQL */
+const WAITING = "(auth = 'oauth' AND secret_enc IS NULL)"
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
 const CLIENT_IDLE_MS = 10 * 60_000
@@ -206,8 +208,20 @@ export class Integrations {
     if (scope === 'personal' && input.access) fieldError(L, 'access', 'accessTeamOnly')
     // sending without asking is the team's choice (an admin's), never one person's for their own connection
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
-    const count = templateId ? 0 : scope === 'personal'
-      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL").get(viewer.id) as { n: number }).n
+    // a person's own connection that waits for its first sign-in (Connect saves it before the sign-in starts; a refused
+    // or closed sign-in leaves it): Connect again at the same address picks it up instead of saving another, and it
+    // does not count toward the limit, so failed tries never stop someone adding a service. Those waiting have a cap
+    // of their own (the same number). Nothing with a stored sign-in or key is reused.
+    const personal = scope === 'personal' && !templateId
+    if (personal && input.auth === 'oauth' && !input.oauthClient) {
+      const waiting = this.db.query(`SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
+        AND oauth_client IS NULL AND oauth_client_enc IS NULL AND kind = ? AND url = ? ORDER BY created_at LIMIT 1`).get(viewer.id, input.kind, normUrl(input.url)) as { id: string } | null
+      const again = waiting ? getRow(this.db, waiting.id) : null
+      if (again) return view(this.db, again, viewer, L)
+    }
+    const counted = (waiting: boolean) => (this.db.query(`SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${waiting ? '' : 'NOT '}${WAITING}`).get(viewer.id) as { n: number }).n
+    const count = templateId ? 0 : personal
+      ? counted(input.auth === 'oauth')
       : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
     if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
