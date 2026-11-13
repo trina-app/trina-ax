@@ -1,0 +1,14 @@
+-- min_compatible_reader: 1
+-- Component C: Slack reading is Marketplace-safe (docs/SLACK.md "Marketplace-safe reading", docs/DECISIONS.md "Slack:
+-- reading with the bot token only", server/src/integrations/slack/read.ts). The AI reads Slack only with the bot token:
+-- the thread it was asked in, and for a linked person the threads and channels the bot was invited to and the person is
+-- in. No user token scope, no search.
+--   slack_config.bot_scopes: the bot token's scopes as Slack last listed them (auth.test's X-OAuth-Scopes, comma
+--     separated; NULL: not asked yet). Reading needs channels:history and groups:history; an app from before them shows
+--     admins "Update Slack permissions". Metadata only.
+-- Left as they are (this file only adds; docs/WORKPLAN.md: no dropped columns or tables): slack_user_tokens (from 348)
+-- is emptied by the connector at start (each token revoked at Slack with auth.revoke, best effort, then deleted:
+-- SlackConnector.retireUserTokens) and nothing writes it any more; slack_config.read_scopes and slack_signin_flows.kind /
+-- method / question are no longer read (new flows keep their defaults 'link' and 'oidc').
+-- Numbered 350: 349 (c_google_app_team) is the highest on dev.
+ALTER TABLE slack_config ADD COLUMN bot_scopes TEXT;

@@ -28,18 +28,17 @@ let assigned: string[] = []
 let adminQueries: string[] = []
 let saveAnswer: () => Response
 let calls: string[] = []
-/** the last body of each request (method and path) */
-let bodies: Record<string, string> = {}
 let sealingKey: unknown
 let installAnswer: () => Response
 let enabledAnswer: () => Response
+let recheckAnswer: () => SlackAdmin
 /** who is signed in: the owner, unless a test says an admin */
 const signedIn = (role: 'owner' | 'admin') => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u1', username: 'olga', name: 'Olga', email: null, role, locale: 'en', localeChoice: 'en', mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'en' }, server: { version: '0', dev: false, features: {} } } } } as never)
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   mode: 'own', official: false, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
   manifest: '{"display_information":{"name":"Trina AX"}}', createUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D',
-  signIn: false, redirectUrl: 'https://team.example/api/integrations/slack/oauth/callback', readScopes: null, userScopes: ['channels:history', 'search:read'], reading: 0, ...o,
+  signIn: false, redirectUrl: 'https://team.example/api/integrations/slack/oauth/callback', readScopes: null, missingScopes: [], ...o,
 })
 const on = (o: Partial<SlackAdmin> = {}) => base({ enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', appId: 'A0APP', state: 'connected', linked: 2, signIn: true, readScopes: 'ok', ...o })
 
@@ -58,22 +57,22 @@ afterAll(() => { removeDom(); (globalThis as { ResizeObserver?: unknown }).Resiz
 beforeEach(() => {
   signedIn('owner')
   calls = []
-  bodies = {}
   assigned = []
   adminQueries = []
   useUi.setState({ toasts: [] })
   admin = base()
-  me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false, readOffered: false }
+  me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false }
   saveAnswer = () => json(on({ enabled: false, state: 'off' }))
   installAnswer = () => json({ authorizationUrl: 'https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s' })
   enabledAnswer = () => json(on())
+  recheckAnswer = () => ({ ...admin, readScopes: 'ok', missingScopes: [] })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     const what = `${init?.method ?? 'GET'} ${url.pathname}`
     calls.push(what)
-    bodies[what] = typeof init?.body === 'string' ? init.body : ''
     if (what === 'GET /api/admin/slack') adminQueries.push(url.search)
-    if (what === 'POST /api/admin/slack/read-scopes/recheck') return json({ ...admin, readScopes: admin.mode === 'official' ? null : 'ok' })
+    // "I updated them": Slack asked again (recheckAnswer: what it lists now)
+    if (what === 'POST /api/admin/slack/read-scopes/recheck') return json(recheckAnswer())
     if (what === 'GET /api/admin/slack') return json(admin)
     if (what === 'GET /api/credentials/sealing-key') return json(sealingKey)
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
@@ -457,23 +456,39 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
   })
 })
 
-describe('Admin › Connected apps › Slack: reading Slack needs the app\'s permissions', () => {
-  test('the own app not confirmed to have the user scopes: Update Slack permissions, the scopes to add with their Slack page, I updated them', async () => {
-    // not confirmed yet (null): the own app's sign-ins do not ask for the user scopes until the owner says it has them
-    admin = on({ readScopes: null, userScopes: ['channels:history', 'search:read'], reading: 0 })
+describe('Admin › Connected apps › Slack: reading needs the bot\'s two history scopes', () => {
+  test('the own app without them: Update Slack permissions, the bot scopes to add with their Slack page, I updated them asks Slack again', async () => {
+    admin = on({ readScopes: 'missing', missingScopes: ['channels:history', 'groups:history'] })
+    // still missing at the first press: said under the button; listed at the second: the prompt goes
+    let left = 1
+    recheckAnswer = () => (left-- > 0 ? admin : { ...admin, readScopes: 'ok', missingScopes: [] })
     const m = await page()
     await m.until(() => m.find('slack-read-scopes'), 'the prompt')
     expect(m.get('slack-read-scopes').textContent).toContain('Update Slack permissions')
-    expect(m.get('slack-user-scopes').textContent).toBe('channels:history, search:read')
+    expect(m.get('slack-read-scopes').textContent).toContain('Bot Token Scopes')
+    expect(m.get('slack-missing-scopes').textContent).toBe('channels:history, groups:history')
     expect(m.get('slack-read-scopes').innerHTML).toContain('href="https://api.slack.com/apps/A0APP/oauth"')
     await m.click('slack-read-recheck')
-    await m.until(() => calls.includes('POST /api/admin/slack/read-scopes/recheck'), 'asked again')
+    await m.until(() => m.find('slack-read-still'), 'still missing')
+    expect(m.get('slack-read-still').textContent).toContain("Slack doesn't list them yet")
+    await m.click('slack-read-recheck')
     await m.until(() => !m.find('slack-read-scopes'), 'the prompt gone')
+    expect(calls.filter((c) => c === 'POST /api/admin/slack/read-scopes/recheck').length).toBe(2)
     await m.unmount()
   })
 
+  test('not known yet or ok: no prompt', async () => {
+    for (const readScopes of [null, 'ok'] as const) {
+      admin = on({ readScopes })
+      const m = await page()
+      await m.until(() => m.find('slack-status'), 'the page')
+      expect(m.find('slack-read-scopes')).toBeNull()
+      await m.unmount()
+    }
+  })
+
   test('the official app: Add to Slack again approves them; an admin of the own app is told to ask the owner', async () => {
-    admin = on({ mode: 'official', official: true, readScopes: 'missing' })
+    admin = on({ mode: 'official', official: true, readScopes: 'missing', missingScopes: ['channels:history', 'groups:history'] })
     let m = await page()
     await m.until(() => m.find('slack-read-approve'), 'the button')
     await m.click('slack-read-approve')
@@ -481,20 +496,11 @@ describe('Admin › Connected apps › Slack: reading Slack needs the app\'s per
     expect(calls).toContain('POST /api/admin/slack/official/install')
     await m.unmount()
     signedIn('admin')
-    admin = on({ readScopes: 'missing' })
+    admin = on({ readScopes: 'missing', missingScopes: ['channels:history', 'groups:history'] })
     m = await page()
     await m.until(() => m.find('slack-read-scopes'), 'the prompt')
     expect(m.get('slack-read-scopes').textContent).toContain('the team owner has to update')
     expect(m.find('slack-read-recheck')).toBeNull()
-    await m.unmount()
-  })
-
-  test('how many people let the AI read Slack, on the status line', async () => {
-    admin = on({ readScopes: 'ok', reading: 3 })
-    const m = await page()
-    await m.until(() => m.find('slack-reading'), 'the count')
-    expect(m.get('slack-reading').textContent).toBe('3 people allowed reading')
-    expect(m.find('slack-read-scopes')).toBeNull()
     await m.unmount()
   })
 })
@@ -502,31 +508,18 @@ describe('Admin › Connected apps › Slack: reading Slack needs the app\'s per
 describe('Settings › Connectors › Slack', () => {
   const settings = () => mount(<MemoryRouter><SlackAccount /></MemoryRouter>)
 
-  test('linked without reading: one "Allow reading Slack" that goes to Slack for reading only; reading: said, no button', async () => {
-    me = { ...me, signIn: true, readOffered: true, link: { slackUserId: 'U0ME', slackName: 'me.slack', linkedAt: new Date().toISOString() } }
+  test('linked: what the AI may read in Slack, or that an admin has to update the permissions first; nothing to allow', async () => {
+    me = { ...me, signIn: true, read: true, link: { slackUserId: 'U0ME', slackName: 'me.slack', linkedAt: new Date().toISOString() } }
     let m = await settings()
-    await m.until(() => m.find('slack-allow-read'), 'the button')
-    expect(m.get('slack-read-state').textContent).toBe("Trina AX can't read your Slack messages yet.")
-    await m.click('slack-allow-read')
-    await m.until(() => assigned.length > 0, 'went to Slack')
-    expect(JSON.parse(bodies['POST /api/slack/signin']!)).toEqual({ read: true })
-    await m.unmount()
-    me = { ...me, read: true }
-    m = await settings()
     await m.until(() => m.find('slack-read-state'), 'the line')
-    expect(m.get('slack-read-state').textContent).toBe('Trina AX can read Slack as you (only what you can see there).')
+    expect(m.get('slack-read-state').textContent).toBe("Trina AX can read the Slack channels and threads it was invited to, when you're in them too.")
     expect(m.find('slack-allow-read')).toBeNull()
     await m.unmount()
-    // the Slack app lacks the permissions: no button, an admin has to update them
-    me = { ...me, read: false, readOffered: false }
+    me = { ...me, read: false }
     m = await settings()
     await m.until(() => m.find('slack-read-state'), 'the line')
     expect(m.get('slack-read-state').textContent).toContain('an admin first has to update')
     expect(m.find('slack-allow-read')).toBeNull()
-    await m.unmount()
-    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=read_allowed']}><SlackAccount /></MemoryRouter>)
-    await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
-    expect(m.get('slack-signin-outcome').textContent).toBe('Trina AX can now read Slack as you.')
     await m.unmount()
   })
 
