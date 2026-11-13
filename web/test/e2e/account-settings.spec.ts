@@ -236,6 +236,8 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
   await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
   await choose('group', 'project')
   await expect(list.getByTestId('history-group')).toHaveCount(2)
+  // by date again for the sorts (by project the groups set the order)
+  await choose('group', 'date')
   // Sort by
   await choose('sort', 'title')
   await expect.poll(titles).toEqual(['Plan the launch', 'Weekly notes'])
@@ -244,7 +246,7 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
   // what is not at its default: a dot and a dim label; remembered; reset
   await page.keyboard.press('Escape')
   await expect(side.getByTestId('recents-filter-dot')).toBeVisible()
-  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.group.project'])
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.group.date'])
   await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
   await page.reload()
   await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
