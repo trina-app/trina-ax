@@ -7,7 +7,7 @@
 // stays in the page's other tabs. Each project the person sees that has skills of its own has a section, "{project}
 // 프로젝트 스킬", with the line "이 프로젝트 채팅에서만" (docs/DECISIONS.md "Project skills"): its rows open the project, and
 // one whose name a wider skill of the person's already has carries a small "같은 이름: 팀 전체" (a project only adds
-// names). "옮기기…" in a row's menu moves a skill to another level (skills/MoveSkillDialog.tsx).
+// names). "옮기기" in a row's menu moves a skill to another level (skills/MoveSkillDialog.tsx).
 // A chat starts from the skill's name, so of two skills with one name the server picks
 // (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
 // the row, its run button and its menu.

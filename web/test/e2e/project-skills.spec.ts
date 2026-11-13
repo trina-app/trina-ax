@@ -2,7 +2,7 @@
 // only in that project's chats. The Team skills page has a section per project with skills ("{project} 프로젝트 스킬",
 // "이 프로젝트 채팅에서만"), a small "같은 이름" chip where a wider skill of the name runs instead; the "/" menu marks them
 // inside that project only; asking a project chat to move a group's skills shows the move card (who loses it, by name
-// for the owner, SKILL.md, every file), and after yes the skill is under the project; "옮기기…" shows who gains and loses at each level and the whole
+// for the owner, SKILL.md, every file), and after yes the skill is under the project; "옮기기" shows who gains and loses at each level and the whole
 // text when more people would get it; the save card offers another name when the name is taken; sharing a personal
 // project whose skills/ holds skills names them first.
 import { expect, test, type Page } from '@playwright/test'
@@ -90,7 +90,7 @@ test('a project chat asked to move the files and the skills: the move card, then
   expect(realErrors(errors)).toEqual([])
 })
 
-test('옮기기… on the Skills page: each level with who gains and loses; more people means the whole text first', async ({ page }) => {
+test('옮기기 on the Skills page: each level with who gains and loses; more people means the whole text first', async ({ page }) => {
   await reset(page, { withAdmin: true })
   const errors = watchConsole(page)
   await signIn(page)

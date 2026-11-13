@@ -156,7 +156,7 @@ export interface DesktopBridge {
   }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
-  /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환…" (the logo menu, the 나 tab). The
+  /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환" (the logo menu, the 나 tab). The
    * same list as the OS menu's 팀 (⌘1–9, the open team ticked) and its "팀 목록…"; drawn by the app, so the page never
    * learns which other teams the person has. Optional: desktop apps before this addition do not have it (the page opens
    * the team list, openTeams). */

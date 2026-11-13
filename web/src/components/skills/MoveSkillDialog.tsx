@@ -1,4 +1,4 @@
-// "옮기기…" in a skill row's menu on the Skills page (docs/DECISIONS.md "Project skills"): one skill to another level
+// "옮기기" in a skill row's menu on the Skills page (docs/DECISIONS.md "Project skills"): one skill to another level
 // (팀 전체 · a group · a project's chats · 나만). GET /api/skills/move lists the levels with who gains and who loses it
 // ("2명이 새로 쓰고 2명은 못 쓰게 돼요 (3명 → 3명)"), or why it cannot go; a level that reaches more people shows the
 // skill's whole text first.

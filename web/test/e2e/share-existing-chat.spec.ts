@@ -3,7 +3,7 @@
 // the confirm when the chat used something some of the project cannot see (cancel: moved, still private; from the title
 // menu it asks first even when nothing is narrower), the same
 // from a chat row's "…" menu in the sidebar (the list grouped by project, so the moved chat's row is made again while
-// the dialog stays), the title menu's "프로젝트 멤버와 공유…", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
+// the dialog stays), the title menu's "프로젝트 멤버와 공유", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
 // dialog. The mock (test/mock/server.ts, "프로젝트 멤버와 공유"): "mine-source" in a question reads a note in my own
 // folder, "memory" brings the memory note.
 import AxeBuilder from '@axe-core/playwright'
@@ -53,7 +53,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       return page
     }
     const seenLine = (page: Page) => page.getByTestId(vp.phone ? 'composer-phone-footer' : 'composer-footer')
-    /** the title menu's "Move to project…", the project picked */
+    /** the title menu's "Move to project", the project picked */
     async function openMove(page: Page) {
       await page.getByTestId('chat-menu').click()
       await page.getByTestId('chat-project-move').click()
@@ -213,7 +213,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await page.getByTestId('chat-menu').click()
       const item = page.getByTestId('chat-share')
-      await expect(item).toHaveText('프로젝트 멤버와 공유…')
+      await expect(item).toHaveText('프로젝트 멤버와 공유')
       await audit(page, 'chat menu with share')
       await item.click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })

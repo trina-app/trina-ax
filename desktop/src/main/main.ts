@@ -290,7 +290,7 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
-  // the team page's "다른 팀으로 전환…": the OS menu's own team list as a menu under the pointer (the page never sees it)
+  // the team page's "다른 팀으로 전환": the OS menu's own team list as a menu under the pointer (the page never sees it)
   ipcMain.on('bridge:team-menu', (e) => {
     if (!fromApp(e) || !win) return
     Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
@@ -345,7 +345,7 @@ function registerIpc() {
 // ------------------------------------------------------------------ menu
 
 /** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
- * and the team page's "다른 팀으로 전환…" (bridge:team-menu). */
+ * and the team page's "다른 팀으로 전환" (bridge:team-menu). */
 function teamMenuItems(): MenuItemConstructorOptions[] {
   const tr = (k: UiKey) => t(locale(), k)
   const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({

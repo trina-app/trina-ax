@@ -2116,7 +2116,7 @@ export class MockServer {
     // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
     // can read (none in the seed; POST /__test/skills adds some)
     listSkills: (c) => ({ items: this.skillsFor(c.user, c.query.shadowed === '1', { projectId: c.query.projectId, projects: c.query.projects === '1' }) }),
-    // "옮기기…" (server/src/skills/move.ts): the levels with counts, then the move as seen
+    // "옮기기" (server/src/skills/move.ts): the levels with counts, then the move as seen
     skillMoveOptions: (c) => this.skillMoveOptions(c.user, c.query.path),
     moveSkill: (c) => {
       const o = this.skillMoveOptions(c.user, c.body.path)

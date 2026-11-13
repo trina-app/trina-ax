@@ -4,7 +4,7 @@
 //   team, its address, "팀원 초대" and 관리자, by mouse and by keyboard; a member's is not a button; 팀원 초대 opens the
 //   invite dialog, or the owner's own invite step while the welcome steps are unfinished;
 // - a chat row's "…" (nav/ChatItem.tsx, in the Trina panel's history): "상단에 고정" / "고정 해제" for every row, rename,
-//   "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) and delete for a chat of my own, the move dialog of the chat's
+//   "프로젝트로 옮기기" ("프로젝트 바꾸기" in a project) and delete for a chat of my own, the move dialog of the chat's
 //   title menu; a shared chat never offers the move;
 // - pinned chats (docs/DECISIONS.md "Pinned chats"): first, the most recently pinned first, a pin before the title.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -136,7 +136,7 @@ describe('the team menu on top', () => {
   })
 
   // UX review S6: switching teams is found under the logo, as in Slack; the app draws the list (the page never sees it)
-  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환…, which opens the app\'s own teams menu (an older app: its team list)', async () => {
+  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s own teams menu (an older app: its team list)', async () => {
     const calls: string[] = []
     const g = globalThis as Record<string, unknown>
     try {
@@ -337,7 +337,7 @@ describe('a chat row\'s "…"', () => {
     return out
   }
 
-  test('a chat of my own: pin, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
+  test('a chat of my own: pin, rename, "프로젝트로 옮기기" ("프로젝트 바꾸기" in a project), delete; a shared chat: never the move', async () => {
     useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false), pinnedAt: '2026-11-02T00:00:00.000Z' })] })
     const m = await render()
     const pin = ['chat-row-pin', ko('chat.pin')]

@@ -1,7 +1,7 @@
 // The chat's title in the chat header, as a menu (main's TitleMenu): "상단에 고정" / "고정 해제" first, the row menu's own
 // item, icon and call (components/chat/chatMenuItems.tsx; docs/DECISIONS.md "Pinned chats": anyone who sees the chat),
-// then Rename, "Move to project…" ("Change project…"
-// whenever the chat is in a project, also one the person can no longer see), "프로젝트 멤버와 공유…" for a chat of
+// then Rename, "Move to project" ("Change project"
+// whenever the chat is in a project, also one the person can no longer see), "프로젝트 멤버와 공유" for a chat of
 // one person in a project whose new chats are shared (components/chat/ShareChat.tsx: the server's check, then a confirm
 // when one comes back), Delete. The move item is here so that it works on a phone too, where the header has no room for
 // more buttons. "링크 복사" (the chat's address, for whoever may open it) is first, and is there for every chat that

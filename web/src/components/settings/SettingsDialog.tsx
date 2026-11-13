@@ -320,7 +320,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
 
 /** The 나 tab's team: the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
  * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
- * phone app (or the desktop app at a phone's width) "다른 팀으로 전환…" for everyone (lib/teamSwitch.ts: the app's own
+ * phone app (or the desktop app at a phone's width) "다른 팀으로 전환" for everyone (lib/teamSwitch.ts: the app's own
  * screen; a plain browser has none). */
 function PhoneTeamGroup() {
   const t = useT()
