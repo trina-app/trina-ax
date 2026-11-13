@@ -3,7 +3,7 @@
 // the usual "Connect for the team", and the member is told it is ready; another request is dismissed.
 import { expect, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { adv, realErrors, reset, signIn, watchConsole } from './helpers'
 import { activityRows, openNotice } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -43,9 +43,12 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   await asked.getByTestId('member-ask-add').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
-  // who may use it: everyone (a team connection Bob may not use would leave his request open)
-  await dialog.getByTestId('integration-advanced').click()
-  await dialog.getByTestId('integration-access-everyone').check()
+  // who may use it: everyone (a team connection Bob may not use would leave his request open); the chooser opens from
+  // the "For: … · Change" line (QA TC-187), and the whole team is already chosen
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
+  const everyone = await adv(dialog, 'integration-access-everyone')
+  await expect(everyone).toBeChecked()
+  await everyone.check()
   const popup = page.waitForEvent('popup')
   await dialog.getByTestId('integration-save').click()
   // saved, it still needs its sign-in: the request waits (a broken connection never says "ready")
