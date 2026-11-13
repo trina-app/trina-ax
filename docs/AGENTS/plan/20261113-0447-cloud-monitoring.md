@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:47
 - Branch: `feat/cloud-monitoring`
-- Status: in progress
+- Status: done
 - Where: this repo, `relay/`, `push-gateway/`, `shared/src/sentry-report.ts`. Why: both services and their deploy files
   live here; nothing of a customer server or the private core is touched (see docs/REPOSITORY-RULES.md)
 - Version impact: none for the Trina AX release: the team server, the web app and the phone and desktop apps do not
@@ -90,4 +90,9 @@ tests/unit/push-gateway* tests/unit/sentry-report* tests/unit/relay-checkin*`, `
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences: the relay also reports a start that failed (a port taken, a certificate missing), the
+push gateway also reports a service-account JSON that is set but cannot be read, and FCM `SENDER_ID_MISMATCH` (it comes
+with `PERMISSION_DENIED`) counts as a device-token problem, not ours. The reason of a credential refusal is a tag only:
+the scrubber would cut a long code like `InvalidProviderToken` out of the message. The Litestream check reads file times
+with `date -r` (GNU and BSD) so its test runs on a Mac too. Team server update timer left out (see Out). Not deployed.
+PR: see the pull request that links this plan.
