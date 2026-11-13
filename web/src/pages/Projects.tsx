@@ -37,8 +37,8 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -755,6 +755,11 @@ function ProjectPage() {
   const summary = firstParagraph(p.instructions)
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
+  // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
+  const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
+  // empty folder comes back (a folder with files becomes its one line)
+  const filesBox = filesEmpty || (!files && p.canEdit)
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
@@ -848,7 +853,21 @@ function ProjectPage() {
           {(!outside || hasMembers) && (
             <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="divide-y divide-line">
-                {!outside && (
+                {!outside && !p.instructions?.trim() && p.canEdit ? (
+                  // none yet, for whoever may edit: a box that says what they are for, with one clear button (filled,
+                  // it is the one quiet line below again)
+                  <EmptySideBox
+                    testId="project-instructions"
+                    icon={<ScrollText size={16} />}
+                    label={t('projects.instructions')}
+                    line={t('projects.page.instructionsEmpty', { ai: aiName(t) })}
+                    lineTestId="project-instructions-empty"
+                  >
+                    <Button size="sm" onClick={() => setEditing(true)} data-testid="project-instructions-write">
+                      <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
+                    </Button>
+                  </EmptySideBox>
+                ) : !outside && (
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}
@@ -856,23 +875,43 @@ function ProjectPage() {
                     // phones: the same 수정 as in the name's menu above, so not a second button here
                     action={p.canEdit ? <button type="button" className={`${sideAction} max-md:hidden`} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
                   >
-                    {p.instructions ? (
+                    {p.instructions?.trim() ? (
                       <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" />
                     ) : (
-                      // none yet: what they are for, and 쓰기 for whoever may edit
+                      // none yet, for someone who cannot edit them (who may, has the box above): what they are for
                       <p className="text-faint" data-testid="project-instructions-empty">
                         {t('projects.page.instructionsEmpty', { ai: aiName(t) })}
-                        {p.canEdit && (
-                          <>
-                            {' · '}
-                            <button type="button" className="text-accent-text hover:underline" onClick={() => setEditing(true)} data-testid="project-instructions-write">{t('projects.page.write')}</button>
-                          </>
-                        )}
                       </p>
                     )}
                   </DisclosureRow>
                 )}
-                {!outside && phone && (
+                {!outside && filesBox && (
+                  // no files yet, for whoever may add them: a box that says what they are for, with one clear button
+                  // to the project's folder in 파일, where files are uploaded (a phone: the project's files screen, as
+                  // its header row, so Back comes here the same way)
+                  <EmptySideBox
+                    loading={!files}
+                    testId="project-files"
+                    icon={<Folder size={16} />}
+                    label={t('files.title')}
+                    head={
+                      phone ? (
+                        <Link to={`/projects/${p.id}/files`} className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 text-sm" data-testid="project-files-open">
+                          <Folder size={16} className="shrink-0 text-muted" aria-hidden />
+                          <span className="min-w-0 truncate font-medium">{t('files.title')}</span>
+                          <ChevronRight size={16} className="ml-auto shrink-0 text-faint" aria-hidden />
+                        </Link>
+                      ) : undefined
+                    }
+                    line={t('projects.page.filesEmptyHint', { ai: aiName(t) })}
+                    lineTestId="project-files-empty"
+                  >
+                    <Button size="sm" onClick={() => navigate(phone ? `/projects/${p.id}/files` : folderLink)} data-testid="project-files-upload">
+                      <Plus size={14} aria-hidden /> {t('projects.page.uploadFiles')}
+                    </Button>
+                  </EmptySideBox>
+                )}
+                {!outside && phone && !filesBox && (
                   // a phone: one row to the project's files, a screen of this tab (Back comes here)
                   <div data-testid="project-files">
                     <Link to={`/projects/${p.id}/files`} className="flex min-h-12 items-center gap-2.5 py-3 text-sm" data-testid="project-files-open">
@@ -883,7 +922,7 @@ function ProjectPage() {
                     </Link>
                   </div>
                 )}
-                {!outside && !phone && (
+                {!outside && !phone && !filesBox && (
                   <DisclosureRow
                     testId="project-files"
                     icon={<Folder size={16} />}
@@ -893,10 +932,9 @@ function ProjectPage() {
                   >
                     {!files && <Skeleton lines={3} />}
                     {files && !files.failed && !files.entries.length && (
-                      // none yet: 올리기 opens its folder in 파일, where files are uploaded
+                      // none yet, for someone who cannot add them (who may, has the box above)
                       <p className="text-faint" data-testid="project-files-empty">
                         {t('projects.page.filesEmpty')}
-                        {p.canEdit && <> · <Link to={folderLink} className="text-accent-text hover:underline" data-testid="project-files-upload">{t('projects.page.upload')}</Link></>}
                       </p>
                     )}
                     <ul className="-ml-2 space-y-0.5">
@@ -939,14 +977,16 @@ function ProjectPage() {
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
-            <h2 id="pj-chats" className="mb-1 text-sm text-muted">
+            <h2 id="pj-chats" className="mb-1 text-xs font-medium tracking-wide text-muted">
               {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>
             {!chats && <Skeleton lines={3} />}
             {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
             {/* a new or nearly empty project: my chats outside projects come in from here (docs/DECISIONS.md "Making a project") */}
             {chats && chats.length < 3 && !outside && !p.inTrash && (
-              <button type="button" onClick={() => setImporting(true)} className="mt-1 inline-flex min-h-6 items-center text-sm text-accent-text hover:underline pointer-coarse:min-h-11" data-testid="project-import">{t('projects.page.import')}</button>
+              <Button size="sm" className="mt-2 mb-1" onClick={() => setImporting(true)} data-testid="project-import">
+                <Import size={14} aria-hidden /> {t('projects.page.import')}
+              </Button>
             )}
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
@@ -963,6 +1003,46 @@ function ProjectPage() {
       {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
       {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+    </div>
+  )
+}
+
+/** An empty Instructions or Files of a project's page, for whoever may fill it: a light box with the line's name, one
+ * short line on what it is for, and one clear button (owner 2026-11-13: empty, the quiet lines were easy to miss). The
+ * filled ones stay the one-line DisclosureRows. `head`: a header of its own in place of the icon and name (a phone's
+ * files row, which is a link). `loading`: what is in it is not known yet: the same box with grey bars in place of the
+ * line and the button. */
+function EmptySideBox({ icon, label, head, line, lineTestId, testId, loading, children }: { icon: ReactNode; label: string; head?: ReactNode; line: string; lineTestId: string; testId: string; loading?: boolean; children: ReactNode }) {
+  return (
+    // no hairlines of the column around a box: its own edge is the line
+    <div className="border-b-0! py-2" data-testid={testId}>
+      <div className="rounded-xl border border-line px-3.5 pt-2 pb-3.5" data-empty={loading ? undefined : 'true'} data-loading={loading ? 'true' : undefined}>
+        {head ? (
+          <div className="flex">{head}</div>
+        ) : (
+          <div className="flex min-h-9 items-center gap-2.5 text-sm">
+            <span className="shrink-0 text-muted" aria-hidden>
+              {icon}
+            </span>
+            <span className="min-w-0 truncate font-medium">{label}</span>
+          </div>
+        )}
+        {loading ? (
+          <div aria-hidden>
+            <div className="mt-0.5 flex h-5 items-center">
+              <div className="h-3.5 w-4/5 animate-pulse rounded bg-subtle" />
+            </div>
+            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-subtle max-md:h-11" />
+          </div>
+        ) : (
+          <>
+            <p className="mt-0.5 text-sm leading-5 break-keep text-muted" data-testid={lineTestId}>
+              {line}
+            </p>
+            <div className="mt-3">{children}</div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

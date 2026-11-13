@@ -17548,7 +17548,12 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
 - **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
   모여요." and, while it has fewer than three, **기존 대화 가져오기** (my own recent chats with no project, not shared, not a
   room's; one PATCH each; a line says files Trina saved in them stay where they are); no instructions: what they are for
-  · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일).
+  · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일). Since fix/project-page-empty-affordances (owner,
+  2026-11-13: empty, these looked like plain text and were missed): for whoever may fill them, empty 지침 and 파일 are
+  each a light bordered box (the line's name, one muted line on what it is for, one secondary button **+ 지침 쓰기** /
+  **+ 파일 올리기**, the latter to the same folder in 파일); filled, they are the one-line rows again (the 수정 / 열기
+  action comes back with them), and someone who cannot edit sees the rows. 트리나 기록 is a small section label, and 기존
+  대화 가져오기 is the app's secondary button with an icon. The create dialog does not change.
 - **Sharing later**: a personal project's 멤버 line says "나만 봐요 · 멤버 추가" (the menu's 팀 프로젝트로 공유 goes). 멤버 추가
   opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
   instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
