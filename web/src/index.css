@@ -150,6 +150,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
    token's background shows under it), an IME's background, spell check and placeholder are in between. */
 textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: transparent; }
+/* an empty box's hint stays on one line, cut at the end, so the box does not grow from it (the largest text size on a
+   phone, a wide system font); a transcription job's label (aria-busy) still wraps and grows the box (RoomComposer) */
+textarea[data-token-input]:placeholder-shown:not([aria-busy]) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
 [data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
 [data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }

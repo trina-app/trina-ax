@@ -132,7 +132,8 @@ export function AttachSheet({ onFiles, room, fileMax, onTeam, computer = true, i
   ]
   return (
     <>
-      <MenuButton label={fetching ? t('composer.photosFetching') : t('composer.attach')} heading={t('composer.attach')} items={items} icon={fetching ? <Loader2 size={18} className="animate-spin" aria-hidden /> : icon} muted compact buttonClassName={buttonClassName} testId={testId} />
+      {/* flex: no line box around the button, so it sits on its slot's centre whatever the system font's line metrics */}
+      <MenuButton label={fetching ? t('composer.photosFetching') : t('composer.attach')} heading={t('composer.attach')} items={items} icon={fetching ? <Loader2 size={18} className="animate-spin" aria-hidden /> : icon} muted compact className="flex" buttonClassName={buttonClassName} testId={testId} />
       {computer && (
         <>
           <input ref={photos} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => take(e.target)} data-testid="attach-photos-input" />
