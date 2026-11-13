@@ -74,9 +74,9 @@ describe('the cache', () => {
     const read = () => Promise.resolve(++n)
     await Promise.all([readCached('acme', read), readCached('acme', read)])
     expect(n).toBe(1)
-    expect(peekCached('acme')).toBe(1)
+    expect(peekCached<unknown>('acme')).toBe(1)
     await expect(readCached('acme', () => Promise.reject(new Error('down')))).rejects.toThrow('down')
-    expect(peekCached('acme')).toBe(1)
+    expect(peekCached<unknown>('acme')).toBe(1)
   })
 
   test('asked again with `fresh` while a read is on its way: once more after it', async () => {
@@ -89,7 +89,7 @@ describe('the cache', () => {
     void readCached('acme', read, { fresh: true })
     release()
     await first
-    while (peekCached('acme') !== 2) await later()
+    while (peekCached<unknown>('acme') !== 2) await later()
     expect(n).toBe(2)
   })
 
@@ -103,14 +103,14 @@ describe('the cache', () => {
     const p = readCached('acme', read)
     // deleted here: shown at once; the read on its way answered with it still there
     putCached<string[]>('acme', (cur) => cur!.filter((x) => x !== 'b'))
-    expect(peekCached('acme')).toEqual(['a'])
+    expect(peekCached<unknown>('acme')).toEqual(['a'])
     const answered = server
     server = ['a']
     release()
     await p
     expect(answered).toEqual(['a', 'b'])
     expect(n).toBe(2)
-    expect(peekCached('acme')).toEqual(['a'])
+    expect(peekCached<unknown>('acme')).toEqual(['a'])
   })
 
   test('`minAgeMs`: a read that recent is enough until something marks it stale', async () => {
@@ -137,8 +137,8 @@ describe('the cache', () => {
     useListCache.getState().reset()
     release()
     await p
-    expect(peekCached('late')).toBeUndefined()
-    expect(peekCached('kept')).toBeUndefined()
+    expect(peekCached<unknown>('late')).toBeUndefined()
+    expect(peekCached<unknown>('kept')).toBeUndefined()
   })
 })
 
