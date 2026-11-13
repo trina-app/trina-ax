@@ -223,8 +223,15 @@ test('on a phone a read-only folder offers no 고치기 in the ⋯ sheet (QA TC-
   await signIn(page)
   // finance/ is read-only for the owner in the mock's policy
   expect((await page.request.post('/__test/file', { data: { path: 'finance/2026/memo.md', text: '# 메모\n\n읽기만 해요.' } })).ok()).toBeTruthy()
+  // the panel takes the file's access from its folder as listed (store/teamFiles.ts), and asks /api/files/content only
+  // where it has no listing: so wait for either answer, and check the listing really says read-only
   let asked = 0
-  page.on('response', (r) => { if (r.url().includes('/api/files/content') && r.url().includes('memo.md')) asked++ })
+  let listed: string | null = null
+  page.on('response', (r) => {
+    if (r.url().includes('/api/files/content') && r.url().includes('memo.md')) asked++
+    else if (r.url().includes('/api/files/tree'))
+      void r.json().then((j: { entries?: { path: string; access?: string }[] }) => { listed = j.entries?.find((e) => e.path.endsWith('memo.md'))?.access ?? listed }, () => {})
+  })
   await openInFiles(page, 'finance/2026', 'memo.md')
   const panel = page.getByTestId('file-panel')
   await expect(panel).toContainText('읽기만 해요')
@@ -232,7 +239,7 @@ test('on a phone a read-only folder offers no 고치기 in the ⋯ sheet (QA TC-
   await expect(page.getByTestId('file-more-download')).toBeVisible()
   await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
   // still none once the panel knows the person's access
-  await expect.poll(() => asked).toBeGreaterThan(0)
+  await expect.poll(() => (asked > 0 ? 'asked' : listed)).toMatch(/^(asked|read)$/)
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
   await expect(page.getByTestId('file-more-edit')).toHaveCount(0)
   await shot(page, 'files-md-readonly-more-sheet-390')
@@ -274,6 +281,19 @@ test('an HTML quotation sent in a room fits the phone too (the static frame)', a
 
 test.describe('computer', () => {
   test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false })
+  test('at 1440 the pencil shows in a writable folder and not in a read-only one, from the folder as listed', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await putFiles(page)
+    expect((await page.request.post('/__test/file', { data: { path: 'finance/2026/memo.md', text: '# 메모\n\n읽기만 해요.' } })).ok()).toBeTruthy()
+    await openInFiles(page, 'sales', 'memo.md')
+    await expect(page.getByTestId('file-panel').getByTestId('file-edit')).toBeVisible()
+    await openInFiles(page, 'finance/2026', 'memo.md')
+    const panel = page.getByTestId('file-panel')
+    await expect(panel).toContainText('읽기만 해요')
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    await expect(panel.getByTestId('file-edit')).toHaveCount(0)
+  })
   test('at 1440 the PDF keeps its zoom buttons and an .html file keeps its pencil', async ({ page }) => {
     await reset(page)
     await signIn(page)
