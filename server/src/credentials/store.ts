@@ -183,15 +183,6 @@ export function noticeMember(cc: CredCtx, member: string, actor: string, action:
   } catch (e) { cc.log.warn('could not tell a member about a change to their AI connection', { err: e }) }
 }
 
-/** notice for one connection and code at most once an hour */
-export function notifyOnce(cc: CredCtx, credentialId: string, n: Notice, to?: string[], everyMs = 3600_000) {
-  const k = `${credentialId}|${n.code}`
-  const last = cc.noticed.get(k) ?? 0
-  if (cc.now() - last < everyMs) return
-  cc.noticed.set(k, cc.now())
-  cc.notify(n, to)
-}
-
 export const fingerprintOf = (s: string) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16)
 /** the value the fingerprint is taken of (the one that identifies the connection) */
 export function mainSecret(kind: CredentialKind, v: Secrets[CredentialKind]): string {
@@ -228,7 +219,7 @@ export function secretOf<K extends CredentialKind>(cc: CredCtx, row: CredRow & {
       cc.db.query("UPDATE engine_credentials SET status = 'needs_reconnect', status_code = 'decrypt_failed', updated_at = ? WHERE id = ?").run(new Date(cc.now()).toISOString(), row.id)
       audit(cc.db, { actor: null, action: 'credential.decrypt_failed', target: row.id, detail: { keyVersion: row.key_version } })
       cc.log.warn('an AI connection could not be decrypted', { credential: row.id, keyVersion: row.key_version })
-      notifyOnce(cc, row.id, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: row.label }), link: '/admin/credentials' })
+      notifyAboutConnection(cc, row, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: row.label }), link: '/admin/credentials' }, ctAll('nOwnNeedsReconnect', { label: row.label }))
     }
     return null
   }
@@ -336,18 +327,30 @@ export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatu
   cc.db.query("UPDATE engine_credentials SET status = 'invalid', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid' } })
   cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus })
-  notifyOnce(cc, id, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ownerAndAdminsPlusOwnerOf(cc, r))
+  notifyAboutConnection(cc, r, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnRejected', { label: r.label }))
 }
 export function markNeedsReconnect(cc: CredCtx, id: string, code: string) {
   const r = getRow(cc.db, id)
   if (!r) return
   cc.db.query("UPDATE engine_credentials SET status = 'needs_reconnect', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
-  notifyOnce(cc, id, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: r.label }), link: '/admin/credentials' }, ownerAndAdminsPlusOwnerOf(cc, r))
+  notifyAboutConnection(cc, r, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnNeedsReconnect', { label: r.label }))
 }
-/** who hears about a connection: the owner and admins, and the member whose own connection it is */
-export function ownerAndAdminsPlusOwnerOf(cc: CredCtx, r: Pick<CredRow, 'owner_user_id'>): string[] {
-  const a = admins(cc.db)
-  return r.owner_user_id && !a.includes(r.owner_user_id) ? [...a, r.owner_user_id] : a
+/** Where a person manages their own AI connections (Settings › AI accounts; a member cannot open Admin). */
+export const OWN_CONNECTIONS_LINK = '/settings/providers'
+/**
+ * A notice about one connection, at most once per `everyMs` for that connection and code. The owner and admins get `n`
+ * (Admin › AI accounts). The person whose own connection it is gets `own` with a link to their Settings › AI accounts
+ * instead: a member was told to fix their own key in Admin › AI accounts, a page they cannot open (QA 2026-11-13).
+ */
+export function notifyAboutConnection(cc: CredCtx, r: Pick<CredRow, 'id' | 'owner_user_id'>, n: Notice, own: Notice['message'] = n.message, everyMs = 3600_000) {
+  const k = `${r.id}|${n.code}`
+  const last = cc.noticed.get(k) ?? 0
+  if (cc.now() - last < everyMs) return
+  cc.noticed.set(k, cc.now())
+  const holder = r.owner_user_id
+  const others = admins(cc.db).filter((a) => a !== holder)
+  if (others.length) cc.notify(n, others)
+  if (holder) cc.notify({ ...n, message: own, link: OWN_CONNECTIONS_LINK }, [holder])
 }
 
 export const secretsDirOf = (cc: CredCtx) => path.dirname(cc.vault.keyPath())
