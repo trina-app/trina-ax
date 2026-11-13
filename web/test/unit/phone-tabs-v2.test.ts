@@ -63,21 +63,21 @@ describe('the tabs', () => {
     expect(knownTab({ tab: 'files', root: { k: 'a', p: '/files' } })).toBe('files')
   })
 
-  test('the new-chat address: /new on a phone, / on a computer, with its question and project', () => {
-    expect(newChatPath({}, true)).toBe('/new')
-    expect(newChatPath({ prompt: 'a b' }, true)).toBe('/new?prompt=a%20b')
-    expect(newChatPath({ project: 'p1', prompt: 'x' }, true)).toBe('/new?project=p1&prompt=x')
+  test('the new-chat address: / on every screen (a phone\'s 트리나 tab is Home), with its question and project', () => {
+    expect(newChatPath({}, true)).toBe('/')
+    expect(newChatPath({ prompt: 'a b' }, true)).toBe('/?prompt=a%20b')
+    expect(newChatPath({ project: 'p1', prompt: 'x' }, true)).toBe('/?project=p1&prompt=x')
     expect(newChatPath({}, false)).toBe('/')
     expect(newChatPath({ prompt: 'a' }, false)).toBe('/?prompt=a')
   })
 })
 
 describe('Home and its address (homeRoute)', () => {
-  test('a phone: / is the list; / with a question or a project goes to /new with it', () => {
-    expect(homeRoute('/', '', true)).toEqual({ list: true })
-    expect(homeRoute('/', '?prompt=hi', true)).toEqual({ to: '/new?prompt=hi' })
-    expect(homeRoute('/', '?project=p1', true)).toEqual({ to: '/new?project=p1' })
-    expect(homeRoute('/new', '?prompt=hi', true)).toEqual({ list: false })
+  test('a phone: / is the box, its question or project kept; /new goes to / with the same query', () => {
+    expect(homeRoute('/', '', true)).toEqual({ list: false })
+    expect(homeRoute('/', '?prompt=hi', true)).toEqual({ list: false })
+    expect(homeRoute('/', '?project=p1', true)).toEqual({ list: false })
+    expect(homeRoute('/new', '?prompt=hi', true)).toEqual({ to: '/?prompt=hi' })
   })
   test('a computer: /new goes to / with the same query; / is the box', () => {
     expect(homeRoute('/new', '?prompt=hi', false)).toEqual({ to: '/?prompt=hi' })

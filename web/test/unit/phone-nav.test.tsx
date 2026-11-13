@@ -242,10 +242,10 @@ const withBar = (entries: InitialEntry[], index = entries.length - 1) => (
 describe('the top bar', () => {
   const html = (path: string) => rendered(withBar([path]))
 
-  test('트리나\'s list (/): no bar here (the list draws its own, panels/PhoneTrinaHome.tsx); the new chat (/new): ‹ and the AI\'s name', async () => {
-    expect(await html('/')).toBe('')
-    const h = await html('/new')
-    expect(h).toContain('data-testid="topbar-back"')
+  test('트리나 (/), Home: ☰ (the history drawer) and the AI\'s name, no ‹', async () => {
+    const h = await html('/')
+    expect(h).toContain('data-testid="menu-open"')
+    expect(h).not.toContain('data-testid="topbar-back"')
     expect(h).toMatch(new RegExp(`data-testid="topbar-title">${aiName(ko)}<`))
     if (PRODUCT_NAMED_AFTER_AI) expect(h).not.toContain(PRODUCT.displayName)
   })
@@ -280,13 +280,14 @@ describe('the top bar', () => {
     for (const p of ['/admin', '/admin/members']) expect(await html(p)).toBe('')
   })
 
-  test('a project\'s new chat (/new?project=) has ‹ back to the project', async () => {
-    const h = await html('/new?project=p1')
+  test('a project\'s new chat (/?project=) has ‹ back to the project, not ☰', async () => {
+    const h = await html('/?project=p1')
     expect(h).toContain('topbar-back')
+    expect(h).not.toContain('menu-open')
   })
 
   test('the buttons are 44 px', async () => {
-    for (const p of ['/new', '/rooms', '/skills']) {
+    for (const p of ['/', '/?project=p1', '/rooms', '/skills']) {
       // ‹ with its label: 44 px tall and at least as wide
       for (const m of (await html(p)).matchAll(/<button [^>]*class="([^"]*)"/g)) expect(m[1]).toMatch(/size-11|h-11 [^"]*min-w-11/)
     }
