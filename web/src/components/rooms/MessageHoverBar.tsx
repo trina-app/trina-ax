@@ -66,7 +66,8 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
           </button>
         </Tooltip>
       )}
-      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} buttonClassName={clsx(BTN, 'max-sm:p-0')} testId="message-more" items={more} />}
+      {/* flex: no line box around the button (with a taller system font, Linux's, one would make the bar 1 px taller) */}
+      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} className="flex" buttonClassName={clsx(BTN, 'max-sm:p-0')} testId="message-more" items={more} />}
     </div>
   )
 }

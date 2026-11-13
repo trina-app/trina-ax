@@ -188,7 +188,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back])
 
-  // the box grows with its text (an empty box with its placeholder: a transcription job's long label), and is measured
+  // the box grows with its text (an empty box with its placeholder: a transcription job's long label; any other hint
+  // stays on one line, index.css), and is measured
   // again when the person's text size changes. Behind a big side panel (lib/sidePanel.ts) it is not drawn and measures
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
