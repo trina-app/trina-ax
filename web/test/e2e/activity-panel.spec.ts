@@ -58,6 +58,8 @@ async function start(page: Page, who?: typeof MEMBER) {
   return ((await chat.json()) as { id: string }).id
 }
 
+/** where the two-notices test saves its 1440 and 390 shots (none unless set) */
+const SHOTS = process.env.SHOTS_DIR
 const rows = (page: Page) => page.getByTestId('activity-panel').getByTestId('activity-panel-row')
 
 test('owner: the notices on the left, unread first; chips 전체 · 트리나 · 요청; the rail\'s number is the list\'s', async ({ page }) => {
@@ -156,4 +158,57 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
   await page.goto('/activity?tab=dms')
   await expect(page).toHaveURL(/\/activity\?in=chats$/)
   await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
+})
+
+// Two people joined one project: both notices open that project. Only the one opened is selected (a fill, semibold),
+// the other stays read-looking; 활동 reopened from the rail keeps it; on a phone (no panel) the
+// list never shows a read notice in bold.
+test('two notices to one project: only the one opened is selected, at 1440 and 390', async ({ page }) => {
+  await start(page)
+  const H = { [CSRF_HEADER]: '1' }
+  const project = ((await (await page.request.post('/api/projects', { headers: H, data: { name: 'Acme', scope: 'team', folderPath: 'acme', instructions: '' } })).json()) as { id: string }).id
+  const joinedOne = (n: number, who: string, minutes: number): Item => notice(n, 'project.joined', minutes, { readAt: ago(1), projectJoined: { name: who, project: { id: project, name: 'Acme' } } })
+  await routeNotices(page, [joinedOne(11, '민준', 5), joinedOne(12, '지아', 9)])
+  await page.reload()
+  await page.getByTestId('rail-activity').click()
+  const two = rows(page)
+  await expect(two).toHaveCount(2)
+  const text = (i: number) => two.nth(i).getByTestId('activity-panel-text')
+  for (const i of [0, 1]) await expect(text(i)).not.toHaveClass(/font-semibold/)
+  await two.nth(1).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
+  await expect(two.nth(1)).toHaveAttribute('aria-current', 'page')
+  await expect(two.nth(0)).not.toHaveAttribute('aria-current', 'page')
+  await expect(text(1)).toHaveClass(/font-semibold/)
+  await expect(text(0)).not.toHaveClass(/font-semibold/)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/activity-one-selected-1440-light.png` })
+  // the other one: it alone
+  await two.nth(0).click()
+  await expect(two.nth(0)).toHaveAttribute('aria-current', 'page')
+  await expect(two.nth(1)).not.toHaveAttribute('aria-current', 'page')
+  // another place and back: 활동 reopens that project with the same notice selected
+  await page.getByTestId('rail-files').click()
+  await page.getByTestId('rail-activity').click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
+  await expect(two.nth(0)).toHaveAttribute('aria-current', 'page')
+  await expect(two.nth(1)).not.toHaveAttribute('aria-current', 'page')
+  // the same project opened from the rail's 프로젝트: 활동 is not lit, so no notice is selected (the panel is 프로젝트's)
+  await page.getByTestId('rail-projects').click()
+  await expect(page.getByTestId('activity-panel')).toHaveCount(0)
+
+  // a phone: 활동 is a page of its own, nothing in it looks selected, and a read notice is never bold
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/activity')
+  const items = page.getByTestId('notification-item')
+  await expect(items).toHaveCount(2)
+  for (const i of [0, 1]) {
+    await expect(items.nth(i).locator('[aria-current="page"]')).toHaveCount(0)
+    await expect(items.nth(i).locator('.font-bold, .font-semibold')).toHaveCount(0)
+  }
+  await items.nth(1).getByRole('link').click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
+  await page.goBack()
+  await expect(items).toHaveCount(2)
+  for (const i of [0, 1]) await expect(items.nth(i).locator('[aria-current="page"], .font-bold, .font-semibold')).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/activity-one-selected-390-light.png` })
 })
