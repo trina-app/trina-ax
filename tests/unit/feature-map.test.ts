@@ -1,6 +1,7 @@
 // The feature map (docs/FEATURES.md): the check, the units read from the code and the gap status of the Features tab.
 import { describe, expect, test } from 'bun:test'
 import { FEATURES, type Feature } from '../../docs/features'
+import { failuresOf, summaryMarkdown, type JsonReport } from '../../scripts/features/e2e-failures'
 import { buildMap } from '../../scripts/features/map'
 import { featureRows, parseFeatureCell, summaryLine, type QaRow } from '../../scripts/features/status'
 import { col, isoDate } from '../../scripts/features/sync-sheet'
@@ -97,5 +98,37 @@ describe('gap status', () => {
     expect(parseFeatureCell('')).toEqual([])
     expect([col(0), col(15), col(25), col(26)]).toEqual(['A', 'P', 'Z', 'AA'])
     expect(['2026-11-10', '2026. 11. 3', '11/10/2026', '2026-11-10 09:00', 'soon', ''].map(isoDate)).toEqual(['2026-11-10', '2026-11-03', '2026-11-10', '2026-11-10', '', ''])
+  })
+})
+
+describe('e2e run summary (feature-map.yml)', () => {
+  const spec = (title: string, line: number, status: 'expected' | 'unexpected' | 'flaky' | 'skipped', result?: { status: string; error?: { message: string } }) =>
+    ({ title, file: 'a.spec.ts', line, tests: [{ projectName: 'chromium', status, results: result ? [result] : [] }] })
+  const report: JsonReport = {
+    suites: [{
+      title: 'a.spec.ts', file: 'a.spec.ts',
+      specs: [spec('passes', 2, 'expected', { status: 'passed' })],
+      suites: [{ title: 'group', file: 'a.spec.ts', specs: [
+        spec('fails | pipe', 4, 'unexpected', { status: 'failed', error: { message: '\u001b[31mError: one\u001b[39m\n\nExpected: 2' } }),
+        spec('times out', 5, 'unexpected', { status: 'timedOut', error: { message: 'Test timeout of 2000ms exceeded.' } }),
+        spec('flaky one', 6, 'flaky', { status: 'passed' }),
+      ] }],
+    }],
+    stats: { expected: 1, unexpected: 2, flaky: 1, skipped: 0 },
+  }
+
+  test('names each failed or timed-out test with its file, line, describe titles and first error line', () => {
+    expect(failuresOf(report)).toEqual([
+      { project: 'chromium', where: 'a.spec.ts:4', title: 'group › fails | pipe', status: 'failed', error: 'Error: one' },
+      { project: 'chromium', where: 'a.spec.ts:5', title: 'group › times out', status: 'timedOut', error: 'Test timeout of 2000ms exceeded.' },
+    ])
+    const md = summaryMarkdown(report, '1/4')
+    expect(md).toContain('### e2e 1/4: ❌ 1 passed, 2 failed, 1 flaky, 0 skipped')
+    expect(md).toContain('| `a.spec.ts:4` (chromium) | group › fails \\| pipe | failed | Error: one |')
+  })
+
+  test('a green run says so; a missing report says the run stopped', () => {
+    expect(summaryMarkdown({ suites: [], stats: { expected: 3, unexpected: 0, flaky: 0, skipped: 1 } }, '2/4')).toStartWith('### e2e 2/4: ✅ 3 passed')
+    expect(summaryMarkdown(null, '3/4')).toContain('no report')
   })
 })

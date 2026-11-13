@@ -3,11 +3,11 @@ title: Settings and search
 description: Your account menu, the Settings window, and ⌘K search across chats, conversations and people, messages, projects, files, skills and more.
 ---
 
-Everything about your own account is one click away, at the bottom of the sidebar.
+Everything about your own account is one click away, at the bottom left.
 
 ## The account menu
 
-Click your name at the bottom of the sidebar.
+Click your name or photo at the bottom left. On a phone, open the **나** tab.
 
 ![The account menu: the signed-in user, then Settings, Usage, Deleted chats and Sign out](../images/settings/account-menu.webp "The account menu")
 
@@ -55,7 +55,7 @@ On a phone, Settings fills the screen. The section list comes first, and **←**
 
 ## Search with ⌘K
 
-Press **⌘K** (Ctrl+K on Windows), or choose **Search** in the sidebar.
+Press **⌘K** (Ctrl+K on Windows), or choose **Search** (검색) under **Ask Trina**.
 
 ![The search window: a search box, type tabs from All to MCP, recent items and quick actions](../images/search/palette.webp "Search")
 

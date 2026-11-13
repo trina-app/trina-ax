@@ -61,7 +61,7 @@ export const PlanFile = z.object({
   /** when the control plane made this plan (always written by it; a hand-written self-host file may leave it out) */
   updatedAt: IsoTime.optional(),
   // ---- control plane additions (control-plane 3.5.6) ----
-  /** active accounts allowed (D38: Basic 5, Team 12, Pro 20), the owner included, disabled ones not; null = no limit.
+  /** active accounts allowed (control plane D38, owner decision 2026-11-13: Free 3, Starter/basic 5, Team 15, Business/pro 40), the owner included, disabled ones not; null = no limit.
    * The server refuses invites, direct adds and re-enabling an account over it (409 plan_limit, reason seat_limit). */
   maxActiveMembers: z.number().int().min(1).max(10_000).nullable().default(null),
   /** what Admin > System shows as the plan name */

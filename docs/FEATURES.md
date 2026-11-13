@@ -65,8 +65,10 @@ FEATURES_SHEET_ID=<sheet id> bun scripts/features/sync-sheet.ts --gws
 ### Sheet sync in CI
 
 The `Feature map` workflow (`.github/workflows/feature-map.yml`) runs the e2e suite in four shards on every push to dev,
-keeps each shard's coverage file as an artifact and, when all four finished, rewrites the tab. One-time setup by the
-sheet's owner:
+keeps each shard's coverage file as an artifact and, when all four finished, rewrites the tab. A failing e2e test does not
+stop that: the coverage is still uploaded and the tab still rewritten, and then the run ends red, with each shard's failed
+tests (spec file and line, title, first error line) in the run summary (`scripts/features/e2e-failures.ts`). It is not a
+required check, so it does not block a merge. One-time setup by the sheet's owner:
 
 1. Google Cloud console → a project → **IAM & Admin › Service accounts** → create one (no roles needed) → **Keys › Add
    key › JSON**. Enable the **Google Sheets API** for the project.
