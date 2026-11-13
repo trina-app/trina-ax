@@ -12,3 +12,5 @@
   of the same project.
 - Fixed: a member removed from a project while the AI was answering them in one of its shared chats kept getting that
   answer. It stops now.
+- Fixed: a chat opened beside a room could be moved into a project and shared with its members, who then read what
+  was said in the room. It can't be moved into a project any more.
