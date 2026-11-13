@@ -13,10 +13,10 @@ import { Link, useLocation } from 'react-router-dom'
 import { SKILLS_DIR } from '@mycel/shared/skill-roots'
 import type { FileEntry } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
-import { api, API } from '../../lib/api'
 import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
 import { isInside } from '../../lib/paths'
-import { filesChanged } from '../../store/live'
+import { useFileLists, readTeamTop } from '../../store/fileLists'
+import { accessChanged, filesChanged, reloadAsked } from '../../store/live'
 import { readProjectList, useProjects } from '../../store/projects'
 import { useMe } from '../../store/session'
 import { useUi } from '../../store/ui'
@@ -76,22 +76,29 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const locale = useLocale()
   const words = useFolderWords()
   const me = useMe()?.user.id ?? null
-  const [top, setTop] = useState<FileEntry[] | null>(null)
+  // the team folder's top as last read (store/fileLists.ts): shown at once on a visit after the first, read again behind it
+  const read = useFileLists((s) => s.top)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let live = true
-    const load = () =>
-      void api.call(API.tree, { query: { path: '' } }).then(
-        (r) => live && setTop([...topFoldersFirst(r.entries, '')].filter((e) => e.type === 'folder' && !APART.has(e.path))),
+    const load = (fresh = false) =>
+      void readTeamTop({ fresh }).then(
+        () => live && setFailed(false),
         // not read (offline, a server hiccup): the rows it had stay; none yet, the label still opens the team folder
-        () => live && setTop((v) => v ?? []),
+        () => live && setFailed(true),
       )
     load()
-    const off = filesChanged.on(load)
+    const again = () => load(true)
+    const offs = [filesChanged.on(again), accessChanged.on(again), reloadAsked.on(again)]
     return () => {
       live = false
-      off()
+      offs.forEach((off) => off())
     }
   }, [])
+  const top = useMemo<FileEntry[] | null>(
+    () => (read ? [...topFoldersFirst(read, '')].filter((e) => e.type === 'folder' && !APART.has(e.path)) : failed ? [] : null),
+    [read, failed],
+  )
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])

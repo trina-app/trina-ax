@@ -24221,6 +24221,37 @@ at the bottom.
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
 
+## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
+
+Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`
+again, and each visit to 파일 showed the skeleton and read `GET /api/files/tree?path=` and `GET /api/files/recent`
+again (the Projects page and 최근 파일 kept their list in component state; 파일's places beside the rail too). At 390
+the same visits showed no skeleton: the phone's 프로젝트 list reads the projects store (`store/projects.ts`, `byId` and
+`listed`), as rooms and AI chats do since "Rooms left a moment ago open at once".
+- **One store per list, the phone's where there is one**: the manage=1 list is `managed` in the projects store (in the
+  server's order), read by `readManagedList` for both the computer's Projects page and an admin's phone list (which
+  read its own copy before); `put` and `drop` change it in place, so a rename, a save of members or a delete anywhere
+  shows on return. 파일 had no store: `store/fileLists.ts` keeps the team folder's top (the places beside the rail and
+  the phone's 파일 tab, the same component) and 최근 파일.
+- **A visit after the first** shows the list as last read from the first frame and reads it once behind it (one
+  request at a time per list: a list shown joins a read on its way; an event during one reads once more after it, its
+  answer may be from before the change); only the very first read shows the skeleton. A failed read leaves what was
+  there, with the page's own error note.
+- **Changes made here** (a delete, the trash, a members save, a new project) change the kept list at once; an answer to
+  a read started before such a change is not shown, and the list is read once more. A plain read's not_found (a chat's
+  project) leaves the Projects page's list alone: it may be a project the owner or an admin manages without being in it.
+- **Kept current**: no project events exist, so a visit reads again; while the page is open, an access change
+  (`access_changed`) or a live connection that could not resume (`reloadAsked`) reads it again. 파일's lists also read
+  again on every file event, as before.
+- **Access**: both stores are emptied at sign-out and when another person signs in (`dropPersonStores`), and a read
+  started before that never lands (a generation counter, as in the projects store). Another team is another address
+  and another page, so nothing crosses teams.
+- After, same mock: a return to 프로젝트 shows no skeleton and reads manage=1 once; a return to 파일 shows no skeleton and
+  reads the tree and the recent list once each. At 390 the same requests as before; 파일's places show the team folders
+  from the first frame too, and an admin's phone list now also reads again on an access change.
+- **Not changed**: a folder's own listing on the Files page (`/files?path=…`) still reads when opened, with its
+  skeleton; it pages, climbs on not_found and has many paths, which is a larger change than this one.
+
 ## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
 
 Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install

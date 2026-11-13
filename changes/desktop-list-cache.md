@@ -1,0 +1,1 @@
+- On a computer, going back to Projects or Files now shows the list at once and updates it in the background. Before, each visit showed a loading placeholder and loaded the list again. The placeholder shows only the first time.

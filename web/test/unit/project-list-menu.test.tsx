@@ -90,6 +90,8 @@ beforeEach(() => {
   now = {}
   calls.length = 0
   copied.length = 0
+  // the list is kept between visits (store/projects.ts managed): each test starts from a first visit
+  useProjects.getState().reset()
 })
 
 const page = () => mount(<MemoryRouter><ProjectList /><DialogHost /></MemoryRouter>)

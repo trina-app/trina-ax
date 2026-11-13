@@ -20,6 +20,7 @@ import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import SettingsPane from '../../src/pages/Settings'
 import { DialogHost } from '../../src/components/ui'
 import Files from '../../src/pages/Files'
+import { useFileLists } from '../../src/store/fileLists'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 
 const me = (title?: string): Me =>
@@ -65,6 +66,8 @@ afterAll(() => {
 })
 beforeEach(() => {
   calls.length = 0
+  // 파일's lists are kept between visits (store/fileLists.ts): each test starts from a first visit
+  useFileLists.getState().reset()
   useSession.setState({ status: { kind: 'signed-in', me: me('재무 매니저') } } as never)
 })
 
