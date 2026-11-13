@@ -7,6 +7,7 @@ import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion,
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
+import { projectsRestored } from '../chat/project-restore'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
@@ -2027,6 +2028,7 @@ export class TeamFiles {
       if (parked && this.ctx.db.query(`SELECT 1 FROM folders WHERE ${under} LIMIT 1`).get(r.rel, r.rel, r.rel)) fileError('conflict', 'restoreTaken')
     }
     const src = path.join(this.root, ...t.storage_path.split('/'))
+    let back: string[] = []
     if (isDir) {
       const st = fs.lstatSync(src)
       if (!st.isDirectory()) throw new Denied('trash item changed')
@@ -2047,7 +2049,7 @@ export class TeamFiles {
                 AND NOT EXISTS (SELECT 1 FROM trash_items p WHERE p.kind = 'folder' AND p.id > trash_items.id AND p.id < ?3
                   AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
           .run(r.rel, t.original_path, t.id)
-        this.projectsBack(t, r.rel)
+        back = this.projectsBack(t, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -2058,6 +2060,8 @@ export class TeamFiles {
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
+    // its projects' paused scheduled tasks and shared chats come back to their people (QA TC-1014, TC-1015)
+    projectsRestored(this.ctx, back, { by: userId, trashedAt: t.deleted_at })
     return { entry: this.entry(person, this.rules(), r.segs) }
   }
   /**
@@ -2068,7 +2072,7 @@ export class TeamFiles {
    * already names stays detached, at its old path and admin-only, for an admin to point at a folder. A purge keeps the
    * mark (purgeRow): the project stays the admins' and the owner's, to delete or point elsewhere.
    */
-  private projectsBack(t: TrashRow, to: string) {
+  private projectsBack(t: TrashRow, to: string): string[] {
     const db = this.ctx.db
     const from = t.original_path
     const under = (col: string, n: number) => `(${col} = ?${n} OR substr(${col}, 1, length(?${n}) + 1) = ?${n} || '/')`
@@ -2079,13 +2083,16 @@ export class TeamFiles {
     }
     const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
     const inPlace = new Set((db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]).map((r) => key(r.folder_path)))
+    const back: string[] = []
     for (const pr of db.query('SELECT id, folder_path FROM projects WHERE trashed_with = ? ORDER BY created_at, id').all(t.id) as { id: string; folder_path: string }[]) {
       if (pr.folder_path !== from && !pr.folder_path.startsWith(from + '/')) continue
       const next = to + pr.folder_path.slice(from.length)
       if (inPlace.has(key(next))) continue
       db.query('UPDATE projects SET folder_path = ?, trashed_with = NULL WHERE id = ?').run(next, pr.id)
       inPlace.add(key(next))
+      back.push(pr.id)
     }
+    return back
   }
 
   /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has

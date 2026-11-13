@@ -19,6 +19,7 @@ import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
+import { projectsRestored } from '../chat/project-restore'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
@@ -199,13 +200,16 @@ export const chatsRoutes: RouteModule = {
      * and who changes its members (chat/project-access.ts membersView) */
     const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string, creators?: Map<string, Principal | null>, aud: Audiences = new Audiences(ctx.db, ctx.files)) => {
       const canManage = mayManage(ctx, p, r)
+      // deleteProject's project_folder_stays, said before the click: a member's older project on an admin's folder (QA TC-1016)
+      const canDelete = canManage && !(isProjectsFolder(r.folder_path) && r.trashed_with === null && !isAdmin(p) && !accessEditable(r, ctx.files, p)
+        && (() => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...r.folder_path.split('/'))).isDirectory() } catch { return false } })())
       // a team project the caller manages without reading it (the owner or an admin who is not a member, or one whose
       // folder is in the trash): its name, creator, member count and state, nothing of its contents
       if (!canSeeProject(ctx.files, p, r)) {
         const out = rt.store.toProject(r, false, { audience: aud.of(r).length })
-        return { ...out, instructions: '', member: false as const, canManage, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
+        return { ...out, instructions: '', member: false as const, canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, ...membersView(ctx, r, p, canManage, creators, aud) }
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud) }
     }
     /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project). */
     const projectFor = (p: Principal, id: string, manage: boolean): ProjectRowT => {
@@ -871,6 +875,13 @@ export const chatsRoutes: RouteModule = {
       // pointed at a projects/<name> that holds skills: they switch on in this project's chats (asked first: skills/switch-on.ts)
       const skillsOn = repoint ? skillsUnder(ctx.files.fx.root, folder) : null
       askSkillsOn(skillsOn?.names ?? [], body.skillsOk, locale)
+      // the form's base is not what the project has now: someone else saved in between. Nothing is saved; the latest
+      // comes back so the form shows it beside the person's own text (QA TC-1013). No base: an older client, saved.
+      // Its instructions only for someone who reads them (a manager who is not a member renames it: never a way to
+      // learn or test them)
+      const reads = canSeeProject(ctx.files, p, r!)
+      if (body.base && ((body.base.name !== undefined && body.base.name !== r!.name) || (reads && body.base.instructions !== undefined && body.base.instructions !== r!.instructions)))
+        fail('conflict', tr('projectChangedMeanwhile', locale), { params: { reason: 'project_changed', name: r!.name, ...(reads ? { instructions: r!.instructions } : {}) } })
       const next = { name: body.name ?? r!.name, instructions: body.instructions ?? r!.instructions }
       // who wrote the instructions: one person only while every saved version is theirs (and the text is still what
       // they saved: a build without these columns may have changed it); otherwise nobody (chat/runtime.ts projectTaints)
@@ -910,6 +921,14 @@ export const chatsRoutes: RouteModule = {
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      // a project in the trash that an admin pointed at a folder is back as a restore brings it back: its paused tasks
+      // and shared chats (chat/project-restore.ts; QA TC-1014, TC-1015). Since when: its folder's trash item, or (purged
+      // since) the project's own trash record
+      if (repoint && r!.trashed_with !== null) {
+        const since = (ctx.db.query('SELECT deleted_at AS at FROM trash_items WHERE id = ?').get(r!.trashed_with) as { at: string } | null)?.at
+          ?? (ctx.db.query("SELECT at FROM audit_log WHERE action = 'project.trash' AND target = ? ORDER BY id DESC LIMIT 1").get(r!.id) as { at: string } | null)?.at
+        projectsRestored(ctx, [r!.id], { by: auth.user.id, trashedAt: since ?? null })
+      }
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
 

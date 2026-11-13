@@ -332,6 +332,10 @@ export const UpdateProjectBody = z.object({
   /** repointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
    * project_skills_on unless true (docs/DECISIONS.md "Project skills") */
   skillsOk: z.boolean().optional(),
+  /** the name and instructions as the edit form loaded them: when either is not what the project has now (someone
+   * else saved in between), nothing is saved and the answer is 409 `project_changed` with `params.name` and
+   * `params.instructions`, the project's values now (QA TC-1013). Absent (older clients): the save goes through. */
+  base: z.object({ name: z.string().max(100).optional(), instructions: z.string().max(50_000).optional() }).optional(),
 })
 export const DeleteProjectQuery = z.object({
   /** ignored since "Project contents only for members": a team project in projects/<name> whose folder is in place

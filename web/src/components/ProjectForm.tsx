@@ -71,15 +71,22 @@ export function ProjectForm({ project, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null)
   const [takenBy, setTakenBy] = useState<string | null>(null)
   const finalName = name.trim()
+  // the name and instructions this form started from: someone else saving first makes the server answer 409
+  // project_changed with the latest, shown below the person's own text, which stays in the boxes (QA TC-1013)
+  const [base, setBase] = useState({ name: project?.name ?? '', instructions: project?.instructions ?? '' })
+  const [latest, setLatest] = useState<{ name: string; instructions: string } | null>(null)
 
   const save = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
     setTakenBy(null)
+    setLatest(null)
     try {
       let p: Project
       if (project) {
-        p = await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions,
+        // (a manager who is not a member gets no instructions: only the name is compared)
+        const guard = { base: project.member === false ? { name: base.name } : base }
+        p = await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...guard,
           ...(repointable && folderPicked ? { folderPath: folder } : {}),
           // the setting goes only when it changed (and never while safe operations hold it)
           ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}), ...(skillsOk ? { skillsOk } : {}) } })
@@ -95,6 +102,15 @@ export function ProjectForm({ project, onClose, onSaved }: {
       if (skills && !skillsOk) {
         setBusy(false)
         if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('common.save') })) await save(true)
+        return
+      }
+      // someone else saved first: their version is shown, the next Save is the person's choice over it
+      const now = e instanceof ApiError && e.code === 'conflict' && e.body.params?.reason === 'project_changed' ? e.body.params : null
+      if (now && typeof now.name === 'string') {
+        const text = typeof now.instructions === 'string' ? now.instructions : base.instructions
+        setBase({ name: now.name, instructions: text })
+        setLatest({ name: now.name, instructions: text })
+        setError(t('projects.changedMeanwhile'))
         return
       }
       const refused = refusalKey(e, 'project')
@@ -190,6 +206,12 @@ export function ProjectForm({ project, onClose, onSaved }: {
               </>
             )}
           </p>
+        )}
+        {latest && (
+          <div className="space-y-1 rounded-lg border border-line bg-subtle px-3 py-2 text-sm" data-testid="project-latest">
+            {latest.name !== finalName && <p className="font-medium break-words">{latest.name}</p>}
+            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-muted">{latest.instructions || t('projects.latestNoInstructions')}</p>
+          </div>
         )}
       </div>
       {repointable && (

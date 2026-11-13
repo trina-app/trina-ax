@@ -188,7 +188,36 @@ describe('editing a project', () => {
     await m.until(() => saved, 'the save', 2000)
     // nothing about who sees it: no access read, no dry run, no participants save
     expect(sent.map((x) => x.key).filter((k) => k !== 'GET /api/people')).toEqual([`PATCH /api/projects/${P1}`])
-    expect(calls(`PATCH /api/projects/${P1}`)[0]!.body).toEqual({ name: 'Acme 2027', instructions: '' })
+    // with what the form started from: someone else's save in between is a 409, not lost (QA TC-1013)
+    expect(calls(`PATCH /api/projects/${P1}`)[0]!.body).toEqual({ name: 'Acme 2027', instructions: '', base: { name: 'Acme launch', instructions: '' } })
+    await m.unmount()
+  })
+
+  test('someone else saved first: their version shows under the person\'s own text, which stays; Save again keeps it', async () => {
+    signedIn('member')
+    let first = true
+    routes = {
+      [`PATCH /api/projects/${P1}`]: () => {
+        if (!first) return json(200, project('projects/acme', { name: 'Acme mine' }))
+        first = false
+        return json(409, { error: { code: 'conflict', message: 'x', params: { reason: 'project_changed', name: 'Acme launch', instructions: 'Bob wrote this' } } })
+      },
+    }
+    let saved: Project | null = null
+    const m = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { instructions: 'v1' })} onClose={() => {}} onSaved={(p) => { saved = p }} /><DialogHost /></MemoryRouter>)
+    await m.settle(50)
+    await m.type('project-name', 'Acme mine')
+    await m.click('project-save')
+    await m.until(() => m.find('project-latest'), 'the latest version', 2000)
+    expect(saved).toBeNull()
+    expect(m.get('project-latest').textContent).toContain('Bob wrote this')
+    expect(document.body.textContent).toContain(en('projects.changedMeanwhile'))
+    // the person's text is still in the box
+    expect((m.get('project-name') as unknown as { value: string }).value).toBe('Acme mine')
+    await m.click('project-save')
+    await m.until(() => saved, 'the second save', 2000)
+    // from the version they were shown now
+    expect(calls(`PATCH /api/projects/${P1}`)[1]!.body).toEqual({ name: 'Acme mine', instructions: 'v1', base: { name: 'Acme launch', instructions: 'Bob wrote this' } })
     await m.unmount()
   })
 

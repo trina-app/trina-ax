@@ -1038,6 +1038,8 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.project.create': "プロジェクトを作成",
   'projects.folder': "プロジェクトフォルダー",
   "projects.inTrash": "このプロジェクトはゴミ箱にあります。",
+  'projects.changedMeanwhile': "編集中に他の人がこのプロジェクトを変更しました。その内容は下にあり、入力した文章は上の欄にそのまま残っています。もう一度保存すると、あなたの文章になります。",
+  'projects.latestNoInstructions': "（指示なし）",
   'projects.inTrashEdit': "このプロジェクトのフォルダーはゴミ箱にあります。ファイル › ゴミ箱から元に戻すか、ここでフォルダーを選んでください。選ばずに保存すると、プロジェクトはそのままです。",
   'projects.inTrashOpens': "保存すると、{folder} を閲覧できる全員がこのプロジェクトとその指示を見られるようになります。",
   'projects.inTrashOpensCount': "{folder} を閲覧できるのは{n, plural, one {#人} other {#人}}です。保存すると、その全員がこのプロジェクトとその指示を見られるようになります。",
