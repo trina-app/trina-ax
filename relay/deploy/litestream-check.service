@@ -1,0 +1,8 @@
+[Unit]
+Description=Check that Litestream still copies the relay registry to R2
+After=network-online.target litestream.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/relay-checkin relay-litestream "every 15 minute" 10 5 -- /usr/local/sbin/relay-litestream-check

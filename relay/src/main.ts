@@ -24,6 +24,8 @@ import { createRelayLog } from './log.ts'
 import { parseOperatorKeys } from './ops-api.ts'
 import { Registry } from './registry.ts'
 import { RelayServer } from './relay.ts'
+import { logLineInput, relayReportsFrom } from './report.ts'
+import { CRASH_FLUSH_MS, reportCrashes } from '@mycel/shared/sentry-report'
 
 function opt(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`)
@@ -122,11 +124,28 @@ async function main(): Promise<number> {
     return 0
   }
 
-  const log = createRelayLog()
-  const relay = new RelayServer(cfg, registry, log)
-  if (process.env.RELAY_ACCOUNT_HOST) relay.pageLinks.account = process.env.RELAY_ACCOUNT_HOST
-  if (process.env.RELAY_STATUS_HOST) relay.pageLinks.status = process.env.RELAY_STATUS_HOST
-  const port = await relay.listen()
+  // error reports only for the serving relay, and only with RELAY_SENTRY_DSN (operator commands above send nothing)
+  const { reporter, invalid } = relayReportsFrom(process.env)
+  const log = createRelayLog(undefined, false, reporter ? (ev, f) => reporter.capture(logLineInput(ev, f)) : undefined)
+  if (invalid) log.warn('sentry_dsn_invalid', { setting: 'RELAY_SENTRY_DSN' })
+  if (reporter) {
+    // the crash line is written without the hook: the crash itself is the report
+    const plain = createRelayLog()
+    reportCrashes(reporter, (what, err) => plain.error(what.replace(/ /g, '_'), { error: err.name }))
+  }
+  let relay: RelayServer
+  let port: number
+  try {
+    relay = new RelayServer(cfg, registry, log)
+    if (process.env.RELAY_ACCOUNT_HOST) relay.pageLinks.account = process.env.RELAY_ACCOUNT_HOST
+    if (process.env.RELAY_STATUS_HOST) relay.pageLinks.status = process.env.RELAY_STATUS_HOST
+    port = await relay.listen()
+  } catch (e) {
+    // e.g. the port is taken or a certificate file is missing: systemd restarts the relay, Sentry says why
+    log.error('start_failed', { error: e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.name) : 'unknown' })
+    await reporter?.flush(CRASH_FLUSH_MS)
+    throw e
+  }
   if (cfg.dev) console.log(`relay (dev): teams at http://<team>.${cfg.domain}:${port}  control ws://127.0.0.1:${port}/connect  registry ${cfg.dataDir}`)
   let stopping = false
   const stop = async (sig: string) => {
@@ -135,6 +154,7 @@ async function main(): Promise<number> {
     log.info('relay_stopping', { signal: sig })
     await relay.stop(Number(process.env.RELAY_GRACE_MS ?? 10_000))
     db.close()
+    await reporter?.flush(CRASH_FLUSH_MS)
     process.exit(0)
   }
   process.on('SIGTERM', () => void stop('SIGTERM'))

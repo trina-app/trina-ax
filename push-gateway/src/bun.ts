@@ -6,13 +6,16 @@
 //   bun push-gateway/src/bun.ts key-id <spki>   the key id of a base64 SPKI public key
 //
 // Environment (README.md): APP_TITLE, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_PRIVATE_KEY (or _FILE), APNS_SANDBOX,
-// FCM_SERVICE_ACCOUNT (or _FILE), TRUST_PROXY_HEADER, PUSH_GATEWAY_DB (default ./push-gateway.sqlite).
+// FCM_SERVICE_ACCOUNT (or _FILE), TRUST_PROXY_HEADER, PUSH_GATEWAY_DB (default ./push-gateway.sqlite),
+// PUSH_GATEWAY_SENTRY_DSN and PUSH_GATEWAY_SENTRY_ENV (error reports, off when unset: report.ts).
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import http2 from 'node:http2'
 import { APNS_PRODUCTION, APNS_SANDBOX } from './apns.ts'
 import { importTeamKey, type FetchLike } from './crypto.ts'
+import { CRASH_FLUSH_MS, reportCrashes } from '../../shared/src/sentry-report.ts'
 import { createGateway, type GatewayDeps, type GatewayEnv, type LogLine } from './gateway.ts'
+import { buildId, gatewayReportsFrom } from './report.ts'
 import { ShardedState, type ShardStorage } from './state.ts'
 
 const APNS_HOSTS = [new URL(APNS_PRODUCTION).host, new URL(APNS_SANDBOX).host]
@@ -128,6 +131,9 @@ export interface ServeOptions {
   endpoints?: GatewayDeps['endpoints']
   now?: () => number
   log?: (line: LogLine) => void
+  /** error reports (report.ts): our credentials refused, a send that threw */
+  alarm?: GatewayDeps['alarm']
+  failed?: GatewayDeps['failed']
 }
 
 export function serve(opts: ServeOptions) {
@@ -143,6 +149,8 @@ export function serve(opts: ServeOptions) {
     log: opts.log ?? ((line) => console.log(JSON.stringify(line))),
     state,
     endpoints: opts.endpoints,
+    alarm: opts.alarm,
+    failed: opts.failed,
   })
   const timer = setInterval(() => { store.sweep(now()); state.sweep(now()) }, 60_000)
   const server = Bun.serve({
@@ -184,17 +192,26 @@ if (import.meta.main) {
     console.log(k.keyId)
   } else if (cmd === undefined) {
     const env = process.env
-    const { server } = serve({
+    const reports = gatewayReportsFrom(env, { build: buildId(Bun.main) })
+    if (reports.invalid) console.log(JSON.stringify({ evt: 'config', outcome: 'sentry_dsn_invalid' }))
+    if (reports.reporter) reportCrashes(reports.reporter, (what) => console.log(JSON.stringify({ evt: 'crash', outcome: what.replace(/ /g, '_') })))
+    const { server, stop } = serve({
       dbPath,
       port: Number(env.PUSH_GATEWAY_PORT || 8787),
       hostname: env.PUSH_GATEWAY_HOST || '127.0.0.1',
       trustProxyHeader: env.TRUST_PROXY_HEADER || null,
+      alarm: reports.alarm,
+      failed: reports.failed,
       env: {
         APP_TITLE: env.APP_TITLE, APNS_KEY_ID: env.APNS_KEY_ID, APNS_TEAM_ID: env.APNS_TEAM_ID, APNS_TOPIC: env.APNS_TOPIC,
         APNS_SANDBOX: env.APNS_SANDBOX, APNS_PRIVATE_KEY: secret('APNS_PRIVATE_KEY'), FCM_SERVICE_ACCOUNT: secret('FCM_SERVICE_ACCOUNT'),
       },
     })
     console.log(JSON.stringify({ evt: 'listen', port: server.port }))
+    // systemd stops with SIGTERM: let a report that is on its way go out first
+    const quit = () => { stop(); void (reports.reporter?.flush(CRASH_FLUSH_MS) ?? Promise.resolve()).finally(() => process.exit(0)) }
+    process.on('SIGTERM', quit)
+    process.on('SIGINT', quit)
   } else {
     throw new Error(`unknown command ${cmd}`)
   }

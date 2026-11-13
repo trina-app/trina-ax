@@ -27,14 +27,14 @@ test('bundle: contents, manifest, sha256 file, and it serves under Node outside 
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'MANIFEST.json'), 'utf8')) as { version: string; files: Record<string, { size: number; sha256: string }> }
   expect(manifest.version).toBe('0.0.0-test')
   const names = Object.keys(manifest.files)
-  for (const must of ['package.json', 'VERSION', 'relay/src/main.ts', 'relay/src/ops-api.ts', 'shared/src/relay-protocol/index.ts', 'shared/src/cloud-protocol/relay-ops.ts', 'shared/src/cloud-protocol/LICENSE', 'node_modules/ws/package.json', 'deploy/mycel-relay@.service', 'deploy/relay-deploy.sh']) expect(names).toContain(must)
+  for (const must of ['package.json', 'VERSION', 'relay/src/main.ts', 'relay/src/ops-api.ts', 'shared/src/relay-protocol/index.ts', 'shared/src/cloud-protocol/relay-ops.ts', 'shared/src/cloud-protocol/LICENSE', 'shared/src/sentry-report.ts', 'relay/src/report.ts', 'node_modules/ws/package.json', 'deploy/mycel-relay@.service', 'deploy/relay-deploy.sh', 'deploy/relay-checkin.sh', 'deploy/litestream-check.sh', 'deploy/litestream-check.timer']) expect(names).toContain(must)
   // nothing of the team server, the tests or the zod-based contracts
   expect(names.filter((n) => /^(server|web|tests|desktop)\//.test(n) || n.startsWith('shared/src/api') || n === 'shared/src/cloud-protocol/enroll.ts')).toEqual([])
   for (const [n, m] of Object.entries(manifest.files)) {
     const b = fs.readFileSync(path.join(root, n))
     expect({ n, size: b.byteLength, sha256: crypto.createHash('sha256').update(b).digest('hex') }).toEqual({ n, ...m })
   }
-  expect(fs.statSync(path.join(root, 'deploy/relay-deploy.sh')).mode & 0o111).not.toBe(0)
+  for (const x of ['deploy/relay-deploy.sh', 'deploy/relay-checkin.sh', 'deploy/litestream-check.sh']) expect(fs.statSync(path.join(root, x)).mode & 0o111).not.toBe(0)
 
   if (!Bun.which('node')) return
   const port = 19288

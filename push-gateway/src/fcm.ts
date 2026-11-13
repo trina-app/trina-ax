@@ -12,6 +12,17 @@ import { importRs256, signJwt, type FetchLike } from './crypto.ts'
 
 export type SendOutcome = 'sent' | 'token_invalid' | 'provider_error'
 
+/** The provider refused the gateway's own credentials (a fixed reason code, never provider text). bun.ts sends it to
+ *  Sentry when PUSH_GATEWAY_SENTRY_DSN is set; a dead device token never calls it. */
+export type CredentialAlarm = (provider: 'apns' | 'fcm', reason: string) => void
+
+/**
+ * FCM error codes (firebase.google.com/docs/reference/fcm/rest/v1/ErrorCode, google.rpc status) that mean our service
+ * account or project was refused, for every device alike. UNREGISTERED, INVALID_ARGUMENT (a bad token) and
+ * SENDER_ID_MISMATCH (a token from another app) are about one device and are not here.
+ */
+export const FCM_CREDENTIAL_CODES = new Set(['UNAUTHENTICATED', 'PERMISSION_DENIED', 'THIRD_PARTY_AUTH_ERROR'])
+
 /** What the app reads from a notification (APNs: the payload's `body` object; FCM: `data`). Only these keys. */
 export function appData(msg: PushGatewaySend): Record<string, string> {
   const data: Record<string, string> = { notificationId: msg.notificationId, code: msg.code }
@@ -50,7 +61,15 @@ export function parseServiceAccount(json: string | undefined): FcmConfig | null 
   return { projectId, clientEmail, privateKeyPem, tokenUri }
 }
 
-export interface FcmDeps { fetch: FetchLike; now(): number; origin?: string; /** tests: default FCM_TIMEOUT_MS */ timeoutMs?: number }
+export interface FcmDeps {
+  fetch: FetchLike
+  now(): number
+  origin?: string
+  /** tests: default FCM_TIMEOUT_MS */
+  timeoutMs?: number
+  /** Google refused OUR service account (not a device token): the operators must act */
+  alarm?: CredentialAlarm
+}
 
 interface FcmError { error?: { status?: unknown; message?: unknown; details?: { errorCode?: unknown }[] } }
 
@@ -63,7 +82,10 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
     if (cached && now < cached.until) return cached.token
     key ??= importRs256(cfg.privateKeyPem)
     const k = await key
-    if (!k) return null
+    if (!k) {
+      deps.alarm?.('fcm', 'key_unreadable')
+      return null
+    }
     const iat = Math.floor(now / 1000)
     const assertion = await signJwt(k, { alg: 'RS256', typ: 'JWT' }, { iss: cfg.clientEmail, scope: FCM_SCOPE, aud: cfg.tokenUri, iat, exp: iat + 3600 })
     const res = await deps.fetch(cfg.tokenUri, {
@@ -74,6 +96,9 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
     })
     if (res.status !== 200) {
       await res.body?.cancel()
+      // 400 invalid_grant (a deleted or disabled key), 401 invalid_client, 403: the service account is refused. A 429
+      // (busy) or a 5xx is Google's trouble and passes.
+      if (res.status === 400 || res.status === 401 || res.status === 403) deps.alarm?.('fcm', `oauth_${res.status}`)
       return null
     }
     const j = (await res.json().catch(() => null)) as { access_token?: unknown; expires_in?: unknown } | null
@@ -114,6 +139,10 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
         const e = ((await res.json().catch(() => null)) as FcmError | null)?.error
         const codes = (Array.isArray(e?.details) ? e.details : []).map((d) => d?.errorCode)
         if (codes.includes('UNREGISTERED')) return 'token_invalid'
+        // SENDER_ID_MISMATCH comes with status PERMISSION_DENIED but is about the token (it belongs to another app)
+        const refused = codes.includes('SENDER_ID_MISMATCH') ? undefined : [...codes, e?.status].find((c): c is string => typeof c === 'string' && FCM_CREDENTIAL_CODES.has(c))
+        if (refused) deps.alarm?.('fcm', refused)
+        else if (!codes.includes('SENDER_ID_MISMATCH') && (res.status === 401 || res.status === 403)) deps.alarm?.('fcm', `http_${res.status}`)
         const invalidArgument = e?.status === 'INVALID_ARGUMENT' || codes.includes('INVALID_ARGUMENT')
         if (invalidArgument && typeof e?.message === 'string' && /registration token/i.test(e.message)) return 'token_invalid'
         return 'provider_error'

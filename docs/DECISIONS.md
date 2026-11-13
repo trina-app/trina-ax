@@ -25009,3 +25009,39 @@ default.
   error wiring, autofocus); its two other users are unchanged. One short line on top, short notes of the popup's own
   (the team dialog's shared words stay), the 7 days under Member. Red only after Send (no error on leaving a field).
 - **Unchanged:** what is sent and the 7-day wait.
+
+## Error reports from the relay and the push gateway (feat/cloud-monitoring, 2026-11-13, product owner)
+
+- **Same rules as the team server's opt-in reports** (PR #168, "Error reports to Sentry" once it merges): no Sentry SDK,
+  `buildEvent` in `shared/src/sentry-report.ts` is the allowlist, the same scrubber, one copy of a repeated error a
+  minute, at most 30 a minute, a crash always goes and the process still exits with 1, Sentry's 429 pauses sending.
+  The relay runs its `.ts` files under Node with type stripping, so the file is erasable TypeScript with only `node:`
+  imports, and it ships in the relay bundle.
+- **Off without a key, and no key ships.** `RELAY_SENTRY_DSN` and `PUSH_GATEWAY_SENTRY_DSN` live only on the hosts. These
+  are our own services, so there is no hosted refusal as on a team server: the relay log and the gateway hold no
+  customer content, and a report holds even less (event name, scrubbed message, frames, fixed-code tags).
+- **Only real failures.** Relay: crashes, a failed start and the log's error lines (the hook gets the fields after
+  `FORBIDDEN_LOG_FIELDS` and reads only the event name and `error`). Push gateway: crashes, a send that threw, and
+  Apple or Google refusing the gateway's own key, team, topic or service account. A dead or foreign device token
+  (410, `Unregistered`, `BadDeviceToken`, `UNREGISTERED`, `SENDER_ID_MISMATCH`) is one phone and stays a log line;
+  provider outages (5xx, 429, and a 429 from Google's token endpoint) too. There is no test route and no test event.
+  A credential refusal repeats on every send until someone replaces the key, so it is sent once an hour per reason,
+  not once a minute.
+- **Crash handlers print the error as the runtime would** (the whole stack, unscrubbed) to stderr before they report
+  and exit: a listener stops the runtime's own print, and the local log (journald) must keep it. Only the report is
+  scrubbed.
+- **Cron check-ins from the jobs themselves.** One wrapper (`relay/deploy/relay-checkin.sh`) runs a timer's job between
+  `in_progress` and `ok`/`error` on Sentry's HTTP check-in endpoint, keeps the job's exit code, and never fails the job
+  over a check-in. The URL holds the project key, so it reaches curl on stdin (`-K -`), not as an argument `ps` shows. Monitors `relay-registry-backup`, `relay-cf-ips-refresh` and `relay-litestream` (a 15-minute check:
+  the unit is active, the replica can be listed, and the registry did not change more than 15 minutes after the newest
+  replica file, so an idle registry is not an error). The wrapper sits in `/usr/local/sbin`, not in a release, so a
+  timer works whichever release `current` points at.
+- **Left out:** the team server's update timer, until PR #168's `MYCEL_SENTRY_DSN` (and its hosted refusal) is on `dev`;
+  a second setting for the same thing would confuse operators. Follow-up: the server's `error-report.ts` imports the
+  shared scrubber so there is one list.
+- Tests: `tests/unit/sentry-report.test.ts` (keys, check-in URL, off by default, scrubbing, the exact field list, the relay
+  hook, limits, crashes), `tests/unit/relay-checkin.test.ts` (the wrapper with a fake curl, the Litestream check with
+  fake tools, the units), `tests/unit/push-gateway.test.ts` (credential refusals reported, dead tokens not, no token or
+  key in an event).
+- Version impact: **none** for the Trina AX release (no team server or app change); the relay bundle gains optional
+  settings, a minor change for whoever cuts the next relay bundle.

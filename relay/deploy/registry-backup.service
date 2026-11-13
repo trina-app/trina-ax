@@ -5,4 +5,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/mycel-relay/current/deploy/registry-backup.sh
+# relay-checkin: Sentry monitor relay-registry-backup when RELAY_SENTRY_DSN is set (README.md)
+ExecStart=/usr/local/sbin/relay-checkin relay-registry-backup "40 18 * * *" 30 30 -- /opt/mycel-relay/current/deploy/registry-backup.sh
