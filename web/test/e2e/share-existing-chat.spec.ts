@@ -155,7 +155,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await row.hover()
       await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()
       await row.getByTestId('chat-row-move').click()
-      const dialog = page.getByRole('dialog', { name: '이 기록의 프로젝트' })
+      const dialog = page.getByRole('dialog', { name: '프로젝트로 옮기기' })
       await dialog.getByText('Launch', { exact: true }).click()
       await expect(dialog.getByTestId('chat-project-share-toggle')).not.toBeChecked()
       await audit(page, 'move dialog from the row menu')

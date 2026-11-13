@@ -206,32 +206,28 @@ test.describe('TC-254: project screens on a phone', () => {
     for (const title of ['Weekly numbers', 'Launch plan review']) await call(page, 'POST', '/api/chats', { projectId: id, title })
     await call(page, 'POST', '/__test/file', { path: 'marketing/sub/notes.md', text: '# Notes' })
 
-    // 1. Projects (the 프로젝트 tab, QA TC-255): "+" in the bar, no intro paragraph or orange button in the page
+    // 1. Projects (the 프로젝트 tab): its list as on a computer's panel (panels/ProjectsPanel.tsx): "+ 새 프로젝트" as its
+    // first 44 px row, then plain rows (no card, no "···"); no intro paragraph or orange button in the page
     await openProjectsTab(page)
     const bar = page.getByTestId('phone-page-bar')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['projects.title'])
-    const plus = bar.getByTestId('project-new')
-    await expect(plus).toHaveAccessibleName(t['projects.new'])
-    expect((await plus.boundingBox())!).toMatchObject({ width: 44, height: 44 })
+    const list = page.getByTestId('phone-projects-list')
+    const plus = list.getByTestId('projects-panel-new')
+    await expect(plus).toHaveText(t['projects.new'])
+    expect((await plus.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await expect(page.getByText(t['projects.desc'])).toHaveCount(0)
     await expect(page.locator('button.bg-accent')).toHaveCount(0)
-    await expect(page.getByTestId('project-new')).toHaveCount(1)
     await shot(page, 'projects')
     await audit(page, 'Projects (phone)')
-    // a row, not a card (QA TC-380, phone-member-pages.cases.ts); its ···: 44 px
-    const launchRow = page.getByTestId('project-row').filter({ hasText: 'Launch' })
+    const launchRow = list.getByTestId('projects-panel-row').filter({ hasText: 'Launch' })
     await expect(page.getByTestId('project-card')).toHaveCount(0)
-    expect((await launchRow.getByTestId('project-card-menu').boundingBox())!).toMatchObject({ width: 44, height: 44 })
-    // "+" opens the form: 44 px radio rows, no resize grip
+    await expect(launchRow.getByTestId('project-card-menu')).toHaveCount(0)
+    expect((await launchRow.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    // "+ 새 프로젝트" opens the name-only dialog
     await plus.click()
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByTestId('project-name')).toBeVisible()
-    for (const kind of ['team', 'personal']) {
-      const radio = dialog.getByTestId(`project-kind-${kind}`)
-      expect((await radio.boundingBox())!.width).toBeGreaterThanOrEqual(20)
-      expect((await radio.locator('xpath=..').boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    }
-    await expect(dialog.locator('textarea')).toHaveCSS('resize', 'none')
+    await expect(dialog.getByTestId('project-kind-team')).toHaveCount(0)
     await shot(page, 'project-form')
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
