@@ -261,16 +261,18 @@ export const SPECS: Record<string, Spec> = {
   // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
   // but did not make it (403), bob does not see it (404)
   previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
-  // a team project alice put in the trash (its folder with it) comes back only by the owner or an admin, who manage it
-  // without reading it (docs/DECISIONS.md "Project contents only for members"); alice herself, its creator, may not
+  // a team project alice put in the trash (its folder with it) comes back by the owner or an admin, who manage it
+  // without reading it (docs/DECISIONS.md "Project contents only for members"), or by alice, its creator and a member
+  // of it (QA TC-1062, "A team project in the trash: its members keep its card"); nobody else
   restoreProject: { build: async (c, w) => {
-    const made = await w.as.memberIn.post('/api/projects', { name: `Back ${Math.random().toString(36).slice(2, 8)}`, participants: [], instructions: '' })
+    const made = await w.as.memberIn.post('/api/projects', { name: `Back ${Math.random().toString(36).slice(2, 8)}`, participants: [], instructions: 'SEC-RESTORE-INSTR' })
     await w.as.memberIn.del(`/api/projects/${made.json.id}`)
     return c.post(`/api/projects/${made.json.id}/restore`)
-  }, scope: 'admins',
+  }, scope: 'alice-project',
     check: async (r, w, who) => {
-      if (who !== 'owner' && who !== 'admin') return
-      if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
+      if (who === 'owner' || who === 'admin') {
+        if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
+      } else if (who === 'memberIn' && (r.json?.inTrash !== false || r.json?.instructions !== 'SEC-RESTORE-INSTR')) throw new Error('alice did not get her restored project back')
     } },
   getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
   // who is in it, by face (docs/DECISIONS.md "Who is in a project, by face"): its members (erin too, who did not make

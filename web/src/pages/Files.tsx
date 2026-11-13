@@ -55,7 +55,8 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
-import { readProjectList, useProjects } from '../store/projects'
+import { readManagedList, readProjectList, useProjects } from '../store/projects'
+import { useDeleteProject } from './Projects'
 import { dropFolders, FOLDER_PAGE, folderKey, keptFolder, readFolder } from '../store/teamFiles'
 import { DECLINED, fileChangeKey, fileChangePending, fileEdits, later, madeEntry, onListingEdit, placeEntry } from '../store/fileChanges'
 import { optimistic } from '../lib/optimistic'
@@ -1758,9 +1759,11 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
-  const me = useMeStrict().user.id
+  const meNow = useMeStrict()
+  const me = meNow.user.id
   const phone = useMediaQuery('(max-width: 767.98px)')
   const tabs = useId()
+  const deleteProject = useDeleteProject()
   const [who, setWho] = useState<'all' | 'mine'>('all')
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
@@ -1810,6 +1813,18 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
       send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
     })
     if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: placeWords(parentPath(r.reply.entry.path), place) }) })
+    // a project came back with its folder: the project lists read it again (its card, its members' too)
+    if (r.ok && it.project) {
+      void readProjectList().catch(() => {})
+      void readManagedList({ fresh: true }).catch(() => {})
+    }
+  }
+  // a team project in the trash, deleted for good from here (the owner and admins): the project's own delete, with its
+  // confirm (pages/Projects.tsx useDeleteProject: its files, and where its shared chats go; QA TC-1061, TC-1063)
+  const forGood = async (it: TrashItem) => {
+    if (!it.project) return
+    const d = await deleteProject({ id: it.project.id, name: it.project.name, folderPath: it.originalPath, instructions: '', createdBy: null, createdAt: it.deletedAt, canEdit: false, inTrash: true })
+    if (d === 'gone') setItems((cur) => cur && cur.filter((x) => x.id !== it.id))
   }
   const groups = useMemo(() => groupTrash(items ?? []), [items])
   const days = useMemo(() => retentionDays(items ?? []), [items])
@@ -1864,8 +1879,20 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
               expanded={many ? opened : undefined}
               testId={many ? 'trash-copies-toggle' : undefined}
               end={many ? <ChevronRight size={14} className={clsx('shrink-0 self-center text-faint transition-transform motion-reduce:transition-none', opened && 'rotate-90')} aria-hidden /> : undefined}
-              actions={restoreButton(latest, undefined, 'trash-restore')}
-              li={{ 'data-testid': 'trash-item', 'data-path': latest.originalPath }}
+              // a project: its row opens its page (who moved it there, Restore, Delete for good), and on a computer the
+              // owner and admins delete it for good here too
+              to={p.kind === 'project' && latest.project && !many ? `/projects/${latest.project.id}` : undefined}
+              actions={
+                p.kind === 'project' && latest.project && isAdmin(meNow) && !phone ? (
+                  <span className="flex items-center gap-1">
+                    <Button size="sm" variant="ghost-danger" onClick={() => void forGood(latest)} data-testid="trash-project-delete">
+                      {t('projects.deleteForGood')}
+                    </Button>
+                    {restoreButton(latest, undefined, 'trash-restore')}
+                  </span>
+                ) : restoreButton(latest, undefined, 'trash-restore')
+              }
+              li={{ 'data-testid': 'trash-item', 'data-path': latest.originalPath, ...(p.kind === 'project' ? { 'data-kind': 'project' } : {}) }}
             />
             {opened &&
               g.items.map((it) => (

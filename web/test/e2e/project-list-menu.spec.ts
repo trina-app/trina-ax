@@ -298,7 +298,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
   test.describe(`a project the owner is not in, on the list at ${vp.name}`, () => {
     test.use(vp.use)
 
-    test('Rename, Members, Delete to the trash and then for good; no active members said on the card', async ({ page }) => {
+    test('Rename, Members, Move to trash; then no card (Files › Trash has it, where it goes for good); no active members said on the card', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const falcon = ((await (await post(page, '/__test/project', { name: 'Falcon', by: 'bob' })).json()) as { id: string }).id
@@ -314,7 +314,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.reload()
       await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveCount(0)
       let menu = await openCard(page, 'Falcon', vp.phone)
-      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['common.delete']])
+      await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['projects.participants'], t['rooms.menu.copyLink'], t['projects.moveToTrash']])
       await audit(page, 'card menu of a project the owner is not in')
       // Members: the dialog over the list
       await menu.getByRole('menuitem', { name: t['projects.participants'] }).click()
@@ -323,25 +323,27 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-access-summary')).toHaveText(translate('ko', 'projects.whoMembers', { n: 1 }))
       await expect(page.getByTestId('project-people-count')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
-      // Delete: to the trash with its files and chats; the card stays and says so
+      // Move to trash: with its files and chats; she is not a member, so its card goes (QA TC-1061)
       menu = await openCard(page, 'Falcon', vp.phone)
-      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      await menu.getByRole('menuitem', { name: t['projects.moveToTrash'] }).click()
       let dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.trashTitle', { name: 'Falcon' }))
       await expect(dialog).toContainText(t['projects.trashBody'])
       await expect(dialog.getByTestId('project-delete-trash-folder')).toHaveCount(0)
       await audit(page, 'move to the trash confirm')
       await dialog.getByTestId('dialog-confirm').click()
-      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(t['chat.project.inTrash'])
-      await expect(items(page)).toHaveCount(2)
-      // again: for good, the card goes
-      menu = await openCard(page, 'Falcon', vp.phone)
-      await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
+      await expect(card(page, 'Falcon')).toHaveCount(0)
+      await expect(items(page)).toHaveCount(1)
+      // Files › Trash: one row, the project; for good from there
+      await page.goto('/files?view=trash')
+      const row = page.locator('[data-testid="trash-item"][data-kind="project"]').filter({ hasText: 'Falcon' })
+      await expect(row.getByTestId('trash-where')).toHaveText(t['projects.title'])
+      await row.getByTestId('trash-project-delete').click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.deleteForGoodTitle', { name: 'Falcon' }))
       await expect(dialog.getByTestId('dialog-confirm')).toHaveText(t['projects.deleteForGood'])
       await dialog.getByTestId('dialog-confirm').click()
-      await expect(card(page, 'Falcon')).toHaveCount(0)
+      await expect(row).toHaveCount(0)
       expect((await page.request.get(`/api/projects/${falcon}?manage=1`)).status()).toBe(404)
     })
 

@@ -60,20 +60,23 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
-  // the owner and admins also find the team projects they manage without being members (GET /api/projects?manage=1:
-  // their name and members only), in their own folded section, as the Projects page has them (store/projects.ts
-  // managed: as last read at once, read again behind it)
+  // GET /api/projects?manage=1 (the Projects page's list, store/projects.ts managed: as last read at once, read again
+  // behind it) adds two kinds the plain list has not:
+  // - a team project in the trash I am a member of (Project.wasMember): its row stays, "In trash", for everyone (QA
+  //   TC-1060; its page says who moved it there and who can restore it);
+  // - for the owner and admins, the team projects they manage without being members (their name and members only), in
+  //   their own folded section, as the Projects page has them; not one in the trash (they restore it from Files › Trash,
+  //   QA TC-1061).
   const admin = isAdmin(useMe())
   const managedList = useProjects((s) => s.managed)
-  const managed = useMemo(() => (admin ? (managedList ?? []).filter((p) => p.member === false) : []), [admin, managedList])
+  const managed = useMemo(() => (managedList ?? []).filter((p) => (p.inTrash ? !!p.wasMember : admin && p.member === false)), [admin, managedList])
   useEffect(() => {
-    if (!admin) return
     const read = (fresh = false) => void readManagedList({ fresh }).catch(() => {})
     read()
     const again = () => read(true)
     const offs = [accessChanged.on(again), reloadAsked.on(again)]
     return () => offs.forEach((off) => off())
-  }, [admin])
+  }, [])
   const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
   const projects = useMemo(() => {
     const seen = [...Object.values(byId).filter((p) => listed?.has(p.id)), ...managed.filter((p) => !listed?.has(p.id))]
@@ -90,8 +93,8 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
-  const others = projects.filter((p) => p.member === false)
-  const team = projects.filter((p) => p.member !== false && !onlyMine(p))
+  const others = projects.filter((p) => p.member === false && !p.inTrash)
+  const team = projects.filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (
     <ul>
@@ -100,7 +103,8 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
         // "나만" for mine; "멤버 N명" (its page's words) for a team one; one whose folder is in the trash: "휴지통에 있음"
         // alone, with the trash icon (nobody is its member then, so no members line: QA TC-1012)
         const who = p.inTrash ? t('chat.project.inTrash') : onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
-        const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
+        // in the trash: only that (its chats are nobody's to open there; QA TC-1060)
+        const meta = p.inTrash ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
         return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
       })}

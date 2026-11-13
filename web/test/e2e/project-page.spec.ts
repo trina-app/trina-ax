@@ -195,7 +195,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     await expect(block).toContainText('멤버만 이 프로젝트를 열 수 있어요. 나를 멤버로 추가하면 파일을 볼 수 있어요.')
     for (const testId of ['composer-input', 'project-instructions', 'project-files', 'project-summary']) await expect(page.getByTestId(testId)).toHaveCount(0)
     await expect(page.getByTestId('project-members')).toContainText('1명')
-    await expect(page.getByTestId('project-chats')).toContainText('My old notes')
+    // nobody can ask here: no Trina history with "Ask here" (QA TC-1066); her own chats stay in her lists
+    await expect(page.getByTestId('project-chats')).toHaveCount(0)
     await expect(page.getByText('plan.md')).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await audit(page, `not a member (${vp.name})`)
@@ -247,11 +248,12 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   const { id } = (await made.json()) as { id: string }
   await page.goto(`/projects/${id}`)
   await page.getByTestId('project-menu').click()
-  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '삭제'])
+  // the item says what it does, as its confirm asks (QA TC-1064)
+  await expect(page.getByRole('menuitem')).toHaveText(['이름 바꾸기', '휴지통으로 옮기기'])
   await page.getByTestId('project-delete').click()
   await expect(page.getByRole('dialog').getByRole('heading')).toHaveText("'Falcon'을(를) 휴지통으로 옮길까요?")
   // only what happens: no "its files and chats go with it" (her own chats there stay hers)
-  await expect(page.getByRole('dialog')).toContainText('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+  await expect(page.getByRole('dialog')).toContainText('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
   await page.getByTestId('dialog-confirm').click()
   // still here, in the trash; the note has Restore and Delete for good, and there is no name menu beside them
   await expect(page.getByTestId('project-in-trash')).toContainText('이 프로젝트는 휴지통에 있어요.')

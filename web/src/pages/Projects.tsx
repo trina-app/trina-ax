@@ -102,6 +102,10 @@ const mayManage = (p: Project) => p.canManage ?? p.canEdit
  * is an admin's to delete, QA TC-1016) */
 const mayDelete = (p: Project) => p.canDelete ?? mayManage(p)
 
+/** The menu item that deletes it says what it does (QA TC-1064): a team project in projects/ goes to the trash ("Move to
+ * trash", as its confirm asks); in the trash, or any other project, "Delete". */
+const deleteLabel = (t: ReturnType<typeof useT>, p: Project) => t(isProjectsFolder(p.folderPath) && !p.inTrash ? 'projects.moveToTrash' : 'common.delete')
+
 /** What deleting did: `gone` (deleted for good, or not found any more), the project in the trash now (a team project in
  * projects/ the caller still manages: the owner and admins), or null (cancelled, refused). */
 export type Deleted = 'gone' | Project | null
@@ -114,7 +118,8 @@ export type Deleted = 'gone' | Project | null
  */
 function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (now: Project | 'gone') => void, failText?: false) {
   let at = -1
-  const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash })
+  // a member keeps its card in the trash (Project.wasMember; QA TC-1060), and so does whoever restores it
+  const shown = (inTrash: boolean): Project | 'gone' => (inTrash && !keeps ? 'gone' : { ...p, inTrash, ...(inTrash && p.member !== false ? { wasMember: true as const } : {}) })
   return optimistic<boolean, Project | null>({
     key: `project:${p.id}:trash`,
     from: !!p.inTrash,
@@ -160,7 +165,7 @@ function trashProject(p: Project, trashed: boolean, keeps: boolean, onShown?: (n
  *   trash (said when it has any, by the count the server gives now).
  * Also gone when someone else deleted it first.
  */
-function useDeleteProject() {
+export function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -197,12 +202,23 @@ function useDeleteProject() {
     const ask = toTrash
       ? { title: t('projects.trashTitle', { name: now.name }), body: t('projects.trashBody'), confirm: t('files.moveToTrash') }
       : forGood
-        ? { title: t('projects.deleteForGoodTitle', { name: now.name }), body: t('projects.deleteForGoodBody'), confirm: t('projects.deleteForGood') }
+        ? {
+            title: t('projects.deleteForGoodTitle', { name: now.name }),
+            // its shared chats go to their creators' trash (routes/chats.ts deleteProject; QA TC-1063)
+            body: now.sharedChats ? (
+              <>
+                {t('projects.deleteForGoodBody')}
+                <span className="mt-2 block" data-testid="project-delete-shared">{t('projects.deleteForGoodShared', { days, trash: t('sidebar.trash') })}</span>
+              </>
+            ) : t('projects.deleteForGoodBody'),
+            confirm: t('projects.deleteForGood'),
+          }
         : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
     if (!(await confirmDialog({ ...ask, danger: true }))) return null
     if (toTrash) {
       // at once (deleting for good and any other delete wait: they cannot be taken back)
-      const r = await trashProject(now, true, isAdmin(me), onShown, false)
+      // its members and whoever manages it keep it, In trash (the Projects list shows it to its members only)
+      const r = await trashProject(now, true, true, onShown, false)
       if (!r.ok) {
         if (!r.newest) return null
         // someone else deleted it first
@@ -305,7 +321,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
     ...leaveItems(t, p, select(async () => { if (await leaveProject(p)) onDeleted('gone') }), 'project-card-leave'),
     // the trash shows at once: the card says so, or (not kept there for me) goes
-    ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
+    ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
   ]
   if (row)
     return (
@@ -426,6 +442,9 @@ export function ProjectList() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
+  // a team project in the trash: its card stays for its members, "In trash" (Project.wasMember, QA TC-1060); the owner
+  // and admins who are not members restore it from Files › Trash, so no card of it for them here (QA TC-1061)
+  const shown = useMemo(() => items?.filter((p) => !p.inTrash || !!p.wasMember) ?? null, [items])
   const renamed = (r: Project) => setItems((xs) => xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -461,15 +480,15 @@ export function ProjectList() {
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
-        {items && !items.length && <EmptyState screen icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+        {shown && !shown.length && <EmptyState screen icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
         {/* the same sections as 프로젝트's list (panels/ProjectsPanel.tsx): 팀 프로젝트, 내 프로젝트, then, quieter, the team
             projects the owner or an admin only manages (not a member: their name and members only) */}
         {(() => {
           const groups: { key: string; label: string; list: Project[]; quiet?: boolean }[] = [
-            { key: 'team', label: t('projectsPanel.team'), list: (items ?? []).filter((p) => p.member !== false && !onlyMine(p)) },
-            { key: 'mine', label: t('projectsPanel.mine'), list: (items ?? []).filter((p) => p.member !== false && onlyMine(p)) },
-            { key: 'other', label: t('projects.otherTeam'), list: (items ?? []).filter((p) => p.member === false), quiet: true },
+            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p)) },
+            { key: 'mine', label: t('projectsPanel.mine'), list: (shown ?? []).filter((p) => p.member !== false && onlyMine(p)) },
+            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false && !p.inTrash), quiet: true },
           ]
           return groups.filter((g) => g.list.length).map((g) => (
             <section key={g.key} aria-labelledby={`projects-${g.key}`} className="mt-6 first:mt-0" data-testid={`projects-section-${g.key}`}>
@@ -933,6 +952,11 @@ function ProjectPage() {
   const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
+  // in the trash: may bring it back (its folder not deleted for good meanwhile)
+  const restorable = !purged && (p.canRestore ?? (p.trashed === undefined && isAdmin(me)))
+  // where nobody can ask here (the owner or an admin who is not a member, a project in the trash) there is no Trina
+  // history with "Ask here" under it either (QA TC-1066)
+  const canAsk = !outside && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
   const menu = p.inTrash
     ? null
@@ -940,7 +964,7 @@ function ProjectPage() {
       ? mayManage(p)
         ? [
             { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'project-rename' },
-            ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
+            ...(mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
       : p.canEdit || p.leave
@@ -948,7 +972,7 @@ function ProjectPage() {
             ...(p.canEdit ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' }] : []),
             // a member leaves it (components/LeaveProject.tsx); delete stays last
             ...leaveItems(t, p, () => void leaveIt(), 'project-leave'),
-            ...(p.canEdit && mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
+            ...(p.canEdit && mayDelete(p) ? [{ label: deleteLabel(t, p), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
   return (
@@ -1002,16 +1026,23 @@ function ProjectPage() {
             {/* a project whose folder is in the trash takes no chat: the note says so, with what the owner and admins
                 can do; a project I manage without being a member: one quiet block in place of the box */}
             {p.inTrash ? (
+              // who moved it there and when; Restore for the owner, admins and its creator (Project.canRestore, QA
+              // TC-1062; an older server: the owner and admins), Delete for good for the owner and admins; anyone else
+              // (its other members, QA TC-1060) reads who can restore it
               <ProjectTrashNote project={p}>
-                {isAdmin(me) && !purged && (
-                  <Button size="sm" busy={busy === 'restore'} onClick={() => void restore()} data-testid="project-restore">
-                    <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-                  </Button>
-                )}
-                {mayManage(p) && (
-                  <Button size="sm" variant="ghost-danger" onClick={() => void del()} data-testid="project-delete-for-good">
-                    {t('projects.deleteForGood')}
-                  </Button>
+                {(restorable || mayManage(p)) && (
+                  <>
+                    {restorable && (
+                      <Button size="sm" busy={busy === 'restore'} onClick={() => void restore()} data-testid="project-restore">
+                        <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
+                      </Button>
+                    )}
+                    {mayManage(p) && (
+                      <Button size="sm" variant="ghost-danger" onClick={() => void del()} data-testid="project-delete-for-good">
+                        {t('projects.deleteForGood')}
+                      </Button>
+                    )}
+                  </>
                 )}
               </ProjectTrashNote>
             ) : outside ? (
@@ -1165,6 +1196,7 @@ function ProjectPage() {
               {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
           )}
+          {canAsk && (
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
             {/* the heading's line: the name, and at its end, on its baseline, 기존 대화 가져오기 for a member, however many
@@ -1191,6 +1223,7 @@ function ProjectPage() {
               ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>
+          )}
         </div>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={changeP} />}

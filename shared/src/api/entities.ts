@@ -198,6 +198,17 @@ export const Project = z.object({
    * leave it; 'last' nobody else is in it (the owner and admins who manage it without being members do not count), so
    * they delete it or add someone first. Absent: a personal project, not a member, in the trash, an older server. */
   leave: z.enum(['yes', 'last']).optional(),
+  /** while it is in the trash (`inTrash`, its folder not deleted for good from there): who moved it there and when
+   * (docs/DECISIONS.md "A team project in the trash: its members keep its card"). Absent otherwise, older servers. */
+  trashed: z.object({ by: UserRef.nullable(), at: IsoTime }).optional(),
+  /** while it is in the trash: the caller is one of its members (they read it again once it is back), so its card stays
+   * on their Projects list, saying only that it is in the trash. Its contents still come to nobody. Absent: not a member,
+   * not in the trash, an older server. */
+  wasMember: z.literal(true).optional(),
+  /** the caller may restore it from the trash (POST /api/projects/:id/restore, or its row in Files › Trash): the owner and
+   * admins for a team project, and its creator while they are one of its members. Absent: no, or an older server (there:
+   * the owner and admins). */
+  canRestore: z.literal(true).optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -622,6 +633,10 @@ export const TrashItem = z.object({
   purgeAt: IsoTime,
   /** a whole folder was deleted (restored as one); absent = file */
   type: z.enum(['file', 'folder']).optional(),
+  /** a team project's own folder, which went to the trash with its project: the project's name and id, so Files › Trash
+   * shows it as the project (docs/DECISIONS.md "A team project in the trash: its members keep its card"). Absent: any
+   * other item, an older server. */
+  project: z.object({ id: Uuid7, name: z.string() }).optional(),
 })
 export type TrashItem = z.infer<typeof TrashItem>
 

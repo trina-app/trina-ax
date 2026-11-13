@@ -26431,3 +26431,57 @@ twice. Lean: things are removed, not added.
   `project-leave` (the old links), `project-page` (the phone order), `project-list-menu`, `share-existing-chat`,
   `project-skills`.
 - Version impact: **patch** (an optional response field, a 404 reason, words; no data change).
+## A team project in the trash: its members keep its card — 휴지통의 팀 프로젝트, 멤버에게는 카드가 남아요 (fix/project-trash-ux, 2026-11-13, the owner, QA TC-1060..1064, TC-1066)
+
+넣을 곳: trina-ax core (`server/src/routes/chats.ts`, `chat/shared.ts`, `team-files/service.ts`, `shared/src/api`, the
+project, chat and Files screens), 이유: projects, permissions, the files trash and chats are core. The UX review of the
+project lifecycle (11-13, shots j4/j5) found that a member saw "This project can't be found" the moment someone moved
+their project to the trash, that admins restored it from a quiet card on the Projects page while Files › Trash did not
+list it, and that a member who made a project could put it in the trash but not bring it back. Amends "Project contents
+only for members" (which said a team project in the trash is 404 to its members, and that only the owner and admins
+restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·owner에게만 보이고 그들만 되돌린다" for a project's own folder.
+
+- **Its members keep the card** (owner decision B4, TC-1060). While a team project's folder is in the files trash, the
+  people who are its members by its folder's own rules (`chat/shared.ts memberWhileTrashed`: `rulesInPlace` +
+  `accountSeesProject`, only while the trash item is not deleted for good) get it on `GET /api/projects?manage=1` and
+  `GET /api/projects/:id?manage=1`: its name, `inTrash`, `member: false`, `wasMember: true` and `trashed: {by, at}`
+  (who moved it there and when, from its `trash_items` row). Nothing else: no instructions, members, counts, shared
+  chats or files (`projectOut`'s first branch for someone who reads it not and manages it not). Every content route
+  stays 404 for them (`tests/security/project-trash-members.test.ts`). The plain list (pickers) never has it.
+- **The card and the page.** The card stays where it was (team projects), saying only "In trash" (the Projects page,
+  the Projects panel beside it and the phone's Projects tab, which now read `manage=1` for everyone). Its page is the
+  existing `ProjectTrashNote`: "This project is in the trash.", "Moved to the trash by {who} on {date}.", and, with no
+  button for the person, "An admin or {creator}, who made it, can restore it." No name menu, members, files,
+  instructions or Trina history.
+- **A shared chat link of it** answers its members with the same 404 plus `params: {reason: 'project_in_trash',
+  projectId}` (`chat/shared.ts chatFor`; a chat in the trash and anyone else: the plain 404). The chat page then reads
+  the project's card and says "This chat's project, '{name}', is in the trash.", who moved it, who can restore it, and
+  links to its page, in place of the generic "only its creator can see… may have been deleted" text.
+- **Files › Trash has it, as one row** (TC-1061). A trashed folder that is exactly one team project's own folder
+  (`projects/<name>`, trashed with that one project, no group's folder parked inside: `TeamFiles.projectFolderOf`) is
+  listed with `project: {id, name}` to the owner and admins (they manage every team project; before, the members-only
+  zone kept it from a non-member admin's files trash) and restored there by them as on its page (the system writes it
+  back; restoring never makes them a reader). The web shows it as "<name> · Projects" with the project icon, never
+  grouped with files (#764's rows), with Restore, and for the owner and admins "Delete for good" (the project's own
+  delete, `DELETE /api/projects/:id`, with its confirm). The quiet "in the trash" cards of projects an admin is not a
+  member of are gone from the Projects page; no dead end is left: Files › Trash, or the project's page by its link.
+- **Its creator restores it** (owner decision B3, TC-1062). `POST /api/projects/:id/restore` and the Files › Trash row:
+  the owner and admins as before, and the project's creator while they are one of its members (their own parked rule
+  says write; a creator taken out of it is 404 like anyone else). `Project.canRestore` tells the page and the row.
+  Deleting it for good stays the owner's and admins' (the files trash purge is admin-only; `deleteProject` of a
+  project in the trash needs `mayManageProject`, which a creator loses while it is in the trash). Permission matrix:
+  `restoreProject` is now scope `alice-project` (alice, its creator, + owner + admin).
+- **Delete for good says where its shared chats go** (TC-1063): one more line in its confirm when it has shared chats,
+  "Its shared chats go to their creators' "Deleted history" for 7 days." (`projects.deleteForGoodShared`; the count is
+  now sent to whoever manages a project in the trash).
+- **"Move to trash"** (TC-1064): the menu item that opens "Move '{name}' to the trash?" says so (`projects.moveToTrash`,
+  no "…"); "Delete" stays for a project in the trash and any other project. The trash confirm says "until an admin or
+  its creator restores it".
+- **No Trina history where nobody can ask** (TC-1066): a project page of a non-member owner or admin, or of a project
+  in the trash, has no "Trina history" heading and no "Ask here…" empty line (their own chats stay in their lists).
+- Tests: `tests/unit/b-project-trash-members.test.ts`, `tests/security/project-trash-members.test.ts`,
+  `tests/security/r2-trash-home.test.ts` #5 (the owner now sees the project's folder in her files trash), the matrix
+  case; web unit `project-members-only.test.tsx`, `project-list-menu.test.tsx`, `trash-list.test.ts`; e2e
+  `project-trash-members.spec.ts` (`SHOTS_DIR`: 1440 and 390, light and dark, as admin, creator and member).
+- Version impact: **minor** (members see a trashed project's card; creators restore; API fields `trashed`,
+  `wasMember`, `canRestore`, `TrashItem.project`).

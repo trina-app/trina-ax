@@ -141,7 +141,8 @@ describe('the Projects list', () => {
         ['project-card-rename', ko('chat.rename')],
         ['project-card-members', ko('projects.participants')],
         ['project-card-copy-link', ko('rooms.menu.copyLink')],
-        ['project-card-delete', ko('common.delete')],
+        // a team project in projects/ goes to the trash: the item says so, as its confirm asks (QA TC-1064)
+        ['project-card-delete', ko('projects.moveToTrash')],
       ])
       await m.click(within(card(m, 'Acme sales'), 'project-card-members')!)
       await m.until(() => m.find('participant-user-sora'), 'the members dialog')
@@ -305,8 +306,9 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
         ['project-card-rename', ko('chat.rename')],
         ['project-card-members', ko('projects.participants')],
         ['project-card-copy-link', ko('rooms.menu.copyLink')],
-        ['project-card-delete', ko('common.delete')],
+        ['project-card-delete', ko('projects.moveToTrash')],
       ])
+      expect([ko('projects.moveToTrash'), translate('en', 'projects.moveToTrash')]).toEqual(['휴지통으로 옮기기', 'Move to trash'])
       expect(within(card(m, 'Acme legal'), 'project-card-state')).toBeNull()
       // the rename is the small prompt and sends the name only
       await m.click(within(card(m, 'Acme legal'), 'project-card-rename')!)
@@ -321,7 +323,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
   })
 
   test('a card of a project I am not in: a lock and "멤버만 내용을 볼 수 있어요." in place of its instructions, never "지침이 없어요."', async () => {
-    list = [...list, outside(), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: true, inTrash: true, audience: 0 })]
+    list = [...list, outside(), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true })]
     const m = await page()
     try {
       await m.until(() => cards(m).length === 5, 'the cards')
@@ -346,7 +348,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
   })
 
   test('a team project nobody active is in: "남은 멤버 없음" in place of a count; one in the trash says only that (QA TC-1012)', async () => {
-    list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 }), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: true, inTrash: true, audience: 0 })]
+    list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 }), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true })]
     const m = await page()
     try {
       await m.until(() => cards(m).length === 5, 'the cards')
@@ -364,7 +366,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     }
   })
 
-  test('delete a team project in projects/: "휴지통으로 옮길까요?", the card stays, in the trash; delete again: for good, the card goes', async () => {
+  test('delete a team project in projects/ I am not in: "휴지통으로 옮길까요?", then its card goes (Files › Trash has it, QA TC-1061)', async () => {
     list = [...list, outside()]
     const m = await page()
     try {
@@ -375,27 +377,33 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       expect(dialog.textContent).toContain(ko('projects.trashTitle', { name: 'Acme legal' }))
       expect(ko('projects.trashTitle', { name: 'Acme legal' })).toBe("'Acme legal'을(를) 휴지통으로 옮길까요?")
       expect(dialog.textContent).toContain(ko('projects.trashBody'))
-      // what happens, not "its files and chats go with it" (an admin's own chats there stay where they are)
-      expect(ko('projects.trashBody')).toBe('팀장이나 관리자가 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
-      expect(translate('en', 'projects.trashBody')).toBe("Members can't open its files or shared chats until the owner or an admin restores it.")
+      // what happens, and who can bring it back (QA TC-1062: its creator too)
+      expect(ko('projects.trashBody')).toBe('관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.')
+      expect(translate('en', 'projects.trashBody')).toBe("Members can't open its files or shared chats until an admin or its creator restores it.")
       expect(m.get('dialog-confirm').textContent).toBe(ko('files.moveToTrash'))
       // no checkbox to choose the folder: it always goes with the project
       expect(m.find('project-delete-trash-folder')).toBeNull()
       await m.click('dialog-confirm')
-      await m.until(() => within(card(m, 'Acme legal'), 'project-card-state'), 'the card in the trash')
-      expect(within(card(m, 'Acme legal'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
-      expect(cards(m).length).toBe(4)
-      expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`).map((c) => c.url)).toEqual([`/api/projects/${OUTSIDE}`])
-      // again: for good
-      await open(m, 'Acme legal')
-      await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
-      const again = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
-      expect(again.textContent).toContain(ko('projects.deleteForGoodTitle', { name: 'Acme legal' }))
-      expect(again.textContent).toContain(ko('projects.deleteForGoodBody'))
-      expect(m.get('dialog-confirm').textContent).toBe(ko('projects.deleteForGood'))
-      await m.click('dialog-confirm')
       await m.until(() => cards(m).length === 3, 'the card to go')
-      expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`)).toHaveLength(2)
+      expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`).map((c) => c.url)).toEqual([`/api/projects/${OUTSIDE}`])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a team project in the trash: its members keep the card, "휴지통에 있음" only; one I am not in has no card (QA TC-1060, TC-1061)', async () => {
+    list = [...list, project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true }),
+      project(ORPHAN, 'Acme binned', { folderPath: 'projects/acme-binned', member: false, canEdit: false, canManage: true, inTrash: true, canRestore: true })]
+    const m = await page()
+    try {
+      await loaded4(m)
+      expect(cards(m).some((c) => c.textContent?.includes('Acme binned'))).toBe(false)
+      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
+      expect(within(card(m, 'Acme gone'), 'project-card-about')!.textContent).toBe('')
+      // with the team's projects (not the quiet "other team projects" of an admin)
+      expect(card(m, 'Acme gone').closest('[data-testid="projects-section-team"]')).not.toBeNull()
+      // nothing to do with it from the list but copy its link (its page says who can restore it)
+      expect(await open(m, 'Acme gone')).toEqual([['project-card-copy-link', ko('rooms.menu.copyLink')]])
     } finally {
       await m.unmount()
     }
