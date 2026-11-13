@@ -177,7 +177,7 @@ export class ConnectedFolders {
         let st: fs.Stats
         try { st = fs.lstatSync(path.join(src, ...rel, n)) } catch { skipped++; continue }
         if (st.isDirectory()) walk([...rel, n], [...nrel, nfc])
-        else if (st.isFile()) { if (st.size > FILE_MAX) skipped++; else { const key = [...nrel, nfc].join('/'); files.set(key, st); raw.set(key, [...rel, n].join('/')) } }
+        else if (st.isFile()) { if (st.size > FILE_MAX) skipped++; else { const key = [...nrel, nfc].join('/'); if (files.has(key)) skipped++; else { files.set(key, st); raw.set(key, [...rel, n].join('/')) } } }
       }
     }
     walk([], [])
@@ -250,6 +250,15 @@ export class ConnectedFolders {
       throw new ConnectedError(why)
     }
     const man = this.manifest(id)
+    // a mirror made before folder names were composed too: its rows carry the share's decomposed folder names; they move
+    // to the composed spelling first, or the files (the same files on a disk that ignores the difference) would count
+    // as changed here and be dropped for one sync
+    for (const [k, m] of [...man]) {
+      const nk = k.normalize('NFC')
+      if (nk === k || man.has(nk)) continue
+      this.db.query('UPDATE connected_files SET path = ? WHERE folder_id = ? AND path = ?').run(nk, id, k)
+      man.delete(k); man.set(nk, m)
+    }
     const r: SyncResult = { copied: 0, updated: 0, removed: 0, kept: 0, skipped: listed.skipped, pending: false, files: 0, bytes: 0 }
     let budget = RUN_BYTES_MAX
     const put = this.db.query('INSERT OR REPLACE INTO connected_files (folder_id, path, size, mtime_ms, src_size, src_mtime_ms) VALUES (?, ?, ?, ?, ?, ?)')

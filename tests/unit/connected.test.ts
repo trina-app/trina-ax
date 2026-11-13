@@ -104,6 +104,13 @@ describe('mirror', () => {
     expect(inner).toEqual(['한글 견적_1.txt'.normalize('NFC')])
     expect(inner[0]).toBe(inner[0]!.normalize('NFC'))
     expect(await cf.sync(c.id)).toMatchObject({ copied: 0, updated: 0, removed: 0, files: 1 })
+    // a mirror from before this change: its manifest row has the decomposed folder name; the next sync moves it to the
+    // composed spelling and neither drops nor re-copies the file
+    const old = ('견적서 모음'.normalize('NFD') + '/' + '한글 견적_1.txt'.normalize('NFC'))
+    h.ctx.db.query('UPDATE connected_files SET path = ? WHERE folder_id = ?').run(old, c.id)
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 0, updated: 0, removed: 0, kept: 0, files: 1 })
+    expect(fs.readdirSync(path.join(h.team, 'connected', 'macshare', '견적서 모음'.normalize('NFC')))).toEqual(['한글 견적_1.txt'.normalize('NFC')])
+    expect((h.ctx.db.query('SELECT path FROM connected_files WHERE folder_id = ?').all(c.id) as { path: string }[]).map((r) => r.path)).toEqual(['견적서 모음/한글 견적_1.txt'.normalize('NFC')])
     expect(cf.remove(c.id, 'dion')).toBe(true)
   })
   test('a mirror left empty on disconnect disappears with its rules row', async () => {
