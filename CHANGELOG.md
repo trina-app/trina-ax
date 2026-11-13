@@ -7,6 +7,12 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.3 — 2026-11-13
 
+- Renaming a Trina chat, moving it to a project, changing its AI model, deleting it or bringing it back from Deleted history now shows at once, and so do creating, renaming and deleting a conversation folder and moving a conversation into or out of one. Before, each waited for the server and the row could jump when it answered. If the change fails, it goes back and a short message says why.
+- **Slack: Trina reads the thread you ask in, with the Slack app's own permissions.** Mention @Trina in a thread and it reads the thread so far; ask in the app about a Slack channel or thread and it reads channels it was invited to that you are in too (`/invite @Trina` first). It no longer reads Slack as you, has no Slack search, and nobody has to "Allow reading Slack". Nothing of Slack's messages is stored beyond the chat's answer.
+- Admin › Connected apps › Slack shows **Update Slack permissions** when the Slack app does not have the two reading permissions yet. A team's own app: add `channels:history` and `groups:history` as Bot Token Scopes in Slack, reinstall the app, then press **I updated them**. The official app: **Add to Slack** again.
+- An answer that used Slack messages from another channel or a DM still asks first before **Post to channel**.
+- The AI no longer offers a "connect card" for Slack; it says how Slack is reached instead.
+
 - **Activity** on a computer selects only the notice you opened. Two notices that open the same page (two people who joined one project) were both shown selected, filled and in bold, while that page was open.
 - **A message's hover bar** under the first message of a conversation stays on top of the next message's bar where they meet, so its buttons can be clicked while that message is hovered.
 
