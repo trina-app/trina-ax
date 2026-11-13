@@ -805,7 +805,10 @@ export class TeamFiles {
       // a project whose folder left users/ is a team project now: it shares its new chats (docs/DECISIONS.md "Team
       // project chats shared by default"; the column for a rollback build)
       // (onto a new project folder: the share records it itself, routes/chats.ts shareProject)
-      if (!o.onto) markTeamShares(db, userId, 'moved')
+      if (!o.onto) {
+        const moved = (db.query(`SELECT id FROM projects WHERE ${under('folder_path')}`).all(toRel, toRel, toRel) as { id: string }[]).map((r) => r.id)
+        if (moved.length) markTeamShares(db, userId, 'moved', moved)
+      }
       re('file_versions', 'path')
       re('file_versions', 'conflict_path')
       re('attachments', 'path')

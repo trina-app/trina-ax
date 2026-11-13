@@ -21,7 +21,7 @@ import { TitleMenu, type TitleMenuItem } from '../TitleMenu'
 import { mayShareChat, ShareChatFlow } from './ShareChat'
 import { useCopyChatLink } from './copyChatLink'
 
-type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt'>>
+type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId'>>
 
 export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, onPrivately }: { chat: MenuChat; title: string; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void }) {
   const t = useT()
@@ -37,7 +37,7 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, 
         ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: onPin, testId: 'chat-unpin' }
         : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
       : []),
-    ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt }), testId: 'chat-copy-link' }] : []),
+    ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' }] : []),
     ...(onRename ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: onRename, testId: 'chat-rename' }] : []),
     ...(onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
     ...(share ? [{ label: t('chat.shareChat.menu'), icon: <Users size={14} aria-hidden />, onSelect: () => setSharing(true), testId: 'chat-share' }] : []),

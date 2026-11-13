@@ -15,7 +15,7 @@ import { api, API } from '../../lib/api'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { isTeamProject, sharesNewChats, whoSees } from '../../lib/sharedChat'
 import { useT } from '../../i18n'
-import { draftChat, draftChatIfAny, draftChatShared, dropDraft, forgetDraftChat, rememberChat, rememberDraftShared } from '../../lib/teamAttach'
+import { draftChat, draftChatIfAny, draftChatShared, dropDraft, forgetDraftChat, isDraftChat, rememberChat, rememberDraftShared } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
 import { fileChat } from '../../store/navFolders'
@@ -103,15 +103,21 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
     const wantPrivate = team && onlyMe
     // (the switch is fixed while the chat is being made; a failure frees it again)
     if (drafted === null) setDrafted(!wantPrivate)
+    let shared: boolean | null = null
     const made = draftChat(me.user.id, draftId, () =>
       api.call(API.createChat, { body: { projectId, engine: engine.engine, model: engine.model ?? undefined, ...(wantPrivate ? { private: true } : {}) } }).then((c) => {
         upsertChat(c)
-        rememberDraftShared(me.user.id, draftId, !!c.shared)
-        setDrafted(!!c.shared)
+        shared = !!c.shared
         return c.id
       }),
     )
-    made.catch(() => setDrafted(draftState()))
+    // its state is kept only while it is still this box's draft (a draft dropped meanwhile, by "Continue in a chat only
+    // you see", stays dropped: re-review L1)
+    made.then(() => {
+      if (shared === null || !isDraftChat(me.user.id, draftId, made)) return
+      rememberDraftShared(me.user.id, draftId, shared)
+      setDrafted(shared)
+    }, () => setDrafted(draftState()))
     return made
   }
 

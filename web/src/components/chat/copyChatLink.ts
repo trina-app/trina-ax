@@ -20,7 +20,7 @@ import type { MenuItem } from '../rooms/MenuButton'
 export const chatLink = (chatId: string, origin = typeof location === 'undefined' ? '' : location.origin) => `${origin}/c/${chatId}`
 
 /** What the "⋯" menus need of a chat. */
-export type LinkChat = Pick<Chat, 'id'> & Partial<Pick<Chat, 'shared' | 'projectId' | 'confidential' | 'deletedAt'>>
+export type LinkChat = Pick<Chat, 'id'> & Partial<Pick<Chat, 'shared' | 'projectId' | 'confidential' | 'deletedAt' | 'sideRoomId'>>
 
 /** Copies a chat's address and says who can open it. */
 export function useCopyChatLink() {

@@ -4,6 +4,8 @@
 // Also QA TC-1011: a member who never wrote in a team project sees the count of its shared chats on the Projects list
 // (GET /api/chats/groups projectActivity), never another person's private chat.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { API, ApiError, uuidv7, type Room } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
@@ -70,4 +72,30 @@ test('the Projects list counts the shared chats for a member who never wrote the
   // bob sees what his project page lists; alice sees both of hers
   expect(await count('bob')).toBe(page.length)
   expect(await count('alice')).toBe(page.length + 1)
+})
+
+test('migration 293: side chats an older build moved into a project or shared go back to their creator alone, audited (re-review L3)', async () => {
+  const room = ((await h.api('alice').call(API.listRooms)).items as Room[]).find((r) => r.kind === 'team' && r.name === 'Marketing')!
+  const moved = await h.api('alice').call(API.createChat, { body: { sideRoomId: room.id } })
+  const shared = await h.api('alice').call(API.createChat, { body: { sideRoomId: room.id } })
+  const plain = await h.api('alice').call(API.createChat, { body: { sideRoomId: room.id } })
+  const other = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
+  // as an older build left them
+  h.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(projectId, moved.id)
+  h.ctx.db.query('UPDATE chats SET project_id = ?, shared_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), shared.id)
+  const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/293_b_side_chats_out_of_projects.sql'), 'utf8')
+  h.ctx.db.exec(sql)
+  const row = (id: string) => h.ctx.db.query('SELECT project_id, shared_at, side_room_id FROM chats WHERE id = ?').get(id)
+  expect(row(moved.id)).toEqual({ project_id: null, shared_at: null, side_room_id: room.id })
+  expect(row(shared.id)).toEqual({ project_id: null, shared_at: null, side_room_id: room.id })
+  expect(row(plain.id)).toEqual({ project_id: null, shared_at: null, side_room_id: room.id })
+  // any other chat stays as it was
+  expect(row(other.id)).toEqual({ project_id: projectId, shared_at: null, side_room_id: null })
+  const audits = h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'chat.side_chat_unshared' ORDER BY target").all()
+  expect(audits).toEqual([moved.id, shared.id].sort().map((id) => ({ actor_id: null, target: id, detail: JSON.stringify({ wasShared: id === shared.id, hadProject: true }) })))
+  // bob, a project member outside the room, cannot read it
+  expect((await errOf(h.api('bob').call(API.listMessages, { params: { id: shared.id }, query: {} }))).status).toBe(404)
+  // once: a second run changes and audits nothing
+  h.ctx.db.exec(sql)
+  expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'chat.side_chat_unshared'").get()).toEqual({ n: 2 })
 })

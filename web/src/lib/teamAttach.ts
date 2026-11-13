@@ -176,6 +176,8 @@ export function draftChat(userId: string, draftId: string, create: () => Promise
     draftChats.set(k, made)
     made.then(
       (id) => {
+        // only while it is still this box's draft: one dropped meanwhile (dropDraft) is not written back
+        if (draftChats.get(k) !== made) return
         try { session()?.setItem(DRAFT_CHAT_PREFIX + k, id) } catch { /* storage blocked */ }
       },
       () => draftChats.get(k) === made && draftChats.delete(k),
@@ -202,6 +204,9 @@ export function forgetDraftChat(userId: string, draftId: string) {
     session()?.removeItem(DRAFT_SHARED_PREFIX + key(userId, draftId))
   } catch { /* storage blocked */ }
 }
+
+/** Is `p` (draftChat's promise) still this draft's chat (not dropped or replaced meanwhile)? */
+export const isDraftChat = (userId: string, draftId: string, p: Promise<string>): boolean => draftChats.get(key(userId, draftId)) === p
 
 /** The draft's chat was made: whether it is a shared chat (Chat.shared). */
 export function rememberDraftShared(userId: string, draftId: string, shared: boolean) {

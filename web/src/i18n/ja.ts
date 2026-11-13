@@ -2417,6 +2417,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.chat.shared_read': "共有チャットの読み取り確認",
   'audit.act.chat.delete': "共有チャットを削除",
   'audit.act.chat.share': "既存のチャットをプロジェクトのメンバーと共有",
+  'audit.act.chat.side_chat_unshared': "トークルームの横のチャットをプロジェクトから外しました",
   'audit.act.group.create': "グループを作成",
   'audit.act.group.update': "グループを変更",
   'audit.act.group.delete': "グループを削除",

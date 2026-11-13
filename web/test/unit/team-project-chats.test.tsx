@@ -16,7 +16,7 @@ import { useChats } from '../../src/store/chats'
 import { useProjects } from '../../src/store/projects'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
-import { draftChat, draftChatIfAny, rememberDraftShared } from '../../src/lib/teamAttach'
+import { draftChat, draftChatIfAny, dropDraft, isDraftChat, rememberDraftShared } from '../../src/lib/teamAttach'
 import { installDom, mount, removeDom } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-0000000000c1'
@@ -135,6 +135,17 @@ describe('the box of a team project', () => {
       expect(sends[0]).toMatchObject({ chatId: null, private: true })
       await m.unmount()
     } finally { useChats.setState({ send: realSend }) }
+  })
+
+  test('a draft dropped while its chat was still being made is not written back (re-review L1)', async () => {
+    let resolve: (id: string) => void = () => {}
+    const made = draftChat('alice', 'project:late', () => new Promise<string>((r) => { resolve = r }))
+    expect(isDraftChat('alice', 'project:late', made)).toBe(true)
+    dropDraft('alice', 'project:late')
+    resolve('01900000-0000-7000-8000-0000000000f9')
+    await made
+    expect(isDraftChat('alice', 'project:late', made)).toBe(false)
+    expect(draftChatIfAny('alice', 'project:late')).toBeNull()
   })
 
   test("a project's box sends nothing before the project is known (Home's ?project=, review S3)", async () => {

@@ -15142,8 +15142,13 @@ be asked again):
   could be moved into a team project and then shared, so a member outside the room read the room's words. `PATCH
   /api/chats/:id {projectId}` on a side chat is now 400 `side_chat_no_project` with a plain sentence (as `POST
   /api/chats` already refused one), `POST /api/chats/:id/share` refuses one (409 `side_chat`), and the app offers no move
-  or share for it. Not done here: one an older build already moved and shared stays as it is (none is known; a start-up
-  step could unshare such chats). Test: `tests/unit/b-side-chat-no-project.test.ts` (also QA TC-1011, the count).
+  or share for it. Migration 293 (data only) takes back the ones older builds let in: every side chat with a project or
+  `shared_at` loses both, with one audit row `chat.side_chat_unshared` each (the system's; `{wasShared, hadProject}`, no
+  names or content). Test: `tests/unit/b-side-chat-no-project.test.ts` (also QA TC-1011, the count).
+- **Re-review (2026-11-13), small fixes.** A chat being made for a box's attachments that "Continue in a chat only you
+  see" dropped meanwhile is not written back as the box's draft (`teamAttach.isDraftChat`); the title menu and copy link
+  pass a side chat's room, so neither offers a share that would be refused; a folder move audits the projects it moved
+  by id with the mover as actor.
 - Tests: `tests/unit/b-team-project-chats-shared.test.ts` (default, lock, 404 body, counts, search, share only by its
   creator, the switch, personal, safe operations, the migration, brought-in chats, the removed member's turn),
   `b-shared-chats`, `b-share-existing-chat`, `b-who-sees`, `permission-matrix` (updated for the setting),

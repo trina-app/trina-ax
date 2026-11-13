@@ -2455,6 +2455,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.chat.shared_read': "Konfirmasi baca di chat bersama",
   'audit.act.chat.delete': "Chat bersama dihapus",
   'audit.act.chat.share': "Chat lama dibagikan dengan anggota proyek",
+  'audit.act.chat.side_chat_unshared': "Obrolan di samping ruang obrolan dikeluarkan dari proyek",
   'audit.act.group.create': 'Membuat grup',
   'audit.act.group.update': 'Mengubah grup',
   'audit.act.group.delete': 'Menghapus grup',

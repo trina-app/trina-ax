@@ -156,6 +156,8 @@ describe('every team project shares, whatever the column says (review S1)', () =
 
   test('a rollback build turned the column off: new chats are still shared; at start the column comes back (audited once)', async () => {
     const p = await teamProject('Rolled')
+    // a chat of alice's own there from before (private): the start-up step never shares it
+    const before = await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })
     db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
     expect((await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).shared).toBeDefined()
     const { markTeamShares } = await import('../../server/src/chat/team-shares')
@@ -163,6 +165,8 @@ describe('every team project shares, whatever the column says (review S1)', () =
     expect(markTeamShares(db(), null, 'default')).toBe(0)
     expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(p.id)).toEqual({ share_chats: 1 })
     expect(db().query("SELECT detail FROM audit_log WHERE action = 'project.share_chats' AND target = ? AND actor_id IS NULL").all(p.id)).toEqual([{ detail: '{"on":true,"reason":"default"}' }])
+    // chats that exist keep their state: the private one stays private
+    expect(db().query('SELECT shared_at FROM chats WHERE id = ?').get(before.id)).toEqual({ shared_at: null })
   })
 
   test('creating and sharing a project write the column with an audit row', async () => {
