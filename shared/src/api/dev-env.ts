@@ -160,6 +160,12 @@ export const RemoveDevEnvSiteBody = z.object({ host: z.string().min(1).max(260) 
 /** Full internet on needs the warning accepted (acceptWarning = fullWarningVersion); off needs nothing. */
 export const SetDevEnvFullInternetBody = z.object({ on: z.boolean(), acceptWarning: z.number().int().min(1).optional() })
 
+/** A preview link to a port of a running dev server of the caller (docs/DECISIONS.md "Dev environment on srt:
+ * preview"). Ports 3128 and 1080 are srt's proxy, not a dev server. */
+export const DevEnvPreviewBody = z.object({ port: z.number().int().min(1).max(65535) })
+export const DevEnvPreviewLink = z.object({ url: z.string(), expiresAt: IsoTime })
+export type DevEnvPreviewLink = z.infer<typeof DevEnvPreviewLink>
+
 export const DEV_ENV = {
   devEnv: endpoint({ method: 'GET', path: '/api/projects/:id/dev-env', auth: 'user', owner: 'B', response: DevEnvProjectResponse, summary: 'Dev environment of a project: the team setting, availability, and the runs of the project\'s chats; for people who can see the project.' }),
   devEnvStop: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/stop', auth: 'user', owner: 'B', response: DevEnvProjectResponse, summary: 'Stop every run of the project\'s chats; a waiting command only for its owner (people who may use the dev environment, and admins; audited).' }),
@@ -168,6 +174,7 @@ export const DEV_ENV = {
   updateDevEnvTeam: endpoint({ method: 'PUT', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', body: UpdateDevEnvTeamBody, response: DevEnvTeamResponse, summary: 'Change the dev environment of the team: on or off, who may use it, network, limits and the extra sites the AI may reach (audited).' }),
   myDevEnvRuns: endpoint({ method: 'GET', path: '/api/dev-env/runs', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'The runs of the caller (every chat, with or without a project): what runs and what waits.' }),
   stopMyDevEnvRun: endpoint({ method: 'POST', path: '/api/dev-env/runs/:runId/stop', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'Stop a run of the caller, or cancel a waiting job of the caller (audited).' }),
+  previewMyDevEnvRun: endpoint({ method: 'POST', path: '/api/dev-env/runs/:runId/preview', auth: 'user', owner: 'B', body: DevEnvPreviewBody, response: DevEnvPreviewLink, summary: 'A short-lived link to a port of a running dev server of the caller, on the separate preview origin (only the person who started it; audited).' }),
   myDevEnvSites: endpoint({ method: 'GET', path: '/api/dev-env/sites', auth: 'user', owner: 'B', response: DevEnvMySites, summary: 'The sites the caller allowed for the dev environment, the Full internet switch, and the team\'s sites.' }),
   removeMyDevEnvSite: endpoint({ method: 'POST', path: '/api/dev-env/sites/remove', auth: 'user', owner: 'B', body: RemoveDevEnvSiteBody, response: DevEnvMySites, summary: 'Remove a site from the caller\'s own allowed sites; the caller\'s jobs and dev servers that use it stop (audited).' }),
   setMyDevEnvFullInternet: endpoint({ method: 'PUT', path: '/api/dev-env/full-internet', auth: 'user', owner: 'B', body: SetDevEnvFullInternetBody, response: DevEnvMySites, summary: 'Turn the caller\'s Full internet on (the warning accepted) or off; off stops the caller\'s jobs and dev servers that used it (audited).' }),

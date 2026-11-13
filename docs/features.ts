@@ -72,7 +72,7 @@ export const FEATURES: Feature[] = [
   { id: 'projects.home', name: 'A project: its chats, files, rename, delete, restore', area: 'Projects', endpoints: ['getProject', 'updateProject', 'deleteProject', 'restoreProject'], screens: ['/projects/:projectId', '/projects/:projectId/files'] },
   { id: 'projects.members', name: 'Who is in a project', area: 'Projects', endpoints: ['getProjectAccess', 'putProjectParticipants', 'shareProject'] },
   { id: 'projects.update-notice', name: 'Projects become members-only (0.5 update notice)', area: 'Projects', endpoints: ['*ProjectsUpdateNotice'] },
-  { id: 'projects.dev-env', name: 'Dev environment of a project', area: 'Projects', endpoints: ['devEnv', 'devEnvStop', 'devEnvRunStop', 'devEnvActivity', 'myDevEnvRuns', 'stopMyDevEnvRun'] },
+  { id: 'projects.dev-env', name: 'Dev environment of a project', area: 'Projects', endpoints: ['devEnv', 'devEnvStop', 'devEnvRunStop', 'devEnvActivity', 'myDevEnvRuns', 'stopMyDevEnvRun', 'previewMyDevEnvRun'] },
   { id: 'projects.dev-env-sites', name: 'Dev environment sites and full internet', area: 'Projects', endpoints: ['myDevEnvSites', 'removeMyDevEnvSite', 'setMyDevEnvFullInternet'], screens: ['/settings/dev-env-sites'] },
 
   // ---------------- Files ----------------

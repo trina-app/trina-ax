@@ -13,8 +13,9 @@ import { ticketIds } from '../devenv/srt/queue'
 import { devEnvFlag, mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
-import { findRun, fullAvailable, networkNow, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
+import { findRun, fullAvailable, networkNow, planState, previewPortProblem, previewRow, previewSupported, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
 import { pollSrt, startJobTracker } from '../devenv/jobs'
+import { issuePreview, startPreviewGateway } from '../devenv/preview'
 import { devEnvMsg, siteProblemMessage } from '../devenv/messages'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
@@ -32,6 +33,9 @@ export const devEnvRoutes: RouteModule = {
     if (!devEnvFlag()) return
     const jobs = startJobTracker(ctx)
     ctx.onClose(() => jobs.stop())
+    // the preview gateway: its own listener for the separate preview origin (devenv/preview.ts)
+    const g = startPreviewGateway(ctx)
+    if (g) ctx.onClose(() => g.stop())
   },
   register(kit, ctx: AppContext) {
     const project = (id: string, userId: string) => {
@@ -101,6 +105,21 @@ export const devEnvRoutes: RouteModule = {
       if (!await stopRun(ctx, params.runId, 'stopped')) fail('not_found')
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.stop', target: null, detail: { run: params.runId, runner: 'srt' } })
       return mine(auth.user.id)
+    })
+    // a preview link to a port of the caller's own running dev server (devenv/preview.ts). Only the person who started
+    // it: the run has that person's folder access, so nobody else may see what it serves
+    kit.handle(API.previewMyDevEnvRun, async ({ c, params, body, auth }) => {
+      await mine(auth.user.id)
+      if (!mayUseDevEnv(ctx.db, ctx.files, auth.user.id)) fail('forbidden')
+      const row = previewRow(ctx, { rowId: params.runId, userId: auth.user.id })
+      if (!row) fail('not_found', 'The dev server is not running. Ask the AI to start it again.', { params: { reason: 'dev_env_preview_not_running' } })
+      const why = previewPortProblem(body.port)
+      if (why) fail('validation', `Port ${body.port}: ${why}.`, { params: { reason: 'dev_env_preview_port' } })
+      if (!previewSupported()) fail('conflict', 'Preview is not available on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
+      const runId = row!.unit.slice('trina-dev-'.length, -'.scope'.length)
+      const r = issuePreview(ctx, { rowId: row!.id, runId, port: body.port, userId: auth.user.id, projectId: row!.project_id, appHost: c.req.header('host') ?? null })
+      if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'Preview is not set up on this server (no preview origin). Ask the AI to test the dev server with curl in one command.', { params: { reason: `dev_env_preview_${r.error}` } })
+      return r as { url: string; expiresAt: string }
     })
 
     // the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
