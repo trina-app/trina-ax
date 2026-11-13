@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:08
 - Branch: `fix/add-team-app-dialog`
-- Status: in progress
+- Status: done
 - Where: web/src/components/integrations/IntegrationDialog.tsx (+ Admin › Connectors, Modal title). Why: QA TC-187, TC-189, TC-190
 - Version impact: patch — layout and flow of an existing dialog; no new permission, API or data change
 
@@ -52,4 +52,6 @@ integrations, integration-templates, connectors-hub, a11y, request-connector, in
 
 ## Result
 
-(at the end)
+Built as planned in PR #687. Differences: the "For" line also shows when editing a team connection or template, so
+"Who can use it" is never inside Advanced; on a phone, Add stays a computer's job (as before), so the app list is reached
+on a computer and a listed app's + opens the simple dialog on a phone.
