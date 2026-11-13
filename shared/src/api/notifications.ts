@@ -222,16 +222,17 @@ export const InboxNotification = z.object({
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
 /** Activity's tabs (web/src/pages/Activity.tsx). */
-export const ActivityTab = z.enum(['all', 'mentions', 'threads'])
+export const ActivityTab = z.enum(['all', 'dms', 'mentions', 'threads'])
 export type ActivityTab = z.infer<typeof ActivityTab>
-/** Which tabs a notice shows under besides All: an @mention (or @everyone) under Mentions, a reply in a thread under
- * Threads (in a direct or group chat too). A notice of the app's own is under All only (no DMs tab: direct and group
- * chats are read in the conversation list). The page filters with it and the server marks a tab read with it
- * (POST /api/notifications/read), so both follow one rule. */
+/** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
+ * Mentions, a reply in a thread under Threads (in a direct or group chat too). A notice of the app's own is under All
+ * only. The page filters with it and the server marks a tab read with it (POST /api/notifications/read), so both follow
+ * one rule. */
 export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room'>, tab: ActivityTab): boolean {
   if (tab === 'all') return true
   const room = item.room
   if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
+  if (tab === 'dms') return room.kind === 'dm' || room.kind === 'group'
   if (tab === 'mentions') return item.code === 'room.mention' || room.reason === 'mention' || room.reason === 'everyone'
   return !!room.thread
 }

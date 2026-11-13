@@ -22,7 +22,7 @@ import { useWelcome } from '../../store/welcome'
 import { toast } from '../../store/ui'
 import QrCode from '../QrCode'
 import type { InviteShared } from './InviteStep'
-import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy, useMediaQuery } from '../ui'
+import { Button, Field, IconButton, Modal, Skeleton, confirmDialog, inputCls, useCopy, useMediaQuery } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 import { LocalLinkNote } from '../LocalLinkNote'
@@ -276,53 +276,63 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
   const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
-  // "Joins: leads" / "Joins no groups": which groups everyone who joins is put in (QA TC-458: a link made with the
+  // the Groups row ("Leads" / "None"): which groups everyone who joins is put in (QA TC-458: a link made with the
   // wrong group put the whole team in it, and the card did not say so)
-  const joins = joinsText(t, link.groupIds, groups)
-  // the link, its facts and its changes: in place on Admin › Members, under "링크 관리" in the invite step
+  const groupNames = linkGroupNames(t, link.groupIds, groups)
+  // not while the link's groups are known only by count (the list did not load): the checks would start empty
+  const canChangeGroups = !!onGroups && (!link.groupIds.length || groups.some((g) => link.groupIds.includes(g.id)))
+  // the link, its facts and its changes: in place on Admin › Members, under "링크 관리" in the invite step. The address
+  // is one quiet line cut with "…" (its token means nothing to people), Copy link inside it and the QR code beside it;
+  // the facts are one aligned list (label, value) instead of loose sentences; replace / turn off stay quiet at the end.
   const details = (
     <>
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
-        <p className="mt-1 font-mono text-label leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
-        <LocalLinkNote url={url} className="mt-1" />
-        <div className="mt-1 -ml-2.5 flex flex-wrap items-center gap-1">
-          <CopyQuiet text={url} label={t('teamLink.copyLink')} />
-          <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
-            <QrIcon size={14} aria-hidden /> {t('members.qr')}
-          </Button>
+        <div className="mt-1.5 flex items-center gap-1">
+          <div className="flex h-9 min-w-0 flex-1 items-center gap-1 rounded-lg bg-subtle pr-0.5 pl-3 max-md:min-h-11">
+            <span className="min-w-0 flex-1 truncate text-label text-muted select-all" title={url} data-testid="team-link-url">{url}</span>
+            <CopyQuiet text={url} label={t('teamLink.copyLink')} />
+          </div>
+          <IconButton label={t('members.qr')} onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
+            <QrIcon size={16} aria-hidden />
+          </IconButton>
         </div>
+        <LocalLinkNote url={url} className="mt-1.5" />
         {qr && (
-          <div className="mt-2">
+          <div className="mt-3">
             <QrCode text={url} label={t('members.qr')} />
           </div>
         )}
       </div>
-      <div className="space-y-1 text-label leading-5 text-muted" data-testid="team-link-facts">
-        <p>
-          {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
-          {' · '}{t('teamLink.expiresLabel')} <span className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</span>
-        </p>
-        {link.skill && <p>{t('teamLink.skill')} <span className="text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</span></p>}
-        {!groupsOpen && (
-          <p>
-            <span className="text-ink" data-testid="team-link-groups">{joins}</span>
-            {/* not while the link's groups are known only by count (the list did not load): the checks would start empty */}
-            {onGroups && (!link.groupIds.length || groups.some((g) => link.groupIds.includes(g.id))) && (
-              <>
-                {' · '}
-                <button type="button" className="font-medium text-ink underline decoration-line-strong underline-offset-4 disabled:opacity-50 max-sm:-my-3 max-sm:inline-block max-sm:py-3" disabled={busy} onClick={() => setGroupsOpen(true)} data-testid="team-link-groups-change">
-                  {t('teamLink.changeGroups')}
-                </button>
-              </>
-            )}
-          </p>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 text-label leading-5" data-testid="team-link-facts">
+        <dt className="text-muted">{t('teamLink.usesLabel')}</dt>
+        <dd className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</dd>
+        <dt className="text-muted">{t('teamLink.expiresLabel')}</dt>
+        <dd className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</dd>
+        {link.skill && (
+          <>
+            <dt className="text-muted">{t('teamLink.skill')}</dt>
+            <dd className="break-words text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</dd>
+          </>
         )}
-        <p>
-          {t('teamLink.memberNote')}
-          {left !== null && <> · {t('teamLink.seatsLeft', { n: left })}</>}
-        </p>
-      </div>
+        <dt className="text-muted">{t('teamLink.groupsLabel')}</dt>
+        <dd className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="min-w-0 break-words text-ink" data-testid="team-link-groups">{groupNames}</span>
+          {canChangeGroups && !groupsOpen && (
+            <button type="button" className="shrink-0 font-medium text-ink underline decoration-line-strong underline-offset-4 disabled:opacity-50 max-sm:-my-3 max-sm:py-3" disabled={busy} onClick={() => setGroupsOpen(true)} data-testid="team-link-groups-change">
+              {t('teamLink.changeGroups')}
+            </button>
+          )}
+        </dd>
+        <dt className="text-muted">{t('teamLink.roleLabel')}</dt>
+        <dd className="text-ink" data-testid="team-link-role">{t('teamLink.roleMember')}</dd>
+        {left !== null && (
+          <>
+            <dt className="text-muted">{t('teamLink.seatsLabel')}</dt>
+            <dd className="text-ink tabular-nums" data-testid="team-link-seats">{left}</dd>
+          </>
+        )}
+      </dl>
       {groupsOpen && onGroups && (
         <GroupsEditor
           groups={groups}
@@ -370,12 +380,17 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
+/** The Groups row's value: the names, how many while they load, "None". */
+function linkGroupNames(t: ReturnType<typeof useT>, groupIds: string[], groups: Group[]): string {
+  if (!groupIds.length) return t('teamLink.groupsNone')
+  const names = groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
+  return names.length ? names.join(', ') : String(groupIds.length)
+}
+
 /** "Joins: leads, sales" / "Joins no groups": the groups everyone who joins with a link is put in. Groups deleted since
  * (or not loaded yet) are left out; none known while the ids are there reads as how many. Also Admin › Members' rows. */
 export function joinsText(t: ReturnType<typeof useT>, groupIds: string[], groups: Group[]): string {
-  if (!groupIds.length) return t('teamLink.joinsNone')
-  const names = groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
-  return t('teamLink.joins', { groups: names.length ? names.join(', ') : String(groupIds.length) })
+  return groupIds.length ? t('teamLink.joins', { groups: linkGroupNames(t, groupIds, groups) }) : t('teamLink.joinsNone')
 }
 
 /** The open link's groups changed in place: the same checks as making a link, Save / Cancel, and one line saying

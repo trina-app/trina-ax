@@ -112,12 +112,12 @@ for (const lang of ['ko', 'en'] as const) {
       await expect(page).toHaveURL(/\/files\?path=skills%2Fweekly-report/)
     })
 
-    test('Activity: three tabs share the width, 44px, words only; Unreads a filled pill; the search in the top bar', async ({ page }) => {
+    test('Activity: four tabs share the width, 44px, words only; Unreads a filled pill; the search in the top bar', async ({ page }) => {
       await start(page, lang)
       await page.goto('/activity')
       const tabs = page.getByTestId('activity-tabs')
-      const names = [t['feed.tab.all'], t['feed.tab.mentions'], t['feed.tab.threads']]
-      await expect(tabs.getByRole('tab')).toHaveCount(3)
+      const names = [t['feed.tab.all'], t['feed.tab.dmsShort'], t['feed.tab.mentions'], t['feed.tab.threads']]
+      await expect(tabs.getByRole('tab')).toHaveCount(4)
       for (const [i, name] of names.entries()) await expect(tabs.getByRole('tab').nth(i)).toHaveAccessibleName(name)
       expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
       const widths: number[] = []

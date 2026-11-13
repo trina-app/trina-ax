@@ -6,10 +6,10 @@ description: Ask once and let the AI repeat the work on a schedule, in the team'
 A scheduled task runs a request again and again: every weekday morning, every Monday, the first of the month. It runs as the person who made it.
 
 :::note
-From 0.4.0, scheduled tasks have their own **Scheduled** item in the sidebar. Before that, they are under **Settings › Schedules**.
+From 0.4.0, scheduled tasks have their own **Scheduled** page (예약 작업): a row on the left on a computer; **New scheduled task** in ⌘K opens it too. Before that, they are under **Settings › Schedules**.
 :::
 
-![The Scheduled tasks page: two task cards with their folders and times, and a New task button](../images/scheduled/list.webp "Scheduled tasks, with Scheduled in the sidebar")
+![The Scheduled tasks page: two task cards with their folders and times, and a New task button](../images/scheduled/list.webp "Scheduled tasks")
 
 ## Create a task
 

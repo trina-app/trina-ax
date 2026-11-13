@@ -153,6 +153,10 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
   await expect(page).toHaveURL(/\/activity\?in=chats&tab=mentions$/)
   await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('activity-tab-mentions')).toHaveAttribute('aria-selected', 'true')
+  // the DMs tab's old link: direct and group chats are 대화's list
+  await page.goto('/activity?tab=dms')
+  await expect(page).toHaveURL(/\/activity\?in=chats$/)
+  await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
 })
 
 test('with the switch off, Activity is the page it was: its tabs, no panel', async ({ page }) => {

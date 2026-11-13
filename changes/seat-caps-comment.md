@@ -1,0 +1,1 @@
+- **Code comment**: the plan.json `maxActiveMembers` comment in the cloud contract now gives the member caps the owner set on 2026-11-13 (Free 3, Starter 5, Team 15, Business 40) instead of the old 5 / 12 / 20. No behaviour change.

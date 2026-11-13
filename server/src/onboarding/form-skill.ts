@@ -12,7 +12,7 @@
 //      into users/<id>/, moved with move_files);
 //   5. only when that fails, make_file once with the same fields (no template, straight into that folder), saying the
 //      look may differ and what an admin turns on: the HWP plugin for a Hangul form, the dev environment for Excel/Word.
-// One save per file: a save the person allowed is never repeated (a room asks for each save).
+// One save per file: a save the person allowed is never repeated (after a room read, each save waits for a yes).
 // The pure parts are here (material, instructions, reading the answer, the procedure); starting and sharing a draft are
 // in skill-draft.ts with S's.
 import path from 'node:path'
@@ -154,7 +154,7 @@ interface ProcText {
   fallback: (ext: string) => string
   /** how make_file falls back: one call, the fields as its content, no template, straight where it belongs */
   fallbackOnce: string
-  /** one save per file: a save the person allowed is never repeated (a room asks for each save) */
+  /** one save per file: a save the person allowed is never repeated (after a room read, each save waits for a yes) */
   saveOnce: string
   /** what a Hangul form falls back to */
   hangulFallback: string
@@ -199,7 +199,7 @@ const PROC: Record<Locale, ProcText> = {
     link: 'Give the saved file as a link and say in a line or two what was filled in.',
     fallback: (ext) => `Only when filling fails (the tool is not available or the run fails), make a new file with the same fields with make_file (${ext}), and say that its look may differ from the form.`,
     fallbackOnce: 'Call make_file once: the filled fields in `content` (a table for .xlsx), no `template` (a form file is not a template make_file takes), and `output` the new file\'s name in the folder of step 5 from the start. Do not make it again or move it afterwards.',
-    saveOnce: 'Save the file once. Never repeat a save the teammate allowed (in a team chat room every save waits for their yes), and never make the same file twice.',
+    saveOnce: 'Save the file once. Never repeat a save the teammate allowed (after a chat reads a room, every save waits for their yes), and never make the same file twice.',
     hangulFallback: 'a .hwpx, or a .docx when Hangul writing is off',
     fallbackSay: (how) => `Then say plainly: the form itself cannot be filled here, so you made a new file with the same fields; ${how} fills the real form.`,
     hangulOn: 'asking an admin to turn on the Hangul document preview (HWP) plugin in Admin › Plugins',

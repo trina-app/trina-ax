@@ -209,13 +209,13 @@ export function chatsTabCases() {
       await expect(page).toHaveURL(/\/rooms$/)
       await expect(tab(page, 'chats')).toHaveAttribute('aria-current', 'page')
 
-      // 나 › 활동: everything, the app's own notice too (the same three tabs, no DMs tab); ‹ 설정
+      // 나 › 활동: everything, the app's own notice too, with DMs; ‹ 설정
       await tab(page, 'me').click()
       await page.getByTestId('settings-inbox').click()
       await expect(page).toHaveURL(/\/activity$/)
       await expect(page.getByTestId('topbar-title')).toHaveText(t['inbox.title'])
       await expect(tab(page, 'me')).toHaveAttribute('aria-current', 'page')
-      await expect(page.getByRole('tab')).toHaveCount(3)
+      await expect(page.getByRole('tab')).toHaveCount(4)
       await expect(page.getByTestId('notification-room-row')).toHaveCount(2)
       await expect(page.getByTestId('notification-chat-link')).toHaveCount(1)
     })
