@@ -291,7 +291,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
 // docs/DECISIONS.md "Project contents only for members": the owner's card of a team project she is not in has Rename,
 // Members and Delete; deleting moves it to the trash (the card stays and says so), deleting again is for good; a team
-// project nobody active is in says "남은 멤버 없음"; its instructions do not come, so the card says "멤버만 내용을 볼 수
+// project nobody active is in says "남은 멤버 없음" (a trashed one says only "휴지통에 있음", QA TC-1012); its instructions do not come, so the card says "멤버만 내용을 볼 수
 // 있어요." with a lock, never "지침이 없어요.". SHOTS_DIR set: the list as an admin who is not in it, as a picture.
 // (a computer's cards only: a phone's 프로젝트 tab lists plain rows without a "…", see above)
 for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }]) {
@@ -330,7 +330,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(dialog.getByTestId('project-delete-trash-folder')).toHaveCount(0)
       await audit(page, 'move to the trash confirm')
       await dialog.getByTestId('dialog-confirm').click()
-      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(` · ${t['chat.project.inTrash']}`)
+      await expect(card(page, 'Falcon').getByTestId('project-card-state')).toHaveText(t['chat.project.inTrash'])
       await expect(items(page)).toHaveCount(2)
       // again: for good, the card goes
       menu = await openCard(page, 'Falcon', vp.phone)
