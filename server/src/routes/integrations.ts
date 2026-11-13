@@ -13,8 +13,9 @@ import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
 import { say, type TextKey } from '../integrations/connections/text'
+import { CALLBACK_PATH, CLIENT_METADATA_PATH, clientMetadata } from '../integrations/connections/oauth'
 
-export const INTEGRATION_CALLBACK = '/api/integrations/oauth/callback'
+export const INTEGRATION_CALLBACK = CALLBACK_PATH
 const CLOSE = 'window.close()'
 const CLOSE_HASH = 'sha256-' + crypto.createHash('sha256').update(CLOSE).digest('base64')
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
@@ -62,6 +63,16 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
   kit.handle(API.listIntegrationTemplateMembers, async ({ auth, params }) => ({ items: await tpl().members(viewer(auth), params.id) }))
+  // the client metadata document a service fetches when a sign-in uses its address as the client ID (oauth.ts
+  // clientMetadata): public, no session. Its addresses are those of the public address the service asked at (the
+  // configured one with that host, so https behind a tunnel), else the request's own
+  kit.raw('GET', CLIENT_METADATA_PATH, (c) => {
+    const host = (c.req.header('host') ?? new URL(c.req.url).host).toLowerCase()
+    const known = [...ctx.config.publicOrigins, ...(ctx.config.tunnel ? [`https://${ctx.config.tunnel.host}`] : [])]
+    const origin = known.find((o) => { try { return new URL(o).host.toLowerCase() === host } catch { return false } }) ?? new URL(c.req.url).origin
+    c.header('Cache-Control', 'public, max-age=3600')
+    return c.json(clientMetadata(origin))
+  })
   kit.raw('GET', INTEGRATION_CALLBACK, async (c) => {
     let r: CallbackResult = { ok: false, reason: null }
     const cc = c as unknown as AppContextC

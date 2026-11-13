@@ -18,7 +18,7 @@ import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-
 import { secretHider } from './hide'
 import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, canonicalResource, discover, GrantError, issuerMatches, manualServer, ownClient, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -880,9 +880,11 @@ export class Integrations {
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', 'oauth_unsupported')
       return fail('validation', say('oauthHttpNeedsApp', L))
     }
-    let setup: { server: OAuthServer; resource: string | null; scope: string | null; authMethods: string[] | null }
+    let setup: { server: OAuthServer; resource: string | null; scope: string | null; authMethods: string[] | null; metadataClients?: boolean }
     let client: OAuthClient
-    const redirectUri = new URL('/api/integrations/oauth/callback', origin).href
+    const redirectUri = new URL(CALLBACK_PATH, origin).href
+    const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
     try {
       if (app?.authorizationUrl && app.tokenUrl) {
         // the app's own addresses: nothing to find (an MCP server keeps its resource indicator, an API has none)
@@ -897,11 +899,10 @@ export class Integrations {
       }
       // the client secret goes to this token address: the one a sign-in that worked found before, or none
       if (app) this.checkPin(row, app, setup.server.tokenEndpoint, L)
-      // a registered app is used again for the same server; an own app is always the one set now
-      const old = row.secret_enc ? this.tryOpen(row) : null
-      client = app ? ownClient(app, redirectUri, setup.authMethods)
-        : old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client
-          : await register(setup.server, redirectUri, this.net)
+      // an own app is always the one set now; otherwise the app registered for this server (again), or the metadata
+      // document when the service refuses that one (clientFor)
+      const s = setup
+      client = app ? ownClient(app, redirectUri, s.authMethods) : await this.clientFor(row, s, origin, redirectUri, (c) => authorizationUrl({ ...s, client: c }, state, challenge))
     } catch (e) {
       if (e instanceof HttpError) throw e
       // a service that registers no apps: its own app is the fix, which a member of a template cannot set
@@ -912,7 +913,6 @@ export class Integrations {
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
-    const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
     const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null, own: app ? (row.template_id ? 'template' : 'mine') : undefined }
@@ -924,8 +924,15 @@ export class Integrations {
       this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
-    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
     return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt }
+  }
+
+  /** The client a sign-in without an own app uses (oauth.ts chooseClient): the app registered for the same server
+   * before is offered first, when there is one. */
+  private clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+    const old = row.secret_enc ? this.tryOpen(row) : null
+    const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
+    return chooseClient(setup, origin, redirectUri, this.net, urlFor, again)
   }
 
   flow(userId: string, session: string, id: string): IntegrationFlow {

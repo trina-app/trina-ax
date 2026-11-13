@@ -32,7 +32,8 @@ export const LISTED_TOOLS = 12
  * without one) shows the server's own words, which carry their own next step. */
 const REASON_KIND: Record<string, 'address' | 'key' | 'slow' | 'service'> = {
   unreachable: 'address', private_address: 'address', blocked_port: 'address', redirect: 'address', not_mcp: 'address',
-  // the oauth_unsupported / oauth_no_registration codes need another way to connect, not a new key: the server's words
+  // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
+  // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
   timeout: 'slow', list_timeout: 'slow',
   http_status: 'service', too_large: 'service', tls: 'service',
