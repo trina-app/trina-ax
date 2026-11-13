@@ -9,7 +9,7 @@ A chat is a conversation with the AI. Only you see your chats. Admins see which 
 
 :::steps
 #### Open a new chat
-Choose **New chat** in the sidebar, or type in the box on the home page. The first time, under the box, **Ready in your
+Choose **Ask Trina** (트리나에게 묻기) at the top left, press ⇧⌘O (Ctrl+Shift+O on Windows), or type in the box on the home page. On a phone, start from the **트리나** tab. The first time, under the box, **Ready in your
 team** lists what your team set up: its skills (**Example** shows a result, **Try it** opens the skill) until you have run
 one, and the team files (**Ask** puts a question about them in the box, not sent). With nothing set up yet, **Start
 here** offers one question to send.
@@ -40,7 +40,7 @@ Selected context goes to the AI provider you connected. Self-hosting is not offl
 
 ## Several chats at once
 
-Each chat in **Trina history** (the sidebar on a computer, the ☰ menu on a phone) shows at most one mark, at the right end of its row:
+Each chat in your list of Trina chats shows at most one mark, at the right end of its row:
 
 | Mark | What it means |
 |---|---|
@@ -54,14 +54,14 @@ While the browser tab is in the background, its title counts the chats and rooms
 
 ## Pin a chat
 
-In **Trina history**, a chat's **···** (or a right-click on its row, or a long press on a phone) has **Pin to top**
+In your list of Trina chats, a chat's **···** (or a right-click on its row, or a long press on a phone) has **Pin to top**
 (상단에 고정). Pinned chats come first, the most recently pinned first, with a small pin before the title: on a computer
 up to ten above the five latest chats, and all of them first in **Show all** and on a phone. A project's page lists your
 pinned chats there first too. **Unpin** (고정 해제) puts a chat back. A pin is yours only, also on a shared project chat,
 and it goes when the chat is deleted or you can no longer see it. You can pin up to 50 chats.
 
 Conversations in **대화** (rooms, DMs and group chats) are pinned the same way, from a row's **···** or the room's own
-**···**: pinned ones come first, with a small pin after the name, in the sidebar, the full list and the phone's **대화** tab.
+**···**: pinned ones come first, with a small pin after the name, in every list of conversations, on a computer and in the phone's **대화** tab.
 Only you see your pins. A pin goes when you leave the room or hide it. You can pin up to 50 conversations.
 
 On a computer the sidebar's **대화** shows up to ten pins and the five latest conversations. **Show more** (더 보기) keeps
@@ -94,7 +94,7 @@ Start a chat from the project's page, or move a chat in from the chat title's me
 
 ## Find anything
 
-Press ⌘K (Ctrl+K on Windows) or choose **Search** in the sidebar to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
+Press ⌘K (Ctrl+K on Windows) or choose **Search** (검색) under **Ask Trina** to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
 
 ## Deleted chats
 
