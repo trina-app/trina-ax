@@ -1,5 +1,5 @@
-// The connector dialog's collapsed 고급 line (QA TC-204): what a member reads before opening Advanced has no "MCP
-// server" / "API" kind and no "(OAuth)": the sign-in in plain words and the write rule. The open section keeps them.
+// The connector dialog's collapsed 고급 line (QA TC-204, TC-187): what a member reads before opening Advanced is the
+// word 고급 only, no summary of its choices (no "MCP server" / "API" kind, no "(OAuth)"). The open section has them.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
@@ -17,11 +17,12 @@ beforeAll(() => {
 })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }); useSession.setState({ status }) })
 
-test('a member adding a connection reads the sign-in and the write rule, not MCP or OAuth', async () => {
+test('a member adding a connection reads only 고급 on the closed Advanced, not MCP or OAuth', async () => {
   const m = await mount(<MemoryRouter><IntegrationDialog scope="personal" onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
   try {
-    const line = (await m.until(() => m.find('integration-advanced-summary'), 'the collapsed line')).textContent ?? ''
-    expect(line).toBe('로그인 · 매번 묻기')
+    const line = (await m.until(() => m.find('integration-advanced'), 'the collapsed line')).textContent ?? ''
+    expect(line).toBe('고급')
+    expect(m.find('integration-advanced-summary')).toBeNull()
     expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('false')
   } finally { await m.unmount() }
 })

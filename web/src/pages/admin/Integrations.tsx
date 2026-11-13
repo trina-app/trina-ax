@@ -20,7 +20,7 @@
 // it, test, edit, delete and its tools). Members' personal connections are not listed (nobody but the owner can use
 // those).
 import { Plus, Send } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -61,7 +61,8 @@ export default function AdminIntegrations() {
   // an older server has no templates: the page works without them
   const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
   // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it
-  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector; startAs?: 'team' | 'template'; toList?: boolean } | null>(null)
+  // pick: Add first lists the Discover apps not connected yet, a custom app by its address last (QA TC-189)
+  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector; startAs?: 'team' | 'template'; toList?: boolean; pick?: boolean } | null>(null)
   // Google Drive on this server (an older server has no such address: Drive is then left out)
   const drive = useLoad(async () => { try { return await api.call(API.driveAdminStatus) } catch { return null as DriveAdminStatus | null } })
   const [driveSetup, setDriveSetup] = useState(false)
@@ -108,6 +109,8 @@ export default function AdminIntegrations() {
     if (c) setDialog({ connector: c, toList: true })
   }
   const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
+  // Discover's apps with a setup of their own (Google's, Slack) not on yet, as the list below last drew them
+  const setupFirst = useRef<{ id: string; name: string; logo: string; onPick: () => void }[]>([])
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const reloadList = state.reload
@@ -148,9 +151,9 @@ export default function AdminIntegrations() {
         query={query}
         onQuery={(q) => { setQuery(q); setOpen(null) }}
         // a phone: adding a service by its address (kind, sign-in, headers) is a computer's job; Discover's line says so
-        onAdd={phone ? undefined : () => setDialog({ toList: !!open })}
+        onAdd={phone ? undefined : () => setDialog({ toList: !!open, pick: true })}
         moreAdd={[
-          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({ toList: !!open }), testId: 'integration-add-team' },
+          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({ toList: !!open, pick: true }), testId: 'integration-add-team' },
           { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
         ]}
       />
@@ -246,6 +249,8 @@ export default function AdminIntegrations() {
           // an admin gets the card only where Add to Slack is offered (the team's own app is the owner's to set up)
           const slackCard: DiscoverItem[] = sl && !slackAdded(sl) && (owner || sl.official)
             ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: slackLine, logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
+          // the same apps with their own setup lead Add's list (QA TC-189 review)
+          setupFirst.current = [...builtIns.filter((b) => !b.on), ...slackCard].map((b) => ({ id: b.id, name: b.name, logo: b.logo, onPick: b.onAdd }))
           const cards = [...builtIns.filter((b) => !b.on), ...slackCard, ...listed].filter((c) => fits(q, c.name, c.line))
           const shownCards = q || all ? cards : cards.slice(0, DISCOVER_FIRST)
           if (q && !connected && !cards.length) return <EmptyState title={t('integrations.noMatch', { q })} />
@@ -317,6 +322,8 @@ export default function AdminIntegrations() {
           existing={dialog.existing}
           template={dialog.template}
           connector={dialog.connector}
+          others={dialog.pick ? setupFirst.current : undefined}
+          choices={dialog.pick ? CONNECTORS.filter((c) => !isConnected(c, [...(state.data ?? []), ...(templates.data ?? [])].map((i) => i.url))) : undefined}
           startAs={dialog.startAs}
           onClose={() => setDialog(null)}
           onSavedTemplate={() => {

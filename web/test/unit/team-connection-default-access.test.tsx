@@ -42,14 +42,20 @@ test('"Connect for the team" saved without opening Advanced: the whole team may 
   } finally { await m.unmount() }
 })
 
-test('who it is for shows without opening Advanced; Change opens the chooser', async () => {
+test('who it is for shows without opening Advanced; Change opens the chooser under that line', async () => {
   const notion = CONNECTORS.find((c) => c.id === 'notion')!
   const m = await mount(<MemoryRouter><IntegrationDialog scope="team" connector={notion} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
   try {
     expect(m.get('integration-for').textContent).toContain('For: Everyone in the team')
     expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('false')
+    // the sign-in note shares that line (QA TC-187)
+    expect(m.get('integration-for').textContent).toContain('You sign in next, in a new window.')
+    expect(m.find('integration-access')).toBeNull()
     await m.click('integration-for-change')
-    expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('true')
+    // who may use it opens under the line, not again inside Advanced
+    expect(m.get('integration-for-change').getAttribute('aria-expanded')).toBe('true')
+    expect(m.find('integration-access')).not.toBeNull()
+    expect(m.get('integration-advanced').getAttribute('aria-expanded')).toBe('false')
   } finally { await m.unmount() }
 })
 
