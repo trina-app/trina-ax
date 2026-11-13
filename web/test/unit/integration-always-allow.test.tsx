@@ -1,5 +1,6 @@
 // A connection the person chose Always allow for on a write card (QA TC-130, components/integrations/ConnectionPage.tsx):
-// its page says so (the line on what the AI may do, with that a chat that read something from outside still asks) and ⋯
+// its page says so (the line on what the AI may do: since 2026-11-13 also in a chat that read something from outside,
+// docs/DECISIONS.md "Always allow on every card", as the write card's own note says) and ⋯
 // has "Ask every time": on a team connection it ends only the person's own choice (DELETE
 // /api/integrations/:id/always-allow, never the team's rule); on their own connection it sets the write rule back to
 // "ask". A team connection set to "Run without asking" by an admin says so in its own words and offers no such item.
@@ -103,4 +104,18 @@ describe('when it was last used', () => {
       } finally { await m.unmount() }
     }
   })
+})
+
+// docs/DECISIONS.md "Always allow on every card" (2026-11-13): a person's Always allow and a team connection set to run
+// without asking hold also after the chat read something from outside, and the write card's note says so ("even after
+// reading web pages or files"). The lines that describe these choices must not promise that such a chat still asks.
+test('the Always allow lines say it holds after outside content too, in every language (as the card says)', () => {
+  const keys = ['gapps.changeAllowLine', 'gapps.policy.allowLine', 'connectors.page.teamAllowLine', 'integrations.write.allow.desc'] as const
+  for (const k of keys) {
+    const en = translate('en', k, { name: 'Gmail' })
+    expect(en, k).toMatch(/\b(even|also)\b/)
+    expect(en, k).not.toMatch(/still asks|asks first/)
+  }
+  const stale: Record<string, RegExp> = { ko: /계속 물어요|그래도 물어봐요|먼저 물어요/, id: /tetap bertanya|AI bertanya dulu/, ja: /引き続き確認|それでも確認|先に確認/, es: /sigue preguntando|pregunta antes/ }
+  for (const [loc, bad] of Object.entries(stale)) for (const k of keys) expect(translate(loc as never, k, { name: 'Gmail' }), `${loc} ${k}`).not.toMatch(bad)
 })
