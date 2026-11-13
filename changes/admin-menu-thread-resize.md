@@ -1,0 +1,1 @@
+- **Admin on a short window**: the admin menu scrolls its current page's row into view, so where you are is never below the menu's fold.

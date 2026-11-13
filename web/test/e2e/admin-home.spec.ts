@@ -277,6 +277,19 @@ test('the admin menu stays where it is while the page scrolls on a wide screen; 
   }
 })
 
+test('a short window: the menu brings the current page\'s row into view', async ({ page }) => {
+  await start(page)
+  // short enough that the menu scrolls whatever the fonts; Team settings is in its last group
+  await page.setViewportSize({ width: 1360, height: 440 })
+  await page.goto('/admin/settings')
+  const menu = page.getByTestId('admin-menu')
+  expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
+  // another page from the menu: its row too
+  await menu.getByRole('link', { name: t['admin.home'], exact: true }).click()
+  await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeInViewport()
+})
+
 test('a long explanation stays on one line until "More" opens it', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 1100, height: 800 })
