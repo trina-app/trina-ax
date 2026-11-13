@@ -1,9 +1,7 @@
 // Home and the project screens on a phone (390×844, touch), QA rows from the owner's phone audit (11-11), each test
 // following its row's Steps and Expected:
 // - TC-253 (Home): "1. Open the Trina tab 2. Scroll" → the greeting and the box docked at the bottom (like the ChatGPT
-//   and Claude apps); no "트리나 기록" list on Home (since the new tabs, docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 ·
-//   나", the 트리나 tab is that list and Home is its "트리나에게 묻기", /new, with no tab bar under the box); the
-//   suggestions one compact row without usage counts;
+//   and Claude apps); no "트리나 기록" list on Home (it is in ☰); the suggestions one compact row without usage counts;
 //   whole rows tappable (44 px). The owner: "이거 UI가 최적이 맞나?", "트리나 히스토리가 드로어에서도 보이고 여기서도
 //   보이네". A computer keeps the box under the greeting and the block under the box.
 // - TC-254 (projects): "1. Projects 2. Open a project 3. Open its files row" → "+" in the bar, no intro or orange button
@@ -13,7 +11,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatList, openNewChat, openProjectsTab, phoneTrinaHome, tabBar, tabButton } from './nav'
+import { chatList, openProjectsTab, openTab, tabBar, tabButton } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -48,34 +46,25 @@ async function audit(page: Page, where: string) {
 /** SHOTS=1: screenshots of each screen into $SHOTS_DIR (default test-results/phone-home-projects) */
 const shot = (page: Page, name: string) => (process.env.SHOTS ? page.screenshot({ path: `${process.env.SHOTS_DIR ?? 'test-results/phone-home-projects'}/${name}.png` }).then(() => {}) : Promise.resolve())
 const box = async (page: Page, testId: string) => (await page.getByTestId(testId).first().boundingBox())!
-/** Home on a phone: the 트리나 tab's list, then its "트리나에게 묻기" (/new) */
-async function openHome(page: Page) {
-  await openNewChat(page)
-  await expect(page).toHaveURL(/\/new$/)
-}
-/** the box docked at the bottom of the screen: /new has no tab bar (the box needs the bottom) */
-async function dockedAtBottom(page: Page) {
-  await expect(tabBar(page)).toHaveCount(0)
-  const dock = await box(page, 'home-dock')
-  expect(Math.abs(dock.y + dock.height - page.viewportSize()!.height)).toBeLessThanOrEqual(1)
-  return dock
-}
 const scrollHome = (page: Page, to: 'top' | 'bottom') => page.getByTestId('home-scroll').evaluate((el, end) => { el.scrollTop = end === 'top' ? 0 : el.scrollHeight }, to)
 
 test.describe('TC-253: Home on a phone', () => {
   test.use(PHONE)
 
-  test('the box and the greeting at the bottom, no chat list (it is the 트리나 tab), the suggestions one row of 44 px chips', async ({ page }) => {
+  test('the box and the greeting at the bottom, no chat list (it is in ☰), the suggestions one row of 44 px chips', async ({ page }) => {
     await reset(page)
     await teamWithSkills(page)
     await signIn(page, BOB)
-    // 1. Open the Trina tab, and its "트리나에게 묻기"
-    await openHome(page)
+    // 1. Open the Trina tab
+    await openTab(page, 'ai')
+    await expect(page).toHaveURL(/\/$/)
     const block = page.getByTestId('team-prepared')
     await expect(block).toBeVisible()
 
-    // the box at the bottom of the screen; the greeting and the one row of suggestions right above it
-    const dock = await dockedAtBottom(page)
+    // the box at the bottom, right above the tab bar; the greeting and the one row of suggestions right above it
+    const dock = await box(page, 'home-dock')
+    const tabs = await box(page, 'bottom-tabs')
+    expect(Math.abs(dock.y + dock.height - tabs.y)).toBeLessThanOrEqual(1)
     const greeting = page.getByRole('heading', { level: 1 })
     await expect(greeting).toHaveText('Bob님, 무엇을 도와드릴까요?')
     const g = (await greeting.boundingBox())!
@@ -103,20 +92,17 @@ test.describe('TC-253: Home on a phone', () => {
     await page.touchscreen.tap(first.x + 12, first.y + first.height - 8)
     await expect(page.getByTestId('composer-input')).toHaveValue('/humanizer 아래 글을 자연스럽게 다듬어 줘:\n')
 
-    // a chat: in the 트리나 tab's list, not on Home
+    // a chat: in ☰, not on Home
     await page.getByTestId('composer-input').fill('Weekly numbers')
     await page.getByTestId('send').click()
     await expect(page).toHaveURL(/\/c\//)
     await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1, { timeout: 20_000 })
-    // Back from the chat: the new-chat box it was started from, without the chat; the chat is in the 트리나 list
     await page.getByTestId('chat-back').click()
-    await expect(page).toHaveURL(/\/new$/)
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     await expect(page.getByTestId('home-scroll')).not.toContainText('Weekly numbers')
     await expect(await chatList(page)).toContainText('Weekly numbers')
-    await expect(phoneTrinaHome(page)).toBeVisible()
-    await openHome(page)
 
     // 2. Scroll: on a short screen (a small phone, the keyboard up) what is above the box scrolls; the box stays at the
     // bottom, never under the top bar
@@ -141,14 +127,15 @@ test.describe('TC-253: Home on a phone', () => {
       owner: { id: 'olga', name: 'Olga' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false,
     } } })
     await signIn(page, BOB)
-    await openHome(page)
+    await openTab(page, 'ai')
     const card = page.getByTestId('member-welcome')
     await expect(card).toBeVisible()
     await expect(page.getByTestId('home-top').getByTestId('member-welcome')).toBeVisible()
     const c = (await card.boundingBox())!
     const greeting = (await page.getByRole('heading', { level: 1 }).boundingBox())!
     expect(c.y + c.height).toBeLessThanOrEqual(greeting.y)
-    await dockedAtBottom(page)
+    const dock = await box(page, 'home-dock')
+    expect(Math.abs(dock.y + dock.height - (await box(page, 'bottom-tabs')).y)).toBeLessThanOrEqual(1)
     // the card's rows are 44 px targets
     expect((await card.getByTestId('member-welcome-hi-button').boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await shot(page, 'home-welcome')
@@ -162,7 +149,7 @@ test.describe('TC-253: Home on a phone', () => {
     const team = await call(page, 'POST', '/api/onboarding/welcome/team')
     await call(page, 'PATCH', '/api/onboarding/welcome', { finish: true })
     expect(team).toBeTruthy()
-    await page.goto('/new')
+    await page.goto('/')
     const add = page.getByTestId('team-prepared-add')
     await expect(add).toBeVisible()
     for (const id of ['team-prepared-add-skills', 'team-prepared-add-files']) {
@@ -172,7 +159,7 @@ test.describe('TC-253: Home on a phone', () => {
     }
     // with a chat, what the team often asks takes the place: three chips in one row, More the last one
     for (const title of ['a', 'b', 'c', 'd', 'e']) await call(page, 'POST', '/api/chats', { title })
-    await page.goto('/new')
+    await page.goto('/')
     const list = page.getByTestId('often-asked')
     await expect(list).toBeVisible()
     const items = list.getByTestId('often-asked-item')

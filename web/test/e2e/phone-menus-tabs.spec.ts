@@ -294,8 +294,8 @@ for (const lang of ['ko', 'en'] as const) {
       await expect(sheet.getByRole('menuitem')).toHaveText([
         `${t['sidebar.view.status']}· ${t['sidebar.status.all']}`,
         `${t['sidebar.view.activity']}· ${t['sidebar.activity.all']}`,
-        // grouped by project by default (docs/DECISIONS.md "Trina history by project")
-        `${t['sidebar.view.group']}· ${t['sidebar.group.project']}`,
+        // the drawer: by date by default, as before the redesign (docs/DECISIONS.md "Phones: the 트리나 tab as before")
+        `${t['sidebar.view.group']}· ${t['sidebar.group.date']}`,
         `${t['sidebar.view.sort']}· ${t['sidebar.sort.updated']}`,
       ])
       await shot(page, `${lang}-drawer-filter`)
