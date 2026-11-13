@@ -14,7 +14,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatList } from './nav'
+import { chatList, showPanel } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const FOOTER_START = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.'
@@ -195,9 +195,13 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // his own answer is his to answer again; Olga's still is not
       await expect(b.getByTestId('assistant-message').last().getByTestId('regenerate')).toHaveCount(1)
       await expect(b.getByTestId('assistant-message').first().getByTestId('regenerate')).toHaveCount(0)
-      // now it is in his list, with the icon (computers: the sidebar)
+      // now it is in his list, with the icon (computers: 트리나's 최근 기록; opened from the project's page, 프로젝트 is the
+      // lit place, so he goes to 트리나 to see it)
       expect(((await (await b.request.get('/api/chats')).json()) as { items: { id: string }[] }).items.map((c) => c.id)).toContain(chatId)
-      if (!vp.phone) await expect(b.getByRole('link', { name: /공유 채팅.*출시 일정/ })).toBeVisible()
+      if (!vp.phone) {
+        await showPanel(b, 'trina')
+        await expect(b.getByTestId('trina-panel').getByRole('link', { name: /공유 채팅.*출시 일정/ })).toBeVisible()
+      }
 
       // Olga's screen reads the messages again when Bob's turn ends: his question with his name
       await expect(page.getByTestId('user-message')).toHaveCount(2)

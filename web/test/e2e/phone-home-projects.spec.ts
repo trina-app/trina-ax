@@ -103,6 +103,9 @@ test.describe('TC-253: Home on a phone', () => {
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     await expect(page.getByTestId('home-scroll')).not.toContainText('Weekly numbers')
     await expect(await chatList(page)).toContainText('Weekly numbers')
+    // the drawer closes with Back
+    await page.goBack()
+    await expect(page.getByTestId('trina-drawer')).toHaveCount(0)
 
     // 2. Scroll: on a short screen (a small phone, the keyboard up) what is above the box scrolls; the box stays at the
     // bottom, never under the top bar
@@ -113,8 +116,8 @@ test.describe('TC-253: Home on a phone', () => {
     await scrollHome(page, 'bottom')
     const atBottom = await box(page, 'home-dock')
     expect(Math.round(atBottom.y)).toBe(Math.round(atTop.y))
-    // /new's own bar (‹ 트리나), the phone's page bar
-    const bar = await box(page, 'phone-page-bar')
+    // Home's top bar (☰ and the AI's name)
+    const bar = await box(page, 'phone-topbar')
     expect(atTop.y).toBeGreaterThanOrEqual(bar.y + bar.height)
     const floor = (await tabBar(page).isVisible()) ? (await box(page, 'bottom-tabs')).y : 300
     expect(Math.abs(atTop.y + atTop.height - floor)).toBeLessThanOrEqual(1)
