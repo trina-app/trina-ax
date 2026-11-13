@@ -180,6 +180,9 @@ interface LocaleState {
 
 /** the latest language asked for: a load that ends after a later choice does not switch to its language */
 let wanted: Locale | null = null
+let localeLoadFailed: (e: unknown) => void = () => {}
+/** What a language file that cannot load does (main.tsx: reload a tab of an older build once). */
+export function onLocaleLoadFailed(fn: (e: unknown) => void) { localeLoadFailed = fn }
 /** Has anything chosen the screen's language yet (setLocale)? main.tsx's start language yields to any choice. */
 export const localeChosen = () => wanted !== null
 
@@ -193,9 +196,9 @@ export const useLocaleStore = create<LocaleState>((set) => ({
         () => { if (wanted === locale) useLocaleStore.getState().setLocale(locale) },
         (e: unknown) => {
           // not loaded: the language on screen stays; a tab of an older build (its file is gone after an update)
-          // reloads once, as for any other part of the page (lib/chunk-reload.ts; already loaded with the app, and
-          // imported here only when needed so the dictionaries' module stays free of the stores)
-          if (wanted === locale) void import('../lib/chunk-reload').then((m) => m.reloadForChunkError(e), () => {})
+          // reloads once, as for any other part of the page (main.tsx sets this to lib/chunk-reload.ts; the
+          // dictionaries' module stays free of the stores, which the server's tests and scripts import it without)
+          if (wanted === locale) localeLoadFailed(e)
         },
       )
       return

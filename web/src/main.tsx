@@ -7,7 +7,8 @@ import { followVisualViewport } from './lib/viewport'
 import { holdPageZoom } from './lib/pageZoom'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
-import { loadLocale, localeChosen, localeLoaded, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
+import { loadLocale, localeChosen, localeLoaded, onLocaleLoadFailed, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
+import { reloadForChunkError } from './lib/chunk-reload'
 import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { useAiAccess } from './store/aiAccess'
@@ -59,6 +60,8 @@ try { for (const k of ['mycel.sidebar.recents', 'mycel.sidebar.recentsAll', 'myc
 // i18n/recovery-locale.ts: shown only until the server says which language this screen has), so a returning person
 // downloads one dictionary, not English and theirs. A language that cannot load (offline, a tab of an older build) does
 // not stop the page: it draws in English, unless the session has picked another language meanwhile.
+// a language file of an older build (gone after an update) reloads the tab once, like any other part of the page
+onLocaleLoadFailed((e) => { reloadForChunkError(e) })
 void useSession.getState().load()
 const startLocale = storedLocale() ?? recentLocale() ?? useLocaleStore.getState().locale
 void loadLocale(startLocale)
