@@ -114,8 +114,8 @@ export const ChatGroups = z.object({
   projectsMore: z.number().int().nonnegative(),
   /** page 1 of my other chats: in no project I can see and in no folder of mine (the next pages: GET /api/chats?other=1) */
   other: page(Chat),
-  /** every project I can see that holds chats of my list (pinned ones too), the most recent first: how many and when the
-   * latest was active (the 프로젝트 panel's "2시간 전 · 대화 5"). A project with none is not here. Absent from older
+  /** every project I can see that holds chats I can open (mine, pinned ones too, and its shared chats; never another
+   * person's private chat), the most recent first: how many and when the latest was active (the 프로젝트 panel's "2시간 전 · 대화 5"). A project with none is not here. Absent from older
    * servers. */
   projectActivity: z.array(z.object({ projectId: Uuid7, count: z.number().int().nonnegative(), lastActivityAt: IsoTime })).optional(),
 })
@@ -128,6 +128,10 @@ export const CreateChatBody = z.object({
   title: z.string().max(200).optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  /** "Only me" (docs/DECISIONS.md "Team project chats shared by default"): a chat in a team project starts shared with
+   * its members unless this is true; then it is its creator's alone until they share it (POST /api/chats/:id/share).
+   * Ignored outside team projects (every other chat is one person's anyway). */
+  private: z.boolean().optional(),
 })
 export const UpdateChatBody = z.object({
   title: z.string().max(200).optional(),
@@ -325,9 +329,9 @@ export const UpdateProjectBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   folderPath: RelPath.optional(),
   instructions: z.string().max(50_000).optional(),
-  /** shared project chats on or off (team projects; the creator or an admin who can write the folder). 409 with reason
-   * project_personal (a personal project), safe_ops (safe operations are on) or project_in_trash. Off keeps the chats
-   * already shared. */
+  /** Kept so older apps still parse (docs/DECISIONS.md "Team project chats shared by default"): a team project always
+   * shares its new chats (each chat may still start "Only me"). true is accepted and changes nothing; false is 409
+   * share_chats_always; on a personal project 409 project_personal. */
   shareChats: z.boolean().optional(),
   /** repointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
    * project_skills_on unless true (docs/DECISIONS.md "Project skills") */
@@ -441,8 +445,8 @@ export const PutProjectParticipantsBody = z.object({ participants: z.array(Proje
 export const CHATS = {
   oftenAsked: endpoint({ method: 'GET', path: '/api/questions/often-asked', auth: 'user', owner: 'B', response: OftenAsked, summary: 'Home’s "what my group often asks": generic sentences that 3 or more people of the caller’s group (else the team) asked in a similar way, rewritten once a day; never who asked, how many or when. Empty while the team setting is off or there is too little data.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). Without q and trash, the first page starts with my pinned chats of that list (pinnedAt, the most recently pinned first) and the pages after it leave them out.' }),
-  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1); projectActivity: for every project I can see, how many chats of my list it holds and when the latest was active. Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
-  createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),
+  listChatGroups: endpoint({ method: 'GET', path: '/api/chats/groups', auth: 'user', owner: 'B', response: ChatGroups, summary: 'My Trina list in one read: my pinned chats, my chat folders, the projects I can see with my activity in the last 14 days (at most 8, the most recent first; projectsMore counts the rest I can see), each folder and project with how many of its chats I can open now, its first 3 and the ones that show a marker now, and page 1 of my other chats (next pages: GET /api/chats?other=1); projectActivity: for every project I can see, how many chats in it I can open (mine and its shared chats, never another person\'s private chat) and when the latest was active. Only what my own chat list holds and only projects I can see now; nobody else\'s folders.' }),
+  createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a team project it is a shared chat, seen and continued by the project\'s members, unless `private` is true ("Only me"); never in a personal project or while safe operations are on.' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
   getChatQueue: endpoint({ method: 'GET', path: '/api/chats/:id/queue', auth: 'user', owner: 'B', response: ChatQueueSnapshot, summary: 'Own chat queue snapshot; advisory rank and epoch/revision for reconnect recovery.' }),
@@ -478,7 +482,7 @@ export const CHATS = {
   getProjectPeople: endpoint({ method: 'GET', path: '/api/projects/:id/people', auth: 'user', owner: 'B', response: ProjectPeople, summary: 'Who is in a team project in projects/<name>, each person once with their photo, groups expanded (the groups only for whoever manages it). Its members, and the owner and admins who manage it; anyone else 404. 409 project_personal for a personal project, project_legacy for one made before outside projects/.' }),
   getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
   putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
-  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
+  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). shareChats: false is 409 share_chats_always (a team project always shares its new chats). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
   shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it; then the personal folder goes to the caller\'s trash (the files moved; a refusal leaves it).' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const

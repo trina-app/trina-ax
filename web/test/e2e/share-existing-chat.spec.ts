@@ -198,18 +198,12 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
     test('the title menu shares a private chat already in the project: the confirm, then shared; Bob sees it', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
-      const quiet = await project(page, false)
+      const quiet = await project(page)
+      // moved in: it stays private; its creator's title menu offers the share in any team project (no setting gates it:
+      // docs/DECISIONS.md "Team project chats shared by default")
       const before = await privateChat(page, 'mine-source 메모 정리해 줘', quiet)
-      // a project that does not share its chats: no such item
       await page.goto(`/c/${before}`)
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
-      await page.getByTestId('chat-menu').click()
-      await expect(page.getByTestId('chat-project-move')).toBeVisible()
-      await expect(page.getByTestId('chat-share')).toHaveCount(0)
-      await page.keyboard.press('Escape')
-      // now it does
-      expect((await patch(page, `/api/projects/${quiet}`, { shareChats: true })).ok()).toBeTruthy()
-      await page.reload()
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await page.getByTestId('chat-menu').click()
       const item = page.getByTestId('chat-share')

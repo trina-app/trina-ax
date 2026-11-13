@@ -40,6 +40,9 @@ async function makeMine(p: Page, name: string) {
 async function shareConfirmed(p: Page) {
   await p.getByTestId('project-share-confirm').click()
   await expect(p.getByRole('dialog').filter({ hasText: '이 프로젝트를 함께 쓸까요?' })).toBeVisible()
+  // new chats are shared with them from now on; it cannot go back (docs/DECISIONS.md "Team project chats shared by default")
+  await expect(p.getByRole('dialog')).toContainText('앞으로 여기서 시작하는 채팅도 함께 봐요.')
+  await expect(p.getByRole('dialog')).toContainText('다시 나만 보는 프로젝트로 되돌릴 수 없어요.')
   await p.getByTestId('dialog-confirm').click()
   await expect(p.getByRole('dialog')).toHaveCount(0)
 }

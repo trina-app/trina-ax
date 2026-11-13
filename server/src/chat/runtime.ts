@@ -158,6 +158,13 @@ export function stopTurnsOf(ctx: AppContext, userId: string): number {
   return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
 }
 
+/** Someone stopped seeing these shared chats (their project's members changed: admin/folders.ts afterAccessChange): their
+ * running or queued turn in them stops now, so nothing more of it reaches them and it reads nothing more with their
+ * access (a shared chat runs one turn at a time; another person's turn there goes on). */
+export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly string[]): number {
+  return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
+}
+
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
 export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknown) => v is T, fallback: T): T {
   try {
@@ -512,6 +519,19 @@ export class ChatRuntime {
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
     let n = 0
     for (const chatId of chats) if (this.stopChat(chatId)) n++
+    return n
+  }
+
+  /** Stop this person's running and queued turns in these chats (they lost the chats: stopTurnsIn). */
+  stopUserTurnsIn(userId: string, chatIds: readonly string[]): number {
+    const lost = new Set(chatIds)
+    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
+    let n = 0
+    // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
+    for (const chatId of chats) {
+      const runner = [...this.running.values()].find((e) => e.spec.chatId === chatId)
+      if ((!runner || runner.spec.userId === userId) && this.stopChat(chatId)) n++
+    }
     return n
   }
 

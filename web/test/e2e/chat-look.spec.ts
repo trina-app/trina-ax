@@ -18,7 +18,8 @@ async function newProject(page: Page) {
 
 /** A chat named "Launch plan" with two questions answered. */
 async function chatWithTwoAnswers(page: Page, projectId?: string) {
-  const r = await post(page, '/api/chats', { ...(projectId ? { projectId } : {}), title: 'Launch plan' })
+  // in a team project: "Only me" (a shared chat never moves; docs/DECISIONS.md "Team project chats shared by default")
+  const r = await post(page, '/api/chats', { ...(projectId ? { projectId, private: true } : {}), title: 'Launch plan' })
   const id = ((await r.json()) as { id: string }).id
   await page.goto(`/c/${id}`)
   const input = page.getByTestId('composer-input')
@@ -112,6 +113,9 @@ test("the chat's name opens its link, rename and delete, after the project it is
   // the chat is in a project: "Change project" sits between Rename and Delete
   await expect(page.getByTestId('chat-project-move')).toBeFocused()
   await expect(page.getByTestId('chat-project-move')).toHaveText(/Change project|프로젝트 바꾸기/)
+  // a chat only I see in a team project: it may be shared with the members
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('chat-share')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-delete')).toBeFocused()
   await audit(page, 'chat menu')

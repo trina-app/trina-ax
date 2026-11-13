@@ -118,10 +118,9 @@ describe('who may share it', () => {
   })
 
   test('every refusal says why, and changes nothing', async () => {
-    // not in a project; the setting off; a personal project
+    // not in a project; a personal project (a team project's setting no longer matters: docs/DECISIONS.md "Team
+    // project chats shared by default", tests/unit/b-team-project-chats-shared.test.ts)
     expect(await reason(share('alice', dbChat('alice', { project: null })))).toEqual([409, 'project_not_sharing'])
-    const quiet = await oldProject(h, 'alice', { name: 'Quiet', folderPath: 'groups/marketing', instructions: '' })
-    expect(await reason(share('alice', dbChat('alice', { project: quiet.id })))).toEqual([409, 'project_not_sharing'])
     const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', scope: 'personal', participants: [], instructions: '' } })
     expect(await reason(share('alice', dbChat('alice', { project: mine.id })))).toEqual([409, 'project_personal'])
     // a project in the trash: nobody reads it any more, the owner included (docs/DECISIONS.md "Project contents only
@@ -429,7 +428,7 @@ describe('after sharing', () => {
     // are not members of Falcon (docs/DECISIONS.md "Project contents only for members")
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('projects/falcon') }], listed: true })
     dbAnswer(id, 'alice', null, 'the plan', { read: ['projects/falcon/plan.md'] })
-    const marketing = (db().query("SELECT id FROM projects WHERE folder_path = 'groups/marketing'").get() as { id: string }).id
+    const marketing = (await oldProject(h, 'alice', { name: 'Quiet', folderPath: 'groups/marketing', instructions: '' })).id
     await h.api('alice').call(API.updateProject, { params: { id: marketing }, body: { shareChats: true } })
     const store = getChatRuntime(h.ctx).store
     const chatRow = store.chatRow.bind(store)
@@ -445,7 +444,8 @@ describe('after sharing', () => {
       expect(sharedAt(id)).toBeNull()
     } finally {
       store.chatRow = chatRow
-      await h.api('alice').call(API.updateProject, { params: { id: marketing }, body: { shareChats: false } })
+      // (as it was: an older build's project, the setting off)
+      db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(marketing)
     }
   })
 

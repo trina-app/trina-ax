@@ -23,7 +23,7 @@ import { teamDefaultLocale } from './settings'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
-import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { syncRoomsNow } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
@@ -392,7 +392,12 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   try {
     const afterIds = new Set(after.principals.map((p) => p.id))
     const who = new Set([...accessChanged, ...before.principals.filter((p) => !afterIds.has(p.id)).map((p) => p.id)])
-    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after, who)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after, who)) {
+      // their own turn there stops first: it ran with access they no longer have, and its live text would go on
+      // reaching them (QA TC-961)
+      stopTurnsIn(ctx, userId, chats)
+      for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+    }
   } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })

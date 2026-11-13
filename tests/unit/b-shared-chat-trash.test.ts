@@ -84,8 +84,7 @@ describe('deleting a project', () => {
     const trashedAt = row(trashed.id)!.deleted_at
     expect(await trashIds('dana')).toContain(trashed.id)
     // a private chat of dana's in the project
-    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
-    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
+    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id, private: true } })
     const from = mark()
 
     // the first delete (docs/DECISIONS.md "Project contents only for members"): the project and its folder go to the

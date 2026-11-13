@@ -1,5 +1,6 @@
-// Shared project chats (docs/DECISIONS.md "Shared project chats"). A project editor turns on "share its chats"
-// (projects.share_chats); every chat made in that project from then on (chats.shared_at, only at creation) is seen by
+// Shared project chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"). Every team
+// project shares its chats (projects.share_chats, set for each since 2026-11-13; the switch is gone); every chat made in
+// it (chats.shared_at, only at creation) unless started "Only me" (POST /api/chats `private`) is seen by
 // the people who can see the project (canSeeProject: who can read its folder; for a project in projects/ its members
 // only, the owner and admins too only as members; while its folder is in the trash, nobody) and may be continued by them. Nothing about who sees a chat is stored:
 // the audience is the project's readers now, so a rule change applies at once (losing access hides the chat, from its
@@ -38,10 +39,12 @@ export function isSharedChat(db: Database, chatId: string): boolean {
 /** May this project share its chats at all: a team project (never a personal one). */
 export const projectCanShare = (p: Pick<ProjectRow, 'folder_path'>): boolean => !isPersonalFolder(p.folder_path)
 
-/** Does a chat made in this project now become a shared chat: its setting is on, it is a team project in place, and
- * safe operations are off (a chat made while 1A is on would be confidential, and those are never shared). */
-export const sharesNewChats = (p: Pick<ProjectRow, 'folder_path' | 'share_chats' | 'trashed_with'>): boolean =>
-  p.share_chats === 1 && projectCanShare(p) && p.trashed_with === null && !safeOpsEnabled()
+/** Does a chat made in this project now become a shared chat (unless it starts "Only me"): it is a team project in
+ * place, and safe operations are off (a chat made while 1A is on would be confidential, and those are never shared).
+ * Not the column projects.share_chats: every team project shares its new chats (docs/DECISIONS.md "Team project chats
+ * shared by default"); the column is kept in step for a rollback build (chat/team-shares.ts markTeamShares). */
+export const sharesNewChats = (p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>): boolean =>
+  projectCanShare(p) && p.trashed_with === null && !safeOpsEnabled()
 
 /** The active accounts as principals. */
 export function activePrincipals(db: Database): Principal[] {
@@ -362,7 +365,8 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
   const n = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(p.id) as { n: number }).n
   const a = aud ?? new Audiences(db, files)
-  const shareChats = projectCanShare(p) && p.share_chats === 1
+  // every team project (docs/DECISIONS.md "Team project chats shared by default")
+  const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
   return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }

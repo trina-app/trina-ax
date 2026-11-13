@@ -98,6 +98,9 @@ export interface SendInput {
   onConflict?: (e: ApiError) => void
   /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
   sideRoomId?: string
+  /** a new chat in a team project starts "Only me" (CreateChatBody.private; docs/DECISIONS.md "Team project chats
+   * shared by default") */
+  private?: boolean
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
@@ -556,7 +559,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}) } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}), ...(o.private ? { private: true } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id

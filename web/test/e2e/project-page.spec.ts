@@ -37,9 +37,14 @@ test('the box on a project page starts a chat in the project, which is then list
   await page.getByTestId('project-instructions-toggle').click()
   await expect(page.getByText('Answer in short bullet points.')).toHaveCount(1)
   await page.getByTestId('project-instructions-toggle').click()
-  await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.')
+  await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 채팅이 없어요. 여기서 물어보면 멤버 모두가 봐요.')
   // a new project: my chats outside projects can come in from here
   await expect(page.getByTestId('project-import')).toBeVisible()
+  // in a team project, what comes in stays mine until I share it (QA TC-960)
+  await page.getByTestId('project-import').click()
+  await expect(page.getByTestId('project-import-private')).toHaveText("가져온 채팅은 나만 봐요. 멤버에게 보여 주려면 '프로젝트 멤버와 공유'를 쓰세요.")
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   // the draft is the project's: the same one as "/?project=<id>"
   await page.getByTestId('composer-input').fill('half a question')
   await page.goto(`/?project=${id}`)
@@ -263,6 +268,8 @@ test('a project in the trash: its note with Restore and Delete for good, no name
   // a chat that is not there: the owner's extra line (the same for every missing chat)
   await page.goto('/c/01900000-0000-7000-8000-00000000dead')
   await expect(page.getByTestId('chat-not-found')).toBeVisible()
+  // one text for every chat that cannot be opened (QA TC-948), then the owner's and admins' line
+  await expect(page.getByTestId('chat-not-found-why')).toBeVisible()
   await expect(page.getByTestId('chat-not-found-manage')).toHaveText('내가 멤버가 아닌 프로젝트의 채팅이면 프로젝트에서 열고 나를 멤버로 추가할 수 있어요.')
   // "프로젝트" is the way there (a phone has no back button on this page)
   await page.getByTestId('chat-not-found-projects').click()

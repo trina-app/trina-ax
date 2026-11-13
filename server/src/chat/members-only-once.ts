@@ -19,6 +19,7 @@ import type { AppContext } from '../context'
 import { projectZoneFolders } from '../policy/zone'
 import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { audit } from '../admin/audit'
+import { markTeamShares } from './team-shares'
 import { getSetting, setSetting } from '../admin/settings'
 import { inZone } from '../policy/zone'
 import type { ScheduleRow } from './schedules'
@@ -99,11 +100,14 @@ export function adoptLeftoverFolders(ctx: AppContext, actor: string): number {
     if (used.has(fold(rel)) || hiddenEntry(name, 1) || badSegment(name)) continue
     try { if (!fs.lstatSync(path.join(root, top, name)).isDirectory()) continue } catch { continue }
     const now = new Date().toISOString()
+    const pid = uuidv7()
     db.transaction(() => {
       db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,0)')
-        .run(uuidv7(), name.normalize('NFC').slice(0, 100), rel, '', null, now, null, null)
+        .run(pid, name.normalize('NFC').slice(0, 100), rel, '', null, now, null, null)
       if (!db.query('SELECT 1 FROM folders WHERE path = ?').get(rel)) db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(uuidv7(), rel, now)
     })()
+    // a team project: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared by default")
+    markTeamShares(db, null, 'adopted', [pid])
     used.add(fold(rel))
     adopted++
     audit(db, { actor, action: 'project.adopted', target: rel, detail: { folderPath: rel } })

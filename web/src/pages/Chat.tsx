@@ -51,6 +51,7 @@ import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
+import { askPrivately, lastOwnQuestion } from '../components/chat/privateAsk'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
@@ -363,6 +364,11 @@ function ChatView({ chatId }: { chatId: string }) {
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState screen title={t('chat.notFound')}>
+          {/* one text for every chat that cannot be opened (a chat only its creator sees, one deleted, one of a project
+              I am not in): the server answers each with the same 404, so the page tells nothing about this one; the
+              likely case, a teammate's link to a chat still private to them, says what to ask for (QA TC-919, TC-948;
+              docs/DECISIONS.md "Team project chats shared by default") */}
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}
@@ -410,6 +416,8 @@ function ChatView({ chatId }: { chatId: string }) {
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
+              // a shared chat: the same question again in a chat only I see, in its project (my last question here)
+              onPrivately={shared && chat.projectId ? () => askPrivately(navigate, chat.projectId!, lastOwnQuestion(chat.id, me?.user.id)) : undefined}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">

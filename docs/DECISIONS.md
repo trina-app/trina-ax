@@ -15064,6 +15064,98 @@ entries. Their tool is removed.
   - Codex 8.5 s, 59,328 tokens, 30/30. The cross-language miss of wave 1 (en-08) is found in one call.
   - Tokens and tool calls are unchanged from wave 1.
 
+## Team project chats shared by default — 팀 프로젝트 채팅은 기본 공유, 채팅마다 "나만 보기" (feat/team-project-chats-shared, 2026-11-13, product owner)
+
+넣을 곳: Team AX core (`server/src/routes/chats.ts`, `chat/shared.ts`, `chat/share-chat.ts`, `chat/chat-groups.ts`,
+`chat/prompt.ts`, `chat/runtime.ts`, `admin/folders.ts`, `chat/members-only-once.ts`, migration 292,
+`shared/src/api/chats.ts`, the project page, the new-chat box, the chat menus and the not-found page). 이유: chats,
+projects and permissions are core. Plan: `docs/AGENTS/plan/20261113-1131-team-project-chats-shared.md`. **Supersedes**
+the 2026-11-07 default of "Shared project chats" (a project setting, off by default, that an editor turned on) and its
+D2 ("no 나만 보기 per chat").
+
+The owner's report: a member opened a teammate's link to a chat in their team project and got "not found", with a line
+telling admins to add themselves; the chat had been brought in and was still private. The owner decided (final, not to
+be asked again):
+
+- **A chat started in a team project is shared with all its members** (a team project: its folder outside `users/`).
+  The project switch "Share this project's chats with its members" is gone from the app and its strings from the five
+  languages. `projects.share_chats` stays the stored truth, so a rollback build behaves the same: migration 292
+  (data only, `min_compatible_reader: 1`) sets it for every team project and writes one audit row
+  `project.share_chats` per project it changes (actor: the system, `{on: true, reason: 'default'}`); `createProject`
+  (team), `shareProject` (personal → team) and a leftover folder adopted as a project set it too. `PATCH
+  /api/projects/:id {shareChats: false}` is 409 `share_chats_always` (the field stays so older apps parse; `true` is
+  accepted and changes nothing).
+- **"Only me" per new chat.** Next to a team project's box (the project page, Home's `?project=`), before the first
+  message: `POST /api/chats {private: true}` makes the chat its creator's alone (`shared = sharesNewChats(p) &&
+  !private`). The whole chat keeps that; the next new chat starts shared again (the switch does not stick). A private
+  chat keeps every tool of a chat of one's own (memories, personal connections, browser, schedules); a shared chat keeps
+  `SHARED_TOOLS`. A private chat becomes shared only through `POST /api/chats/:id/share` (its check and confirm, "An
+  existing chat shared"), which no longer asks for the project setting, only a team project; a shared chat never goes
+  back. Other members do not learn a private chat exists: lists, counts and search use the same rule as `chatFor`
+  'view', and its 404 body is the one of a missing chat. A chat whose attachments were added before the first message
+  was already made for them: the switch is fixed then (it is disabled).
+- **Existing private chats in team projects are never shared by the update.** Chats brought in ("Bring in chats") or
+  moved in ("Move to project") arrive private; the move dialog shows its "Share with project members" switch at once
+  (off) for every team project, and the Bring in dialog says "Chats you bring in stay visible to you only. To show them
+  to members, use Share with project members." A team project page tells a creator who has such chats "🔒 N chats only
+  you see · Choose chats to share" (closable; per browser), which lists them, each with the existing share (bulk share
+  is phase 2).
+- **Personal projects do not change** ("Only you"). **Safe operations (1A)**: new chats are private and confidential,
+  and the box says "Because of your team's security settings, new chats are only yours for now." with no switch.
+- **Less confusion (phase 1a).** The Projects panel counts every chat of a project the viewer can open (theirs and every
+  shared one while they see the project: `project_id = ? AND deleted_at IS NULL AND (user_id = me OR shared_at IS NOT
+  NULL)`), never another person's private chat; it said "No chats yet" to a member who never wrote there. One
+  not-found text for every chat that cannot be opened: "This chat can't be opened. It may be a chat only its creator can
+  see, it may have been deleted, or it may belong to a project you're not a member of. Ask the person who sent the link
+  to share it with the project's members." (the owner and admins also keep the Projects line; the server's 404 is
+  unchanged). Copy link of a private chat in a team project: "Only you can open this chat. People you send the link to
+  can't." with **Share with members**; the row menus (project page, the Trina list) have "Share with project members"
+  for such a chat, and its row shows a lock (only its creator ever lists it).
+- **A shared chat asked for a personal tool.** The AI says plainly that it is not available there because everyone
+  who sees the chat would see what it brings in, and points to **Continue in a chat only you see** in the chat's title
+  menu, which opens the project page with a new "Only me" chat's box holding the person's last question (nothing is
+  sent until they send it). The button lives in the menu, not in each answer (the AI's words are not matched).
+  What a shared chat never had stays so now that most team project chats are shared: the AI's change of a project's
+  members (`change_project_members`, "a chat of their own") and the other own-chat tools work in an "Only me" chat of
+  the project (or outside it), not in a shared one.
+- **Wording** (English first): "New chats are seen and continued by the project's {n} members." + "Only me"; on: "Only
+  you see this chat · your apps and memories work here"; an empty team project: "No chats yet. Ask here and every member
+  sees it."; personal → team: "{names} can see and edit this project's files and instructions. Chats started here from
+  now on are shared with them too. Your {N} chats so far stay yours (you can share them later). This can't go back to
+  only you." (the chat sentence only when there are some).
+- **Found on the way (coordinator's check):** a member removed from a project while their turn ran in one of its shared
+  chats kept the turn running with access they no longer had, and its live text kept reaching them. `afterAccessChange`
+  now stops their running or queued turn in every shared chat they stopped seeing (`stopTurnsIn`; another person's
+  turn there goes on), before telling their windows the chat is gone (QA TC-961).
+- **Independent security review (2026-11-13).** Fixed: (M1) a box's chat made shared for its attachments was kept for
+  the box, so "Continue in a chat only you see" opened the box with Only me shown and Send went into that shared chat:
+  the switch now shows the draft chat's own state (`lib/teamAttach.ts draftChatShared`, fixed while it exists), a
+  private ask drops a shared draft and its chips before the box shows them, and Send checks again; a failed draft frees
+  the switch. (S1) A team project could end up with the column off and no way back (an admin repoint of a detached
+  personal project, its folder moved out of `users/` in Files, a rollback build's switch): what decides is now that it
+  is a team project (`sharesNewChats`, `projectShare` on `projectCanShare`), and `chat/team-shares.ts markTeamShares`
+  writes the column, with one `project.share_chats` audit row each, on create, share, adoption, repoint, a folder move
+  or restore, and at every start. (S2) The shared chat's instructions list everything `SHARED_TOOLS` leaves out and
+  always name "Continue in a chat only you see". (S3) A project's box (Home's `?project=`) sends nothing until the
+  project is known. Also: the empty team project's "every member sees it" is not shown while safe operations are on.
+- **A room's side chat never joins a project** (an audit by another session, QA TC-1010): a side chat (✦ beside a room)
+  could be moved into a team project and then shared, so a member outside the room read the room's words. `PATCH
+  /api/chats/:id {projectId}` on a side chat is now 400 `side_chat_no_project` with a plain sentence (as `POST
+  /api/chats` already refused one), `POST /api/chats/:id/share` refuses one (409 `side_chat`), and the app offers no move
+  or share for it. Migration 293 (data only) takes back the ones older builds let in: every side chat with a project or
+  `shared_at` loses both, with one audit row `chat.side_chat_unshared` each (the system's; `{wasShared, hadProject}`, no
+  names or content). Test: `tests/unit/b-side-chat-no-project.test.ts` (also QA TC-1011, the count).
+- **Re-review (2026-11-13), small fixes.** A chat being made for a box's attachments that "Continue in a chat only you
+  see" dropped meanwhile is not written back as the box's draft (`teamAttach.isDraftChat`); the title menu and copy link
+  pass a side chat's room, so neither offers a share that would be refused; a folder move audits the projects it moved
+  by id with the mover as actor.
+- Tests: `tests/unit/b-team-project-chats-shared.test.ts` (default, lock, 404 body, counts, search, share only by its
+  creator, the switch, personal, safe operations, the migration, brought-in chats, the removed member's turn),
+  `b-shared-chats`, `b-share-existing-chat`, `b-who-sees`, `permission-matrix` (updated for the setting),
+  `web/test/unit/team-project-chats.test.tsx`, `who-sees`, `project-form`, e2e `shared-project-chats`,
+  `chat-copy-link`, `project-page`, `project-participants`. QA TC-946..961 (and TC-919/920).
+- Version impact: **minor** (a default changes for team projects, an optional API field, a data-only migration).
+
 ## Shared project chats — 공유 프로젝트 채팅, phase 1 (feat/shared-project-chats, 2026-11-07, product owner)
 
 The owner asked for project chats that the project's people can see and continue ("ㄱㄱ 좋다 가자 기획하고 ㄱ"). Plan:
@@ -15082,7 +15174,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   folder is in the trash, owner and admins only). Losing access hides the chat, from its creator too; gaining it shows
   the history (the card said "project people"), but for answers built on what the newcomer may not read (decided
   since: "People who see a shared chat later" below). Owner decisions: turning the setting off keeps the chats already
-  shared (D1); no "나만 보기" per chat (D2); attachments are team files only, a computer upload is refused with "공유
+  shared (D1); no "나만 보기" per chat (D2) (the setting and D2 replaced on 2026-11-13: every team project shares new
+  chats, each may start "Only me", "Team project chats shared by default" above); attachments are team files only, a computer upload is refused with "공유
   채팅에는 팀 파일만 붙일 수 있어요…" (D3; replaced on 2026-11-10: a file from the computer goes into the project folder in
   one step, "A file from the computer in a shared chat" below).
 - **Every chat id goes through `chatFor`** (`ChatStore.ownChat` stays only for the server's own flows on a person's

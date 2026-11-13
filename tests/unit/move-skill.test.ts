@@ -239,7 +239,9 @@ describe('in the app: the Skills page and the AI', () => {
 
   type Card = { question: string; options?: { value: string }[]; details?: { label: string; text: string; collapsedAt?: number; fields?: { name: string; value: string }[] }[]; note?: string }
   async function turn(user: string, content: string, o: { project?: boolean | string; answer?: string | null; meanwhile?: () => void } = {}) {
-    const chat = await h.api(user).call(API.createChat, { body: o.project === false ? {} : { projectId: typeof o.project === 'string' ? o.project : FALCON } })
+    // the person's own chat ("Only me": a team project's new chats are shared, and moving skills is not a shared chat's
+    // tool; docs/DECISIONS.md "Team project chats shared by default")
+    const chat = await h.api(user).call(API.createChat, { body: o.project === false ? {} : { projectId: typeof o.project === 'string' ? o.project : FALCON, private: true } })
     const r = await h.api(user).call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
     let card = null as Card | null
     if (o.answer !== undefined) {
@@ -405,7 +407,7 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('after a room read the move card is the only card, the room line first (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")', async () => {
-    const chat = await h.api('carol').call(API.createChat, { body: { projectId: FALCON } })
+    const chat = await h.api('carol').call(API.createChat, { body: { projectId: FALCON, private: true } })
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat.id)
     const r = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content: moveCall({ skill: 'ops', to: 'project' }), clientMessageId: cm(), attachmentIds: [] } })
     const c = await socks.carol!.next('turn.request', (f) => f.data.turnId === r.turnId)

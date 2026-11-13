@@ -10,10 +10,11 @@
 // it was just moved, and private). Shared: a toast, and the chat everywhere gets its shared mark (store/chats.ts).
 import { AlertCircle, Info } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 import type { Chat, Project, ShareChatResult } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
-import { seenOnceShared, sharesNewChats } from '../../lib/sharedChat'
+import { privateInTeamProject, seenOnceShared } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { toast } from '../../store/ui'
 import { Button, Modal } from '../ui'
@@ -21,11 +22,12 @@ import { placeName } from './ShareToRoom'
 
 type Ask = Extract<ShareChatResult, { status: 'confirm' }> & { seq: number }
 
-/** May this person offer to share this chat: a chat of one person (so theirs), not confidential, in a project whose new
- * chats are shared (a team project, its setting on, its folder not in the trash, safe operations off). The server
- * checks all of it again, and what the screens cannot know (a scheduled run's chat, a busy one). */
-export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt'>>, project: Pick<Project, 'shareChats' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
-  !chat.shared && !chat.confidential && !chat.deletedAt && sharesNewChats(project, safeOps)
+/** May this person offer to share this chat: a chat of one person (so theirs), not confidential, in a team project (its
+ * folder not in the trash, safe operations off; not gated by any project setting: docs/DECISIONS.md "Team project chats
+ * shared by default"). The server checks all of it again, and what the screens cannot know (a scheduled run's chat, a
+ * busy one). */
+export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt' | 'sideRoomId'>>, project: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
+  !chat.confidential && !chat.sideRoomId && privateInTeamProject(chat, project) && !safeOps
 
 /** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `ask` (the title menu):
  * the confirm comes first even when nothing applies (its item opens a question, and sharing cannot be undone); the move
@@ -111,4 +113,16 @@ export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { ch
       </div>
     </Modal>
   )
+}
+
+/** "Share with members" from places that hold no dialog of their own (the copy-link toast, a project page's notice):
+ * one share flow for the app, opened by the chat's id (ShareChatHost, App.tsx). */
+const useShareChatHost = create<{ chatId: string | null; seq: number }>(() => ({ chatId: null, seq: 0 }))
+export const openShareChat = (chatId: string) => useShareChatHost.setState((s) => ({ chatId, seq: s.seq + 1 }))
+
+/** The app's one share flow for openShareChat (asks first, as the title menu's item: sharing cannot be undone). */
+export function ShareChatHost() {
+  const { chatId, seq } = useShareChatHost()
+  if (!chatId) return null
+  return <ShareChatFlow key={seq} chatId={chatId} ask onClose={() => useShareChatHost.setState({ chatId: null })} />
 }

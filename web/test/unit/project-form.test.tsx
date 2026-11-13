@@ -174,7 +174,7 @@ describe('a new project', () => {
 })
 
 describe('editing a project', () => {
-  test('one PATCH saves the name, the instructions and sharing; the members are not in this dialog', async () => {
+  test('one PATCH saves the name and the instructions; the members and a sharing switch are not in this dialog', async () => {
     signedIn('member')
     routes = { [`PATCH /api/projects/${P1}`]: () => json(200, project('projects/acme', { name: 'Acme 2027' })) }
     let saved: Project | null = null
@@ -182,7 +182,8 @@ describe('editing a project', () => {
     await m.settle(50)
     expect(m.find('project-participants')).toBeNull()
     expect(m.find('project-access-summary')).toBeNull()
-    expect(m.find('project-share-chats')).not.toBeNull()
+    // a team project always shares its new chats (docs/DECISIONS.md "Team project chats shared by default")
+    expect(m.find('project-share-chats')).toBeNull()
     await m.type('project-name', 'Acme 2027')
     await m.click('project-save')
     await m.until(() => saved, 'the save', 2000)
@@ -219,23 +220,5 @@ describe('editing a project', () => {
     // from the version they were shown now
     expect(calls(`PATCH /api/projects/${P1}`)[1]!.body).toEqual({ name: 'Acme mine', instructions: 'v1', base: { name: 'Acme launch', instructions: 'Bob wrote this' } })
     await m.unmount()
-  })
-
-  test('the sharing switch: a project in projects/ says its members, for everyone; one made before outside projects/ keeps the owner and admins apart', async () => {
-    signedIn('admin')
-    const m = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 3, audienceSplit: { direct: 3, byRole: 0 } })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await m.settle(20)
-    expect(m.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOff', { n: 3 }))
-    expect(m.get('project-share-chats-hint').textContent).not.toContain('admins')
-    await m.unmount()
-    const legacy = await mount(<MemoryRouter><ProjectForm project={project('shared/acme', { audience: 5, audienceSplit: { direct: 3, byRole: 2 } })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await legacy.settle(20)
-    expect(legacy.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOffApart', { n: 3, m: 2 }))
-    await legacy.unmount()
-    signedIn('member')
-    const b = await mount(<MemoryRouter><ProjectForm project={project('projects/acme', { audience: 5 })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    await b.settle(20)
-    expect(b.get('project-share-chats-hint').textContent).toBe(en('projects.shareChatsOff', { n: 5 }))
-    await b.unmount()
   })
 })

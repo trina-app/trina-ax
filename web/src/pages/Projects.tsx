@@ -37,7 +37,7 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
+import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
@@ -67,7 +67,9 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { ListRow } from '../components/list/List'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
+import { forgetPrivateAsk, usePrivateAsk } from '../components/chat/privateAsk'
+import { mayShareChat, openShareChat } from '../components/chat/ShareChat'
+import { ChatFaces, PrivateIcon, SharedIcon } from '../components/chat/SharedChat'
 import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -79,7 +81,7 @@ import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { isProjectsFolder } from '../lib/projectFolders'
-import { refusalKey } from '../lib/sharedChat'
+import { isTeamProject, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
@@ -528,7 +530,7 @@ function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
  * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
  * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
  * a phone. */
-export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
+export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
@@ -546,6 +548,8 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
         <>
           {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
           {c.shared && <SharedIcon className="text-faint" />}
+          {/* my chat that only I see in a team project ("Only me", or from before): only its creator lists it */}
+          {privateInTeamProject(c, project) && <PrivateIcon />}
         </>,
       )}
       end={
@@ -663,6 +667,10 @@ function ProjectPage() {
   // type in (with a mouse; a phone's keyboard does not jump up)
   const location = useLocation()
   const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
+  // "Continue in a chat only you see" from a shared chat (components/chat/privateAsk.ts): the box starts "Only me" with
+  // the question in it (each ask starts the box again)
+  const privateAsk = usePrivateAsk(projectId)
+  useEffect(() => () => forgetPrivateAsk(projectId), [projectId])
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const mine = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
@@ -998,7 +1006,14 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t(phone ? 'projects.askHereShort' : 'projects.askHere', { name: aiName(t) })} autoFocus={newChat} />
+              <NewChatComposer
+                projectId={p.id}
+                project={p}
+                onMembers={() => setMembers(true)}
+                placeholder={t(phone ? 'projects.askHereShort' : 'projects.askHere', { name: aiName(t) })}
+                autoFocus={newChat || !!privateAsk}
+                {...(privateAsk ? { initialText: privateAsk.text, startPrivate: true, resetKey: privateAsk.n } : {})}
+              />
             )}
           </div>
           {(!outside || hasMembers) && (
@@ -1139,11 +1154,14 @@ function ProjectPage() {
               )}
             </div>
             {!chats && <Skeleton lines={3} />}
-            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
+            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t(isTeamProject(p) && !outside && !me?.server?.allChatsConfidential ? 'projects.page.chatsEmptyTeam' : 'projects.page.chatsEmpty')}</p>}
+            {/* a team project where I have chats only I see (from before, brought in, "Only me"): once, a quiet line between
+                the heading and the list that says how many and opens the list to share them one at a time */}
+            {chats && !outside && !p.inTrash && <PrivateChatsNotice project={p} chats={chats} />}
             <ul className="divide-y divide-line">
               {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
-                <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+                <ProjectChatRow chat={c} project={p} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
               ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>
@@ -1153,7 +1171,7 @@ function ProjectPage() {
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
       {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
-      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+      {sharing && <ShareProjectDialog project={p} chats={chats?.length ?? 0} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
     </div>
   )
 }
@@ -1239,6 +1257,9 @@ function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; on
       }
     >
       <p className="mb-2 text-xs text-faint">{t('projects.page.importNote', { ai: aiName(t) })}</p>
+      {/* a team project: what comes in stays mine until I share it (docs/DECISIONS.md "Team project chats shared by
+          default"; QA TC-960) */}
+      {isTeamProject(project) && <p className="mb-2 text-xs break-keep text-faint" data-testid="project-import-private">{t('projects.page.importPrivate')}</p>}
       {!loaded && <Skeleton lines={3} />}
       {loaded && !choices.length && <p className="py-2 text-sm text-faint">{t('projects.page.importNone')}</p>}
       <ul className="max-h-80 space-y-0.5 overflow-y-auto" data-testid="project-import-list">
@@ -1424,7 +1445,7 @@ export function MembersRow({ project: p, sideAction, onManage }: { project: Proj
 
 /** "팀 프로젝트로 공유": a personal project becomes a team project in a new projects/<name>, seen by the people chosen
  * here (and me, the owner and admins); its files are copied there and my personal folder stays. */
-function ShareProjectDialog({ project, onClose, onShared }: { project: Project; onClose: () => void; onShared: (p: Project) => void }) {
+function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Project; chats: number; onClose: () => void; onShared: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -1434,13 +1455,14 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // before sharing, plainly: who may see and edit it, the chats stay mine, and it is one way (docs/DECISIONS.md "Making
-  // a project", review M5)
+  // before sharing, plainly: who may see and edit it, that chats started from now on are shared with them, that my chats
+  // so far stay mine (how many), and that it is one way (docs/DECISIONS.md "Making a project", review M5; "Team project
+  // chats shared by default")
   const confirmFirst = async () => {
     const one = participants.length === 1 && participants[0]!.subjectType === 'user' ? options.find((o) => participantKey(o) === participantKey(participants[0]!))?.name : undefined
     // the people it adds (a group is its people): the server's count without me; before it arrives, the choices
     const others = count ? Math.max(1, count.n - 1) : participants.length
-    const body = one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others })
+    const body = [one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others }), ...(chats ? [t('projects.shareConfirmChats', { n: chats })] : []), t('projects.shareConfirmFinal')].join(' ')
     if (await confirmDialog({ title: t('projects.shareConfirmTitle'), body, confirm: t('projects.shareConfirm') })) await share()
   }
   const share = async (skillsOk = false) => {
@@ -1483,5 +1505,65 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>
+  )
+}
+
+/** Per person and project, whether the private chats line was closed (this browser only: a convenience). */
+const noticeKey = (me: string, project: string) => `mycel.privateChatsNotice.${me}.${project}`
+const noticeClosed = (k: string) => { try { return localStorage.getItem(k) === '1' } catch { return false } }
+
+/**
+ * A team project's page, for whoever has chats there only they see (from before the update, brought in, or "Only me"):
+ * one quiet line, "🔒 N chats only you see · Choose chats to share", until closed. The choice lists those chats, each with
+ * the existing share (its check and confirm: components/chat/ShareChat.tsx); no bulk share in this phase
+ * (docs/DECISIONS.md "Team project chats shared by default"; QA TC-957).
+ */
+function PrivateChatsNotice({ project, chats }: { project: Project; chats: Chat[] }) {
+  const t = useT()
+  const me = useMe()
+  const safeOps = !!me?.server?.allChatsConfidential
+  const mine = chats.filter((c) => mayShareChat(c, project, safeOps))
+  const key = noticeKey(me?.user.id ?? '', project.id)
+  const [closed, setClosed] = useState(() => noticeClosed(key))
+  const [open, setOpen] = useState(false)
+  if (!mine.length || !isTeamProject(project)) return null
+  return (
+    <>
+      {!closed && (
+        <p className="mb-1 flex items-center gap-1.5 py-1 text-sm text-faint" data-testid="private-chats-notice">
+          <Lock size={13} className="shrink-0" aria-hidden />
+          <span className="min-w-0 break-keep">
+            {t('projects.privateChats', { n: mine.length })}
+            {' · '}
+            <button type="button" className="touch-hit text-accent-text hover:underline" onClick={() => setOpen(true)} data-testid="private-chats-choose">{t('projects.privateChatsChoose')}</button>
+          </span>
+          <Tooltip label={t('projects.privateChatsDismiss')}>
+            <button
+              type="button"
+              className="touch-hit ml-auto shrink-0 rounded p-1 hover:bg-hover hover:text-ink"
+              aria-label={t('projects.privateChatsDismiss')}
+              onClick={() => { try { localStorage.setItem(key, '1') } catch { /* this browser keeps nothing: it shows again */ } setClosed(true) }}
+              data-testid="private-chats-dismiss"
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        </p>
+      )}
+      {open && (
+        <Modal open onClose={() => setOpen(false)} title={t('projects.privateChatsTitle')} width={480} footer={<Button variant="ghost" onClick={() => setOpen(false)}>{t('common.close')}</Button>}>
+          <p className="mb-2 text-xs break-keep text-faint">{t('projects.privateChatsHint')}</p>
+          <ul className="max-h-80 divide-y divide-line overflow-y-auto" data-testid="private-chats-list">
+            {mine.map((c) => (
+              <li key={c.id} className="flex items-center gap-2 py-2 text-sm max-md:min-h-11">
+                <Lock size={12} className="shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+                <Button size="sm" onClick={() => { setOpen(false); openShareChat(c.id) }} data-testid="private-chats-share">{t('projects.privateChatsShare')}</Button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+    </>
   )
 }

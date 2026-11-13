@@ -16,16 +16,27 @@ export interface SharedRights {
   canMove: boolean
 }
 
-export function sharedRights(chat: Pick<Chat, 'shared'> | null | undefined, me: string): SharedRights {
+export function sharedRights(chat: Pick<Chat, 'shared'> & Partial<Pick<Chat, 'sideRoomId'>> | null | undefined, me: string): SharedRights {
   const s = chat?.shared
-  if (!s) return { shared: false, creator: true, canDelete: true, canMove: true }
+  // a room's side chat never goes into a project (the server refuses it: side_chat_no_project, QA TC-1010)
+  if (!s) return { shared: false, creator: true, canDelete: true, canMove: !chat?.sideRoomId }
   return { shared: true, creator: s.by.id === me, canDelete: s.canDelete, canMove: false }
 }
 
-/** A chat started now in this project is a shared chat (server/src/chat/shared.ts sharesNewChats): the setting is on (the
- * server never says so for a personal project), its folder is not in the trash, and safe operations are off. */
+/** A chat started now in this project is a shared chat unless it starts "Only me" (server/src/chat/shared.ts
+ * sharesNewChats; docs/DECISIONS.md "Team project chats shared by default"): a team project (every one shares its
+ * chats; the server never says so for a personal project), its folder not in the trash, and safe operations off. */
 export const sharesNewChats = (p: Pick<Project, 'shareChats' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
   !!p?.shareChats && !p.inTrash && !safeOps
+
+/** A team project: one with members, its folder outside `users/` (a personal project is its person's alone). */
+export const isTeamProject = (p: Pick<Project, 'folderPath'> | null | undefined): boolean =>
+  !!p && p.folderPath !== 'users' && !p.folderPath.startsWith('users/')
+
+/** A chat of one person in a team project (in place, safe operations off): only its creator sees it; they may share it
+ * with the project's members (components/chat/ShareChat.tsx mayShareChat), and its rows show a lock. */
+export const privateInTeamProject = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>>, p: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined): boolean =>
+  !chat.shared && !chat.deletedAt && isTeamProject(p) && !p!.inTrash
 
 /**
  * Who sees a chat, as the line under its box says it (docs/DECISIONS.md "Who sees it, always"). `shared`: the shared
@@ -55,7 +66,6 @@ export const seenOnceShared = (others: number): number => others + 1
  * keep one wording where the screen already says it). */
 const REASONS: Record<string, MessageKey> = {
   shared_chat_move: 'chat.sharedNoMove',
-  project_personal: 'projects.shareChatsPersonal',
 }
 
 /** The reason a request about a shared chat or a project's setting was refused (409 / 403 `params.reason`), or null. */
@@ -67,6 +77,7 @@ export const refusalReason = (e: unknown): string | null =>
 export function refusalKey(e: unknown, where: 'chat' | 'project'): MessageKey | null {
   const reason = refusalReason(e)
   if (!reason) return null
-  if (reason === 'safe_ops') return where === 'chat' ? 'chat.sharedSafeOps' : 'projects.shareChatsSafeOps'
+  // (a project's own refusals: the server's words, since the switch is gone)
+  if (reason === 'safe_ops') return where === 'chat' ? 'chat.sharedSafeOps' : null
   return REASONS[reason] ?? null
 }

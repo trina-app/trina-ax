@@ -65,6 +65,9 @@ test('a project chat asked to move the files and the skills: the move card, then
   await signIn(page)
   const { project } = await seed(page)
   await page.goto(`/projects/${project}`)
+  // a chat of my own (moving files and skills is not a shared chat's tool: docs/DECISIONS.md "Team project chats
+  // shared by default")
+  await page.getByTestId('only-me-toggle').click()
   await page.getByTestId('composer-input').fill('리드 부서의 견적 파일과 스킬을 이 프로젝트로 옮겨 줘 moveskill quote-check')
   await page.getByTestId('send').click()
   const card = page.getByTestId('ask-card').last()
@@ -122,6 +125,8 @@ test('the save card: a project skill under a name the team has is offered anothe
   await signIn(page)
   const { project } = await seed(page)
   await page.goto(`/projects/${project}`)
+  // a chat of my own: saving a skill is not a shared chat's tool
+  await page.getByTestId('only-me-toggle').click()
   await page.getByTestId('composer-input').fill('projectskillsave quote')
   await page.getByTestId('send').click()
   const card = page.getByTestId('ask-card').last()
