@@ -16,6 +16,7 @@ import { hasPanel, inProjects } from '../lib/folder-sharing'
 import { useFolderName, useFolderWords } from '../lib/folderLabels'
 import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
+import { audienceRead, keptAudience } from '../store/teamFiles'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Button, ErrorNote, Modal, Skeleton } from './ui'
 
@@ -32,27 +33,35 @@ export interface AdminSelf { self: AccessTreeNode; members: number }
 export function useFolderAccess(path: string | null, place: ChipPlace | null, admin: boolean) {
   const t = useT()
   const locale = useLocale()
-  const [audience, setAudience] = useState<FolderAudience | null>(null)
-  const [self, setSelf] = useState<AdminSelf | null>(null)
-  /** the asks that are done (answered or failed): the chip waits for them, so it never shows a number it must take back */
-  const [done, setDone] = useState({ audience: false, self: false })
-  const [error, setError] = useState<string | null>(null)
-  const [tick, setTick] = useState(0)
-  useEffect(() => accessChanged.on(() => setTick((n) => n + 1)), [])
   const askAudience = place === 'ask'
   // never inside a team project's folder: its people follow the project's members, and no admin endpoint is asked there
   const askSelf = admin && place !== null && place !== 'own' && path !== null && !inProjects(path)
+  // the count as last answered for this folder (store/teamFiles.ts) shows at once and is asked again behind it
+  const keptNow = () => (askAudience && path !== null ? keptAudience(path) : null)
+  const [audience, setAudience] = useState<FolderAudience | null>(keptNow)
+  const [self, setSelf] = useState<AdminSelf | null>(null)
+  /** the asks that are done (answered or failed): the chip waits for them, so it never shows a number it must take back */
+  const [done, setDone] = useState(() => ({ audience: !askAudience || !!keptNow(), self: !askSelf }))
+  const [error, setError] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  useEffect(() => accessChanged.on(() => setTick((n) => n + 1)), [])
   useEffect(() => {
-    setAudience(null)
+    const kept = keptNow()
+    setAudience(kept)
     setSelf(null)
     setError(null)
-    setDone({ audience: !askAudience, self: !askSelf })
+    setDone({ audience: !askAudience || !!kept, self: !askSelf })
     if (path === null) return
     let live = true
+    const keep = askAudience ? audienceRead(path) : null
     if (askAudience)
       api.call(API.folderAudience, { query: { path } }).then(
-        (r) => live && (setAudience(r), setDone((d) => ({ ...d, audience: true }))),
-        (e) => live && (setError(errorText(e, locale, t('error.network'))), setDone((d) => ({ ...d, audience: true }))),
+        (r) => {
+          keep?.(r)
+          if (live) (setAudience(r), setDone((d) => ({ ...d, audience: true })))
+        },
+        // (a count shown from a moment ago stays: the next visit asks again)
+        (e) => (keep?.(null), live && !kept && (setError(errorText(e, locale, t('error.network'))), setDone((d) => ({ ...d, audience: true })))),
       )
     if (askSelf)
       api.call(API.explainAccessTree, { query: { path, limit: 1 } }).then(

@@ -24,6 +24,7 @@ import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { keptFolder } from '../store/teamFiles'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
@@ -57,6 +58,10 @@ export function useWritable(file: PreviewFile, editable: boolean): boolean {
   const path = file.source === 'team' ? file.path : null
   useEffect(() => {
     if (!path || !editable) return
+    // the file's row in its folder as last listed (store/teamFiles.ts) says it already: nothing to ask (the edit itself
+    // asks again before it opens the editor)
+    const row = keptFolder(parentPath(path))?.entries.find((e) => e.type === 'file' && e.path.normalize('NFC') === path.normalize('NFC'))
+    if (row) return setAnswer({ path, ok: row.access === 'write' })
     let live = true
     api.call(API.content, { query: { path, maxBytes: 1 } }).then(
       (c) => live && setAnswer({ path, ok: c.access === 'write' }),
