@@ -113,12 +113,15 @@ describe('the members now', () => {
     await m.click('participant-undo-user-sora')
     expect(state(m, 'participant-user-sora')).toBe('member')
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
-    // the search never offers someone already in, or a fixed one
+    // the search lists someone already in, or a fixed one, as added: it cannot be added again
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
-    expect(m.find('participant-add-user-sora')).toBeNull()
-    expect(m.find('participant-add-user-jiwoo')).toBeNull()
-    expect(m.find('participant-add-user-mia')).toBeNull()
+    for (const id of ['sora', 'jiwoo', 'mia']) {
+      expect(m.get(`participant-add-user-${id}`).hasAttribute('disabled')).toBe(true)
+      expect(m.get(`participant-add-user-${id}`).textContent).toContain(en('projects.added'))
+    }
+    expect(m.get('participant-add-user-bob').hasAttribute('disabled')).toBe(false)
+    expect(m.get('participant-add-user-bob').textContent).toContain(en('projects.add'))
     await m.click('participant-add-user-bob')
     await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
     expect(state(m, 'participant-user-bob')).toBe('new')
@@ -500,7 +503,7 @@ describe('who is in it (docs/DECISIONS.md "Who is in a project, by face")', () =
     expect(m.find('project-person-tag-bob')).toBeNull()
     expect(m.get('project-person-sora').querySelector('img')!.getAttribute('src')).toContain('/api/people/sora/avatar')
     const toggle = await m.until(() => m.find('participant-group-toggle-g-leads'), 'the group row', 2000)
-    expect(toggle.textContent).toContain(en('projects.groupPeople', { n: 2 }))
+    expect(toggle.textContent).toContain(en('projects.groupCount', { n: 2 }))
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     await m.click(toggle)
     expect(m.get('participant-group-toggle-g-leads').getAttribute('aria-expanded')).toBe('true')

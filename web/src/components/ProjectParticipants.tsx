@@ -2,11 +2,15 @@
 // member picker of the project create, share and members dialogs, and the count line under it. People come from the
 // people directory (/api/people, every member may read it: a name and a title); groups ("부서" in Korean copy) are a
 // member's own groups (Me.groups) and, for admins, every group (Admin › Groups). The creator always sees the project.
+// Each row shows who it is the way the people list does (docs/DECISIONS.md "The member picker shows faces"): a person's
+// picture and title (the directory's, which every member reads), a group's mark and, only for admins (who read every
+// group's members in Admin › Groups), how many active people it holds and up to 3 of their faces; a member's own groups
+// say "내 부서" instead, since members do not read who is in a group.
 // The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, Search, User, Users, X } from 'lucide-react'
+import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -14,7 +18,9 @@ import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
 import { IconButton } from './ui'
-import { Avatar } from './Avatar'
+import { Avatar, type AvatarUser } from './Avatar'
+import { FaceStack } from './FaceStack'
+import { ListIcon, ListRow, rowName } from './list/List'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
 export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly ProjectParticipant[]) => {
@@ -22,8 +28,16 @@ export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly P
   return ka.size === new Set(b.map(participantKey)).size && b.every((x) => ka.has(participantKey(x)))
 }
 
-/** A person or group the picker can show: its name, and for a person the directory's title (two people of one name). */
-export interface ParticipantOption extends ProjectParticipant { name: string; title?: string }
+/** A person or group the picker can show: its name, and for a person the directory's title (two people of one name) and
+ * photo version. A group: `members`, its active people, only for an admin (who reads them in Admin › Groups); `mine`, I
+ * am in it. */
+export interface ParticipantOption extends ProjectParticipant {
+  name: string
+  title?: string
+  avatarVersion?: number
+  members?: readonly AvatarUser[]
+  mine?: boolean
+}
 
 const NO_EXTRA: readonly ParticipantOption[] = []
 /** What the picker offers: groups (a member's own; every group for admins), then the active people, both by name. */
@@ -39,9 +53,15 @@ export function useParticipantOptions(extra: readonly ParticipantOption[] = NO_E
     return () => { live = false }
   }, [admin])
   return useMemo(() => {
-    const groups = (admin ? allGroups ?? [] : me?.groups ?? []).map((g) => ({ subjectType: 'group' as const, subjectId: g.id, name: g.name }))
-    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}) }))
+    const mine = new Set((me?.groups ?? []).map((g) => g.id))
+    const byId = new Map((people ?? []).map((p) => [p.id, p]))
+    const groups: ParticipantOption[] = admin
+      // an admin: who is in it, the active people only (the directory's, once read: no "0 people" before it), by name
+      ? (allGroups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: mine.has(g.id), ...(people ? { members: g.memberIds.flatMap((id) => byId.get(id) ?? []).sort(byName) } : {}) }))
+      : (me?.groups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: true }))
+    const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}), ...(p.avatarVersion ? { avatarVersion: p.avatarVersion } : {}) }))
     const out = new Map<string, ParticipantOption>()
+    // a person named only by `extra` (a member switched off, not in the directory) keeps the letter
     for (const x of [...groups.sort(byName), ...persons.sort(byName), ...extra]) if (!out.has(participantKey(x))) out.set(participantKey(x), x)
     return [...out.values()]
   }, [admin, allGroups, me, people, extra])
@@ -67,7 +87,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * person or group with a rule set in Admin › Folder permissions; the tag says why), then the groups and people chosen,
  * each with × to take them out. With `current` (the members saved now: the members dialog) a row added since is marked
  * 새로 and a row taken out stays, struck through, with 되돌리기 until the save. Focusing the search lists everyone who
- * can be added, typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
+ * can be added (and the ones already in, marked 추가됨), typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
  * Esc, or focus leaves the picker (the search is cleared then). After × or 되돌리기 the keyboard stays on the row.
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them.
@@ -120,10 +140,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   rows.sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? 0 : a.subjectType === b.subjectType ? byName(a, b) : a.subjectType === 'group' ? -1 : 1))
 
   const needle = fold(q)
-  const results = options.filter((x) => {
-    const k = participantKey(x)
-    return !picked.has(k) && !fixed.has(k) && (!needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle))
-  })
+  const results = options.filter((x) => !needle || fold(x.name).includes(needle) || fold(x.title ?? '').includes(needle))
+  const isIn = (x: ParticipantOption) => picked.has(participantKey(x)) || fixed.has(participantKey(x))
 
   const add = (x: ParticipantOption) => {
     onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
@@ -141,7 +159,16 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     onChange([...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
     setFocusTo(`participant-remove-${x.subjectType}-${x.subjectId}`)
   }
-  const sub = (x: ParticipantOption) => [x.subjectType === 'group' ? t('projects.groupTag') : x.title, fixed.get(participantKey(x))].filter(Boolean).join(' · ')
+  const meId = useMe()?.user.id
+  /** the second line: a person's title (and 나 for me), a group's kind (with how many people when that may be read; `n`:
+   * how many of them are in the project, the members dialog's), then the fixed tag */
+  const sub = (x: ParticipantOption, n?: number) => {
+    const tag = fixed.get(participantKey(x))
+    const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.whoMe') && t('projects.youTag')
+    const count = n ?? x.members?.length
+    const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
+    return [kind, you, tag].filter(Boolean).join(' · ')
+  }
 
   return (
     <div
@@ -173,50 +200,52 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
       {searching ? (
         // the box keeps the focus on a click anywhere in the results (a row, the padding, the scrollbar): the list stays
         // until the add
-        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
+        <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.searchResults')} onMouseDown={(e) => e.preventDefault()} data-testid={`${testId}-results`}>
           {results.map((x) => {
-            const s = sub(x)
+            const added = isIn(x)
             return (
-              <li key={participantKey(x)}>
-                <button
-                  type="button"
-                  onClick={() => add(x)}
-                  className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-hover sm:min-h-10"
-                  data-testid={`participant-add-${x.subjectType}-${x.subjectId}`}
-                >
-                  <RowIcon group={x.subjectType === 'group'} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{x.name}</span>
-                    {s && <span className="block truncate text-xs text-faint">{s}</span>}
+              <ListRow
+                key={participantKey(x)}
+                onClick={() => add(x)}
+                disabled={added}
+                face
+                icon={<Face x={x} />}
+                name={x.name}
+                meta={sub(x) || undefined}
+                end={
+                  <span className="flex shrink-0 items-center gap-2.5 self-center">
+                    {x.members && x.members.length > 0 && <FaceStack people={x.members} count={x.members.length} size={28} testId={`participant-faces-${x.subjectId}`} />}
+                    <span className={clsx('text-meta font-medium', added ? 'text-faint' : 'text-accent-text')}>{added ? t('projects.added') : t('projects.add')}</span>
                   </span>
-                  <span className="shrink-0 text-xs font-medium text-accent-text">{t('projects.add')}</span>
-                </button>
-              </li>
+                }
+                testId={`participant-add-${x.subjectType}-${x.subjectId}`}
+                link={{ 'data-added': added ? '' : undefined }}
+              />
             )
           })}
-          {!results.length && <li className="px-2 py-2 text-faint">{t('projects.participantsNone')}</li>}
+          {!results.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.participantsNone')}</li>}
         </ul>
       ) : (
-        <ul className="p-1 text-sm sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
+        <ul className="p-1 sm:max-h-72 sm:overflow-y-auto" aria-label={t('projects.participants')}>
           {rows.map((x) => {
             const k = participantKey(x)
             const tag = fixed.get(k)
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
-            const s = sub(x)
             const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
+            const s = sub(x, inside?.length)
             const open = opened.has(x.subjectId)
             return (
-              <li key={k} className="flex min-h-11 flex-wrap items-center gap-x-2.5 rounded-md px-2 py-1.5 sm:min-h-10" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
-                <RowIcon group={x.subjectType === 'group'} />
+              <li key={k} className="flex min-h-row-min flex-wrap items-center gap-x-2.5 rounded-lg px-3 py-1.5 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
+                <ListIcon face><Face x={x} /></ListIcon>
                 {/* the name on one line; the title, the group tag and the tag under it (a group's: how many people, and
                     the name opens to list them) */}
                 {inside ? (
                   <button type="button" aria-expanded={open} aria-controls={`${testId}-group-${x.subjectId}`} onClick={() => toggle(x.subjectId)} className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left" data-testid={`participant-group-toggle-${x.subjectId}`}>
                     <span className="min-w-0">
-                      <span className={clsx('block truncate group-hover:underline', out && 'text-faint line-through')}>{x.name}</span>
-                      <span className="block truncate text-xs text-faint">
-                        {[s, t('projects.groupPeople', { n: inside.length })].join(' · ')}
+                      <span className={clsx('block truncate group-hover:underline', rowName(), out && 'text-faint line-through')}>{x.name}</span>
+                      <span className="block truncate text-meta text-faint">
+                        {s}
                         {fresh && <> · <span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
                       </span>
                     </span>
@@ -224,9 +253,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   </button>
                 ) : (
                 <span className="min-w-0 flex-1">
-                  <span className={clsx('block truncate', out && 'text-faint line-through')}>{x.name}</span>
+                  <span className={clsx('block truncate', rowName(), out && 'text-faint line-through')}>{x.name}</span>
                   {(s || fresh) && (
-                    <span className="block truncate text-xs text-faint">
+                    <span className="block truncate text-meta text-faint">
                       {s}
                       {fresh && <>{s && ' · '}<span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
                     </span>
@@ -256,15 +285,16 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
               </li>
             )
           })}
-          {!rows.length && <li className="px-2 py-2 text-faint">{t('projects.membersNone')}</li>}
+          {!rows.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.membersNone')}</li>}
         </ul>
       )}
     </div>
   )
 }
 
-const RowIcon = ({ group }: { group: boolean }) =>
-  group ? <Users size={14} className="shrink-0 text-faint" aria-hidden /> : <User size={14} className="shrink-0 text-faint" aria-hidden />
+/** a row's face, in the list's icon box: a person's picture (or letter), a group's mark */
+const Face = ({ x }: { x: ParticipantOption }) =>
+  x.subjectType === 'group' ? <Users /> : <Avatar user={{ id: x.subjectId, name: x.name, avatarVersion: x.avatarVersion }} size="fill" />
 
 /**
  * Who would see it (the server's count; the last one stays while it counts again; the names are the list above it):

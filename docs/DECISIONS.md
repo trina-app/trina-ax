@@ -26005,3 +26005,24 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
 - **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the
   only share is an AI answer to a room, `chat/ShareToRoom.tsx`); building one is its own task. "Save for later" has no
   counterpart.
+
+## The member picker shows faces — 멤버 추가에 얼굴 (fix/member-picker-avatars, 2026-11-13, product owner)
+
+- **Ask:** the owner, on the project share / Members dialog's "Add by name or group" list: "shouldn't it show profiles
+  here?" Every person had a generic person icon, every group a generic group icon and the bare word "group".
+- **Rows:** the picker (components/ProjectParticipants.tsx, used by the new-project form, 멤버 추가 on a personal
+  project and the Members dialog) draws its results with the shared `ListRow` and its member list with `ListIcon`, so
+  the sizes are the lists' tokens. A person: their picture filling the list's icon box (`Avatar size="fill"`: 16px on a
+  computer, 40px on a phone; the letter tile's size is the new `--text-list-face`), the name, the job title as the
+  second line, "나" on my own row. A group: the group mark, "부서 · 5명" and up to 3 faces (`FaceStack`) beside 추가.
+- **Privacy:** only what the viewer reads elsewhere. The people directory (name, title, photo) is every member's. A
+  group's people are only for admins (Admin › Groups; /api/admin/groups), so only an admin's rows have the count and
+  faces. A member's options are their own groups (Me.groups, no members): those rows say "내 부서". A group named only
+  by the project's own list (the Members dialog's `extra`) without a count says "부서". The Members dialog's group rows
+  keep #719's count of the group's people in the project, under the same "부서 · N명" words.
+- **Already in:** people and groups already in the list (or fixed: me, the creator, a folder rule) stay in the results,
+  disabled, with a muted 추가됨 instead of 추가: the search answers "is she in?" instead of hiding her.
+- **Not changed:** the other people pickers already show faces: rooms' new chat / invite (rooms/PeoplePicker.tsx) and
+  Admin's AddNamed (folder permissions, skill editors, connector requests: Avatar and GroupTile). The invite dialog's
+  group checkboxes choose which groups a new person joins; no picker of people. Letter tiles stay neutral, as Avatar
+  everywhere (no per-person colour).

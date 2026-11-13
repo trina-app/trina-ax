@@ -36,12 +36,12 @@ export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOW
   shown?: 1 | 2 | 3 | 4
   phoneShown?: 1 | 2 | 3 | 4
   tips?: boolean
-  /** each face's size in px: 20, or 24 (a project's people under its name) */
-  size?: 20 | 24
+  /** each face's size in px: 20, 24 (a project's people under its name) or 28 (the member picker's group rows) */
+  size?: 20 | 24 | 28
 } & Omit<ComponentPropsWithRef<'span'>, 'children' | 'className'>) {
   const ring = clsx('ring-2 ring-canvas', hoverRing && 'group-hover:ring-hover')
   // the "+N" tile as high as a face
-  const more = clsx(MORE, size === 24 ? 'h-[24px] min-w-[24px]' : 'h-[20px] min-w-[20px]')
+  const more = clsx(MORE, size === 28 ? 'h-[28px] min-w-[28px]' : size === 24 ? 'h-[24px] min-w-[24px]' : 'h-[20px] min-w-[20px]')
   const phone = Math.min(phoneShown, shown)
   const place = (i: number) => clsx(STACK[i], i >= phone && 'max-sm:hidden')
   return (
