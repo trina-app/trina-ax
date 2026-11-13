@@ -204,8 +204,9 @@ export const AppConfigFile = z.object({
   roomAiMentions: z.boolean().optional(),
   /** The new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md; docs/DECISIONS.md "navRail: the new navigation
    * behind one server switch"): a labeled icon rail on computers and the tabs 트리나 · 대화 · 파일 · 나 on phones,
-   * built phase by phase. Off by default until every phase is in; true turns on both layouts at once for everyone on this
-   * server (no per-browser switch, so nobody sees half of it). */
+   * on for everyone since P6 (docs/DECISIONS.md "navRail"). `false` turns both layouts off at once for everyone on this
+   * server and brings back the old sidebar and tabs, a kill switch for one release until P7 removes the old path (no
+   * per-browser switch, so nobody sees half of it). */
   navRail: z.boolean().optional(),
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
    * (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's instructions). Absent: on; the team
@@ -268,7 +269,7 @@ export interface AppConfig {
   handoverSafe?: boolean
   /** see AppConfigFile.roomAiMentions; absent = off */
   roomAiMentions?: boolean
-  /** see AppConfigFile.navRail; absent = off */
+  /** see AppConfigFile.navRail; absent = on, only `false` turns it off */
   navRail?: boolean
   /** see AppConfigFile.fileList; absent = on (the team has no switch) */
   fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
@@ -381,7 +382,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
     ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
-    ...(f.navRail ? { navRail: true } : {}),
+    ...(f.navRail === false ? { navRail: false } : {}),
     ...(f.fileList ? { fileList: f.fileList } : {}),
     ...(demo ? { demo } : {}),
     ...(obsolete.length ? { obsoleteKeys: obsolete } : {}),

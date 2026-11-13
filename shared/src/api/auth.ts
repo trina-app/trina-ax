@@ -102,7 +102,8 @@ export const Me = z.object({
      * off: the room's box offers no AI in its "@" list and points to the side chat. */
     roomAiMentions: z.literal(true).optional(),
     /** the new navigation is on for this server (AppConfig.navRail; docs/AGENTS/plan/20261112-1839-nav-rail.md): the
-     * web shows the icon rail on computers and the new phone tabs. Absent = off: today's sidebar and tabs. */
+     * web shows the icon rail on computers and the new phone tabs. On by default since P6; absent only when the operator's
+     * `"navRail": false` turned it off: the old sidebar and tabs. */
     navRail: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),

@@ -7,9 +7,9 @@
 // changes an id, adapt it here.
 //
 // Which navigation a page shows is the server's answer (GET /api/me `server.navRail`), the same thing the layout reads.
-// The whole run can be put in the new navigation with `MOCK_NAV_RAIL=1` (the mock's switch after every reset,
-// web/test/mock/server.ts); `navRail(page, on)` in helpers.ts still turns it on or off for one test (sign in or reload
-// after it). Specs that test the old sidebar itself call `oldNav(page)` after their reset.
+// Since phase P6 the new navigation is on by default, in the mock too; `navRail(page, false)` in helpers.ts turns it off
+// for one test (sign in or reload after it). Specs that test the old sidebar itself call `oldNav(page)` after their
+// reset; phase P7 removes the old navigation, those specs and the old branches here.
 import { expect, type Locator, type Page } from '@playwright/test'
 import { navRail } from './helpers'
 

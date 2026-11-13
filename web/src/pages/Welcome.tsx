@@ -34,6 +34,7 @@ import { sameScreen, useScreenName } from '../lib/screens'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
+import { aiName } from '../lib/tabs'
 import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
@@ -787,7 +788,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   const make = aiReady && !own && !!kept
   return (
     <div className="space-y-6" data-testid="welcome-done">
-      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? t(phone ? 'welcome.done.deckPhone' : 'welcome.done.deck', { name: historyName(t) }) : undefined} />
+      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? (phone ? t('welcome.done.deckPhone', { name: aiName(t) }) : t('welcome.done.deck', { name: historyName(t) })) : undefined} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         {!aiReady ? (
           <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />

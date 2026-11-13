@@ -149,6 +149,7 @@ test('the filter in the header shows the filtered history, and Reset brings the 
 test('with the switch off the old sidebar shows its capped history, unchanged', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await reset(page)
+  await navRail(page, false)
   await signIn(page)
   await chat(page, 'Old one')
   await page.reload()

@@ -162,6 +162,7 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
 test('with the switch off, Activity is the page it was: its tabs, no panel', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 860 })
   await reset(page)
+  await navRail(page, false)
   await signIn(page)
   await page.goto('/activity?tab=mentions')
   await expect(page.getByTestId('activity-tabs')).toBeVisible()
