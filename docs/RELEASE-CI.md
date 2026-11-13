@@ -67,7 +67,7 @@ git push origin v0.3.0-beta.1
 | 1 | prepare | 태그 = 버전 확인, 태그의 커밋이 main에 있는지, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
-| 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
+| 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것) | 없음 |
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
@@ -226,6 +226,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `HTTP 404, but the file is there`로 멈춤 | 피드는 404인데 버킷에는 있다. 아무것도 덮어쓰지 않았다 | Worker 배포를 본다(`hosting.ts status`) |
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
+| build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
 
@@ -275,7 +276,7 @@ bun scripts/release/hosting.ts resume stable                                    
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.
 - GitHub Release 파일 확인: 받은 폴더에서 `bun scripts/release/release-ci.ts verify-sums SHA256SUMS`(이 빌드의 공개키로 `.sig`를 확인한 뒤 옆의 파일 sha256을 본다).
 
-**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. Remove the "not in this release yet" line from the release body by hand. A person who cancels the run still stops `publish`.
+**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. The GitHub Release job removes the "not in this release yet" line once both desktop files are there. A person who cancels the run still stops `publish`. When the run can no longer be re-run (artifacts gone, or GitHub lost its jobs), run the workflow by hand from the same tag with **office_only**: it skips the tests, the Linux builds and the server feed, builds only the office zip and the Windows installer, and publishes the office feed (the Linux files are taken from the GitHub Release for `SHA256SUMS` only). The office zip runs on **mac_runner**, else the repository variable `RELEASE_MAC_RUNNER`, else `macos-15`; `macos-15-intel` draws from another pool and builds the same universal zip. Both inputs exist only in tags made after they were added.
 
 ## 7. 키를 바꿀 때
 
