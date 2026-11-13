@@ -3,7 +3,10 @@ import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { formatDateTime } from '../../src/lib/format'
-import { CSRF_HEADER, type TrashItem } from '@mycel/shared/api'
+import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, type TrashItem } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
+
+const AI_NAME = PRODUCT_NAMED_AFTER_AI ? DICTS.ko['rooms.aiName'] : PRODUCT.shortName
 
 const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name })
 async function rowMenu(page: Page, name: string, item: string | RegExp) {
@@ -440,7 +443,7 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   await expect(page.getByText('v1로 되돌렸어요.')).toBeVisible()
 
   // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
-  await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
+  await rowMenu(page, 'notes.txt', translate('ko', 'files.askAi', { name: AI_NAME }))
   await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]')).toContainText('notes.txt')
 })
 

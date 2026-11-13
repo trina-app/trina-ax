@@ -21,7 +21,7 @@ import (
 	"mycel/native/internal/landlock"
 )
 
-// The test binary plays three parts, chosen by its file name: "mycel-sandbox" (the real main), "helper" (the program
+// The test binary plays several parts, chosen by its file name: "mycel-sandbox" (the real main), "helper" (the program
 // started under the sandbox, reporting what it may do), anything else (the tests).
 func TestMain(m *testing.M) {
 	switch filepath.Base(os.Args[0]) {
@@ -29,6 +29,10 @@ func TestMain(m *testing.M) {
 		main()
 	case "helper":
 		helper(os.Args[1:])
+	case "pf-start":
+		pfStart(os.Args[1:])
+	case "dev-server":
+		devServer(os.Args[1:])
 	default:
 		os.Exit(m.Run())
 	}

@@ -24301,6 +24301,71 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
   phone app gets n).
 - Version impact: **patch**.
 
+## Dev environment on srt: preview (feat/srt-preview, 2026-11-12, owner)
+
+Owner (pras), plan for the dev environment: "preview matters: without it a person cannot see a web app the AI built".
+On srt the dev server of a run listens on 127.0.0.1 in the run's private network namespace (srt's bwrap). Nothing
+outside the run reaches it, and srt's seccomp filter blocks AF_UNIX in the sandbox. Design: `docs/research/srt-dev-env.md`
+section 5. Linux only (macOS will use the shared localhost).
+
+- **`mycel-sandbox port-forward --cgroup <scope> --port N --socket <path>`** (`native/cmd/mycel-sandbox/portfwd_linux.go`).
+  It reads the processes of the run's scope cgroup (only systemd, as root, puts a process there), finds the one network
+  namespace other than its own where the port listens (`/proc/<pid>/net/tcp`, `tcp6`), opens it and checks it again after
+  the open, gets its owner user namespace (`NS_GET_USERNS`: srt's seccomp helper makes a nested user namespace for the
+  command, which does not own the network namespace), and checks that the server account owns it and that it is a child of
+  the server account's own. It binds the socket (mode 0600) in `<base>/devenv/run/<runId>-<port>.sock`, then execs
+  util-linux `nsenter --preserve-credentials --user=/proc/self/fd/U --net=/proc/self/fd/N`, which execs
+  `port-forward-inner`. That one checks that it is in the run's network namespace, sets no_new_privs, drops every
+  capability on every thread, and copies each connection to `127.0.0.1:N`, then `[::1]:N` (Vite often listens only
+  there), at most 256 at a time. It ends when its stdin closes (the server stops it, or the server ends).
+- **Why nsenter.** Go cannot enter a user namespace: `setns(CLONE_NEWUSER)` refuses a process with more than one thread,
+  and the Go runtime always has more. `setns(CLONE_NEWNET)` alone needs CAP_SYS_ADMIN in the caller's own user namespace,
+  which the server account does not have. nsenter is C, has one thread, and is in util-linux (`scripts/system/packages.json`,
+  every distribution has it). The namespace files are passed as open fds, so a pid that ends and comes back as another
+  process cannot change the target.
+- **Refused ports.** 3128 and 1080: srt's proxy relays listen there in the same namespace. A preview of them would open
+  the sandbox's proxy to the browser.
+- **The forwarder in the run's namespaces.** It is not in the run's pid namespace, so the sandbox cannot see, signal or
+  trace it. It has no capabilities (checked in `/proc/self/task/*/status`). The socket folder is hidden from every run
+  (the whole base folder is), and the sandbox has no AF_UNIX.
+- **Server.** The system seam of the runner (`SrtSystem.forward`, `srt/system.ts`) starts the helper; tests use a fake.
+  There is no `DevEnvRunner` interface: the build did not make one ("Build notes" of the design), and `SrtSystem` is the
+  seam tests already fake. `previewSocket` (`srt/runner.ts`) takes the run from the DB row, never from the request, keeps
+  one forwarder per run and port, and stops it when the run ends (`stopRow`, the ended branch of `pollRuns`). After a
+  restart, stale sockets go (`reconcile`). `MYCEL_DEV_ENV_SRT_DIRECT=1` (Docker) has no scope cgroup, so it has no
+  preview (`forward: null`).
+- **The gateway** (`server/src/devenv/preview.ts`, removed with the box runner, back with the same rules): its own listener
+  (`MYCEL_DEV_PREVIEW_LISTEN`) behind a wildcard origin on another registrable domain (`MYCEL_DEV_PREVIEW_ORIGIN`), a
+  random label per link, a single-use token (5 minutes), then a cookie for that one origin (60 minutes), Host localhost to
+  the dev server, our cookie never forwarded. A link now belongs to one row, its run id, one port and **one person: the
+  person who started the dev server** (the run has that person's folder access; an admin gets no link either). Each
+  request checks again: the row is open, running, a dev server, the same run id, the same person, and the person may
+  still use the dev environment. WebSocket upgrades are not supported yet (Vite falls back to a full reload).
+- **API.** `POST /api/dev-env/runs/:runId/preview {port}` → `{url, expiresAt}`. 404 with
+  `dev_env_preview_not_running`, 409 with `dev_env_preview_not_configured` (no origin, or no port-forward on this server).
+  Audit `dev_env.preview` (run, port, label).
+- **The AI and the step.** box_shell has `port` (with background=true only). With a preview origin the tool text says
+  that the person opens the dev server with the Preview button; the step of that dev server gets `Step.devEnvRun` kind
+  `server` with the port, and `Steps.tsx` shows "Dev server on port N · Preview". No port: no button, and the AI is told
+  to start it again with one. With no preview origin the text stays: test with curl in one command.
+- **Idle.** A dev server with a preview request in the last `idleStopMin` is not idle (the design's rule: "no preview
+  request and under 2 % CPU").
+- **No migration.** The port is on the chat step and in the link.
+- **Tests.** `native/cmd/mycel-sandbox/portfwd_test.go` (arguments, the pick from a fake `/proc`, the copy loop, and real
+  namespaces with `unshare -Urn` and nsenter where the host allows them), `tests/unit/dev-env-preview.test.ts` (fake
+  system: links, the gateway, A26 with two runs on one port, the end of a run), the permission matrix case,
+  `web/test/e2e/devenv-preview.spec.ts`, and `scripts/dev-env/srt/vm-check.sh REPO preview`
+  (`tests/linux/srt-vm-preview.ts`: S2 in the stand-in server unit, A26, the sandbox and the socket, the end of a run).
+- **VM, 2026-11-12** (Debian 13, t3a.medium, systemd 257, in the stand-in server unit as the server account:
+  NoNewPrivileges, no capabilities): every preview check passed. The forwarder was in the run's network namespace with
+  CapEff 0 and NoNewPrivs 1; two runs on port 3000 each served only their own page; the sandbox got "Operation not
+  permitted" on AF_UNIX and did not see `<base>/devenv/run`.
+- **A runner race the VM found (fixed here).** `Bun.spawn` returns before systemd-run has started the scope. A tracker
+  poll in that moment saw `ActiveState=inactive`, ended the row as `lost` and deleted the settings file, and srt then
+  refused to start (a dev server ended at once, 2 of about 12 starts). A run of this process whose process lives now
+  counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
+- **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
+  (mode 640), and the Files API lists it and serves it (VM check P6).
 ## Dev environment on a Mac team server (feat/devenv-srt-macos, 2026-11-12, owner)
 
 Owner (pras), 2026-11-12: the dev environment runs on srt only, also on a team's own Mac mini (self-host, one team;

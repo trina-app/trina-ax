@@ -433,6 +433,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PUT` | `/api/admin/dev-env` | Admin | Change the dev environment of the team: on or off, who may use it, network, limits and the extra sites the AI may reach (audited). |
 | `GET` | `/api/dev-env/runs` | Signed in | The runs of the caller (every chat, with or without a project): what runs and what waits. |
 | `POST` | `/api/dev-env/runs/:runId/stop` | Signed in | Stop a run of the caller, or cancel a waiting job of the caller (audited). |
+| `POST` | `/api/dev-env/runs/:runId/preview` | Signed in | A short-lived link to a port of a running dev server of the caller, on the separate preview origin (only the person who started it; audited). |
 | `GET` | `/api/dev-env/sites` | Signed in | The sites the caller allowed for the dev environment, the Full internet switch, and the team's sites. |
 | `POST` | `/api/dev-env/sites/remove` | Signed in | Remove a site from the caller's own allowed sites; the caller's jobs and dev servers that use it stop (audited). |
 | `PUT` | `/api/dev-env/full-internet` | Signed in | Turn the caller's Full internet on (the warning accepted) or off; off stops the caller's jobs and dev servers that used it (audited). |
