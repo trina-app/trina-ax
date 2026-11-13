@@ -7,7 +7,7 @@
 import clsx from 'clsx'
 import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { useT } from '../../i18n'
 import { useOverlayEntry } from '../../lib/backCloses'
@@ -16,6 +16,7 @@ import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
 import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
 import { SetupRow } from '../onboarding/SetupRow'
+import { ListRow } from '../list/List'
 import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
 import { Tooltip } from '../Tooltip'
 
@@ -77,9 +78,8 @@ function DrawerBody({ close }: { close: () => void }) {
       return !v
     })
   const [scrolled, setScrolled] = useState(false)
-  // the lists' row size and icon (components/list/List.tsx tokens): 16px words, 18px icons on a phone
-  const nav = 'flex min-h-11 items-center gap-3 rounded-lg px-3 text-row text-ink hover:bg-hover [&>svg]:size-list-glyph [&>svg]:shrink-0 [&>svg]:text-muted'
-  const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
+  const { pathname } = useLocation()
+  const here = (path: string) => pathname === path || pathname.startsWith(`${path}/`)
   const filtered = view.changed.length > 0
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
@@ -90,26 +90,21 @@ function DrawerBody({ close }: { close: () => void }) {
           <span>{aiName(t)}</span>
         </Link>
       </div>
-      <div className="space-y-0.5 px-2">
+      {/* the lists' rows (components/list/List.tsx): a phone's 48px, 16px words, a 32px round tile */}
+      <ul className="px-2">
         {/* search takes the drawer's place (and its history entry): Back closes search and shows the page */}
-        <button
-          type="button"
-          className={clsx(nav, 'w-full')}
+        <ListRow
           onClick={() => {
             close()
             setSearchOpen(true)
           }}
-          data-testid="drawer-search"
-        >
-          <Search size={16} aria-hidden /> {t('sidebar.search')}
-        </button>
-        <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
-          <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
-        </NavLink>
-        <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
-          <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
-        </NavLink>
-      </div>
+          icon={<Search aria-hidden />}
+          name={t('sidebar.search')}
+          testId="drawer-search"
+        />
+        <ListRow to="/scheduled" selected={here('/scheduled')} onClick={close} icon={<CalendarClock aria-hidden />} name={t('sidebar.scheduled')} testId="nav-scheduled" />
+        <ListRow to="/skills" selected={here('/skills')} onClick={close} icon={<BookMarked aria-hidden />} name={t('sidebar.skills')} testId="nav-skills" />
+      </ul>
       <div
         className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t px-2 pb-2', scrolled ? 'border-line' : 'border-transparent')}
         onScroll={(e) => {
@@ -147,12 +142,10 @@ function DrawerBody({ close }: { close: () => void }) {
       </div>
       {peek.card}
       {/* my status (the computer's account menu has it) and 삭제한 기록, at the end of the history */}
-      <div className="border-t border-line p-2">
+      <ul className="border-t border-line p-2">
         <StatusRow onOpen={close} />
-        <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
-          <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
-        </NavLink>
-      </div>
+        <ListRow to="/trash" selected={here('/trash')} onClick={close} icon={<Trash2 aria-hidden />} name={t('sidebar.trash')} testId="nav-trash" />
+      </ul>
     </nav>
   )
 }
@@ -161,19 +154,14 @@ function StatusRow({ onOpen }: { onOpen: () => void }) {
   const t = useT()
   const mine = useMyStatusWords()
   return (
-    <button
-      type="button"
+    <ListRow
       onClick={(e) => {
         onOpen()
         openStatusDialog(e.currentTarget)
       }}
-      className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-row text-ink hover:bg-hover"
-      data-testid="my-status-row"
-    >
-      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center leading-none">
-        {mine ? mine.emoji : <Smile size={16} className="text-muted" />}
-      </span>
-      <span className="truncate">{mine ? mine.words : t('status.set')}</span>
-    </button>
+      icon={mine ? <span className="leading-none">{mine.emoji}</span> : <Smile aria-hidden />}
+      name={mine ? mine.words : t('status.set')}
+      testId="my-status-row"
+    />
   )
 }
