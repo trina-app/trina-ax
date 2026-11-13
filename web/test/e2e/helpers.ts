@@ -31,6 +31,9 @@ export async function signIn(page: Page, who = OWNER) {
   await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page'))).toBeVisible()
   if (await page.getByTestId('rooms-page').isVisible()) {
     await page.goto('/')
+    // the new phone tabs (navigation phase P5): `/` is the 트리나 list, the new-chat box is its own page, /new
+    await expect(page.getByTestId('composer-input').or(page.getByTestId('phone-trina-home'))).toBeVisible()
+    if (await page.getByTestId('phone-trina-home').isVisible()) await page.goto('/new')
     await expect(page.getByTestId('composer-input')).toBeVisible()
   }
 }

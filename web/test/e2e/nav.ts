@@ -119,7 +119,7 @@ export async function openPlace(page: Page, place: Place) {
   if (isPhone(page)) {
     if (place === 'activity') {
       await openTab(page, 'me')
-      await page.getByTestId(neu ? 'me-activity' : 'settings-inbox').click()
+      await page.getByTestId('settings-inbox').click()
       return
     }
     await openTab(page, place === 'trina' ? 'ai' : place)
@@ -141,7 +141,8 @@ export async function openNewChat(page: Page) {
   const neu = await isNewNav(page)
   if (isPhone(page)) {
     await openTab(page, 'ai')
-    if (neu) await page.getByTestId('phone-ask-ai').click()
+    // the new 트리나 tab: the list, with the floating "트리나에게 묻기" that opens /new
+    if (neu) await page.getByTestId('phone-trina-home').getByTestId('new-chat').click()
   } else await (neu ? await showPanel(page, 'trina') : page).getByTestId('new-chat').click()
   await expect(page.getByTestId('composer-input')).toBeVisible()
 }
@@ -335,7 +336,7 @@ export async function openStatusDialog(page: Page) {
   if (isPhone(page)) {
     if (await isNewNav(page)) {
       await openTab(page, 'me')
-      await page.getByTestId('my-status-row').click()
+      await page.getByTestId('settings-status').click()
     } else await (await openDrawer(page)).getByTestId('my-status-row').click()
     return
   }
@@ -382,7 +383,7 @@ export async function activityCount(page: Page): Promise<Locator> {
 export async function myStatusRow(page: Page): Promise<Locator> {
   if (await isNewNav(page)) {
     await openTab(page, 'me')
-    return page.getByTestId('my-status-row')
+    return page.getByTestId('settings-status')
   }
   const drawer = page.locator('[data-drawer]')
   if (!(await drawer.isVisible())) await openDrawer(page)
