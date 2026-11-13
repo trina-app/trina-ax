@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
-import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openUsage, tabBar } from './nav'
+import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openUsage, tabBar, tabButtonNow } from './nav'
 
 const t = DICTS.en
 
@@ -145,7 +145,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
-  await expect(tabBar(page)).toBeVisible()
+  await expect(tabBar(dialog)).toBeVisible()
   await expect(dialog.getByTestId('settings-close')).toBeHidden()
   await expect(dialog.getByTestId('settings-logout')).toBeVisible()
   await dialog.getByTestId('settings-me').click()
@@ -165,7 +165,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(dialog.getByTestId('settings-group-connections').getByRole('link').first()).toHaveAttribute('href', '/settings/connectors')
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
-  await openTab(page, 'chats')
+  await tabButtonNow(page, 'chats').click()
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/rooms$/)
 })

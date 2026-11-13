@@ -114,12 +114,12 @@ test('the chat\'s own title menu pins and unpins it, the row menu\'s item (QA TC
   await first.click()
   // to the top of the list with the pin, above the five latest (as from the row's "···"), or in the 트리나 panel's 고정
   const pinned = pinnedChats(page)
-  await expect(titles(pinned).first()).toHaveText('제목 메뉴로 고정')
-  await expect(rows(pinned).first().getByTestId('chat-pin-icon')).toBeVisible()
+  await expect(pinned.first().locator('a[href^="/c/"] .truncate')).toHaveText('제목 메뉴로 고정')
+  await expect(pinned.first().getByTestId('chat-pin-icon')).toBeVisible()
   // after a reload too; then 고정 해제 from the same menu
   await page.reload()
   await showChats(page)
-  await expect(titles(pinned).first()).toHaveText('제목 메뉴로 고정')
+  await expect(pinned.first().locator('a[href^="/c/"] .truncate')).toHaveText('제목 메뉴로 고정')
   await page.getByTestId('chat-menu').click()
   await expect(page.getByTestId('chat-unpin')).toHaveText(t['chat.unpin'])
   await expect(page.getByTestId('chat-unpin').locator('svg.lucide-pin-off')).toHaveCount(1)

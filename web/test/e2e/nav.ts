@@ -96,7 +96,7 @@ export async function openProjectsTab(page: Page) {
 }
 
 /** The tab bar itself (to check it shows or hides). */
-export const tabBar = (page: Page) => page.getByTestId('bottom-tabs')
+export const tabBar = (scope: Page | Locator) => scope.getByTestId('bottom-tabs')
 
 /** The phone's ☰ drawer of today (the 트리나 tab's history). Old navigation only: the new phone tabs have none. */
 export async function openDrawer(page: Page): Promise<Locator> {
@@ -417,9 +417,9 @@ export async function phoneAiMark(page: Page): Promise<Locator> {
   return page.getByTestId((await isNewNav(page)) ? 'tab-ai-mark' : 'menu-dot')
 }
 
-/** The pinned chats of the AI's history (`showChats` first): today's sidebar section above the five latest, the 트리나
- * panel's 고정 section. */
-export const pinnedChats = (page: Page) => page.getByTestId('ai-chats-pinned').or(page.getByTestId('trina-pinned'))
+/** The pinned chats' rows in the AI's history (`showChats` first): on top of today's short list, or the 트리나 panel's
+ * 고정 section; the most recently pinned first. */
+export const pinnedChats = (page: Page) => navChatList(page).locator('li[data-pinned]')
 
 /** A phone tab's button as a plain locator, by today's ids (트리나 · 대화 · 나 keep theirs in the new tabs). */
 export const tabButtonNow = (page: Page, tab: 'ai' | 'chats' | 'me') => page.getByTestId(`tab-${tab}`).last()
