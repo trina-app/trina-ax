@@ -25355,3 +25355,34 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Google Drive unchanged**: "Drives shared with the team" (#95) already is its shared mode (read-only, chosen folders).
 - Version impact: **minor** (new admin feature and endpoints, optional fields, an add-only migration).
 - Tests: `tests/unit/c-google-apps-team.test.ts`.
+
+## A listed service's and a connection's page look like the Google connectors' pages (fix/connector-detail-like-app, 2026-11-13, QA TC-197)
+
+- **Decision:** QA TC-197 (tracking TC-747): the page of a listed service (Notion, Higgsfield, Figma…) and of a
+  connection (the person's own, a team connection, one added by its address) in Settings › Connectors and Admin ›
+  Connectors uses the layout #567 gave the Google connectors (`AppDetail.tsx`): the way back as "Connectors › Name",
+  logo, name and one line ("By Higgsfield · …"), on the right the one status or action (Connected ✓, Sign in, Error) and
+  ⋯, then a short line when it does not work, About, one line on what the AI may do, the tools as chips, and a details
+  block (Made by, Sign-in, Privacy and Terms, Help, Last used or Last tried; the address only for one added by its
+  address). `components/integrations/ConnectionPage.tsx`; `ConnectorDetail` and the expandable `IntegrationRow` are gone
+  (`IntegrationRow.tsx` keeps the actions hook, the sign-in panel and AudienceChip).
+- **Nothing is lost, it moved.** ⋯ holds what the row's buttons did, for whoever manages it, with the same rules: Check
+  again, Sign in again, Edit (not in the phone app), Ask every time (the person's own Always allow), Delete. The tools'
+  switches are in a dialog ("Turn tools on or off"; read-only people get "See what each tool does"); a tool turned off
+  shows muted on the page with "N off". More than 12 tools: the first 12 chips and "Show all N" in place. A cut list
+  says so in one line under the tools. Admin › a team connection: Team settings › Who can use it (Used by, Added by, "Not
+  in your chats", "Nobody can use it yet"), changed in Edit as before. Admin › a listed service the team has a connection
+  to opens that connection's page. No permission or API change.
+- **One error line.** The service's reason shows once, followed by what to do: whoever manages it "Try Check again in
+  ⋯. If it keeps failing, fix its address or key in Edit." (the phone app: "…fix it on a computer"), anyone else "Ask an
+  admin to look at it.", a sign-in that is needed "Sign in again to fix it.".
+- **Removed:** the boxed header card, the nested row card and its chips ("Always allow", "Run without asking", the
+  audience chip), the second copy of the error, "Key saved · Last tried" as one line, the raw address on a listed
+  service's page, the "Official" mark (the line says "By <service>"), and the About texts' "asks first" sentence (the
+  line under them says it, as #567 did for Google's). i18n keys gone in five languages: `connectors.addressLine`,
+  `official`, `officialTip`, `linkPrivacy`, `linkTerms`, `linkPrivacyName`, `linkTermsName`, `linkDocs`, `tools`;
+  `integrations.edit`, `delete`, `alwaysAllow.badge`, `alwaysAllow.line`, `lastTried`, `lastUsed`, `tools`, `toolsOf`,
+  `toolsOfMore`.
+- **Tests:** `web/test/unit/connector-detail-tools.test.tsx`, `integration-always-allow.test.tsx`; the e2e specs that
+  used the row (integrations, connectors-hub, integration-templates, integration-requests, skill-tool-counts, a11y,
+  phone-admin-pages).

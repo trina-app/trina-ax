@@ -16,7 +16,7 @@
 //   components/integrations/AskAdmin.tsx); one turned off for members is left out for them. A member reads "Not listed?
 //   Ask an admin to add it." under it (docs/DECISIONS.md "Plain words for members").
 // A card opens its page inside Settings, a page under the section (SettingsDialog.tsx): /settings/connectors/<id> for a
-// built-in's (AppDetail.tsx) or a listed service's (ConnectorDetail), /settings/connectors/mcp/<connection id> for one
+// built-in's (AppDetail.tsx) or a listed service's (ConnectionPage.tsx), /settings/connectors/mcp/<connection id> for one
 // of the person's connections or a team connection they may use; its way back is the list. The old addresses lead here
 // with their query (/connectors, /connectors/<id>, /connectors/mcp/<id>, /settings/integrations: App.tsx and
 // SettingsDialog.tsx), keeping ?add=1, ?template=, ?request= and ?drive=1 (old Drive links: Google Drive's page). The
@@ -27,18 +27,18 @@
 // to Google here (connecting is done on a computer): a built-in one's + only opens its page, and its page shows what it
 // is now, Disconnect, and one line "Connect … on a computer".
 import { Check, Plus, Search } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { CONNECTOR_DOCS, connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
+import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
-import { ConnectorDetail, ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
+import { ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
 import { GoogleAppDetail, Note, useGoogleApps } from '../components/integrations/GoogleAppConnector'
@@ -47,7 +47,8 @@ import { SlackAccount } from '../components/settings/SlackAccount'
 import { SettingsHold } from '../components/settings/SettingsBar'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
-import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { useLoad } from './admin/common'
@@ -375,7 +376,6 @@ function DrivePage() {
 /** A listed service's page (its connection, once there is one, with everything its row offers). */
 function ListedPage({ c }: { c: Connector }) {
   const t = useT()
-  const navigate = useNavigate()
   const { list, setDialog, asks, admin } = useConnectors()
   const mine = list.data ? splitByScope(list.data.items).mine : []
   const have = mine.filter((i) => servesAt(c, i.url))
@@ -387,39 +387,41 @@ function ListedPage({ c }: { c: Connector }) {
   const asked = isRequestableService(c.id) && asks.stateOf(c.id) !== 'none'
   const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) ? c.id : null
   const own = !!list.data?.personalAllowed
+  // connected: the connection's page (with two connections to it, the first; the other is its own row in the list)
+  if (have.length) return <McpShell><MinePage i={have[0]} about={t('connectors.mcp.about', { name: c.name })} /></McpShell>
   return (
     <McpShell>
-      <ConnectorDetail testId="connector-detail" logo={connectorLogo(c)} name={c.name} line={t(`integrations.catalog.${c.id}`)} official onBack={() => navigate(CONNECTORS_HOME)}
-        action={have.length ? <span className="text-sm text-ok" data-testid="connector-detail-added">{t('drive.status.connected')}</span>
-          : own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
+      <ListedServicePage inSettings c={c} state={askFor ? 'ask' : 'available'}
+        actions={own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
-        description={t('connectors.mcp.about', { name: c.name })} address={have.length ? undefined : c.url} docs={have.length ? undefined : CONNECTOR_DOCS[c.id]} noTools={have.length > 0}>
-        {askFor && <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />}
-        {have.length > 0 && <MineRows items={have} />}
-      </ConnectorDetail>
+        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} /> : undefined}
+        about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>
   )
 }
 
 /** /settings/connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or
- * from a team template), or a team connection they may use (read-only: its state, its tools, "Run without asking"). */
+ * from a team template), or a team connection they may use (read-only: its state, its tools, "Ask every time"). */
 function CustomConnectorPage() {
   const t = useT()
-  const navigate = useNavigate()
   const { integrationId = '' } = useParams()
   const { list } = useConnectors()
   if (!list.data) return <PageSkeleton />
   const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to={CONNECTORS_HOME} replace />
-  const c = connectorFor(i.url)
   return (
     <McpShell>
-      <ConnectorDetail testId="connector-detail" logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name} line={c ? t(`integrations.catalog.${c.id}`) : i.url} official={!!c} onBack={() => navigate(CONNECTORS_HOME)}
-        description={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} noTools>
-        <MineRows items={[i]} readOnly={i.scope === 'team'} />
-      </ConnectorDetail>
+      <MinePage i={i} about={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} />
     </McpShell>
   )
+}
+
+/** One connection's page in Settings: the person's own with what its row always offered (check, tools, sign in, edit,
+ * delete, in ⋯), a team connection read-only, as the team provides it. Deleted: the page it was on shows what is left
+ * (the listed service's page, or the list). */
+function MinePage({ i, about }: { i: Integration; about: string }) {
+  const { actions, setDialog } = useConnectors()
+  return <ConnectionPage inSettings i={i} actions={actions} readOnly={i.scope === 'team'} onEdit={() => setDialog({ existing: i })} about={about} />
 }
 
 /** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */
@@ -428,22 +430,7 @@ function McpShell({ children }: { children: ReactNode }) {
   return (
     <div className="pb-6">
       {children}
-      <p className="mt-8 text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
+      <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
     </div>
-  )
-}
-
-/** The person's own connection(s) to a service, with what their row always offered: check, tools, edit, delete; a
- * team connection read-only, as the team provides it. */
-function MineRows({ items, readOnly }: { items: Integration[]; readOnly?: boolean }) {
-  const { actions, setDialog } = useConnectors()
-  const navigate = useNavigate()
-  // deleted: back to the list (the page has nothing left to show)
-  const ids = useMemo(() => items.map((i) => i.id).join(','), [items])
-  useEffect(() => { if (!ids) navigate(CONNECTORS_HOME, { replace: true }) }, [ids, navigate])
-  return (
-    <ul className="-mx-2 divide-y divide-line rounded-xl bg-surface" data-testid="integrations-mine">
-      {items.map((i) => <IntegrationRow key={i.id} i={i} actions={actions} readOnly={readOnly} onEdit={() => setDialog({ existing: i })} />)}
-    </ul>
   )
 }

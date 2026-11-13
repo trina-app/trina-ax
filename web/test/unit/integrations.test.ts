@@ -270,7 +270,7 @@ describe('the tool list in Settings', () => {
     // the server stopped reading the list with pages left: "1,000 of more than 1,000", never "check again"
     expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(INTEGRATION_TOOLS_MAX), toolsTotal: INTEGRATION_TOOLS_MAX, toolsTotalMore: true }))).toBe('integrations.toolsCappedMore')
     expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(40), toolsTotal: 40, toolsTotalMore: true }))).toBe('integrations.toolsCappedMore')
-    for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.toolsCappedMore', 'integrations.tools', 'integrations.toolsOf', 'integrations.toolsOfMore'] as const) expect(d[k]).toBeTruthy()
+    for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.toolsCappedMore'] as const) expect(d[k]).toBeTruthy()
     expect(DICTS.ko['integrations.toolsStale']).toContain('다시 확인')
   })
 })

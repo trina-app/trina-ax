@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:08
 - Branch: `fix/connector-detail-like-app`
-- Status: in progress
+- Status: done
 - Where: `web/` (the Connectors pages in Settings and Admin). Why: the web app's own screens (see
   docs/REPOSITORY-RULES.md).
 - Version impact: patch. A lighter page with the same actions; no API, setting, permission or data change.
@@ -70,4 +70,15 @@ request-connector, skill-tool-counts, a11y, phone-*).
 
 ## Result
 
-(filled in at the end)
+- `web/src/components/integrations/ConnectionPage.tsx`: `ConnectionPage` (a connection) and `ListedServicePage` (a
+  listed service before it is connected), both on `AppDetail`, and the tools dialog with the switches.
+- `AppDetail.tsx` additions only: `AppTool.off`, `toolsNote`, `more` (extra details rows, `Detail` and `ExtLink`
+  exported), `abilities`; rows without a value are left out. Google's pages look the same as before.
+- `ConnectorsView.tsx`: `ConnectorDetail` removed. `IntegrationRow.tsx`: the row component removed; the actions hook,
+  `SignInPanel` (no side margins now) and `AudienceChip` stay.
+- Callers: `pages/Connectors.tsx` (listed, own and team connection pages; `MineRows` removed) and
+  `pages/admin/Integrations.tsx` (listed and team pages, Team settings › Who can use it).
+- Differs from the plan: more than 12 tools show the first 12 chips with "Show all N" (Higgsfield has 186); the About
+  texts lost their "asks first" sentence (the line under them says it); the "Official" mark is gone (the line says
+  "By <service>"); "Nobody can use it yet" shows once, in Who can use it.
+- DECISIONS entry "A listed service's and a connection's page look like the Google connectors' pages".

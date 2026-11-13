@@ -1,28 +1,17 @@
-// One external-service connection in a list (Settings > External services, Admin > External services): one line with
-// the name, kind or what is wrong (it failed, or, connected, its last check failed), its state, and in Admin whether
-// nobody or not the admin looking at it may use it. A click opens the
-// rest: the address, which tool list the AI keeps using, the stored key or signed-in account (never the key itself),
-// last use, the MCP server's tools (with a switch each for whoever manages it, like Claude's connector tools: a tool
-// turned off is not offered to the AI, server/src/integrations/connections/tools.ts; tools the service adds later are
-// on), and for people who manage it check again / sign in / edit / delete. Signing in stays on the line while it is what
-// the connection needs. Signing in (MCP OAuth) opens the service's page in a window reserved during the click and polls
-// the flow until the server has the tokens. In the phone app a connection is changed on a computer: its row keeps its
-// state, Check again and Delete (44 px), with no Edit.
-import clsx from 'clsx'
-import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+// What every external-service connection's page needs (ConnectionPage.tsx; Settings › Connectors and Admin ›
+// Connectors): signing in at the service (MCP OAuth: the service's page opens in a window reserved during the click, and
+// the flow is polled until the server has the tokens), check again, delete, a tool on or off, the person's own Always
+// allow ended, what follows a save (useIntegrationActions); who may use a team connection as one chip (AudienceChip);
+// and the panel of a sign-in under way (SignInPanel). The connection's own line in a list was ConnectorsView.tsx
+// ConnectorRow; its page with these actions is ConnectionPage.tsx (until 2026-11-13 an expandable row here).
+import { useEffect, useRef, useState } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { connectorFor } from '../../lib/connectors'
-import { formatDateTime } from '../../lib/format'
-import { audienceOf, authorizationUrl, canSignIn, flowReasonKey, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
-import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { ConnectorLogo } from './ConnectorsView'
-import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
-import { Tooltip } from '../Tooltip'
+import { Badge, Button, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. Nor in the desktop app, whose window handler refuses a blank
@@ -259,200 +248,11 @@ export function AudienceChip({ access, groups, users }: { access: IntegrationAcc
   )
 }
 
-export function IntegrationRow({ i, actions, onEdit, readOnly, state, audience, alert, extra }: {
-  i: Integration
-  actions: IntegrationActions
-  onEdit: () => void
-  /** no managing here, even for whoever may (Settings' "From <team>": an admin manages them in Admin › Connectors) */
-  readOnly?: boolean
-  /** what this person gets, on the right instead of the connection's state (Settings' "From <team>": Ready, Off for you) */
-  state?: ReactNode
-  /** right after the name (Admin: who may use it, AudienceChip) */
-  audience?: ReactNode
-  /** a warning that stays on the line, not in the details (Admin: nobody may use it, or not the admin looking at it) */
-  alert?: ReactNode
-  /** more lines under the details (Admin: who may use it) */
-  extra?: ReactNode
-}) {
-  const t = useT()
-  const locale = useLocale()
-  const [details, setDetails] = useState(false)
-  const [open, setOpen] = useState(false)
-  const detailsId = useId()
-  const toolsId = useId()
-  const manage = i.canManage && !readOnly
-  const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
-  const checking = actions.checking === i.id
-  const phone = !!mobileApp()
-  const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
-  const listed = connectorFor(i.url)
-  // the line under the name: what a known service does ("Search, read and update your pages…"), the kind ("MCP server",
-  // "API") only for one added by its address, which only owners and admins add (docs/DECISIONS.md "Plain words for
-  // members")
-  const kindLabel = listed ? t(`integrations.catalog.${listed.id}`) : t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
-  const off = i.tools.filter((x) => x.enabled === false).length
-  const short = toolsShortfall(i)
-  const note = lastCheckNote(i)
-  const failing = !!i.lastError && i.status !== 'connected'
-  const meta: string[] = []
-  if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
-  if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
-  // a call that failed counts as tried (the server keeps when): while it is failing the line says "Last tried", and
-  // "Not used yet" only when nothing was ever tried
-  meta.push(i.lastUsedAt ? t(failing ? 'integrations.lastTried' : 'integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
-  const signInButton = manage && canSignIn(i) && !phone && !flow && (
-    <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
-      <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
-    </Button>
-  )
-  return (
-    <li className="py-1" data-testid="integration-row" data-name={i.name} data-scope={i.scope} data-status={i.status}>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-expanded={details}
-          aria-controls={details ? detailsId : undefined}
-          onClick={() => setDetails((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
-          data-testid="integration-toggle"
-        >
-          {listed ? <ConnectorLogo c={listed} className="size-9" /> : (
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted">
-              <KindIcon size={16} aria-hidden />
-            </span>
-          )}
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
-              {audience}
-              {(i.writePolicy === 'allow' || i.alwaysAllowedByMe) && <Badge tone="warn">{t(i.scope === 'team' && i.writePolicy === 'allow' ? 'integrations.write.allow' : 'integrations.alwaysAllow.badge')}</Badge>}
-              {alert}
-            </span>
-            <span className={clsx('mt-0.5 block truncate text-xs', failing ? 'text-danger' : note ? 'text-warn' : 'text-muted')} title={i.lastError ?? undefined}>
-              {i.lastError ?? kindLabel}
-            </span>
-          </span>
-          {state ?? (i.status === 'connected' ? (
-            <Tooltip label={t('integrations.status.connected')}>
-              <span className="flex shrink-0 items-center text-ok">
-                <Check size={16} aria-hidden />
-                <span className="sr-only">{t('integrations.status.connected')}</span>
-              </span>
-            </Tooltip>
-          ) : (
-            // beside a sign-in button a phone's width goes to the name: the button says the same
-            <Badge tone={STATUS_TONE[i.status]} className={clsx('shrink-0', signInButton && 'max-sm:hidden')}>{t(`integrations.status.${i.status}`)}</Badge>
-          ))}
-          <ChevronDown size={15} className={clsx('shrink-0 text-faint transition-transform', details && 'rotate-180')} aria-hidden />
-        </button>
-        {i.status === 'needs_auth' && signInButton}
-      </div>
-      {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-      {details && (
-        <div id={detailsId} className="pr-2 pb-3 pl-2 sm:pl-14" data-testid="integration-details">
-          <p className="text-xs break-all text-faint">{i.url}</p>
-          {failing && (
-            <p className="mt-1 text-xs break-words text-danger" data-testid="integration-error">
-              {i.lastError}
-            </p>
-          )}
-          {note && (
-            <p className="mt-1 text-xs break-words text-warn" data-testid="integration-check-failed">
-              {t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}
-            </p>
-          )}
-          <p className="mt-1 text-xs text-muted" data-testid="integration-meta">
-            {meta.join(' · ')}
-          </p>
-          {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
-          {/* the person's own Always allow (a write card's choice): what it means, and the way back (QA TC-130) */}
-          {(i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')) && (
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5" data-testid="integration-always-allow">
-              <p className="min-w-0 flex-[1_1_16rem] text-xs text-muted">{t('integrations.alwaysAllow.line')}</p>
-              {(i.alwaysAllowedByMe || manage) && (
-                <Button size="sm" className={phone ? 'touch-hit' : undefined} onClick={() => void actions.askAgain(i)} data-testid="integration-always-allow-stop">
-                  {t('integrations.alwaysAllow.stop')}
-                </Button>
-              )}
-            </div>
-          )}
-          {manage && canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
-          {extra}
-          {manage && (
-            <div className="mt-2 flex flex-wrap items-center gap-1">
-              {i.status !== 'needs_auth' && signInButton}
-              <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
-                <RefreshCw size={14} className={clsx(checking && 'animate-spin')} aria-hidden /> {t('integrations.refresh')}
-              </Button>
-              {!phone && (
-                <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
-                  <Pencil size={15} />
-                </IconButton>
-              )}
-              <IconButton label={t('integrations.delete', { name: i.name })} danger className={phone ? 'touch-hit' : undefined} onClick={() => void actions.remove(i)} data-testid="integration-delete">
-                <Trash2 size={15} />
-              </IconButton>
-            </div>
-          )}
-          {i.kind === 'mcp' && (i.tools.length > 0 || i.status === 'connected') && (
-            <div className="mt-2">
-              <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
-                {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-                {short ? t(short === 'integrations.toolsCappedMore' ? 'integrations.toolsOfMore' : 'integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
-                {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
-              </button>
-              {open && (
-                <div id={toolsId} className="mt-2">
-                  {!i.tools.length ? (
-                    <p className="text-xs text-faint">{t('integrations.noTools')}</p>
-                  ) : (
-                    <ul className="divide-y divide-line rounded-lg border border-line" data-testid="integration-tools">
-                      {i.tools.map((x) => {
-                        const on = x.enabled !== false
-                        return (
-                          <li key={x.name} className="flex items-start gap-3 px-3 py-2 text-xs" data-testid="integration-tool" data-read-only={x.readOnly ? 'true' : 'false'} data-enabled={on ? 'true' : 'false'}>
-                            <div className="min-w-0 flex-1">
-                              <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
-                                {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
-                                {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
-                                {!on && !manage && <Badge>{t('integrations.toolOff')}</Badge>}
-                              </p>
-                              {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
-                            </div>
-                            {manage && (
-                              <span className="shrink-0 pt-0.5">
-                                {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
-                                <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
-                                  onChange={(v) => void actions.setTool(i, x.name, v)} testId="integration-tool-switch" />
-                              </span>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                  <p className="mt-1.5 text-xs text-faint">
-                    {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
-                    {i.tools.length > 0 && `${t(manage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
-                    {t('integrations.toolsHint')}
-                    {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </li>
-  )
-}
-
 export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: () => void; onCancel: () => void }) {
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
-    <div className="mx-2 mt-1 mb-2 space-y-2 rounded-xl border border-line bg-subtle p-3 text-sm sm:ml-14" data-testid="integration-signin">
+    <div className="space-y-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="integration-signin">
       {failed ? (
         <p role="alert" className="text-danger">
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}

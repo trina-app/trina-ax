@@ -40,7 +40,7 @@ test('TC-267 step 1: Connectors › a connector is a page of its own; ‹ and Ba
   await expect(bar(page)).toHaveText('Gmail')
   await expect(backLabel(page)).toHaveText(t['admin.team.integrations'])
   // the bar's ‹ is the way back: the card's own "← Connected apps" is not shown
-  await expect(page.getByTestId('connector-back')).toBeHidden()
+  await expect(page.getByTestId('app-breadcrumb')).toBeHidden()
   await page.getByTestId('admin-back').click()
   await expect(page).toHaveURL(/\/admin\/connectors$/)
   await expect(page.getByTestId('connector-discover')).toBeVisible()

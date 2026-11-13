@@ -294,14 +294,16 @@ async function auditIntegrations(page: Page, where: string) {
   await page.goto('/connectors')
   await expect(page.getByTestId('connected-apps')).toBeVisible()
   await audit(page, `connectors${where}`)
-  // a connection's own page, its row open with its tools
+  // a connection's own page, then its tools with their switches
   await page.locator('[data-testid="connected-app"]').filter({ hasText: 'Linear' }).click()
-  await expect(page.getByTestId('integrations-mine')).toBeVisible()
-  await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
-  await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
+  await expect(page.getByTestId('connector-detail')).toBeVisible()
   await audit(page, `connectors, a connection${where}`)
-  // the page's own ← on a computer, the phone bar's ‹ on a phone
-  await page.locator('[data-testid="connector-back"]:visible, [data-testid="settings-back"]:visible').first().click()
+  await page.getByTestId('connector-detail').getByTestId('integration-tools-toggle').click()
+  await expect(page.getByTestId('integration-tools')).toBeVisible()
+  await audit(page, `connectors, a connection's tools${where}`)
+  await page.getByTestId('integration-tools-done').click()
+  // the page's way back on a computer, the phone bar's ‹ on a phone
+  await page.locator('[data-testid="app-breadcrumb-connectors"]:visible, [data-testid="settings-back"]:visible').first().click()
   // Popular is on the same page, under the connected apps
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)
@@ -317,8 +319,8 @@ async function auditIntegrations(page: Page, where: string) {
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
   await page.locator('[data-testid="connected-app"]').filter({ hasText: 'AI PM' }).click()
-  await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-toggle').click()
-  await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-edit').click()
+  await page.getByTestId('connector-detail').getByTestId('connection-menu').click()
+  await page.getByTestId('connector-detail').getByTestId('integration-edit').click()
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   await audit(page, `integration edit${where}`)
   await page.keyboard.press('Escape')
@@ -328,9 +330,9 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-access-warning').first()).toBeVisible()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
-  // a team connection's page, with its audience chip
+  // a team connection's page, with who may use it
   await page.getByTestId('team-connection').filter({ hasText: 'Company PM' }).getByTestId('connector-row-open').click()
-  await expect(page.getByTestId('integration-audience').first()).toBeVisible()
+  await expect(page.getByTestId('team-who')).toBeVisible()
   await audit(page, `admin/integrations, a team connection${where}`)
   await page.goto('/admin/connectors')
   // a phone has no Add: adding a service by its address is a computer's job (Discover's line says so)

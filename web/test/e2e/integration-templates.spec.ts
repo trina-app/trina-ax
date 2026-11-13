@@ -80,16 +80,15 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await page.getByTestId('integration-answer-connect').click()
   // the template's version as Bob saw it goes along: changed since, the server refuses (409)
   expect((await sent).postDataJSON()).toEqual({ secret: KEY, writePolicy: 'ask', version: 1 })
-  // it is Bob's own connection now, still with the Team label, Connected; its page has its row
+  // it is Bob's own connection now, still with the Team label, Connected; its page has ⋯ with what he may do
   await expect(joined(page).filter({ hasText: 'Tasks' }).getByTestId('connector-row-status')).toHaveText('Connected')
   await expect(group.getByTestId('template-row')).toHaveCount(0)
   await joined(page).filter({ hasText: 'Tasks' }).click()
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
-  const conn = page.getByTestId('integration-row').filter({ hasText: 'Tasks' })
-  await expect(conn).toHaveAttribute('data-scope', 'personal')
+  const conn = page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name: 'Tasks' }) })
   // editing it: only the key and the write rule are his
-  await conn.getByTestId('integration-toggle').click()
-  await conn.getByRole('button', { name: /Edit/ }).click()
+  await conn.getByTestId('connection-menu').click()
+  await conn.getByTestId('integration-edit').click()
   await expect(page.getByTestId('integration-from-team')).toBeVisible()
   await expect(page.getByTestId('integration-name')).toHaveCount(0)
   await expect(page.getByTestId('integration-url')).toHaveCount(0)
@@ -175,10 +174,10 @@ test('a member can disconnect; at phone width the group and Connect still work',
   await expect(joined(page)).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await joined(page).click()
-  const conn = page.getByTestId('integration-row')
+  const conn = page.getByTestId('connector-detail')
   await expect(conn).toHaveCount(1)
-  await conn.getByTestId('integration-toggle').click()
-  await conn.getByRole('button', { name: /Delete|Disconnect/ }).first().click()
+  await conn.getByTestId('connection-menu').click()
+  await conn.getByTestId('integration-delete').click()
   await page.getByRole('button', { name: 'Delete' }).last().click()
   // back on the list, to Connect
   await expect(page).toHaveURL(/\/connectors$/)
@@ -370,5 +369,5 @@ test('a sign-in template connected but never signed in says "Sign-in needed" on 
   // its page says the same
   await line.getByTestId('connector-row-status').click()
   await expect(page).toHaveURL(/\/connectors\/mcp\//)
-  await expect(page.getByTestId('integration-row').filter({ hasText: 'Docs' })).toHaveAttribute('data-status', 'needs_auth')
+  await expect(page.getByTestId('connector-detail').filter({ has: page.getByRole('heading', { name: 'Docs' }) })).toHaveAttribute('data-state', 'needs_auth')
 })
