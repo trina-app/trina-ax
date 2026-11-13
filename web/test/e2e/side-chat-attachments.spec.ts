@@ -63,7 +63,7 @@ test('the box: send is the room box\'s round ↑, named 보내기 with its toolt
   await page.emulateMedia({ colorScheme: 'light' })
   const side = await openSide(page)
   // the empty line says who sees the side chat; the line under the box is gone
-  await expect(side.getByTestId('side-chat-empty')).toContainText('이 대화는 나만 봐요')
+  await expect(side.getByTestId('side-chat-empty')).toContainText('묻고 답한 내용은 나만 봐요')
   await expect(side.getByText('나만 볼 수 있어요')).toHaveCount(0)
   const send = side.getByRole('button', { name: '보내기', exact: true })
   await expect(send).toHaveAttribute('data-testid', 'side-chat-send')

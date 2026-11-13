@@ -8,6 +8,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { activityRows, openNotice } from './nav'
 
 const ko = (k: MessageKey, p?: Params) => translate('ko', k, p)
 
@@ -75,8 +76,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('handover-card')).toHaveCount(0)
 
-  await page.goto('/activity')
-  const row = page.getByTestId('notification-item').filter({ hasText: '김팀장 대표님에게 보낸 팀장 링크로' })
+  const row = await openNotice(page, '김팀장 대표님에게 보낸 팀장 링크로')
   await expect(row).toContainText("'박민준'(아이디 minjun)님이 ")
   await expect(row).toContainText('팀장을 넘길까요?')
   await row.getByTestId('handover-notice-open').click()
@@ -104,7 +104,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   // the window that pressed it says it once (the realtime notice that follows is not toasted again)
   await expect(page.getByTestId('toast').filter({ hasText: '팀장이 박민준님으로 바뀌었어요' })).toHaveCount(0)
   // my own Inbox: the notice it went to; no [넘기기] any more
-  await expect(page.getByTestId('notification-item').filter({ hasText: '박민준님이 팀장이 되었어요 · 나는 관리자예요' })).toHaveCount(1)
+  await expect((await activityRows(page)).filter({ hasText: '박민준님이 팀장이 되었어요 · 나는 관리자예요' })).toHaveCount(1)
   await expect(row).toContainText('지금은 넘길 수 없어요')
   await expect(row.getByTestId('handover-notice-open')).toHaveCount(0)
   // an admin now: the owner-only settings are read-only
@@ -112,8 +112,7 @@ test('flag an invite, the lead joins, the card, ✕ keeps the Inbox notice, hand
   await expect(page.getByLabel('팀 이름')).toBeDisabled()
 
   // the new owner: told in the Inbox, with what was ended, [내보내기] and the setup to go on with
-  await p2.goto('/activity')
-  const told = p2.getByTestId('notification-item').filter({ hasText: 'Olga님이 팀장을 넘겼어요 · Olga님은 관리자로 남아 있어요' })
+  const told = await openNotice(p2, 'Olga님이 팀장을 넘겼어요 · Olga님은 관리자로 남아 있어요')
   await expect(told).toContainText('끊은 연결: 팀 AI 1개')
   await expect(told.getByTestId('handover-notice-setup')).toHaveAttribute('href', '/welcome')
   await told.getByTestId('handover-notice-remove').click()

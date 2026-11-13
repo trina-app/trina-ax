@@ -1,8 +1,8 @@
 // Pinned conversations in the browser (docs/DECISIONS.md "Pinned conversations"; components/rooms/RoomMenu.tsx,
 // SidebarRooms.tsx, pages/Rooms.tsx): 상단에 고정 from a sidebar row's "⋯" and from a right-click moves the room to the
 // top with the pin after its name, the most recently pinned first, and it stays after a reload; 고정 해제 puts it back
-// in its place by activity; hiding a pinned room unpins it and the undo pins it again. The conversations page: the
-// AI's row first, then the pins, then the others; on a phone the 대화 tab has the pins first and a long press pins.
+// in its place by activity; hiding a pinned room unpins it and the undo pins it again. The conversations page on a
+// computer says to pick one beside the 대화 panel; on a phone the 대화 tab has the pins first and a long press pins.
 // The rooms are answered through page.route (rooms-mock.ts routeRooms). With SHOTS_DIR set, the last tests save the
 // sidebar with two pins at 1440 and the 대화 tab at 390 (light).
 import fs from 'node:fs'
@@ -92,28 +92,23 @@ test('sidebar: 상단에 고정 from a row\'s "⋯" and from a right-click moves
   await expect(sidebarRow(page, '박지우').getByTestId('room-pin-icon')).toHaveCount(1)
 })
 
-test('the conversations page: the 트리나 row first, then the pins (the most recently pinned first), then the others', async ({ page }) => {
+test('the conversations page: on a computer it says to pick one beside the 대화 panel, whose list has the pins first (the most recently pinned first), then the others', async ({ page }) => {
   const state = await start(page, PINNED)
+  // the list is the 대화 panel's (the page's own rows are a phone's 대화 tab, below); the AI's row left with the room's
+  // @트리나 (the AI is the side chat beside a room)
   await page.goto('/rooms')
-  const rows = page.getByTestId('rooms-row')
-  await expect(rows).toHaveCount(7)
-  // the AI's row is the list's very first row
-  const first = page.locator('[data-testid="rooms-page"] ul > li').first()
-  await expect(first.getByTestId('rooms-ai')).toBeVisible()
-  const names = ['전체', '영업팀', '디자인 리뷰', '김소라', '개발팀', '박지우', '마케팅 주간회의']
-  for (const [i, n] of names.entries()) await expect(rows.nth(i)).toContainText(n)
-  await expect(rows.nth(0).getByTestId('room-pin-icon')).toBeVisible()
-  await expect(rows.nth(1).getByTestId('room-pin-icon')).toBeVisible()
-  await expect(page.getByTestId('room-pin-icon')).toHaveCount(4)
+  await expect(page.getByTestId('rooms-pick')).toBeVisible()
+  await expect(page.getByTestId('rooms-row')).toHaveCount(0)
+  await showRooms(page)
+  await expect.poll(() => sidebarOrder(page)).toEqual(['전체', '영업팀', '개발팀', '디자인 리뷰', '마케팅 주간회의', '김소라', '박지우'])
+  await expect(sidebarRow(page, '전체').getByTestId('room-pin-icon')).toBeVisible()
+  await expect(sidebarRow(page, '영업팀').getByTestId('room-pin-icon')).toBeVisible()
+  await expect(page.getByTestId('room-pin-icon')).toHaveCount(2)
 
-  // pinned from its row's right-click: right under the AI's row
-  await rows.filter({ hasText: '마케팅 주간회의' }).click({ button: 'right' })
+  // pinned from its row's right-click: on top
+  await roomRowLink(sidebarRow(page, '마케팅 주간회의')).click({ button: 'right' })
   await page.getByTestId('room-menu-pin').click()
   await expect.poll(() => state.pinned).toEqual([{ roomId: GROUP2, pinned: true }])
-  await expect(rows.nth(0)).toContainText('마케팅 주간회의')
-  await expect(first.getByTestId('rooms-ai')).toBeVisible()
-  // the sidebar has the same order
-  await showRooms(page)
   await expect.poll(async () => (await sidebarOrder(page)).slice(0, 3)).toEqual(['마케팅 주간회의', '전체', '영업팀'])
 })
 

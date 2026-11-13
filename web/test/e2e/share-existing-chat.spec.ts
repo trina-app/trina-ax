@@ -124,7 +124,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
       await expect(ask).toBeVisible()
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveText('개인 메모리를 참고한 답이 있을 수 있어요')
       // 공유하기 is the default; the note comes first, before anything else in the dialog's body
       await expect(ask.getByTestId('share-chat-confirm')).toBeFocused()
@@ -162,7 +162,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await dialog.getByText('프로젝트 멤버와 공유', { exact: true }).click()
       await dialog.getByTestId('chat-project-save').click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       // the row went under its project meanwhile; the question is still there
       await expect(list.getByRole('heading', { name: 'Launch' })).toBeVisible()
       await expect(ask).toBeVisible()
@@ -218,7 +218,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'chat menu with share')
       await item.click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
-      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
       await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
       // asked again when something changed meanwhile, said so on top
       expect((await post(page, '/__test/share-changed', {})).ok()).toBeTruthy()

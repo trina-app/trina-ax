@@ -5758,7 +5758,12 @@ export class MockServer {
       const out = base(c) as { status: number; body: Chat }
       this.chatOwners.set(out.body.id, c.user.id)
       const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
-      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
+      // a new chat is told to my windows, as the server does (routes/chats.ts createChat: publishChat 'created'), so the
+      // 트리나 list reads its groups again and shows the chat while its first answer runs
+      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) {
+        this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
+        return out
+      }
       this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
       this.publish({ type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } })
       return { ...out, body: view(out.body, c.user) }

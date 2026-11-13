@@ -194,6 +194,11 @@ export async function navLists(page: Page, place: Place = 'trina'): Promise<Loca
   return showPanel(page, place)
 }
 
+/** Where the navigation ends on a computer: the right edge of the rail, or of its list panel while one shows (a big
+ * side panel or the page fills what is right of it). */
+export const navRight = (page: Page) =>
+  page.evaluate(() => Math.round(Math.max(...[document.querySelector('[data-testid="rail"]'), document.getElementById('rail-panel')].map((e) => e?.getBoundingClientRect().right ?? 0))))
+
 /** The navigation's top on a computer (to check it stays put): the rail. */
 export const navTop = (page: Page) => page.getByTestId('rail')
 
@@ -265,6 +270,18 @@ export async function openFilesPlace(page: Page, where: 'recent' | 'root' | 'min
 /** The 활동 list's notice rows (the 활동 panel beside the rail). */
 export async function activityRows(page: Page): Promise<Locator> {
   return (await showPanel(page, 'activity')).getByTestId('activity-panel-row')
+}
+
+/** Open a notice from 활동 as a person does and return it as the page shows it (`notification-item`, with its buttons):
+ * on a computer the 활동 panel's row, which opens it beside the list (one with buttons of its own, a handover's or an
+ * ask's, opens as itself: `/activity?n=<id>`); on a phone the 활동 page, where each notice is its whole row. */
+export async function openNotice(page: Page, text: string | RegExp): Promise<Locator> {
+  if (isPhone(page)) {
+    await page.goto('/activity')
+    return page.getByTestId('notification-item').filter({ hasText: text })
+  }
+  await (await activityRows(page)).filter({ hasText: text }).first().click()
+  return page.getByTestId('activity-opened').getByTestId('notification-item')
 }
 
 /** The 활동 count: the rail's 활동 mark; on a phone the 나 tab's. It leaves out mentions, threads and DMs (they are 대화's). */

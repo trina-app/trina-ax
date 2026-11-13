@@ -28,7 +28,7 @@ async function rejectedAnswer(page: Page, locale: 'ko' | 'en' | 'id', hidden = f
   await summary.getByRole('button').first().click()
   await expect(summary).toContainText(translate(locale, hidden ? 'files.summary.rejectedHidden' : 'files.summary.rejectedLine', { path: SHOWN }))
   await expect(summary).not.toContainText(reason)
-  return summary.getByRole('button', { name: translate(locale, 'files.summary.askOwnFolder'), exact: true })
+  return summary.getByRole('button', { name: translate(locale, 'files.summary.askOwnFolderFiles'), exact: true })
 }
 
 async function mutations(page: Page) {
@@ -39,7 +39,7 @@ async function mutations(page: Page) {
 for (const locale of ['ko', 'en', 'id'] as const) {
   test(`${locale}: retry prepares and focuses a draft, preserves attachments, and sends only explicitly`, async ({ page }) => {
     const retry = await rejectedAnswer(page, locale)
-    const request = translate(locale, 'files.summary.askOwnFolderPrompt', { path: SHOWN })
+    const request = translate(locale, 'files.summary.askOwnFolderPromptFiles', { path: SHOWN })
     const before = await mutations(page)
     await retry.click()
     await expect(input(page)).toHaveValue(request)
@@ -79,7 +79,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const retry = await rejectedAnswer(page, locale, true, reason)
     const before = await mutations(page)
     await retry.click()
-    await expect(input(page)).toHaveValue(translate(locale, 'files.summary.askOwnFolderHiddenPrompt'))
+    await expect(input(page)).toHaveValue(translate(locale, 'files.summary.askOwnFolderHiddenPromptFiles'))
     await expect(input(page)).toBeFocused()
     await expect(messages(page)).not.toContainText(reason)
     await expect(messages(page)).not.toContainText('finance/2026/q3.csv')
@@ -98,7 +98,7 @@ test('recovery stays disabled during a running turn and works after Stop', async
   await expect(retry).toBeEnabled()
   const before = await mutations(page)
   await retry.click()
-  await expect(input(page)).toHaveValue('Keep this for later\n\n' + translate('en', 'files.summary.askOwnFolderPrompt', { path: SHOWN }))
+  await expect(input(page)).toHaveValue('Keep this for later\n\n' + translate('en', 'files.summary.askOwnFolderPromptFiles', { path: SHOWN }))
   await expect(input(page)).toBeFocused()
   expect(await mutations(page)).toEqual(before)
 })
@@ -119,7 +119,7 @@ test('preparing a request preserves an upload in progress', async ({ page }) => 
     const before = await mutations(page)
     await retry.click()
     await expect(input(page)).toBeFocused()
-    await expect(input(page)).toHaveValue('Keep pending attachment\n\n' + translate('en', 'files.summary.askOwnFolderPrompt', { path: SHOWN }))
+    await expect(input(page)).toHaveValue('Keep pending attachment\n\n' + translate('en', 'files.summary.askOwnFolderPromptFiles', { path: SHOWN }))
     await expect(page.getByTestId('attachment-chip')).toContainText('pending.txt')
     expect(await mutations(page)).toEqual(before)
     release()
