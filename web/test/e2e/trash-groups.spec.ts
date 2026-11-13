@@ -125,3 +125,29 @@ test('a member who shares a folder sees the switch; another person’s personal 
   await page.getByRole('tab', { name: t['files.trashMine'] }).click()
   await expect(page.getByText(t['files.trashMineEmpty'])).toBeVisible()
 })
+
+test('another person’s personal delete is never listed, not even to the owner or an admin; its owner sees it under My files', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await as(page, MEMBER)
+  await put(page, 'users/bob/notes/todo.md')
+  await trash(page, 'users/bob/notes/todo.md')
+  await put(page, 'shared/Sales/price-sheet.xlsx')
+  await trash(page, 'shared/Sales/price-sheet.xlsx')
+  for (const who of [{ username: 'olga', password: 'correct horse battery' }, ADMIN]) {
+    await as(page, who)
+    await page.goto('/files')
+    await openFilesPlace(page, 'trash')
+    // bob's team-folder delete shows (so the list has loaded), his personal one does not
+    await expect(item(page, 'shared/Sales/price-sheet.xlsx')).toContainText('Deleted by Bob')
+    await expect(item(page, 'users/bob/notes/todo.md')).toHaveCount(0)
+    await expect(page.getByTestId('trash-list')).not.toContainText('todo.md')
+    await expect(page.getByTestId('trash-list')).not.toContainText('Personal')
+    const listed = (await (await page.request.get('/api/files/trash')).json()).items as { originalPath: string }[]
+    expect(listed.map((x) => x.originalPath)).not.toContain('users/bob/notes/todo.md')
+  }
+  await as(page, MEMBER)
+  await page.goto('/files')
+  await openFilesPlace(page, 'trash')
+  await expect(item(page, 'users/bob/notes/todo.md').getByTestId('trash-where')).toHaveText('My files › notes')
+})
+

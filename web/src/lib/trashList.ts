@@ -19,7 +19,8 @@ export interface PlaceWords {
   root: string
   /** "My projects": users/<me>/projects, where the person's own projects keep their folders */
   myProjects: string
-  /** "Personal": someone else's users/<id> (the id is never shown) */
+  /** "Personal": a safe fallback for someone else's users/<id>, which the server never lists (trashVisible: nobody,
+   * the owner included, restores into another person's folder); should one come, the id is never shown */
   personal: string
 }
 
@@ -38,6 +39,7 @@ export function placeWords(dir: string, w: PlaceWords, sep = ' › '): string {
   const own = w.me ? `users/${w.me}` : null
   if (own && under(dir, `${own}/projects`)) return [w.myProjects, ...rest(dir, `${own}/projects`)].join(sep)
   const segs = dir.split('/')
+  // another person's folder: not listed by the server; a fallback that never shows the id
   if (segs[0] === 'users' && segs.length >= 2 && segs[1] !== w.me) return [w.personal, ...segs.slice(2)].join(sep)
   return w.words.crumbs(dir).map((c) => c.name).join(sep)
 }

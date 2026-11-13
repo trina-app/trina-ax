@@ -785,6 +785,13 @@ export class MockServer {
   allConfidential = false
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
+  /** a trash item the person sees and may restore (server trashVisible): write access to its original path, and never
+   * in another person's users/<id> (the mock's access() lets the owner write there; the server's trash does not) */
+  trashRestorable(path: string, user: User): boolean {
+    const s = path.split('/')
+    if (s[0] === 'users' && s.length >= 2 && s[1] !== user.id) return false
+    return this.access(path, user) === 'write'
+  }
   access(path: string, user: User): 'none' | 'read' | 'write' {
     if (path === '' ) return 'write'
     if ([...this.revoked].some((r) => path === r || path.startsWith(r + '/'))) return 'none'
@@ -2987,20 +2994,21 @@ export class MockServer {
       return { path: v.path, conflict: false, entry: this.entry(v.path, this.files.get(v.path)!, c.user) }
     },
     // like server/src/team-files/service.ts trash(): newest first, `mine` (deleted by the caller), only what the caller
-    // could restore (write access to the original path), pages by `cursor` (the last id of the page before)
+    // could restore (write access to the original path; another person's users/<id> never, for every role, the owner
+    // included: trashVisible), pages by `cursor` (the last id of the page before)
     trash: (c) => {
       const mine = c.query.mine === '1' || c.query.mine === 'true'
       const limit = Math.min(Number(c.query.limit ?? 50) || 50, 200)
       const all = [...this.trash]
         .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
-        .filter((x) => (!mine || x.deletedBy?.id === c.user.id) && this.access(x.originalPath, c.user) === 'write')
+        .filter((x) => (!mine || x.deletedBy?.id === c.user.id) && this.trashRestorable(x.originalPath, c.user))
         .filter((x) => !c.query.cursor || x.id < c.query.cursor)
       const page = all.slice(0, limit).map(({ node: _n, ...t }) => t)
       return { items: page, nextCursor: all.length > limit ? page[page.length - 1]!.id : null }
     },
     restoreTrash: (c) => {
       const t = this.trash.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      if (this.access(t.originalPath, c.user) !== 'write') fail('not_found', 404)
+      if (!this.trashRestorable(t.originalPath, c.user)) fail('not_found', 404)
       this.trash = this.trash.filter((x) => x.id !== t.id)
       // a taken name gets " (restored)" (the server: in the team's language), as another copy of it came back first
       const to = this.files.has(t.originalPath) ? t.originalPath.replace(/(\.[^./]+)?$/, (ext: string) => ` (restored)${ext}`) : t.originalPath
