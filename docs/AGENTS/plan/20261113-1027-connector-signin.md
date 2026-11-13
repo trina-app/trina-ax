@@ -92,4 +92,19 @@ Netlify, and a table over all 41 recorded catalog probes in `tests/fixtures/conn
 usable metadata on 2026-11-13. Which services the document fixes (Canva, Vercel, Railway and Indeed advertise it)
 can only be shown on the deployed server, which the services must be able to reach.
 
-PR: to be opened after review.
+Review changes (PR #734, requested by an independent review):
+- The limit: a new connection always needs fewer than 20 own connections that work (or have a key); a sign-in one also
+  fewer than 20 waiting. The callback refuses a first sign-in over 20 (`limit`, "remove one, then sign in again"), and
+  an edit that makes a connection stop or start waiting is checked too. The chat's connect card counts the same way
+  (`personalCounts`, `personalFull`).
+- The preflight reads at most 4 KB with bounded patterns (a 64 KB page of "<" took 1.17 s before); a refused try is a
+  failed flow, so it counts toward the 20 sign-in tries an hour.
+- Reusing a waiting connection applies the new name, notes and write rule; a different short name makes a new one.
+- Registration: only 400, 403 or an `invalid_redirect_uri` / `invalid_client_metadata` error mean "approved apps only";
+  429 is `oauth_busy`; others keep `oauth_unsupported`.
+- Only a clear refusal (the redirect address or the client named) stops a sign-in without a metadata document; a stored
+  app that is refused gets one fresh registration first.
+- The document answers 404 at a host that is not a configured public address; `Cache-Control: private`.
+- `answerForTests` documents that it answers before the name lookup (offline tests only).
+
+PR: https://github.com/trina-app/trina-ax/pull/734

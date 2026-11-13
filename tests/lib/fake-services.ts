@@ -110,8 +110,10 @@ export class FakeServices {
    * registration's answer status instead of registering (403 Figma, 400 Vercel); `refuseRegistered`, its sign-in page
    * answers 400 "Invalid redirect URI." for a registered app (Canva); `metadata`, it says it takes a client metadata
    * document and its sign-in page takes one (`metadataRefused`: says so, but refuses it); `page`, the sign-in page's
-   * answer instead of all that (a challenge, a slow page); `noRegistration`, no registration address at all */
-  strict: { register?: number | null; refuseRegistered?: boolean; metadata?: boolean; metadataRefused?: boolean; noRegistration?: boolean; page?: (() => Promise<Response>) | null } = {}
+   * answer instead of all that (a challenge, a slow page); `noRegistration`, no registration address at all;
+   * `registerError`, the error code the refused registration names (invalid_redirect_uri unless set); `refuseClients`,
+   * registered apps the sign-in page refuses (one that stopped being accepted) */
+  strict: { register?: number | null; registerError?: string; refuseRegistered?: boolean; refuseClients?: Set<string>; metadata?: boolean; metadataRefused?: boolean; noRegistration?: boolean; page?: (() => Promise<Response>) | null } = {}
   /** requests to this path wait until `until` settles (a service slow to answer: a test holds a check open while it
    * does something else, then lets it go on). Keep it under net()'s timeoutMs. */
   hold: { path: string; until: Promise<void> } | null = null
@@ -304,7 +306,7 @@ export class FakeServices {
       ...(this.strict.metadata || this.strict.metadataRefused ? { client_id_metadata_document_supported: true } : {}),
     })
     if (p === '/as-strict/register' && req.method === 'POST') {
-      if (this.strict.register) return Response.json({ error: 'invalid_redirect_uri', error_description: 'redirect_uri not in allowlist' }, { status: this.strict.register })
+      if (this.strict.register) return Response.json({ error: this.strict.registerError ?? 'invalid_redirect_uri', error_description: 'refused' }, { status: this.strict.register })
       const j = JSON.parse(body)
       const id = 'client-' + crypto.randomBytes(4).toString('hex')
       this.clients.set(id, { redirectUris: j.redirect_uris })
@@ -314,7 +316,7 @@ export class FakeServices {
       if (this.strict.page) return this.strict.page()
       const id = u.searchParams.get('client_id') ?? ''
       if (metadataClient(id)) return this.strict.metadata ? new Response('<html><body>Sign in</body></html>', { headers: { 'content-type': 'text/html' } }) : new Response('Invalid client_id', { status: 400 })
-      if (this.strict.refuseRegistered) return new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })
+      if (this.strict.refuseRegistered || this.strict.refuseClients?.has(id)) return new Response('Invalid redirect URI.', { status: 400, headers: { 'content-type': 'text/plain' } })
       return new Response('<html><body>Sign in</body></html>', { headers: { 'content-type': 'text/html' } })
     }
     if (p === '/.well-known/oauth-authorization-server/as') return Response.json({

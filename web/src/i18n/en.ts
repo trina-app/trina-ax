@@ -3178,6 +3178,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.signIn.reason.changed': "The connection’s settings changed while you were signing in. Sign in again.",
   'integrations.signIn.reason.superseded': "A newer sign-in was started for this connection. Finish that one, or sign in again.",
   'integrations.signIn.reason.exchange': "The service did not finish the sign-in. Try again.",
+  'integrations.signIn.reason.limit': "You already have as many working connections of your own as you can. Remove one, then sign in again.",
   'integrations.signIn.expired': 'The sign-in timed out. Please try again.',
   'integrations.signIn.badUrl': 'The sign-in address the service sent is not safe, so it was not opened.',
   'integrations.signIn.phone': 'Sign in from a computer, in a browser or the desktop app.',

@@ -3177,6 +3177,7 @@ export const ko = {
   'integrations.signIn.reason.changed': "로그인하는 동안 연결 설정이 바뀌었어요. 다시 로그인해 주세요.",
   'integrations.signIn.reason.superseded': "이 연결에 새 로그인이 시작됐어요. 그 로그인을 마치거나 다시 로그인해 주세요.",
   'integrations.signIn.reason.exchange': "서비스가 로그인을 마무리하지 못했어요. 다시 시도해 주세요.",
+  'integrations.signIn.reason.limit': "작동하는 내 연결이 이미 최대 개수예요. 하나를 지운 뒤 다시 로그인해 주세요.",
   'integrations.signIn.expired': '로그인 시간이 지났어요. 다시 시도해 주세요.',
   'integrations.signIn.badUrl': '서비스가 보낸 로그인 주소가 안전하지 않아서 열지 않았어요.',
   'integrations.signIn.phone': '로그인은 컴퓨터의 브라우저나 데스크톱 앱에서 해 주세요.',

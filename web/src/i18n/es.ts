@@ -3134,6 +3134,7 @@ export const es: Record<MessageKey, string> = {
   'integrations.signIn.reason.changed': "La configuración de la conexión cambió mientras iniciaba sesión. Vuelva a iniciar sesión.",
   'integrations.signIn.reason.superseded': "Se inició un inicio de sesión más reciente para esta conexión. Termínelo o vuelva a iniciar sesión.",
   'integrations.signIn.reason.exchange': "El servicio no terminó el inicio de sesión. Vuelva a intentarlo.",
+  'integrations.signIn.reason.limit': "Ya tiene el máximo de conexiones propias que funcionan. Elimine una y vuelva a iniciar sesión.",
   'integrations.signIn.expired': "Se agotó el tiempo para iniciar sesión. Vuelva a intentarlo.",
   'integrations.signIn.badUrl': "La dirección de inicio de sesión enviada por el servicio no es segura, por lo que no se abrió.",
   'integrations.signIn.phone': "Inicie sesión desde una computadora, en un navegador o en la aplicación de escritorio.",

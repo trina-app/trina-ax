@@ -11,9 +11,10 @@ import { PRODUCT } from '@mycel/shared'
 import { catalogAt, officialService, SERVICE_CATALOG } from '../../shared/src/service-catalog'
 import { harness, withOwner, type Client, type Harness } from './a-lib'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
-import { integrationsOf, MAX_PERSONAL } from '../../server/src/integrations/connections/service'
+import { integrationsOf, MAX_PERSONAL, personalCounts, personalFull } from '../../server/src/integrations/connections/service'
+import { connectRows } from '../../server/src/chat/connect-service'
 import { getRow } from '../../server/src/integrations/connections/store'
-import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
+import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
 import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
 
@@ -68,7 +69,9 @@ describe('a service that lets only apps it approved sign in', () => {
     expect(r.body.error.message).toBe(approvedOnly.ko)
     expect(fake.seen.some((s) => s.method === 'GET' && s.path.startsWith('/as-strict/authorize?'))).toBe(true)
     // no flow waits for a sign-in that cannot finish
-    expect(h.ctx.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE integration_id = ?').get(c.id)).toEqual({ n: 0 })
+    expect(h.ctx.db.query("SELECT count(*) AS n FROM integration_oauth_flows WHERE integration_id = ? AND state = 'pending'").get(c.id)).toEqual({ n: 0 })
+    // the refused try is kept as a failed flow (it counts toward the tries of an hour)
+    expect(h.ctx.db.query('SELECT state, reason, secret_enc FROM integration_oauth_flows WHERE integration_id = ?').all(c.id)).toEqual([{ state: 'failed', reason: 'refused', secret_enc: null }])
   })
 
   test('the service takes a metadata document: its address is the client, through the token exchange and every refresh', async () => {
@@ -147,15 +150,79 @@ describe('a service that lets only apps it approved sign in', () => {
     fake.strict = { page: async () => { await Bun.sleep(1500); return new Response('late') } }
     const url = `${fake.base}/as-strict/authorize?client_id=x`
     const t = Date.now()
-    expect(await preflight(url, net)).toBe(false)
+    expect(await preflight(url, net)).toBe('pass')
     expect(Date.now() - t).toBeLessThan(1400)
     // a name that does not resolve
-    expect(await preflight('https://nowhere.test/authorize', net)).toBe(false)
-    // and what counts as a refusal
-    for (const [status, body, refused] of [[400, 'Bad Request', true], [401, '{"error":"invalid_client"}', true], [403, 'redirect_uri is not registered', true], [403, 'Forbidden', false], [500, 'Invalid redirect URI', false]] as const) {
+    expect(await preflight('https://nowhere.test/authorize', net)).toBe('pass')
+    // and what counts as a refusal: only one that names the redirect address or the client is clear
+    for (const [status, body, said] of [[400, 'Invalid redirect URI.', 'refused'], [400, 'Bad Request', 'unclear'], [401, '{"error":"invalid_client"}', 'refused'], [403, 'redirect_uri is not registered', 'refused'],
+      [403, 'Forbidden', 'pass'], [500, 'Invalid redirect URI', 'pass']] as const) {
       fake.strict = { page: async () => new Response(body, { status }) }
-      expect(await preflight(url, fake.net()), `${status} ${body}`).toBe(refused)
+      expect(await preflight(url, fake.net()), `${status} ${body}`).toBe(said)
     }
+  })
+
+  test('a plain 400 that names neither the redirect address nor the client: the sign-in goes on, or the document is offered', async () => {
+    fake.strict = { page: async () => new Response('Bad Request', { status: 400 }) }
+    const c = await strict()
+    const r = await authorize(c.id)
+    expect(r.status).toBe(200)
+    expect(clientOf(r)).toMatch(/^client-/)
+    // a service that takes a document gets it instead (its page takes the document)
+    fake.strict = { metadata: true }
+    let calls = 0
+    fake.strict.page = async () => (++calls === 1 ? new Response('Bad Request', { status: 400 }) : new Response('<html>Sign in</html>'))
+    const d = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Doc', url: `${fake.base}/mcp-strict?doc=1`, auth: 'oauth' }, PUBLIC)
+    expect(clientOf(await authorize(d.id))).toBe(DOC)
+  })
+
+  test('a stored app the sign-in page stops accepting: one fresh registration before giving up', async () => {
+    const c = await strict()
+    const r = await authorize(c.id, PUBLIC)
+    const cb = fake.authorize(r.body.authorizationUrl, `${fake.base}/as-strict`)
+    expect((await olga.raw('GET', callback(cb))).status).toBe(200)
+    const stored = clientOf(r)!
+    fake.strict = { refuseClients: new Set([stored]) }
+    const regs = fake.seen.filter((s) => s.path === '/as-strict/register').length
+    const again = await authorize(c.id)
+    expect(again.status).toBe(200)
+    expect(clientOf(again)).not.toBe(stored)
+    expect(fake.seen.filter((s) => s.path === '/as-strict/register').length).toBe(regs + 1)
+  })
+
+  test('registration answers: 400 and 403 (and an invalid_redirect_uri or invalid_client_metadata error) refuse the app; 429 is busy; others keep the old reason', async () => {
+    for (const [status, error, reason] of [[400, 'x', 'oauth_approved_apps_only'], [403, 'x', 'oauth_approved_apps_only'], [422, 'invalid_client_metadata', 'oauth_approved_apps_only'],
+      [404, 'invalid_redirect_uri', 'oauth_approved_apps_only'], [429, 'slow_down', 'oauth_busy'], [404, 'not_found', 'oauth_unsupported'], [401, 'unauthorized', 'oauth_unsupported']] as const) {
+      fake.strict = { register: status, registerError: error }
+      const c = await strict()
+      const r = await authorize(c.id)
+      expect(r.status, `${status} ${error}`).toBe(400)
+      expect(getRow(h.ctx.db, c.id)!.last_error, `${status} ${error}`).toBe(reason)
+      expect(r.body.error.message).toBe(TEXT[reason].ko)
+      await olga.call('DELETE', `/api/integrations/${c.id}`)
+    }
+    expect(TEXT.oauth_busy.en).toContain('minutes')
+  })
+
+  test('a hostile sign-in page (64 KB of "<", unclosed tags and scripts) is read in a few ms', async () => {
+    for (const body of ['<'.repeat(65_536), '<script'.repeat(9_400), '<a '.repeat(21_000) + 'redirect_uri', '<style>'.repeat(9_000)]) {
+      const t = performance.now()
+      pageWords(body)
+      expect(performance.now() - t, body.slice(0, 10)).toBeLessThan(50)
+    }
+    fake.strict = { page: async () => new Response('<'.repeat(65_536), { status: 403 }) }
+    const t = performance.now()
+    expect(await preflight(`${fake.base}/as-strict/authorize?client_id=x`, fake.net())).toBe('pass')
+    expect(performance.now() - t).toBeLessThan(1000)
+  })
+
+  test('refused sign-ins count toward the 20 sign-in tries an hour', async () => {
+    fake.strict = { register: 403 }
+    const c = await strict()
+    for (let i = 0; i < 20; i++) expect((await authorize(c.id)).status).toBe(400)
+    const regs = fake.seen.filter((s) => s.path === '/as-strict/register').length
+    expect((await authorize(c.id)).status).toBe(429)
+    expect(fake.seen.filter((s) => s.path === '/as-strict/register').length).toBe(regs)
   })
 
   test('the metadata document: public JSON at its own address, the product name and this team\'s callback', async () => {
@@ -166,9 +233,13 @@ describe('a service that lets only apps it approved sign in', () => {
       client_id: DOC, client_name: PRODUCT.displayName, redirect_uris: [`${TEAM}/api/integrations/oauth/callback`],
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none',
     })
+    expect(res.headers.get('cache-control')).toStartWith('private')
     // through a tunnel the request reaches the server as plain http with the public host: the public https address
     const tunneled = await h.fetch(CLIENT_METADATA_PATH, { base: 'http://team.example.com', via: 'direct' })
     expect((await tunneled.json()).client_id).toBe(DOC)
+    // a host that is not one of the team's public addresses: no document naming it
+    expect((await h.fetch(CLIENT_METADATA_PATH, { base: 'https://evil.example.net', via: 'direct' })).status).toBe(404)
+    expect((await h.fetch(CLIENT_METADATA_PATH)).status).toBe(404)
   })
 })
 
@@ -204,8 +275,72 @@ describe('sign-ins that never finished', () => {
     // and the limit itself holds for the 21st
     const more = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Open', url: `${fake.base}/mcp-open`, auth: 'none' })
     expect(more.status).toBe(409)
-    // a waiting one can still be added at a new address (it counts on its own)
-    expect((await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Third', url: `${fake.base}/mcp-strict?other=3`, auth: 'oauth' })).status).toBe(201)
+    // at the limit no new connection is saved, a sign-in one neither (it could only be finished over the limit)
+    expect((await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Third', url: `${fake.base}/mcp-strict?other=3`, auth: 'oauth' })).status).toBe(409)
+    // Connect again at an address that is waiting still picks that one up
+    expect((await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Strict', url: `${fake.base}/mcp-strict`, auth: 'oauth' })).id).toBe(first.id)
+  })
+
+  test('the limit holds for sign-in connections: 20 signed in, the 21st is refused', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`signed-${i}`, `${fake.base}/mcp-strict?s=${i}`, 'oauth', 'sealed')
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: MAX_PERSONAL, waiting: 0 })
+    const more = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'One more', url: `${fake.base}/mcp-strict?s=new`, auth: 'oauth' })
+    expect(more.status).toBe(409)
+    expect(more.body.error.message).toContain(String(MAX_PERSONAL))
+  })
+
+  test('20 sign-ins finished through the callback, then the 21st is refused at create', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) {
+      const c = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: `S${i}`, url: `${fake.base}/mcp-strict?f=${i}`, auth: 'oauth' })
+      const r = await authorize(c.id)
+      expect((await olga.raw('GET', callback(fake.authorize(r.body.authorizationUrl, `${fake.base}/as-strict`)))).status).toBe(200)
+      // the sign-in tries of an hour: start again (the cap is tested on its own)
+      h.ctx.db.query('DELETE FROM integration_oauth_flows').run()
+    }
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: MAX_PERSONAL, waiting: 0 })
+    expect((await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'S21', url: `${fake.base}/mcp-strict?f=21`, auth: 'oauth' })).status).toBe(409)
+  })
+
+  test('the callback refuses a first sign-in that would go over the limit; a key changed to sign-in frees its slot only until then', async () => {
+    for (let i = 0; i < MAX_PERSONAL - 2; i++) insert(`ok-${i}`, `${fake.base}/mcp-open?n=${i}`, 'none', null)
+    const key = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+    const waiting = await strict()
+    // the key connection becomes a sign-in one: it waits now and frees its slot, which another connection takes
+    await olga.call('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: MAX_PERSONAL - 2, waiting: 2 })
+    for (const n of [1, 2]) await olga.call('POST', '/api/integrations', { kind: 'mcp', name: `Open ${n}`, url: `${fake.base}/mcp-open?x=${n}`, auth: 'none' })
+    // at the limit: finishing the waiting one's sign-in is refused and stores nothing
+    const r = await authorize(waiting.id)
+    expect(r.status).toBe(200)
+    const page = await olga.raw('GET', callback(fake.authorize(r.body.authorizationUrl, `${fake.base}/as-strict`)))
+    expect(page.status).toBe(400)
+    expect(await page.text()).toContain(TEXT.callbackLimit.ko.replace('{n}', String(MAX_PERSONAL)))
+    expect(await olga.call('GET', `/api/integrations/flows/${r.body.flowId}`)).toMatchObject({ state: 'failed', reason: 'limit' })
+    expect(getRow(h.ctx.db, waiting.id)!.secret_enc).toBeNull()
+    // and a waiting one cannot become a key connection over the limit either
+    expect((await olga.try('PATCH', `/api/integrations/${key.id}`, { auth: 'bearer', secret: MCP_KEY })).status).toBe(409)
+  })
+
+  test('the chat card counts like Settings: waiting ones do not fill the limit, and have their own cap', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, `${fake.base}/mcp-strict?w=${i}`, 'oauth', null)
+    expect(connectRows(h.ctx.db, ownerId(), 'personal').count).toBe(0)
+    expect(personalFull(h.ctx.db, ownerId(), 'bearer')).toBe(false)
+    expect(personalFull(h.ctx.db, ownerId(), 'oauth')).toBe(true)
+    h.ctx.db.query("DELETE FROM integrations WHERE id LIKE 'wait-%'").run()
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`ok-${i}`, `${fake.base}/mcp-open?n=${i}`, 'none', null)
+    expect(connectRows(h.ctx.db, ownerId(), 'personal').count).toBe(MAX_PERSONAL)
+    expect(personalFull(h.ctx.db, ownerId(), 'oauth')).toBe(true)
+    expect(personalFull(h.ctx.db, ownerId(), 'none')).toBe(true)
+  })
+
+  test('Connect again at a waiting address takes the new name, notes and write rule; another short name makes a new one', async () => {
+    const a = await strict()
+    const b = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Renamed', url: `${fake.base}/mcp-strict`, auth: 'oauth', notes: 'for the design team', writePolicy: 'deny' })
+    expect(b.id).toBe(a.id)
+    expect(getRow(h.ctx.db, a.id)).toMatchObject({ name: 'Renamed', notes: 'for the design team', write_policy: 'deny' })
+    const c = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Other', slug: 'othershort', url: `${fake.base}/mcp-strict`, auth: 'oauth' })
+    expect(c.id).not.toBe(a.id)
+    expect(c.slug).toBe('othershort')
   })
 
   test('connections waiting for a sign-in have a cap of their own; one with a stored sign-in is never reused', async () => {

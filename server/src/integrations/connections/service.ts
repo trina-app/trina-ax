@@ -37,6 +37,26 @@ export const INTEGRATIONS_CHANGED = { type: 'notice', data: { level: 'info', cod
 export const MAX_TEAM = 50
 /** a connection that waits for its first sign-in (no sign-in stored): the web's awaitingFirstSignIn, as SQL */
 const WAITING = "(auth = 'oauth' AND secret_enc IS NULL)"
+/** how many of a person's own connections wait for a sign-in, at most (they do not count toward MAX_PERSONAL) */
+export const MAX_PERSONAL_WAITING = MAX_PERSONAL
+const isWaiting = (r: Pick<Row, 'auth' | 'secret_enc'>) => r.auth === 'oauth' && !r.secret_enc
+/** connections that count toward a person's own limits: their own, not made from a template, not a Google app */
+const countsAsOwn = (r: Pick<Row, 'scope' | 'template_id' | 'google_app'>) => r.scope === 'personal' && !r.template_id && !r.google_app
+
+/** A person's own connections (not made from a template, not a Google app): those that work or have a key or no
+ * sign-in at all (`settled`, at most MAX_PERSONAL) and those waiting for their first sign-in (`waiting`, at most
+ * MAX_PERSONAL_WAITING). Settings, the chat's connect card and the sign-in's callback all count this way. */
+export function personalCounts(db: AppContext['db'], userId: string): { settled: number; waiting: number } {
+  const r = db.query(`SELECT coalesce(sum(CASE WHEN ${WAITING} THEN 0 ELSE 1 END), 0) AS settled, coalesce(sum(CASE WHEN ${WAITING} THEN 1 ELSE 0 END), 0) AS waiting
+    FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL`).get(userId) as { settled: number; waiting: number }
+  return { settled: Number(r.settled), waiting: Number(r.waiting) }
+}
+/** Whether a person may add another connection of their own with this sign-in method: fewer than MAX_PERSONAL settled
+ * ones always, and for a sign-in one also fewer than MAX_PERSONAL_WAITING waiting. */
+export function personalFull(db: AppContext['db'], userId: string, auth: IntegrationInput['auth']): boolean {
+  const n = personalCounts(db, userId)
+  return n.settled >= MAX_PERSONAL || (auth === 'oauth' && n.waiting >= MAX_PERSONAL_WAITING)
+}
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
 const CLIENT_IDLE_MS = 10 * 60_000
@@ -64,8 +84,10 @@ interface FlowSecret {
  * web/src/lib/integrations.ts flowReasonKey): the person said no at the service (denied), the answer was not one we
  * can use (invalid), the connection or its app changed meanwhile (changed), an own app's client ID or secret was
  * refused at the token address (client: the person's own app; client_template: the app an admin set on the template),
- * another error there (exchange), a newer sign-in started (superseded). */
-export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded'
+ * another error there (exchange), a newer sign-in started (superseded), the person's own connections that work reached
+ * MAX_PERSONAL meanwhile (limit: nothing is stored). A sign-in refused before the browser went anywhere (authorize's
+ * NetError) is kept as `refused`, so it counts toward FLOWS_PER_HOUR (no answer reads it). */
+export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded' | 'limit'
 /** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
  * the team here, or the link was used already) */
 export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
@@ -209,22 +231,27 @@ export class Integrations {
     // sending without asking is the team's choice (an admin's), never one person's for their own connection
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
     // a person's own connection that waits for its first sign-in (Connect saves it before the sign-in starts; a refused
-    // or closed sign-in leaves it): Connect again at the same address picks it up instead of saving another, and it
-    // does not count toward the limit, so failed tries never stop someone adding a service. Those waiting have a cap
-    // of their own (the same number). Nothing with a stored sign-in or key is reused.
+    // or closed sign-in leaves it): Connect again at the same address picks it up instead of saving another, with the
+    // new name, notes and write rule (a different short name asked for makes a new one). Waiting ones do not count
+    // toward MAX_PERSONAL, so failed tries never stop someone adding a service; they have a cap of their own, and the
+    // sign-in's callback stops one that would go over MAX_PERSONAL. Nothing with a stored sign-in or key is reused.
     const personal = scope === 'personal' && !templateId
     if (personal && input.auth === 'oauth' && !input.oauthClient) {
       const waiting = this.db.query(`SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${WAITING}
         AND oauth_client IS NULL AND oauth_client_enc IS NULL AND kind = ? AND url = ? ORDER BY created_at LIMIT 1`).get(viewer.id, input.kind, normUrl(input.url)) as { id: string } | null
       const again = waiting ? getRow(this.db, waiting.id) : null
-      if (again) return view(this.db, again, viewer, L)
+      if (again && (input.slug == null || input.slug === again.slug)) {
+        const patch: IntegrationPatch = {}
+        if (oneLine(input.name) !== again.name) patch.name = input.name
+        if (cleanNotes(input.notes) !== again.notes) patch.notes = input.notes ?? null
+        if ((input.writePolicy ?? 'ask') !== again.write_policy) patch.writePolicy = input.writePolicy ?? 'ask'
+        return Object.keys(patch).length ? this.update(viewer, again.id, patch, L) : view(this.db, again, viewer, L)
+      }
     }
-    const counted = (waiting: boolean) => (this.db.query(`SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL AND google_app IS NULL AND ${waiting ? '' : 'NOT '}${WAITING}`).get(viewer.id) as { n: number }).n
-    const count = templateId ? 0 : personal
-      ? counted(input.auth === 'oauth')
-      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n
+    const full = templateId ? false : personal ? personalFull(this.db, viewer.id, input.auth)
+      : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team' AND google_app IS NULL").get() as { n: number }).n >= MAX_TEAM
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
+    if (full) fail('conflict', say('tooMany', L, { n: max }))
     const authHeader = input.auth === 'header' ? this.headerName(input.authHeader ?? null, L) : null
     // a template's members sign in through the template's app (templates.ts), never one of their own
     if (input.oauthClient && (input.auth !== 'oauth' || templateId)) fieldError(L, 'oauthClient', 'appNeedsOauth')
@@ -315,6 +342,12 @@ export class Integrations {
     // a moved connection's saved tools go too (the UPDATE below empties tools_json)
     if (moved) { next.tools_updated_at = null; next.account = null }
     const recheck = moved || secret !== 'kept'
+    // a person's own connection that stops waiting for a sign-in (to a key, or no sign-in) now counts toward
+    // MAX_PERSONAL; one that starts waiting (a key changed to sign-in) toward the waiting cap
+    if (countsAsOwn(row) && row.owner_user_id && isWaiting(row) !== isWaiting(next)) {
+      const n = personalCounts(this.db, row.owner_user_id)
+      if (isWaiting(row) ? n.settled >= MAX_PERSONAL : n.waiting >= MAX_PERSONAL_WAITING) fail('conflict', say('tooMany', L, { n: MAX_PERSONAL }))
+    }
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
     const now = iso(this.now())
@@ -925,6 +958,9 @@ export class Integrations {
       // signed in already: the row stays as it is (the answer says why signing in again failed; a connected row with a
       // reason would read as "the last check failed")
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
+      // a refused try is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds them like any other
+      this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+        VALUES (?,?,?,?,?,?,'failed',NULL,1,'refused',?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), iso(this.now()), iso(this.now()))
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
@@ -987,6 +1023,9 @@ export class Integrations {
       // token address another sign-in that worked remembered meanwhile (the client secret does not go to this one)
       const appMoved = (r: Row) => (s.appVersion != null && this.appSource(r)?.version !== s.appVersion) || (!!s.client.clientSecret && this.pinnedElsewhere(r, s.server.tokenEndpoint))
       if (!covered(row) || appMoved(row)) return failed('changed')
+      // a first sign-in would make this person's own connections that work one more than MAX_PERSONAL
+      const overLimit = (r: Row) => countsAsOwn(r) && isWaiting(r) && !!r.owner_user_id && personalCounts(this.db, r.owner_user_id).settled >= MAX_PERSONAL
+      if (overLimit(row)) return failed('limit')
       let tokens: OAuthTokens
       try { tokens = await tokenRequest(s, { grant_type: 'authorization_code', code: q.code, redirect_uri: s.client.redirectUri, code_verifier: s.verifier, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now()) }
       // the service's answer is never kept or shown (it may repeat what was sent): only whether it refused the app
@@ -998,11 +1037,12 @@ export class Integrations {
       if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
       const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
       const old = cur.secret_enc ? this.tryOpen(cur) : null
-      let kept = false
+      let kept = false, limited = false
       this.db.transaction(() => {
         // checked again with the write: of two sign-ins whose exchanges overlapped, the one that comes second keeps no
         // tokens (their refreshes would send the client secret to an address the app does not remember)
         if (appMoved(cur)) return
+        if (overLimit(cur)) { limited = true; return }
         kept = true
         const stored = this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
           .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
@@ -1018,7 +1058,7 @@ export class Integrations {
         if (stored && s.pinOnto) this.pinFound(cur, s.pinOnto, s.server.tokenEndpoint)
       })()
       // its tokens are dropped, not revoked: revoking would send the client secret once more to the address that lost
-      if (!kept) return failed('changed')
+      if (!kept) return failed(limited ? 'limit' : 'changed')
       // the tokens are kept: whatever happens next, the sign-in is done, marked once the check has ended
       try {
         this.dropClient(cur.id)

@@ -112,6 +112,9 @@ export const TEXT = {
   callbackDenied: t('서비스에서 접근을 허용하지 않았어요. 연결하려면 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'Access was not allowed at the service. To connect, close this window and sign in again from the app.', 'Akses tidak diizinkan di layanan. Untuk menghubungkan, tutup jendela ini lalu login lagi dari aplikasi.', "サービスでアクセスが許可されませんでした。接続するには、このウィンドウを閉じてアプリからもう一度ログインしてください。", "No se permitió el acceso en el servicio. Para conectar, cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
   callbackChanged: t('로그인하는 동안 연결 설정이 바뀌었어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The connection’s settings changed while you were signing in. Close this window and sign in again from the app.', 'Pengaturan koneksi berubah saat Anda login. Tutup jendela ini lalu login lagi dari aplikasi.', "ログイン中に接続の設定が変更されました。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "La configuración de la conexión cambió mientras iniciaba sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
   callbackExchange: t('서비스가 로그인을 마무리하지 못했어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The service did not finish the sign-in. Close this window and sign in again from the app.', 'Layanan tidak menyelesaikan login. Tutup jendela ini lalu login lagi dari aplikasi.', "サービスがログインを完了できませんでした。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "El servicio no terminó el inicio de sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
+  // the sign-in worked at the service, but the person already has as many working connections of their own as they may
+  // (service.ts MAX_PERSONAL): nothing is stored
+  callbackLimit: t('이미 작동하는 내 연결이 {n}개라 더 연결할 수 없어요. 하나를 지운 뒤 앱에서 다시 로그인해 주세요.', 'You already have {n} working connections of your own, the most you can have. Remove one, then sign in again from the app.', 'Anda sudah punya {n} koneksi pribadi yang berfungsi, jumlah maksimum. Hapus satu, lalu login lagi dari aplikasi.', "使える個人接続がすでに上限の{n}件あります。1件削除してから、アプリでもう一度ログインしてください。", "Ya tiene {n} conexiones propias que funcionan, el máximo. Elimine una y vuelva a iniciar sesión desde la aplicación."),
   callbackLogin: t('팀 계정에 로그인', 'Sign in to the team account', 'Login ke akun tim', "チームアカウントにログイン", "Iniciar sesión en la cuenta del equipo"),
   // why a check failed (lastError)
   unreachable: t('서비스에 연결하지 못했어요. 주소를 확인해 주세요.', 'Could not reach the service. Check the address.', 'Tidak dapat menghubungi layanan. Periksa alamatnya.', "サービスに接続できませんでした。アドレスを確認してください。", "No se pudo conectar con el servicio. Revise la dirección."),
@@ -140,6 +143,8 @@ export const TEXT = {
     'Layanan ini hanya mengizinkan login dari aplikasi yang sudah disetujuinya, dan aplikasi ini belum disetujui. Hanya layanan itu yang bisa mengubahnya, jadi untuk sekarang layanan ini belum bisa dihubungkan di sini.',
     "このサービスは承認したアプリだけにログインを許可しており、このアプリはまだ承認されていません。変更できるのはサービス側だけのため、今はここで接続できません。",
     "Este servicio solo permite iniciar sesión a las aplicaciones que ha aprobado, y todavía no ha aprobado esta. Solo el servicio puede cambiarlo, así que por ahora no se puede conectar aquí."),
+  // the registration answered 429 (oauth.ts register): too many apps registered there just now
+  oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos."),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo."),
   // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
   // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
@@ -178,7 +183,7 @@ export const FIELD_WORDS: Record<string, T> = {
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_failed' | 'key_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
   // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)

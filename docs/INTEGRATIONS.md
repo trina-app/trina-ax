@@ -464,19 +464,25 @@ idle minutes; a 404 for it starts a new one.
   "sign in again". Deleting a connection, or a change that drops its sign-in, removes the local tokens first and then
   asks the service to revoke them (RFC 7009, best effort).
 - **Services that accept only apps they approved.** Some refuse the app registered for them: the registration answers
-  4xx (Figma 403 outside its catalog, Vercel, Square, Intercom and Indeed 400 for a callback not on their list, Railway
-  403 "registration is disabled"), or the registration works but the sign-in page refuses it (Canva: HTTP 400 "Invalid
-  redirect URI." for any callback but localhost and claude.ai). So before the sign-in address goes to the browser the
-  server opens it once (no redirects, 5 s): HTTP 400, or another 4xx whose text names the redirect address or the
-  client, is a refusal; a sign-in page, a redirect, a Cloudflare challenge, a timeout or a network error let it go on.
-  After a refusal, a service whose metadata says `client_id_metadata_document_supported` is offered a **Client ID
-  Metadata Document** instead (MCP authorization 2025-11-25, draft-ietf-oauth-client-id-metadata-document): the client
-  ID is the address of `GET /api/integrations/oauth/client-metadata.json`, a public JSON document on the team's address
-  (the product name, the team's callback, authorization code and refresh, no secret), stored with the connection like a
-  registered client so the token exchange and refreshes use it. Only when the person's address is public https (not
-  localhost, an IP address or a local name): the service has to fetch the document. Without one, or when that is
-  refused too, the sign-in stops with `oauth_approved_apps_only` ("This service lets only apps it has approved sign
-  in…"), shown on the connection and the chat card; nobody on the team can fix it.
+  400 or 403 (Figma 403 outside its catalog, Vercel, Square, Intercom and Indeed 400 for a callback not on their list,
+  Railway 403 "registration is disabled"; any 4xx naming `invalid_redirect_uri` or `invalid_client_metadata` counts
+  too; 429 is `oauth_busy`, "try again in a few minutes"; other answers keep `oauth_unsupported`), or the registration
+  works but the sign-in page refuses it (Canva: HTTP 400 "Invalid redirect URI." for any callback but localhost and
+  claude.ai). So before the sign-in address goes to the browser the server opens it once (no redirects, 5 s, at most
+  4 KB of the answer read, bounded patterns): a 4xx whose text names the redirect address or the client is a clear
+  refusal; a plain 400 naming neither is unclear; a sign-in page, a redirect, a Cloudflare challenge, any other 4xx or
+  5xx, a timeout or a network error let it go on. A stored app that is refused is followed by one fresh registration.
+  After a refusal (an unclear 400 too), a service whose metadata says `client_id_metadata_document_supported` is offered
+  a **Client ID Metadata Document** instead (MCP authorization 2025-11-25, draft-ietf-oauth-client-id-metadata-document):
+  the client ID is the address of `GET /api/integrations/oauth/client-metadata.json`, a public JSON document (the
+  product name, the team's callback, authorization code and refresh, no secret; `Cache-Control: private`), served only
+  at the configured public address or the office tunnel's (404 at any other host), and stored with the connection like
+  a registered client so the token exchange and refreshes use it. Only when the person's address is public https (not
+  localhost, an IP address or a local name): the service has to fetch the document. Without one, a clear refusal stops
+  the sign-in (an unclear 400 lets it go on); with one, a refusal of the document stops it too. It stops with
+  `oauth_approved_apps_only` ("This service lets only apps it has approved sign in…"), shown on the connection and the
+  chat card; nobody on the team can fix it. A refused try is kept as a failed flow, so it counts toward the 20 sign-in
+  tries an hour.
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
@@ -646,7 +652,7 @@ connections with their address and the first 1,000 characters of their notes.
 
 | Boundary | Limit |
 | --- | --- |
-| Connections | 20 personal per person, 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own, and Connect again at the same address picks the waiting one up |
+| Connections | 20 personal per person (that work, have a key or need no sign-in), 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own. A new connection needs room under both (a sign-in one), the sign-in's callback refuses a first sign-in over 20 (`limit`), and an edit that stops or starts waiting is checked the same way. Connect again at a waiting address picks that one up with the new name, notes and write rule. Settings and the chat's connect card count alike (`personalCounts`) |
 | Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |

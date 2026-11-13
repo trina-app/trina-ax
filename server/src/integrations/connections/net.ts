@@ -20,8 +20,9 @@ export interface NetOptions extends Pick<ResolveOptions, 'lookup' | 'testAllow' 
   /** tests: mcp.ts MCP_LIST_IDLE_MS and MCP_LIST_TIMEOUT_MS */
   listIdleMs?: number
   listTimeoutMs?: number
-  /** tests: recorded answers instead of the network (the services' metadata as probed, oauth.ts), after the address
-   * checks above it */
+  /** offline tests only (IntegrationDeps, never HTTP or model input): recorded answers instead of the network (the
+   * services' metadata as probed, oauth.ts). It answers after the scheme check and before the name lookup and the
+   * address rules, which it skips: the recorded hosts are real ones a test must not look up */
   answerForTests?: (url: string, r: NetRequest) => Promise<{ status: number; headers?: Record<string, string>; body?: string }>
 }
 
