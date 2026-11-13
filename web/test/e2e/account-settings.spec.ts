@@ -172,8 +172,8 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
     expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
     expect(c.width).toBeLessThan(main.width - 200)
     await page.setViewportSize({ width: 390, height: 760 })
-    // a phone's Projects is rows from edge to edge under the phone's bar, without the page header (TC-380)
-    const phoneColumn = path === '/skills' ? column : page.getByTestId('project-rows')
+    // a phone's Projects is the 프로젝트 tab's list from edge to edge under the phone's bar, without the page header
+    const phoneColumn = path === '/skills' ? column : page.getByTestId('phone-projects-list')
     expect(Math.round((await phoneColumn.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
 })
