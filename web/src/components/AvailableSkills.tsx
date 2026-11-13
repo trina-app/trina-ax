@@ -41,6 +41,7 @@ import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
 import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
+import { ListHeading, ListIcon, rowName } from './list/List'
 import { MenuButton } from './rooms/MenuButton'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
@@ -264,13 +265,13 @@ function SkillSection({ title, hint, items, folders, onRun, onMove, testId }: { 
   if (!items.length) return null
   return (
     <section aria-label={title} data-testid={testId}>
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium">
+      <ListHeading as="h2" className="mb-1 flex items-center gap-2">
         {title}
         {/* phones: the count as plain text, no pill */}
         <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums max-md:bg-transparent max-md:px-0 max-md:font-normal" data-testid="skill-count">{items.length}</span>
-      </h2>
+      </ListHeading>
       {hint && <p className="-mt-0.5 mb-1 text-xs text-muted" data-testid="skill-section-hint">{hint}</p>}
-      <ul className="-mx-2 divide-y divide-line">
+      <ul className="-mx-3">
         {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} onMove={onMove} />)}
       </ul>
     </section>
@@ -300,29 +301,33 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
   // its row opens the project, where the "/" menu has it
   const use = () => (s.shadowedBy ? navigateTo(skillFileLink(s.path)) : s.project ? navigateTo(`/projects/${s.project.id}`) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
-    <li className={clsx('flex items-center gap-1 py-1', s.shadowedBy && 'opacity-70')} data-testid="skill-row" data-path={s.path} data-shadowed={s.shadowedBy ? s.shadowedBy.tier : undefined}>
+    // the app's row (components/list/List.tsx: its icon, name, second line and heights), with its ▶ and "…" beside the
+    // button rather than in it, so it keeps its own markup as a room's row does
+    <li className={clsx('flex items-center gap-1', s.shadowedBy && 'opacity-70')} data-testid="skill-row" data-path={s.path} data-shadowed={s.shadowedBy ? s.shadowedBy.tier : undefined}>
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
+        className={clsx(
+          'flex min-h-row-min min-w-0 flex-1 gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
+          shadow || line ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
+        )}
         title={s.description || shown}
         onClick={use}
         data-testid="skill-use"
       >
-        {/* phones: the icon alone, no framed tile on every row */}
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted max-md:size-5 max-md:border-0 max-md:bg-transparent">
-          <ScrollText size={16} aria-hidden />
-        </span>
+        <ListIcon className={shadow || line ? 'mt-0.5 max-md:mt-0' : undefined}>
+          <ScrollText />
+        </ListIcon>
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-1.5 text-row font-medium">
+          <span className={clsx('flex min-w-0 items-baseline gap-1.5', rowName())}>
             <span className="truncate" data-testid="skill-name">{shown}</span>
             {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
             {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
             {where && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro font-normal text-muted" title={t('skills.sameNameTip', { where })} data-testid="skill-same-name">{t('skills.sameName', { where })}</span>}
           </span>
-          {shadow && <span className="mt-0.5 block truncate text-xs text-faint" data-testid="skill-shadow-note">{shadow}</span>}
-          {line && <span className="mt-0.5 block truncate text-xs text-muted">{line}</span>}
+          {shadow && <span className="block truncate text-meta text-faint" data-testid="skill-shadow-note">{shadow}</span>}
+          {line && <span className="block truncate text-meta text-faint">{line}</span>}
         </span>
-        {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
+        {!!s.uses && <span className="shrink-0 self-center text-meta text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
         {!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
       </button>
       {!!s.inputs?.length && !s.shadowedBy && !s.project && (

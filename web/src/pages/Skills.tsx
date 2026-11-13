@@ -15,7 +15,7 @@
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -26,6 +26,7 @@ import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { AVAILABLE_KEY, AvailableSkills, readAvailable } from '../components/AvailableSkills'
+import { ListHeading, ListRow } from '../components/list/List'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
@@ -214,15 +215,17 @@ function ShareReviews({ items }: { items: SkillShare[] | null }) {
   if (!items?.length) return null
   return (
     <section className="mb-5" aria-label={t('skills.sharesToReview')} data-testid="share-review-list">
-      <h2 className="mb-1 text-sm font-medium">{t('skills.sharesToReview')}</h2>
-      <ul className="-mx-2 divide-y divide-line">
+      <ListHeading as="h2" className="mb-1">{t('skills.sharesToReview')}</ListHeading>
+      <ul className="-mx-3">
         {items.map((s) => (
-          <li key={s.id}>
-            <Link to={`/skills/share/${s.id}`} className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-hover" data-testid="share-review-row" data-id={s.id}>
-              <Users size={16} className="shrink-0 text-muted" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}</span>
-            </Link>
-          </li>
+          <ListRow
+            key={s.id}
+            to={`/skills/share/${s.id}`}
+            icon={<Users />}
+            name={t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}
+            testId="share-review-row"
+            link={{ 'data-id': s.id }}
+          />
         ))}
       </ul>
     </section>
