@@ -347,7 +347,7 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
               <p className="text-sm text-muted" data-testid="integration-for">
                 <span className="break-words">{t('integrations.forLine', { who: forWho })}</span>
                 {' · '}
-                <button type="button" className="touch-hit font-medium text-accent-text hover:underline max-md:min-h-11" aria-label={t('integrations.forChangeLabel')} aria-expanded={accessOpen}
+                <button type="button" className="touch-hit font-medium text-accent-text hover:underline" aria-label={t('integrations.forChangeLabel')} aria-expanded={accessOpen}
                   onClick={() => {
                     const opening = !accessOpen
                     setAccessOpen(opening)

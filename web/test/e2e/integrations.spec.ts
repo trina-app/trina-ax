@@ -205,7 +205,7 @@ test('your own app: an MCP server offers it in Advanced, an API signs in only wi
   await page.getByTestId('integration-name').fill('Gmail')
   await page.getByTestId('integration-url').fill('https://gmailmcp.googleapis.com/mcp/v1')
   await expect(page.getByTestId('integration-app-fields')).toHaveCount(0)
-  await (await adv(page, 'integration-app-use')).check()
+  await (await adv(page, 'integration-app-use')).check({ force: true }) // a switch: its box is drawn over the input
   await expect(page.getByTestId('integration-app-redirect')).toHaveText(/^http:\/\/127\.0\.0\.1:\d+\/api\/integrations\/oauth\/callback$/)
   // an MCP server finds its addresses: only the client ID, secret and scopes
   await expect(page.getByTestId('integration-app-auth-url')).toHaveCount(0)
@@ -838,7 +838,7 @@ test('screenshots', async ({ page }) => {
     await page.getByTestId('integration-add').click()
     await page.getByTestId('integration-name').fill('Gmail')
     await page.getByTestId('integration-url').fill('https://gmailmcp.googleapis.com/mcp/v1')
-    await (await adv(page, 'integration-app-use')).check()
+    await (await adv(page, 'integration-app-use')).check({ force: true }) // a switch: its box is drawn over the input
     await page.getByTestId('integration-app-use').scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-own-app-mcp${suffix}.png` })
