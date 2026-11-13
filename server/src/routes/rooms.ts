@@ -110,10 +110,10 @@ export const roomsRoutes: RouteModule = {
       // is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp)
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
-      // a room file's id always means the same bytes: its picture and inline read are kept by this browser for this
-      // sign-in when the address carries the session's own media key (auth/media-key.ts); all checks above ran first.
-      // A download is never kept, nor a file on the download-only list
-      const cache = !query.download && !f.quarantined ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
+      // a room file's id always means the same bytes: its thumbnail (only ever an <img> in the app) is kept by this
+      // browser for this sign-in when the address carries the session's own media key (auth/media-key.ts); all checks
+      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list
+      const cache = query.thumb && !query.download && !f.quarantined ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,

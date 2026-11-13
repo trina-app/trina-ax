@@ -17,7 +17,7 @@ import { useLocale, useT } from '../i18n'
 /** How long an answer is used again without asking the server. */
 export const FRESH_MS = 60_000
 
-interface Entry { data?: unknown; has: boolean; at: number; old: boolean; inflight?: Promise<unknown>; seq: number }
+interface Entry { data?: unknown; has: boolean; at: number; old: boolean; inflight?: Promise<unknown>; inflightWrites?: number; seq: number }
 
 const entries = new Map<string, Entry>()
 const listeners = new Map<string, Set<() => void>>()
@@ -48,7 +48,8 @@ export function keptAdminRead<T>(key: string): T | undefined {
 export function readAdmin<T>(key: string, fn: () => Promise<T>, o: { force?: boolean; maxAge?: number } = {}): Promise<T> {
   const e = entry(key)
   if (!o.force) {
-    if (e.inflight) return e.inflight as Promise<T>
+    // a request that left before a change of this window may answer with what was there before it: not joined
+    if (e.inflight && e.inflightWrites === writes) return e.inflight as Promise<T>
     if (e.has && !e.old && Date.now() - e.at < (o.maxAge ?? FRESH_MS)) return Promise.resolve(e.data as T)
   }
   const gen = generation
@@ -64,16 +65,18 @@ export function readAdmin<T>(key: string, fn: () => Promise<T>, o: { force?: boo
     return d
   })
   e.inflight = p
+  e.inflightWrites = w
   const done = () => { if (e.inflight === p) e.inflight = undefined }
   p.then(done, done)
   return p
 }
 
-/** Change the kept answer in place (a screen's own change, shown everywhere at once); nothing kept: nothing changes. */
-export function setAdminRead<T>(key: string, fn: (d: T) => T) {
-  const e = entries.get(key)
-  if (!e?.has) return
-  e.data = fn(e.data as T)
+/** Keep `data` as the newest answer for `key` (a screen's own save), shown on every screen that shows it: a read still
+ * on its way that left before it does not replace it. */
+export function putAdminRead<T>(key: string, data: T) {
+  const e = entry(key)
+  e.seq = ++seq
+  Object.assign(e, { data, has: true, at: Date.now(), old: false })
   notify(key)
 }
 
@@ -117,7 +120,8 @@ export function useAdminRead<T>(key: string, fn: () => Promise<T>, o: { maxAge?:
   const run = useCallback(async (force: boolean) => {
     try {
       const d = await readAdmin(key, fn, { force, maxAge: o.maxAge })
-      setLocal(d)
+      // the kept answer when there is one: newer than `d` when a screen's own save came in meanwhile
+      setLocal(keptAdminRead<T>(key) ?? d)
       setError(null)
       setCause(null)
     } catch (e) {
@@ -143,10 +147,8 @@ export function useAdminRead<T>(key: string, fn: () => Promise<T>, o: { maxAge?:
     now.current = next
     setLocal(next)
     if (next === null) return
-    const e = entry(key)
-    Object.assign(e, { data: next, has: true })
-    // every screen that shows it (this one included: the same answer again)
-    notify(key)
+    // the screen's own answer (a save's) is the newest, on every screen that shows it (this one included)
+    putAdminRead(key, next)
   }, [key])
   return { data, error, cause, reload, setData }
 }

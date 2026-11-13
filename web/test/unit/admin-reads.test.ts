@@ -3,25 +3,27 @@
 // sign-out drops them (and an answer that arrives after it), and room picture addresses carry the sign-in's media key.
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { api, API, roomFileUrl, setMediaKey } from '../../src/lib/api'
-import { FRESH_MS, keptAdminRead, loadAdminGroups, loadAdminUsers, readAdmin, resetAdminReads } from '../../src/store/adminPeople'
+import { FRESH_MS, keptAdminRead, loadAdminGroups, loadAdminUsers, putAdminRead, readAdmin, resetAdminReads } from '../../src/store/adminPeople'
 
 const realFetch = globalThis.fetch
 const realNow = Date.now
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 let calls: string[] = []
 let gate: Promise<void> | null = null
+let gateWrites = true
 const G1 = '01a1d005-df10-72c9-b9b1-a29d6ec204f3'
 let groups = [{ id: G1, name: 'acme', description: null, memberIds: [] as string[] }]
 
 beforeEach(() => {
   calls = []
   gate = null
+  gateWrites = true
   resetAdminReads()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     const method = init?.method ?? 'GET'
     calls.push(`${method} ${url.pathname}${url.search}`)
-    if (gate) await gate
+    if (gate && (method === 'GET' || gateWrites)) await gate
     if (method !== 'GET') return new Response(null, { status: 204 })
     if (url.pathname === '/api/admin/groups') return json({ items: groups })
     if (url.pathname === '/api/admin/users') return json({ items: [] })
@@ -92,12 +94,38 @@ test('a failed read keeps nothing and the next one asks again', async () => {
   expect(await readAdmin('budgets', async () => [1])).toEqual([1])
 })
 
-test('room picture addresses carry the sign-in\'s media key; a download never does; signed out none', () => {
+test('a screen\'s own save wins over a read that left before it', async () => {
+  let open!: () => void
+  gate = new Promise((r) => { open = r })
+  const before = readAdmin('groups', loadAdminGroups)
+  const saved = [{ id: G1, name: 'saved', description: null, memberIds: [] }]
+  putAdminRead('groups', saved)
+  open()
+  await before
+  expect(keptAdminRead('groups')).toEqual(saved)
+})
+
+test('a screen that opens after a change does not join a read that left before it', async () => {
+  let open!: () => void
+  gate = new Promise((r) => { open = r })
+  const first = readAdmin('groups', loadAdminGroups)
+  // the change is answered while the first read still waits (only reads wait at the gate)
+  gateWrites = false
+  await api.call(API.updateGroup, { params: { id: G1 }, body: { name: 'x' } }).catch(() => {})
+  const second = readAdmin('groups', loadAdminGroups)
+  open()
+  await Promise.all([first, second])
+  gate = null
+  expect(calls.filter((c) => c === 'GET /api/admin/groups')).toHaveLength(2)
+})
+
+test('room thumbnails carry the sign-in\'s media key; the full picture, a download and a signed-out window never do', () => {
   expect(roomFileUrl('r1', 'f1', { thumb: '1' })).toBe('/api/rooms/r1/files/f1?thumb=1')
   setMediaKey('abcDEF_-0123456789abcd')
   expect(roomFileUrl('r1', 'f1', { thumb: '1' })).toBe('/api/rooms/r1/files/f1?thumb=1&k=abcDEF_-0123456789abcd')
-  expect(roomFileUrl('r1', 'f1')).toBe('/api/rooms/r1/files/f1?k=abcDEF_-0123456789abcd')
+  // the full picture is also the address "open original" opens (kept in the browser's history): no key
+  expect(roomFileUrl('r1', 'f1')).toBe('/api/rooms/r1/files/f1')
   expect(roomFileUrl('r1', 'f1', { download: '1' })).toBe('/api/rooms/r1/files/f1?download=1')
   setMediaKey(null)
-  expect(roomFileUrl('r1', 'f1')).toBe('/api/rooms/r1/files/f1')
+  expect(roomFileUrl('r1', 'f1', { thumb: '1' })).toBe('/api/rooms/r1/files/f1?thumb=1')
 })

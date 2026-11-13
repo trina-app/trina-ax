@@ -1,8 +1,8 @@
 // Room pictures kept by the browser per sign-in (docs/DECISIONS.md "Room pictures are kept per sign-in";
-// server/src/auth/media-key.ts): a room file's thumbnail and inline read say `private, immutable` only with the asking
-// session's own media key in the address. Every request is still checked (members only, the message visible, the
-// download-only list), another person's key or none is `private, no-cache`, a download is never kept, and a new sign-in
-// has a new key. Never `public`.
+// server/src/auth/media-key.ts): a room file's thumbnail says `private, immutable` only with the asking session's own
+// media key in the address. Every request is still checked (members only, the message visible, the download-only
+// list), another person's key or none is `private, no-cache`, an inline read or a download is never kept, a new sign-in
+// has a new key, and signing out tells the browser to forget its cache. Never `public`.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { keptMediaCache, KEPT_MEDIA_MAX_AGE_S, mediaKeyOf } from '../../server/src/auth/media-key'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -46,7 +46,7 @@ test('a room picture is kept by this browser only with the session\'s own key; a
   // each person, each sign-in, its own key
   expect(await key(mia.client)).not.toBe(nk)
 
-  for (const q of [{ thumb: '1', k: nk }, { k: nk }] as Record<string, string>[]) {
+  for (const q of [{ thumb: '1', k: nk }] as Record<string, string>[]) {
     const r = await get(nora.client, pic.id, q)
     expect(r.status).toBe(200)
     expect(kept(r)).toBe(true)
@@ -66,10 +66,13 @@ test('a room picture is kept by this browser only with the session\'s own key; a
     expect(r.status).toBe(200)
     expect(r.headers.get('cache-control')).toBe('private, no-cache')
   }
-  // a download is never kept, with the key too
-  const down = await get(nora.client, pic.id, { download: '1', k: nk })
-  expect(down.status).toBe(200)
-  expect(down.headers.get('cache-control')).toBe('private, no-cache')
+  // the full picture (the viewer, "open original": an address a link opens) and a download are never kept, with the
+  // key too
+  for (const q of [{ k: nk }, { download: '1', k: nk }, { download: '1', thumb: '1', k: nk }]) {
+    const r = await get(nora.client, pic.id, q)
+    expect(r.status).toBe(200)
+    expect(r.headers.get('cache-control')).toBe('private, no-cache')
+  }
   // someone outside the room with their own key: still 404, nothing to keep
   const out = await get(otto.client, pic.id, { thumb: '1', k: await key(otto.client) })
   expect(out.status).toBe(404)
@@ -80,10 +83,12 @@ test('a room picture is kept by this browser only with the session\'s own key; a
   expect(kept(borrowed)).toBe(false)
 })
 
-test('a new sign-in has a new key; the ended session\'s key keeps nothing', async () => {
+test('a new sign-in has a new key; signing out clears the browser\'s cache; the ended session\'s key keeps nothing', async () => {
   const { nora, pic, key, get } = await setup()
   const before = await key(nora.client)
-  await nora.client.call('POST', '/api/auth/logout')
+  const out = await nora.client.raw('POST', '/api/auth/logout')
+  expect(out.status).toBe(204)
+  expect(out.headers.get('clear-site-data')).toBe('"cache"')
   // signed out: the old address is refused like any request without a session
   expect((await get(nora.client, pic.id, { thumb: '1', k: before })).status).toBe(401)
   const again = h.client()
@@ -97,9 +102,32 @@ test('a new sign-in has a new key; the ended session\'s key keeps nothing', asyn
   expect(kept(await get(again, pic.id, { thumb: '1', k: after }))).toBe(true)
 })
 
-test('every read is still checked: a deleted message, a file on the download-only list', async () => {
-  const { mia, nora, dm, pic, upload, key, get } = await setup()
+test('every read is still checked: a member taken out, a deleted message, a file put on the download-only list', async () => {
+  const { mia, nora, otto, dm, pic, upload, key, get } = await setup()
   const nk = await key(nora.client)
+  // a group chat: otto saw its picture with his own key, then is taken out: the same address is 404 now
+  const group = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id] })
+  const form = new FormData()
+  form.set('file', new File([PNG as BlobPart], 'group.png'))
+  const gp = await (await h.fetch(`/api/rooms/${group.id}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })).json()
+  await mia.client.call('POST', `/api/rooms/${group.id}/messages`, { body: '', fileIds: [gp.id], clientMessageId: cm() })
+  const ok = await key(otto.client)
+  const groupGet = (c: Client) => h.fetch(`/api/rooms/${group.id}/files/${gp.id}?thumb=1&k=${ok}`, { headers: { cookie: c.cookie! } })
+  const seen = await groupGet(otto.client)
+  expect(seen.status).toBe(200)
+  expect(kept(seen)).toBe(true)
+  await mia.client.call('DELETE', `/api/rooms/${group.id}/members/${otto.id}`)
+  const gone = await groupGet(otto.client)
+  expect(gone.status).toBe(404)
+  expect(kept(gone)).toBe(false)
+  // a picture seen, then put on the download-only list: its thumbnail is refused from then on
+  const later = await upload('later.png', Uint8Array.from([...PNG, 1]))
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [later.id], clientMessageId: cm() })
+  expect(kept(await get(nora.client, later.id, { thumb: '1', k: nk }))).toBe(true)
+  // the bytes as the room keeps them (a photo's metadata is cut out on upload)
+  const { sha256 } = h.ctx.db.query('SELECT sha256 FROM room_files WHERE id = ?').get(later.id) as { sha256: string }
+  h.ctx.db.query("INSERT INTO safe_ops_artifacts(hash, size, kind) VALUES (?, 1, 'image')").run(sha256)
+  expect((await get(nora.client, later.id, { thumb: '1', k: nk })).status).toBe(503)
   // the message deleted: 404 for the same address that was kept
   const msg = (await mia.client.call('GET', `/api/rooms/${dm.id}/messages`)).items.find((m: any) => m.files?.some((f: any) => f.id === pic.id))
   expect(msg).toBeTruthy()

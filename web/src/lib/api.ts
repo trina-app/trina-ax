@@ -155,11 +155,12 @@ export function setMediaKey(k: string | null) {
 }
 
 /** URL of a file sent in a room (the member check on every read): `download` as an attachment, `thumb` an image's small
- * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). Not a
- * download: with this sign-in's media key, so this browser keeps the answer for this sign-in only (a room file never
- * changes; server/src/auth/media-key.ts). The next person on this browser gets other addresses. */
+ * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). A thumbnail
+ * carries this sign-in's media key, so this browser keeps it for this sign-in only (a room file never changes;
+ * server/src/auth/media-key.ts); the next person on this browser gets other addresses. Only a thumbnail: it is only
+ * ever an <img>, never an address a link opens (which would stay in the browser's history). */
 export function roomFileUrl(roomId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
-  return api.url(API.roomFile, { params: { id: roomId, fileId }, query: !query.download && mediaKey ? { ...query, k: mediaKey } : query })
+  return api.url(API.roomFile, { params: { id: roomId, fileId }, query: query.thumb && !query.download && mediaKey ? { ...query, k: mediaKey } : query })
 }
 
 /** A room file's bytes for the preview panel, never more than `max` (readBounded; `truncate`: a text preview's start). */

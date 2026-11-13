@@ -1,5 +1,6 @@
-// The browser keeps a picture that never changes (a file sent in a room: its id always means the same bytes) without
-// asking again, but only for the sign-in that read it (docs/DECISIONS.md "Room pictures are kept per sign-in").
+// The browser keeps a picture that never changes (the thumbnail of a file sent in a room: its id always means the same
+// bytes) without asking again, but only for the sign-in that read it (docs/DECISIONS.md "Room pictures are kept per
+// sign-in"). Signing out also tells the browser to forget its cache (Clear-Site-Data, routes/auth.ts logout).
 //
 // Every request that reaches the server is checked as before (room membership, the message still there and visible,
 // the download-only list). What changes is the answer's Cache-Control: when the address carries this session's media
@@ -11,7 +12,9 @@
 // everyone, the next person signed in on this browser (a shared computer) would be shown the last person's kept
 // pictures without the server being asked. With the key, the next person's app asks for other addresses, which the
 // browser has never kept, so the server checks them. The key is made from the session's token hash (never sent to a
-// browser) with HMAC, so it cannot be worked out from anything a person sees, and it changes with every sign-in.
+// browser) with HMAC, so it cannot be worked out from anything a person sees, and it changes with every sign-in. (Someone
+// with a copy of the database could work it out; all it gives is a browser cache hint, never access.) Only thumbnails
+// carry it: they are only ever an <img>, never an address a link opens and the browser's history keeps.
 //
 // Never `public`: no shared cache (a proxy, a CDN) keeps a team's private picture.
 import { createHmac, timingSafeEqual } from 'node:crypto'
