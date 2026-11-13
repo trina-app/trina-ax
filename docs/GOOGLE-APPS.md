@@ -11,7 +11,7 @@ sign-in (sealed) and hands the library that person's access token on each call. 
 the Mac app the cards say "Not available on this computer yet".
 
 Code: `server/src/integrations/google-apps/` (service, config, catalog, tokens, transport, attachments), routes
-`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migrations `341_c_google_apps.sql` and `348_c_google_app_team.sql` (shared with
+`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migrations `341_c_google_apps.sql` and `349_c_google_app_team.sql` (shared with
 the team).
 
 ## Setting it up (admins)
@@ -131,7 +131,7 @@ saves its people.
   admin who signed it in has no other Google sign-in here (their own apps, Drive, a Drive share, another shared app);
   likewise a person's own Disconnect (apps or Drive) does not revoke while they signed in a shared app. 팀장 넘기기 lists
   it (`team_sign_ins`, `team_connection`) like other team sign-ins.
-- Data: a team row of `integrations` with `google_app` (at most one per app, migration 348's index), its sign-in a
+- Data: a team row of `integrations` with `google_app` (at most one per app, migration 349's index), its sign-in a
   `google_app_flows` row with `scope = 'team'` (only the team completion takes it).
 
 Google Drive has had its own form of this since #95: "Drives shared with the team", read-only and limited to chosen

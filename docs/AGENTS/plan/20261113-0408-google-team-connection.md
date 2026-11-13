@@ -53,7 +53,7 @@ whole grant.
 
 ## Data
 
-Migration `348_c_google_app_team.sql` (number checked on origin/dev before push), additive, reader 1:
+Migration `349_c_google_app_team.sql` (348 is taken by an open branch, feat/slack-read-one-connect), additive, reader 1:
 - `google_app_flows.scope TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','team'))`: a sign-in an admin
   started for the shared connection; only the admin's team complete accepts it, only the personal complete a personal one.
 - `CREATE UNIQUE INDEX integrations_google_app_team ON integrations(google_app) WHERE google_app IS NOT NULL AND scope = 'team'`.

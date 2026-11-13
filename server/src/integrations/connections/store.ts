@@ -186,7 +186,7 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
   // a person's own Google app: only its owner, whatever the switch for members' own MCP connections says. The account
-  // an admin shared with the team for an app (scope 'team', migration 348) follows the team rule below like any team
+  // an admin shared with the team for an app (scope 'team', migration 349) follows the team rule below like any team
   // connection
   if (row.google_app && row.scope === 'personal') return row.owner_user_id === userId
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))

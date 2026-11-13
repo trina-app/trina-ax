@@ -48,7 +48,7 @@ export class GoogleAppError extends Error {
   constructor(readonly reason: string, readonly status = 400) { super(`google_app_${reason}`) }
 }
 
-/** a person's own connection, or the one shared with the team (google_app_flows.scope, migration 348) */
+/** a person's own connection, or the one shared with the team (google_app_flows.scope, migration 349) */
 type Scope = 'personal' | 'team'
 
 interface FlowRow {
@@ -141,7 +141,7 @@ export class GoogleApps {
   private row(user: string, app: GoogleAppId): Row | null {
     return this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app = ?`).get(user, app) as Row | null
   }
-  /** the account shared with the team for this app, if any (at most one: migration 348) */
+  /** the account shared with the team for this app, if any (at most one: migration 349) */
   teamRow(app: GoogleAppId): Row | null {
     return this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app = ?`).get(app) as Row | null
   }

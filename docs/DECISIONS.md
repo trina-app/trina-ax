@@ -25306,7 +25306,7 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   hide every `google_app` row: it is managed only on the app's page.
 - **Owners and admins only, checked twice.** New `/api/admin/google-apps/:app/team…` endpoints (`auth: 'admin'`), and
   the service reads the role again from the database on every call (an admin demoted mid sign-in cannot finish it). Its
-  sign-in is a `google_app_flows` row with `scope = 'team'` (migration 348, additive): only the team completion takes it,
+  sign-in is a `google_app_flows` row with `scope = 'team'` (migration 349, additive): only the team completion takes it,
   only the personal one a personal flow, so neither can become the other.
 - **Writes keep asking.** Its write rule is "ask" and no screen sets it to "allow": sending as a shared mailbox asks the
   member on the card each time unless they chose their own Always allow there. That choice ends when an admin signs a
