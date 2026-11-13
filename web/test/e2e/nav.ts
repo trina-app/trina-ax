@@ -425,3 +425,37 @@ export const tabButtonNow = (page: Page, tab: 'ai' | 'chats' | 'me') => page.get
 
 /** The navigation's top item on a computer (to check it stays put): the sidebar's "트리나에게 묻기", or the rail. */
 export const navTop = (page: Page) => page.getByTestId('rail').or(page.getByTestId('new-chat')).first()
+
+// ---------------------------------------------------------------------------------------------------------------------
+// the 대화, 파일 and 활동 lists (phase P3)
+
+/** 멘션·스레드: the 대화 panel's row (new, on a computer) or the 대화 tab's row (a phone); today's computer has them as
+ * Activity's conversation view (`/activity?in=chats`; its 멘션 and 스레드 tabs). */
+export async function openMentions(page: Page) {
+  if (isPhone(page)) {
+    if (!(await page.getByTestId('rooms-page').isVisible())) await openTab(page, 'chats')
+    await page.getByTestId('rooms-activity').click()
+  } else if (await isNewNav(page)) await (await showPanel(page, 'chats')).getByTestId('rooms-activity').click()
+  else await page.goto('/activity?in=chats')
+  await expect(page).toHaveURL(/\/activity\?in=chats/)
+}
+
+/** A place of the 파일 list: 최근 파일, the team folder's top, 내 파일, 휴지통 (new: the 파일 panel's rows; today: the
+ * Files page by its address, as its own tabs and breadcrumbs lead there). */
+export async function openFilesPlace(page: Page, where: 'recent' | 'root' | 'mine' | 'trash') {
+  if (!isPhone(page) && (await isNewNav(page))) {
+    const p = await showPanel(page, 'files')
+    await p.getByTestId(where === 'root' ? 'files-panel-root' : `files-panel-${where}`).click()
+    return
+  }
+  if (where === 'root') await openPlace(page, 'files')
+  else if (where === 'trash') await page.goto('/files?view=trash')
+  else if (where === 'recent') await page.goto('/files?view=recent')
+  else throw new Error('내 파일 has no own row in today\'s navigation: open its folder by address')
+}
+
+/** The 활동 list's notice rows (new: the 활동 panel beside the rail; today: the Activity page's list). */
+export async function activityRows(page: Page): Promise<Locator> {
+  if (!isPhone(page) && (await isNewNav(page))) return (await showPanel(page, 'activity')).getByTestId('activity-panel-row')
+  return page.getByTestId('notification-item')
+}
