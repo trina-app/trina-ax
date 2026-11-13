@@ -48,6 +48,7 @@ const bridge: DesktopBridge = {
     get: () => ipcRenderer.invoke('bridge:focus'),
     onChange: on('bridge:focus'),
   },
+  systemActivity: { onChange: on('bridge:system-activity') },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
   teamMenu: () => ipcRenderer.send('bridge:team-menu'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),

@@ -147,6 +147,13 @@ export interface DesktopBridge {
     get(): Promise<boolean>
     onChange(cb: (focused: boolean) => void): () => void
   }
+  /** The computer's own use, every 30 s (desktop/src/common/system-activity.ts): how long it has had no input and
+   * whether its screen is locked. The page counts the person as at Trina while the computer is in use, even with
+   * another app in front (web/src/lib/presence.ts; docs/DECISIONS.md "Phone notifications when I'm away"). Optional:
+   * older desktop apps do not have it (the page counts only its own input). */
+  systemActivity?: {
+    onChange(cb: (a: { locked: boolean; idleMs: number }) => void): () => void
+  }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
   /** The app's own menu of teams under the pointer: the team menu's "다른 팀으로 전환…" (the logo menu, the 나 tab). The

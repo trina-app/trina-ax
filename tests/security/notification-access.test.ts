@@ -23,6 +23,12 @@ test('inbox/preferences/read stay personal even for owner; signals contain no se
   }
   await alice.call('PATCH', '/api/notification-preferences', { connectionReconnect: false })
   expect((await bob.call('GET', '/api/notification-preferences')).connectionReconnect).toBe(true)
+  // Phone notifications (phoneWhen) are the caller's own too; a userId in the body is refused (strict)
+  await alice.call('PATCH', '/api/notification-preferences', { phoneWhen: 'always' })
+  expect((await bob.call('GET', '/api/notification-preferences')).phoneWhen).toBe('away')
+  expect((await owner.call('GET', '/api/notification-preferences')).phoneWhen).toBe('away')
+  expect((await bob.raw('PATCH', '/api/notification-preferences', { phoneWhen: 'always', userId: aliceId })).status).toBe(400)
+  expect((await bob.raw('PATCH', '/api/notification-preferences', { phoneWhen: 'never' })).status).toBe(400)
   n.connectionReconnect(aliceId, 'muted-episode')
   expect((await alice.call('GET', '/api/notifications')).items).toHaveLength(1)
   const signals = h.hub.events.filter(e => (e.data as any)?.data?.code === 'notifications.changed')

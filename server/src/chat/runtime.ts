@@ -13,7 +13,7 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
-import { startPresence, type Presence } from '../realtime/presence'
+import { startPresence, type Presence, type PresenceOptions } from '../realtime/presence'
 import { startRoomTyping } from '../rooms/typing'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
@@ -110,6 +110,8 @@ export interface ChatRuntimeOptions {
   purgeIntervalMs?: number
   /** tests: how long an answer must run before its end is worth telling (default LONG_ANSWER_MS) */
   longAnswerMs?: number
+  /** tests: presence's timings (a test harness starts without the warm-up that holds phone pushes after a start) */
+  presence?: Partial<PresenceOptions>
 }
 
 const pendingOptions = new WeakMap<AppContext, ChatRuntimeOptions>()
@@ -270,7 +272,7 @@ export class ChatRuntime {
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
-    this.presence = startPresence(this.hub, ctx)
+    this.presence = startPresence(this.hub, ctx, o.presence)
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
     startRoomTyping(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)

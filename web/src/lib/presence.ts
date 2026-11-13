@@ -8,6 +8,11 @@
 //   whatever the input, as Slack's "away when you leave the app" (a phone locks its screen by itself). The phone app's
 //   page is told it is hidden when the app goes to the background, before the system stops it, so the frame still
 //   goes out.
+// - In the desktop app the computer's own use counts too (desktop/src/common/system-activity.ts, every 30 s): working
+//   in another app with Trina behind it, or in the in-app browser, is still in use; a locked screen is idle at once.
+//   The same state decides a push to the person's phone (docs/DECISIONS.md "Phone notifications when I'm away": in
+//   use = no phone push). A browser tab cannot see the computer: it is in use only while visible and within 10 minutes
+//   of its own input; a hidden tab is idle at once (it must not keep the phone quiet).
 // - Only a change is sent (input only notes the time, at most once a second), and the current state again after each
 //   hello (the server takes a window that has just connected as in use). Nothing is sent while disconnected.
 import type { WindowActivity } from '@mycel/shared/api'
@@ -29,6 +34,11 @@ export interface ActivityEnv {
 export class ActivityTracker {
   private last: number
   private state: WindowActivity
+  /** the computer's screen is locked (desktop app): idle until the desktop app says it is unlocked (a focus event while
+   * locked changes nothing) */
+  private locked = false
+  /** the desktop app tells this page about the computer (system): its word replaces the page's visibility */
+  private hasSystem = false
   private timer: unknown = null
   private stopped = false
 
@@ -46,6 +56,16 @@ export class ActivityTracker {
     const now = this.env.now()
     if (this.state === 'active' && now - this.last < INPUT_EVERY_MS) return
     this.last = now
+    this.update()
+  }
+
+  /** The desktop app's word on the computer (every 30 s): its last input counts as this page's, a locked screen makes
+   * the window idle at once. Not on a phone (its own rule: visible is in use). */
+  system(a: { locked: boolean; idleMs: number }) {
+    if (this.stopped || this.env.phone) return
+    this.hasSystem = true
+    this.locked = a.locked
+    if (!a.locked && Number.isFinite(a.idleMs) && a.idleMs >= 0) this.last = Math.max(this.last, this.env.now() - a.idleMs)
     this.update()
   }
 
@@ -73,6 +93,9 @@ export class ActivityTracker {
 
   private compute(): WindowActivity {
     if (this.env.phone) return this.env.visible() ? 'active' : 'idle'
+    if (this.locked) return 'idle'
+    // a browser tab (no word from a desktop app): hidden is idle at once
+    if (!this.hasSystem && !this.env.visible()) return 'idle'
     return this.env.now() - this.last >= this.idleMs ? 'idle' : 'active'
   }
 
@@ -102,7 +125,7 @@ const phone = () => !!mobileApp() || (typeof window !== 'undefined' && !!window.
 const INPUTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'] as const
 
 /** The tracker on this page's own input and visibility; `send` gets each change. */
-export function startActivity(send: (s: WindowActivity) => void): ActivityTracker & { detach(): void } {
+export function startActivity(send: (s: WindowActivity) => void, systemActivity?: (cb: (a: { locked: boolean; idleMs: number }) => void) => () => void): ActivityTracker & { detach(): void } {
   const t = new ActivityTracker(send, {
     now: () => Date.now(),
     setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
@@ -114,9 +137,12 @@ export function startActivity(send: (s: WindowActivity) => void): ActivityTracke
   const onVisible = () => t.visibility()
   for (const e of INPUTS) window.addEventListener(e, onInput, { capture: true, passive: true })
   document.addEventListener('visibilitychange', onVisible)
+  let offSystem: (() => void) | null = null
+  try { offSystem = systemActivity?.((a) => t.system(a)) ?? null } catch { /* an older desktop app */ }
   return Object.assign(t, {
     detach() {
       t.stop()
+      offSystem?.()
       for (const e of INPUTS) window.removeEventListener(e, onInput, { capture: true })
       document.removeEventListener('visibilitychange', onVisible)
     },

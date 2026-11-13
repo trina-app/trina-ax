@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { Hono } from 'hono'
 import type { AppConfig } from '../../server/src/app-config'
 import { buildApp } from '../../server/src/app'
+import { configureChat } from '../../server/src/chat/runtime'
 import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
@@ -63,6 +64,8 @@ export async function harness(name: string, over: Partial<AppConfig> = {}, o: { 
   const ctx = createContext({ config: cfg, db, log: o.log ?? silentLogger })
   ctx.onClose(() => db.close())
   const hub = new RecordingHub()
+  // no presence warm-up in tests: it holds phone pushes for 15 s after a start (notifications/away.ts)
+  configureChat(ctx, { presence: { warmupMs: 0 } })
   const app = await buildApp(ctx)
   ctx.services.realtime = hub
   const auth = authOf(ctx)
