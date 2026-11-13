@@ -163,7 +163,7 @@ export function useDriveConnection(onConnected?: (c: Connection) => void) {
   const load = () => {
     const g = ++generation.current
     setLoadFailed(false)
-    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setLoadFailed(true) })
+    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) { setConnection(null); setLoadFailed(true) } })
   }
   useEffect(() => {
     load()

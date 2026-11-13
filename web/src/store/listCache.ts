@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { api, API } from '../lib/api'
 import { isSkillsPath } from '../lib/skillIssues'
+import { useProjects } from './projects'
 import { accessChanged, chatChanged, enginesChanged, filesChanged, integrationsChanged, reloadAsked, schedulesChanged, skillsChanged } from './live'
 
 interface ListCacheState {
@@ -160,5 +161,7 @@ schedulesChanged.on(() => markStale(SHARED.schedules))
 integrationsChanged.on(() => markStale('integrations'))
 chatChanged.on(() => markStale('search:recent'))
 enginesChanged.on(() => markStale('settings:'))
+// a project made, renamed or gone here (Search's list of projects)
+useProjects.subscribe((st, before) => { if (st.byId !== before.byId || st.listed !== before.listed) markStale('search:projects') })
 accessChanged.on(() => markStale(''))
 reloadAsked.on(() => markStale(''))

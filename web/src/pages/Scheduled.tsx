@@ -506,10 +506,10 @@ export function ScheduledTask() {
   }, [])
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const toggle = async (x: Schedule) => {
-    const generation = life.current
     try {
       const u = await api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled: !x.enabled } })
-      if (generation === life.current) replace(u)
+      // the kept list takes it also when the page is gone by now (Search and the banner read it)
+      replace(u)
     } catch (e) { fail(e) }
   }
   // "다시 확인": the task's card, here; resuming is answering it
@@ -532,8 +532,8 @@ export function ScheduledTask() {
     const generation = life.current
     try {
       const u = await api.call(API.confirmScheduleReview, { params: { id: x.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
       replace(u)
+      if (generation !== life.current) return
       setReview(null)
       schedulesChanged.emit()
       if (value === 'resave') toast({ level: 'success', text: t('schedules.resaveDone') })
@@ -566,8 +566,8 @@ export function ScheduledTask() {
     setRunning(true)
     try {
       const r = await api.call(API.runScheduleNow, { params: { id: x.id }, body: {} })
-      if (generation !== life.current) return
       replace(r.schedule)
+      if (generation !== life.current) return
       // and read again: a quick run may have ended before this answer came (its chat's events are followed from here)
       void load()
       toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
@@ -580,8 +580,8 @@ export function ScheduledTask() {
     if (generation !== life.current) return
     try {
       await api.call(API.deleteSchedule, { params: { id: x.id } })
-      if (generation !== life.current) return
       drop(x.id)
+      if (generation !== life.current) return
       if (x.needsReview) schedulesChanged.emit()
       navigate('/scheduled', { replace: true })
     } catch (e) { fail(e) }

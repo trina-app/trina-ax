@@ -83,7 +83,8 @@ export const readAvailable = (): Promise<Skill[]> =>
 export function AvailableSkills({ query, catalogOpen }: { query: string; catalogOpen?: boolean }) {
   const t = useT()
   // as this window last read it (store/listCache.ts): a visit after the first shows it at once and reads it behind it
-  const { data, failed, reload } = useCachedRead<Skill[]>(AVAILABLE_KEY, readAvailable)
+  // (not when 팀 스킬 read it a moment ago: it asks for it beside its own lists)
+  const { data, failed, reload } = useCachedRead<Skill[]>(AVAILABLE_KEY, readAvailable, { minAgeMs: 10_000 })
   const items = data ?? null
   useEffect(() => {
     const load = () => void reload()

@@ -638,6 +638,10 @@ const markUnsure = (roomId: string) => unsure.set(roomId, timelineGen)
  * delete, reactions) forgets it, so it opens as before, from the server. */
 const keptThreads = new Map<string, Pick<ThreadView, 'root' | 'replies' | 'nextCursor'>>()
 const KEPT_THREADS = 10
+/** forget every kept thread of a room (I am out of it: back in later, its threads open from the server) */
+function forgetKeptThreads(roomId: string) {
+  for (const key of [...keptThreads.keys()]) if (key.startsWith(roomId + '/')) keptThreads.delete(key)
+}
 /** forget the kept threads of the room that this message (or its thread's root) is part of */
 function forgetKeptThread(roomId: string, messageId: string, rootId?: string | null) {
   for (const [key, tv] of keptThreads) {
@@ -974,7 +978,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (cur.holders > 1) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders - 1 } } }))
       // the last panel: a read still on its way is dropped; what it showed is kept for a while (keptThreads)
       threadGens.delete(key)
-      if (cur.root && !cur.error && !cur.loading) {
+      // (only one page of replies: the newest page read when it opens again replaces them, so more would shrink)
+      if (cur.root && !cur.error && !cur.loading && cur.replies.length <= ROOM_PAGE) {
         keptThreads.delete(key)
         keptThreads.set(key, { root: cur.root, replies: cur.replies, nextCursor: cur.nextCursor })
         if (keptThreads.size > KEPT_THREADS) keptThreads.delete(keptThreads.keys().next().value!)
@@ -1230,6 +1235,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     forgetKept() {
       const open = get().openRoomId
       if (open) markUnsure(open)
+      // the kept threads may have missed changes as well: they open from the server again
+      keptThreads.clear()
       set({ kept: {} })
     },
 
@@ -1285,6 +1292,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.updated': {
           const { roomId, change, room } = ev.data
           if (change === 'removed' || !room) {
+            forgetKeptThreads(roomId)
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
             useSideChats.getState().drop(roomId)
