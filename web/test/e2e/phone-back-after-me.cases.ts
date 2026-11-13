@@ -1,5 +1,6 @@
 // Android Back after 나 (QA TC-404): 트리나 → 나 → 프로젝트 (or 대화) in 나's own tab bar → Back left the app. The page
 // skipped telling the app where Back goes on 프로젝트's root (the same answer as 나's root: no Back, not home), and
+// (since the tabs 트리나 · 대화 · 파일 · 나 the projects are a page of 트리나, so 파일 is the other tab's root checked here)
 // Android's app forgets what it heard when the WebView reports some same-document moves as a load start
 // (mobile/App.tsx onLoadStart), so it fell back to the WebView's history and left. The page now tells the app again on
 // every screen. A fake app bridge records each `nav` with its path; the app's own decision (mobile/src/nav.ts backAction)
@@ -7,6 +8,7 @@
 // phone-back-after-me.spec.ts) and WebKit (phone-back-after-me.webkit.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { backAction } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
@@ -46,10 +48,13 @@ export function backAfterMeCases() {
     await reset(page)
     await app(page)
     await signIn(page)
+    // signIn leaves a phone on the new-chat box (/new, no tab bar): its ‹ to 트리나's root, the list (`/`)
+    await openTab(page, 'ai')
+    await expect(page).toHaveURL(/\/$/)
     await lastNav(page, '/')
   })
 
-  for (const [id, path] of [['projects', '/projects'], ['chats', '/rooms']] as const) {
+  for (const [id, path] of [['files', '/files'], ['chats', '/rooms']] as const) {
     test(`트리나 → 나 → ${id} in 나's bar: its root tells the app again, so Back goes to 트리나`, async ({ page }) => {
       await tab(page, 'me').click()
       await expect(page).toHaveURL(/\/settings$/)
@@ -69,7 +74,7 @@ export function backAfterMeCases() {
     })
   }
 
-  test('나 › 보안 → Back → 나 → 프로젝트: still tells the app, Back goes to 트리나', async ({ page }) => {
+  test('나 › 보안 → Back → 나 → 파일: still tells the app, Back goes to 트리나', async ({ page }) => {
     await tab(page, 'me').click()
     await expect(page).toHaveURL(/\/settings$/)
     await page.getByTestId('settings-dialog').getByText(/^(Security & devices|보안·기기)$/).first().click()
@@ -77,14 +82,21 @@ export function backAfterMeCases() {
     expect(androidBack(await lastNav(page, '/settings/security'))).toBe('back')
     await page.goBack()
     await expect(page).toHaveURL(/\/settings$/)
-    await tab(page, 'projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
-    expect(androidBack(await lastNav(page, '/projects'))).toBe('start-tab')
+    await tab(page, 'files').click()
+    await expect(page).toHaveURL(/\/files$/)
+    expect(androidBack(await lastNav(page, '/files'))).toBe('start-tab')
   })
 
-  test('as before: 트리나 → 프로젝트 → Back goes to 트리나', async ({ page }) => {
-    await tab(page, 'projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
-    expect(androidBack(await lastNav(page, '/projects'))).toBe('start-tab')
+  test('as before: 트리나 → 파일 → Back goes to 트리나', async ({ page }) => {
+    await tab(page, 'files').click()
+    await expect(page).toHaveURL(/\/files$/)
+    expect(androidBack(await lastNav(page, '/files'))).toBe('start-tab')
+  })
+
+  test('트리나 → 모든 프로젝트: a page of 트리나, so Back goes back to its list', async ({ page }) => {
+    // a fresh team has no project yet: the list's row is "+ 새 프로젝트" (/projects?new=1), the projects page all the same
+    await page.getByTestId('phone-trina-home').getByTestId('trina-all-projects').or(page.getByTestId('phone-trina-home').getByTestId('trina-new-project')).first().click()
+    await expect(page).toHaveURL(/\/projects(\?|$)/)
+    expect(androidBack(await lastNav(page, '/projects'))).toBe('back')
   })
 }

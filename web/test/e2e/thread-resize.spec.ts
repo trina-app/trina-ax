@@ -7,6 +7,7 @@
 // a file preview beside the thread).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { navRight } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -176,7 +177,7 @@ test('a file preview beside the thread leaves the room 420 px and the thread 320
   await expect(page.getByTestId('panel-divider')).toBeVisible()
   await expect(page.getByTestId('thread-divider')).toBeVisible()
   const side = page.getByTestId('side-panel')
-  // 1440 px: the page and the preview share 1440 - 280; the preview leaves the page 420 + 320
+  // 1440 px: the page and the preview share what is right of the rail and its list; the preview leaves the page 420 + 320
   const fits = async () => {
     const t = (await page.getByTestId('room-thread').boundingBox())!
     const p = (await side.boundingBox())!
@@ -188,9 +189,10 @@ test('a file preview beside the thread leaves the room 420 px and the thread 320
   await fits()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/thread-1440-light-with-preview.png` })
 
-  // the preview dragged far left: still the room's 420 and the thread's 320
+  // the preview dragged far left: still the room's 420 and the thread's 320 (the preview gets what is left of the area
+  // right of the rail and its list)
   await dragTo(page, 5, 'panel-divider', 'panel-drag-overlay')
-  await expect.poll(() => width(page, 'side-panel')).toBe(420)
+  await expect.poll(() => width(page, 'side-panel')).toBe(1440 - (await navRight(page)) - 420 - 320)
   expect(await roomWidth(page)).toBeGreaterThanOrEqual(419)
   await fits()
   // the thread has no room to choose here: a drag of its divider remembers nothing

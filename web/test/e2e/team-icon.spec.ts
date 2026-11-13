@@ -41,7 +41,7 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   await page.goto('/admin/settings')
   const card = page.getByTestId('team-icon')
   await expect(page.getByRole('heading', { name: '팀 로고' })).toBeVisible()
-  await expect(card).toContainText(`컴퓨터에서 사이드바 왼쪽 위, 팀 이름 옆에 보여요. 브라우저 탭과 홈 화면 아이콘은 ${PRODUCT.displayName} 아이콘 그대로예요.`)
+  await expect(card).toContainText(`컴퓨터에서 왼쪽 위에 팀 이름과 함께 보여요. 브라우저 탭과 홈 화면 아이콘은 ${PRODUCT.displayName} 아이콘 그대로예요.`)
   await expect(page.getByTestId('team-icon-status')).toHaveText(`지금은 기본 ${PRODUCT.displayName} 아이콘을 쓰고 있어요.`)
   await expect(page.getByTestId('team-icon-remove')).toHaveCount(0)
   await expect(page.getByTestId('team-icon-preview-light').getByTestId('team-icon-preview-logo')).toHaveAttribute('src', '/favicon.svg')
@@ -108,7 +108,7 @@ test('team logo: refused files, upload, the sidebar follows, the tab and app ico
   // remove: asked first, then the product's mark in the sidebar again
   await page.getByTestId('team-icon-remove').click()
   await expect(page.getByRole('dialog')).toContainText('팀 로고를 지울까요?')
-  await expect(page.getByRole('dialog')).toContainText(`사이드바에 기본 ${PRODUCT.displayName} 아이콘이 다시 보여요.`)
+  await expect(page.getByRole('dialog')).toContainText(`기본 ${PRODUCT.displayName} 아이콘이 다시 보여요.`)
   await page.getByRole('dialog').getByRole('button', { name: '지우기' }).click()
   await expect(page.getByText('기본 아이콘으로 되돌렸어요.')).toBeVisible()
   await expect(teamLogo(page)).toHaveAttribute('src', '/favicon.svg')

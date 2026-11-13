@@ -4,6 +4,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
+import { DICTS, type MessageKey } from '../../src/i18n'
+import { aiName } from '../../src/lib/tabs'
+
+const ko = DICTS.ko
+/** a file's "ask about this file": the AI called by its name (트리나 in the Trina edition) */
+const ASK_FILE = ko['files.askAi'].replace('{name}', aiName((k: MessageKey) => ko[k]))
 
 const BROWSER_NOTE = '마이크 사용이 막혀 있어요. 브라우저 설정에서 마이크를 허용해 주세요.'
 const IOS_NOTE = /^마이크 사용이 막혀 있어요\. iPhone의 설정 › .+에서 마이크를 켜 주세요\./
@@ -59,7 +65,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     test("a folder's ⋯ menu starts a chat with this folder; a file's asks about the file", async ({ page }) => {
       await reset(page)
       await signIn(page)
-      await page.goto('/files')
+      // the team folder's top: `/files` on a computer; a phone's `/files` is 파일's places, its top `/files?team=1`
+      await page.goto(size.width < 768 ? '/files?team=1' : '/files')
       const folder = page.getByTestId('file-row').filter({ hasText: 'marketing' }).first()
       await folder.hover()
       await folder.getByTestId('file-menu').click()
@@ -70,7 +77,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
       const file = page.getByTestId('file-row').filter({ hasText: 'notes.txt' }).first()
       await file.hover()
       await file.getByTestId('file-menu').click()
-      await expect(page.getByTestId('chat-with-file')).toHaveText('AI에게 이 파일 물어보기')
+      await expect(page.getByTestId('chat-with-file')).toHaveText(ASK_FILE)
     })
   })
 }

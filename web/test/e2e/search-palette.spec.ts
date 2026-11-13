@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openNewChat } from './nav'
+import { openNewChat, openSearch } from './nav'
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
 
@@ -53,10 +53,13 @@ test('with no text: needs attention, recents and actions; tabs and arrow keys', 
   await expect(palette(page).getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowDown')
   await expect(palette(page).getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
-  // → with no text changes the type, ← goes back
+  // → with no text changes the type (대화방·사람 comes after 전체, then 기록), ← goes back
+  await page.keyboard.press('ArrowRight')
+  await expect(palette(page).getByTestId('search-tab-rooms')).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowRight')
   await expect(palette(page).getByTestId('search-tab-chats')).toHaveAttribute('aria-selected', 'true')
   await expect(palette(page).getByTestId('search-section-chats').getByRole('option')).toHaveCount(1)
+  await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('ArrowLeft')
   await expect(palette(page).getByTestId('search-tab-all')).toHaveAttribute('aria-selected', 'true')
   // a tab by click: only that type
@@ -117,7 +120,10 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
 
   await page.goto('/')
   await open(page)
+  // the 기록 type (after 대화방·사람)
   await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  await expect(palette(page).getByTestId('search-tab-chats')).toHaveAttribute('aria-selected', 'true')
   await expect(palette(page).getByTestId('search-hints')).toContainText(/Alt|⌥/)
   await page.keyboard.press('Alt+Enter')
   const menu = palette(page).getByTestId('search-row-menu')
@@ -206,8 +212,8 @@ test.describe('phone width', () => {
   test('search fills the screen, the types are one picker with a sheet (no row that scrolls sideways) and there are no key hints', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await page.getByRole('button', { name: '메뉴 열기' }).click()
-    await page.getByRole('button', { name: '검색' }).first().click()
+    // the 트리나 tab's 🔍 (the drawer is gone)
+    await openSearch(page)
     await expect(palette(page)).toBeVisible()
     const box = (await palette(page).boundingBox())!
     expect(box.width).toBeGreaterThanOrEqual(389)

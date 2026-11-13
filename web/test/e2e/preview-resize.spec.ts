@@ -35,6 +35,9 @@ async function dragTo(page: Page, x: number) {
 }
 
 test('drag, limits, remembered after reload, double-click reset, arrow keys', async ({ page }) => {
+  // wide enough that the keyboard's steps from the default width stay clear of the chat's 360 px beside the rail and
+  // its list (at 1360 the Shift step meets that limit first)
+  await page.setViewportSize({ width: 1600, height: 900 })
   await reset(page)
   await signIn(page)
   await openPreview(page)

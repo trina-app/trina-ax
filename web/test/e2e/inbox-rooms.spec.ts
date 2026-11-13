@@ -4,6 +4,7 @@
 // With SHOTS=1 it also takes the Inbox at 1440 and 390, light and dark, into $SHOTS_DIR (default test-results/inbox-rooms).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { activityRows } from './nav'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
 
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
@@ -49,7 +50,14 @@ test('a thread row says who and where with the newest line and the count; a clic
   await signIn(page)
   const state = await routeInbox(page)
   await routeThread(page)
+  // a computer: a scheduled run's notice is 활동's (the panel beside the rail), the conversation rows are 대화's 멘션·스레드
   await page.goto('/activity')
+  const run = (await activityRows(page)).filter({ hasText: '주간 보고서 정리' })
+  await expect(run).toHaveAttribute('href', `/c/${id(500)}`)
+  await expect(run).toContainText('"주간 보고서 정리" 예약 작업이 끝났어요.')
+  await expect(run.locator('time')).toBeVisible()
+  await expect(page.getByRole('link', { name: /주간 보고서 정리/ })).toHaveCount(1)
+  await page.goto('/activity?in=chats')
   const rows = page.getByTestId('notification-room-row')
   await expect(rows).toHaveCount(5)
   const first = rows.first()
@@ -66,18 +74,10 @@ test('a thread row says who and where with the newest line and the count; a clic
   await expect(rows.nth(3).getByTestId('notification-room-line')).toHaveText('@@전체: @전체 다음 주 화요일은 사무실이 쉬어요')
   await expect(rows.nth(4).getByTestId('notification-room-who')).toHaveText('트리나')
   await expect(rows.nth(4).getByTestId('notification-room-line')).toHaveText('요약: 이번 주 안에 시안 두 개를 정리하면 돼요')
-  // a scheduled run's row reads like them: the task by name, the time on the right, the whole row opens its result
-  // (no "결과 열기" under it, no date line); keyboard: one link with that name
-  const run = page.getByTestId('notification-chat-link')
-  await expect(run).toHaveAttribute('href', `/c/${id(500)}`)
-  await expect(run.getByTestId('notification-text')).toHaveText('"주간 보고서 정리" 예약 작업이 끝났어요.')
-  await expect(run.locator('time')).toBeVisible()
-  await expect(page.getByTestId('activity')).not.toContainText('결과 열기')
-  await expect(page.getByRole('link', { name: /주간 보고서 정리/ })).toHaveCount(1)
+  // no notice of the app's own among the conversations
+  await expect(page.getByTestId('notification-chat-link')).toHaveCount(0)
   // Activity reads like Slack's: the time right after the name, on the first line, in every row
-  const box = (await run.boundingBox())!, time = (await run.locator('time').boundingBox())!
   const firstBox = (await first.boundingBox())!, rowTime = (await first.locator('time').boundingBox())!
-  expect(time.y - box.y).toBeLessThan(24)
   expect(rowTime.y - firstBox.y).toBeLessThan(24)
   // the click: the thread, the reply in the middle of it picked out and in sight, the notice read
   await first.click()

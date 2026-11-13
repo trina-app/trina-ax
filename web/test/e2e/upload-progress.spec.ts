@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { accountButton, openPlace, openTrinaRow, signOut } from './nav'
+import { accountButton, openFilesPlace, openPlace, signOut } from './nav'
 
 const CHIP = '[data-testid="attachment-chip"] [role="status"]'
 const ROW = '[data-testid="upload-list"] li'
@@ -51,7 +51,8 @@ async function nextPerson(page: Page) {
   await page.getByTestId('login-password').fill(BOB.password)
   await page.getByTestId('login-submit').click()
   await expect(accountButton(page)).toBeVisible()
-  await openPlace(page, 'files')
+  // the team folder's top (the 파일 list's 팀 폴더; the rail's 파일 itself opens 최근 파일, which has no upload list)
+  await openFilesPlace(page, 'root')
   await expect(page.getByTestId('files-input')).toBeAttached()
 }
 const folderOf = (dir: string, names: string[], size: number) => {
@@ -290,9 +291,11 @@ test.describe('without the service worker', () => {
     await page.getByTestId('files-input').setInputFiles(pdf('full.pdf', 1000))
     const row = page.locator(ROW)
     await expect(row.getByRole('alert')).toContainText('저장 공간')
-    await openTrinaRow(page, 'projects')
+    // away by the rail (an in-app move: 모든 프로젝트 of a team with no project is reached by loading the page, which would
+    // forget the row) and back to the team folder
+    await openPlace(page, 'trina')
     await expect(row).toHaveCount(0)
-    await openPlace(page, 'files')
+    await openFilesPlace(page, 'root')
     await expect(row.getByRole('alert')).toContainText('저장 공간')
   })
 
@@ -387,7 +390,7 @@ test('an upload that ends leaves the folder on screen as it is, when the person 
   await answerAfter(page, 1200)
   await page.getByTestId('files-input').setInputFiles(pdf('elsewhere.pdf', 1000))
   await expect(page.locator(ROW)).toBeVisible()
-  await openPlace(page, 'files')
+  await openFilesPlace(page, 'root')
   await expect(page.getByText('plan.md', { exact: true })).toHaveCount(0)
   await expect(page.locator(ROW)).toHaveAttribute('data-status', 'done', { timeout: 10_000 })
   await page.waitForTimeout(600)

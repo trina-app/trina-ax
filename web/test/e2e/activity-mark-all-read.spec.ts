@@ -69,7 +69,8 @@ for (const [name, viewport, mobile] of SIZES) {
     await button.click()
     await expect(page.getByTestId('activity-tab-threads-unread')).toHaveCount(0)
     await expect(button).toHaveCount(0)
-    expect(sent).toEqual([{ tab: 'threads' }])
+    // a computer: Threads is 대화's 멘션·스레드 now (/activity?in=chats, nav rail P3), so the rooms' notices only
+    expect(sent).toEqual([mobile ? { tab: 'threads' } : { tab: 'threads', only: 'rooms' }])
     // the other tabs keep theirs: Mentions still has two unread, All its button
     await expect(page.getByTestId('activity-tab-mentions-unread')).toHaveCount(1)
     await page.getByTestId('activity-tab-all').click()
@@ -84,7 +85,7 @@ for (const [name, viewport, mobile] of SIZES) {
     await button.click()
     await expect(page.locator('[data-testid="notification-room-row"][data-unread]')).toHaveCount(0)
     await expect(button).toHaveCount(0)
-    expect(sent).toEqual([{ tab: 'threads' }, { tab: 'all' }])
+    expect(sent).toEqual(mobile ? [{ tab: 'threads' }, { tab: 'all' }] : [{ tab: 'threads', only: 'rooms' }, { tab: 'all', only: 'rooms' }])
     if (process.env.SHOTS) for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme })
       // the tabs' colours move with a transition: let it end before the picture

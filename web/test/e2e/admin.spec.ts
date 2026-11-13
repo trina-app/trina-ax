@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
-import { openAdmin, teamHeader, teamMenuButton } from './nav'
+import { openAdmin, showPanel, teamHeader, teamMenuButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
@@ -710,7 +710,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await page.getByTestId('delete-member-bob').click()
     await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
-    const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
+    // the chat's row in the 트리나 panel (the rail: Admin shows its own panel; the switch is in-app, no reload)
+    const item = (await showPanel(page, 'trina')).getByRole('listitem').filter({ hasText: 'Retention chat' })
     await item.hover()
     await item.getByRole('button', { name: t['chat.menu'], exact: true }).click()
     await item.getByRole('menuitem', { name: t['common.delete'] }).click()

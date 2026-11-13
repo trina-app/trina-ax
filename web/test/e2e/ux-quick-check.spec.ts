@@ -113,7 +113,9 @@ test('a phone: a cut row fades at that edge', async ({ page }) => {
   await signIn(page)
   await phone(page)
   // (Admin's menu was such a row, then the search palette's type tabs; on a phone both are a list or a picker now,
-  // docs/DECISIONS.md "Admin and Settings on phones", 079271860) an answer's table wider than the phone
+  // docs/DECISIONS.md "Admin and Settings on phones", 079271860) an answer's table wider than the phone, asked from the
+  // phone's new-chat page
+  await page.goto('/new')
   await page.getByTestId('composer-input').fill('big numbers')
   await page.getByTestId('send').click()
   await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
@@ -129,7 +131,8 @@ test('Files on a phone: the search box takes the width the buttons leave, its pl
   await reset(page)
   await signIn(page)
   await phone(page)
-  await page.goto('/files')
+  // a phone's /files is 파일's places; the team folder's top is ?team=1 (nav rail #673, lib/newChat.ts)
+  await page.goto('/files?team=1')
   const input = page.getByTestId('content-search-input')
   await expect(input).toBeVisible()
   const field = await box(input.locator('xpath=..'))

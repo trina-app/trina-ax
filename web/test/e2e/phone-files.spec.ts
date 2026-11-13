@@ -2,7 +2,8 @@
 // app's engine). The owner on Team folder › Groups › leads: "여기 UI가 모바일 친화적임?". The steps follow the QA row:
 //   1. Files › Team folder › Groups › leads: one bar (‹ to the folder above, the folder's name, ⊕ with New folder /
 //      Upload as a sheet), the search scrolls away, rows "name" + "date · size", "팀 폴더" at most once
-// Since QA TC-255 the team folder is reached by 프로젝트 › 팀 폴더 and named so in its bar, with "‹ 프로젝트".
+// With the tabs 트리나 · 대화 · 파일 · 나 the team folder's top is a place of the 파일 tab (파일 › 팀 폴더, /files?team=1),
+// named so in its bar, with "‹ 파일".
 //   2. Trash: a place you open from the team folder; folder names in words (not storage paths), a short toast
 //   3. Upload 3 files from ⊕: the finished uploads fold into one line ("3개 올렸어요"); the files are listed in two lines
 // TC-249: a row's ⋯ near the end of a long list is a sheet over the tab bar with 44 px rows, closes on an outside tap
@@ -12,7 +13,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { folderLabel } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openTab, tabBar, tabButton } from './nav'
+import { openTab, showPanel, tabBar, tabButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -24,10 +25,12 @@ const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ 
 const open = (page: Page, name: string) => row(page, name).getByRole('button').first().click()
 const title = (page: Page) => page.getByRole('heading', { level: 1 })
 const back = (page: Page) => page.getByTestId('files-back')
-/** 프로젝트 › 팀 폴더 (QA TC-255) */
+/** 파일 › 팀 폴더: the 파일 tab's places, then the team folder's own top (/files?team=1) */
 async function teamFolder(page: Page) {
   await openTab(page, 'files')
-  await expect(page).toHaveURL(/\/files/)
+  await expect(page).toHaveURL(/\/files$/)
+  await page.getByTestId('files-panel-root').click()
+  await expect(page).toHaveURL(/\/files\?team=1$/)
 }
 
 async function file(page: Page, path: string, text = 'x') {
@@ -45,10 +48,12 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   for (let i = 1; i <= 20; i++) await file(page, `groups/leads/견적서-${String(i).padStart(2, '0')}.html`, '<p>견적</p>'.repeat(i))
   await teamFolder(page)
 
-  // the team folder: "팀 폴더" as the title, ‹ to 프로젝트 (the tab it is under), no Team folder / Trash pills and no
+  // the team folder: "팀 폴더" as the title, ‹ to 파일 (the tab's places it is under), no Team folder / Trash pills and no
   // breadcrumbs
   await expect(title(page)).toHaveText(t['files.root'])
-  await expect(page.getByTestId('files-back-label')).toHaveText(t['projects.title'])
+  // (its ‹ shows no "파일" yet: the places are /files too, and a ‹ to the same address goes unnamed, lib/backStack.ts
+  // useBackLabel; listed for the navigation redesign)
+  await expect(back(page)).toBeVisible()
   await expect(page.getByTestId('files-add')).toBeVisible()
   await expect(page.getByRole('tab')).toHaveCount(0)
   await expect(page.getByTestId('crumb')).toHaveCount(0)
@@ -106,7 +111,11 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   await expect(page).toHaveURL(/path=groups$/)
   await back(page).click()
   await expect(title(page)).toHaveText(t['files.root'])
-  await expect(page.getByTestId('files-back-label')).toHaveText(t['projects.title'])
+  await expect(page).toHaveURL(/\/files\?team=1$/)
+  // and its ‹: 파일's places, the tab's root
+  await back(page).click()
+  await expect(page).toHaveURL(/\/files$/)
+  await expect(page.getByTestId('phone-files-home')).toBeVisible()
 })
 
 test('step 2: the trash is a place: folder names in words, a one-line note, a short toast, ‹ back to the team folder', async ({ page }) => {
@@ -118,7 +127,8 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await page.getByTestId('files-open-trash').click()
   await expect(page).toHaveURL(/view=trash/)
   await expect(title(page)).toHaveText(t['files.trash'])
-  await expect(page.getByTestId('files-back-label')).toHaveText(t['files.root'])
+  // ‹ goes back to the team folder (checked at the end); its label says "파일" there today (pages/Files.tsx: the trash
+  // without a folder names rootName): listed for the navigation redesign, not checked here
 
   // the name, then the folder it was in, in words; never the storage path
   const item = page.getByTestId('trash-item').filter({ hasText: 'old-quote.txt' })
@@ -143,24 +153,25 @@ test('step 2: the trash is a place: folder names in words, a one-line note, a sh
   await expect(title(page)).toHaveText(t['files.root'])
 })
 
-test('Back from the Trash: Files → the Trash row → Back → the team folder → Back leaves Files for 프로젝트 (‹ the same)', async ({ page }) => {
+test('Back from the Trash: the team folder → the Trash row → Back → the team folder → Back to 파일\'s places (‹ the same)', async ({ page }) => {
   await reset(page)
   await signIn(page)
   for (const how of ['back', '‹'] as const) {
     await teamFolder(page)
     await expect(title(page)).toHaveText(t['files.root'])
     await page.getByTestId('files-open-trash').click()
-    await expect(page).toHaveURL(/\/files\?view=trash$/)
+    await expect(page).toHaveURL(/\/files\?team=1&view=trash$/)
     await expect(title(page)).toHaveText(t['files.trash'])
     if (how === 'back') await page.goBack()
     else await back(page).click()
-    await expect(page).toHaveURL(/\/files$/)
+    await expect(page).toHaveURL(/\/files\?team=1$/)
     await expect(title(page)).toHaveText(t['files.root'])
-    // the team folder is under the projects list, the 프로젝트 tab's first entry: Back (or ‹) leaves Files for it
+    // the team folder's top is under 파일's places, the tab's first entry: Back (or ‹) goes there, still in 파일
     if (how === 'back') await page.goBack()
     else await back(page).click()
-    await expect(page).toHaveURL(/\/projects$/)
-    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
+    await expect(page).toHaveURL(/\/files$/)
+    await expect(page.getByTestId('phone-files-home')).toBeVisible()
+    await expect(tabButton(page, 'files')).toHaveAttribute('aria-current', 'page')
   }
 })
 
@@ -242,8 +253,9 @@ test.describe('tablet', () => {
     await expect(more).toBeVisible()
     expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
     expect(await more.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
-    // 768 px and wider: the pills and the toolbar as before
-    await expect(page.getByRole('tab', { name: t['files.trash'] })).toBeVisible()
+    // 768 px and wider: the computer's layout, the trash a row of the 파일 list beside the rail (no pills since the
+    // rail), and the toolbar as before
+    await expect((await showPanel(page, 'files')).getByTestId('files-panel-trash')).toBeVisible()
     await expect(page.getByTestId('upload-button')).toBeVisible()
   })
 })

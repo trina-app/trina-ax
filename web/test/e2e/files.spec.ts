@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
+import { openFilesPlace } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 import { formatDateTime } from '../../src/lib/format'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, type TrashItem } from '@mycel/shared/api'
@@ -238,42 +239,39 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await rowMenu(page, 'renamed.txt', '휴지통으로')
   await page.getByTestId('dialog-confirm').click()
   await expect(row(page, 'renamed.txt')).toHaveCount(0)
-  await page.getByRole('tab', { name: '휴지통' }).click()
+  await openFilesPlace(page, 'trash')
   await expect(page.getByTestId('trash-list')).toContainText('marketing/renamed.txt')
   await page.getByTestId('trash-list').getByRole('button', { name: '되돌리기' }).click()
   await expect(page.getByText('marketing/renamed.txt(으)로 되돌렸어요.')).toBeVisible()
 })
 
-test('the trash has its own address: the tab sets ?view=trash, a link and a reload open it, Back returns to the folder', async ({ page }) => {
+test('the trash has its own address: 파일 › 휴지통 sets ?view=trash, a link and a reload open it, Back returns to the folder', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/files?path=marketing')
   await expect(row(page, 'plan.md')).toBeVisible()
-  await page.getByRole('tab', { name: '휴지통' }).click()
-  await expect(page).toHaveURL(/\/files\?path=marketing&view=trash$/)
+  // a computer: 휴지통 is a row of 파일's list beside the rail (no tabs on the page)
+  await openFilesPlace(page, 'trash')
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
   await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
   await expect(page.getByText('삭제 예정일은', { exact: false })).toBeVisible()
-  // the tab already selected again: no second Back step. Back: the folder it was in, on the files tab
-  await page.getByRole('tab', { name: '휴지통' }).click()
+  // the row pressed again: no second Back step. Back: the folder it was in
+  await openFilesPlace(page, 'trash')
   await page.goBack()
-  await expect(page.getByRole('tab', { name: '팀 폴더' })).toHaveAttribute('aria-selected', 'true')
-  await expect(row(page, 'plan.md')).toBeVisible()
-  // the tab back to the folder takes the view out of the address
-  await page.getByRole('tab', { name: '휴지통' }).click()
-  await page.getByRole('tab', { name: '팀 폴더' }).click()
   await expect(page).toHaveURL(/\/files\?path=marketing$/)
   await expect(row(page, 'plan.md')).toBeVisible()
-  // the folder goes (access taken away) while the trash is on screen: the trash stays, the folder climbs
-  await page.getByRole('tab', { name: '휴지통' }).click()
-  await expect(page).toHaveURL(/\/files\?path=marketing&view=trash$/)
+  // a folder's trash address (a phone's 휴지통 keeps the folder it was opened from): the folder goes (access taken away)
+  // while the trash is on screen: the trash stays, the folder climbs
+  await page.goto('/files?path=marketing&view=trash')
+  await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
   expect((await page.request.post('/__test/revoke', { data: { path: 'marketing' } })).ok()).toBeTruthy()
   await expect(page).toHaveURL(/\/files\?view=trash$/)
-  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
   // the address alone (a deleted team skill's link)
   await page.goto('/files?view=trash')
-  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
   await expect(page.getByText('휴지통이 비어 있어요')).toBeVisible()
 })
 
@@ -308,7 +306,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await page.getByTestId('dialog-confirm').click()
       for (const name of names) await expect(row(page, name)).toHaveCount(0)
 
-      await page.getByRole('tab', { name: t['files.trash'], exact: true }).click()
+      await openFilesPlace(page, 'trash')
       await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
       const response = await page.request.get('/api/files/trash')
       expect(response.ok()).toBe(true)
@@ -329,7 +327,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     // Returning to the original setting must not extend the newer 10-day items either.
     expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { trashRetentionDays: 30 } })).ok()).toBe(true)
     await page.reload()
-    await page.getByRole('tab', { name: t['files.trash'], exact: true }).click()
+    await openFilesPlace(page, 'trash')
     await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
     const { items } = await (await page.request.get('/api/files/trash')).json() as { items: TrashItem[] }
     expect(items).toHaveLength(6)
@@ -685,15 +683,15 @@ test('move several files: one question for all that would become private, one to
   await bar(page).getByRole('button', { name: '옮기기' }).click()
   const picker = page.getByRole('dialog', { name: '3개 옮기기' })
   await picker.getByRole('button', { name: '팀 폴더' }).click()
-  // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 폴더
+  // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 파일
   await picker.getByRole('button', { name: '개인' }).click()
-  await picker.getByRole('button', { name: '내 폴더' }).click()
+  await picker.getByRole('button', { name: '내 파일' }).click()
   await picker.getByTestId('folder-pick').click()
   // Bob can read marketing and not Olga's own folder: asked once for the three, with the single move's words
   const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
   await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
   await ask.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('3개를 내 폴더로 옮겼어요.')).toBeVisible()
+  await expect(page.getByText(/^3개를 내 파일(\(으\))?로 옮겼어요\.$/)).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)
@@ -900,10 +898,9 @@ test('a file from disk through the browser\'s own drag input: refused folder row
   await dropAt(...(await centre(row(page, 'docs'))))
   await expect(page.getByTestId('upload-list')).toContainText('docs/from-the-computer.txt')
   expect(await uploads()).toBe(before + 1)
-  await page.getByRole('tab', { name: '휴지통' }).click()
+  await openFilesPlace(page, 'trash')
   await dropAt(...(await centre(page.getByText(DICTS.ko['files.trashNote']))))
-  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
-  expect(new URL(page.url()).pathname).toBe('/files')
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
   expect(await uploads()).toBe(before + 1)
 })
 
@@ -989,7 +986,8 @@ test('content search on a phone: line matches fit the width, no sideways scroll'
   const text = `# 환불 정책과 예외 사항 정리 (고객 응대용)\n${'환불 정책: 결제일로부터 14일 이내에 요청하면 전액 돌려드립니다. '.repeat(6)}\n`
   expect((await page.request.post('/__test/file', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'docs/guides/아주 긴 이름의 환불 안내 문서 2026년 하반기 최종본.md', text } })).ok()).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/files')
+  // a phone's /files is 파일's places: the team folder's top is /files?team=1
+  await page.goto('/files?team=1')
   await page.getByTestId('content-search-input').fill('환불 정책')
   const hit = page.getByTestId('content-hit').first()
   await expect(hit).toBeVisible()
@@ -1013,7 +1011,9 @@ for (const [w, h] of [[1440, 900], [390, 844]] as const) {
     await put({ path: 'tc260/견적서_2026_가나상사.pdf', base64: 'JVBERi0xLjQK' })
     await put({ path: 'tc260/견적 안내.html', text: '<!doctype html><html><head><title>견적</title></head>\n<body><h1>납품 일정</h1><p>납품은 <b>3주</b> 뒤입니다</p></body></html>\n' })
     await page.setViewportSize({ width: w, height: h })
-    await page.goto('/files')
+    // (a phone's /files is 파일's places: the team folder's top is /files?team=1)
+    const top = w < 768 ? '/files?team=1' : '/files'
+    await page.goto(top)
     const box = page.getByTestId('content-search-input')
     const names = page.getByTestId('name-search')
 
@@ -1024,7 +1024,7 @@ for (const [w, h] of [[1440, 900], [390, 844]] as const) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(w)
     await names.getByTestId('name-hit').filter({ hasText: /^로고\.png/ }).click()
     await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('로고.png')
-    await page.goto('/files')
+    await page.goto(top)
 
     await box.fill('견적서_2026')
     await expect(names.getByTestId('name-hit')).toHaveCount(1)
