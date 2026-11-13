@@ -25,9 +25,19 @@ test('the task page lists its runs: newest first, 10 then more, a failed one say
   await expect(rows.first()).toHaveAttribute('data-outcome', 'error')
   await expect(rows.first()).toContainText('실패')
   await expect(rows.first()).toContainText('AI가 지금 답하지 못했어요')
+  // what to do next: right under that newest row, above the second
+  const step = history.getByTestId('schedule-next-step')
+  await expect(step).toHaveCount(1)
+  const [first, next, second] = [await rows.first().boundingBox(), await step.boundingBox(), await rows.nth(1).boundingBox()]
+  expect(next!.y).toBeGreaterThanOrEqual(first!.y + first!.height - 1)
+  expect(next!.y + next!.height).toBeLessThanOrEqual(second!.y + 1)
   await expect(rows.nth(1)).toHaveAttribute('data-outcome', 'done')
   await expect(rows.nth(1)).toContainText('성공')
   await expect(rows.nth(1)).toContainText('열기')
+  // "더 보기" starts where the rows' dots start
+  const more = await history.getByTestId('schedule-runs-more').boundingBox()
+  const dot = await rows.first().locator('span[aria-hidden]').first().boundingBox()
+  expect(Math.abs(more!.x - dot!.x)).toBeLessThanOrEqual(1)
   await history.getByTestId('schedule-runs-more').click()
   await expect(rows).toHaveCount(12)
   await expect(history.getByTestId('schedule-runs-more')).toHaveCount(0)

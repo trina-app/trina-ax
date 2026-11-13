@@ -7,7 +7,7 @@
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../lib/connectors'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleRun } from '@mycel/shared/api'
@@ -360,8 +360,11 @@ function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsS
   const list = s.running && !items.some((r) => r.status === 'running') && last ? [last, ...items] : items
   if (!list.length) return <p className="mt-2 text-meta text-faint">{t('scheduled.noRuns')}</p>
   const newest = list[0]!
-  // the newest row is the run the task's own last result is about (not one the server leaves out of it, TC-360)
-  const next = !s.running && newest.status === s.lastOutcome ? outcomeReason(s, t) : ''
+  // what to do next, under the newest row, only when that run failed (red, not "finished with problems") and it is the
+  // run the task's own last result is about (not one the server leaves out of it, TC-360)
+  const failed = !s.running && newest.status === s.lastOutcome && runTone(newest) === 'danger'
+  const next = failed ? outcomeReason(s, t) : ''
+  const keyLink = failed && newest.status === 'needs_key' && s.lastNeed ? s.lastNeed : null
   return (
     <>
       <ul className="mt-1 -mx-3">
@@ -370,7 +373,7 @@ function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsS
           const took = r.endedAt && r.startedAt ? formatElapsed(Date.parse(r.endedAt) - Date.parse(r.startedAt), locale) : ''
           const reason = runReason(r, t, { membersOnly: i === 0 && s.lastOutcome === 'project_gone' && !!s.lastMembersOnly })
           const meta = [runLabel(r, t), took].filter(Boolean).join(' · ')
-          return (
+          const row = (
             <ListRow key={r.id} to={r.chatId ? `/c/${r.chatId}` : undefined} testId={r.chatId ? 'schedule-run-link' : 'schedule-run'}
               link={{ 'data-outcome': r.status, 'data-run': r.id }}
               name={
@@ -388,18 +391,29 @@ function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsS
               }
               end={r.chatId ? <span className="shrink-0 self-center text-meta text-accent-text">{t('scheduled.openRun')}</span> : undefined} />
           )
+          if (i > 0 || (!next && !keyLink)) return row
+          return (
+            <Fragment key={r.id}>
+              {row}
+              {/* the newest run failed: what to do ("…then use Run now") right under it, as a third line in line with
+                  its second (the row's inset); a key it needed links to where it is connected */}
+              <li className="px-3 pb-1.5" data-testid="schedule-next-step">
+                {next && <p className="text-meta text-muted">{next}</p>}
+                {keyLink && (
+                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(keyLink.templateId)}`} className="mt-0.5 inline-block text-meta text-accent-text hover:underline" data-testid="schedule-connect-template">
+                    {t('integrations.template.connectNamed', { name: keyLink.name })}
+                  </Link>
+                )}
+              </li>
+            </Fragment>
+          )
         })}
       </ul>
-      {/* what to do about the last run that did not succeed ("…then use Run now"), once, not on every row */}
-      {next && <p className="mt-1 text-meta text-muted" data-testid="schedule-next-step">{next}</p>}
-      {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
-      {newest.status === 'needs_key' && s.lastOutcome === 'needs_key' && s.lastNeed && (
-        <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-meta text-accent-text hover:underline" data-testid="schedule-connect-template">
-          {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
-        </Link>
-      )}
+      {/* in line with the rows' dots (no inset of its own) */}
       {runs?.more && !runs.failed && (
-        <Button size="sm" variant="ghost" className="mt-2" busy={runs.busy} onClick={runs.onMore} data-testid="schedule-runs-more">{t('scheduled.showMoreRuns')}</Button>
+        <button type="button" disabled={runs.busy} onClick={runs.onMore} className="mt-2 inline-flex min-h-6 items-center text-meta text-accent-text hover:underline disabled:opacity-50 pointer-coarse:min-h-11" data-testid="schedule-runs-more">
+          {runs.busy ? t('common.loading') : t('scheduled.showMoreRuns')}
+        </button>
       )}
     </>
   )

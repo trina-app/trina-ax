@@ -190,7 +190,22 @@ describe('scheduled task page', () => {
     expect(block).not.toContain('data-testid="schedule-next-step"')
   })
 
-  test('the newest failed: its next step once under the list; a key it needed links to connect it', () => {
+  test('the next step sits right under the newest run, and only when that run failed', () => {
+    const failed = history(withRuns({ ...daily, lastOutcome: 'error', lastChatId: 'chat-1' }, runs([
+      run({ id: 'a', status: 'error', chatId: 'chat-1' }), run({ id: 'b', chatId: 'chat-2' }),
+    ], true)))
+    const step = failed.indexOf('data-testid="schedule-next-step"')
+    expect(step).toBeGreaterThan(failed.indexOf('href="/c/chat-1"'))
+    expect(step).toBeLessThan(failed.indexOf('href="/c/chat-2"'))
+    expect(failed).toContain(t('scheduled.reason.error'))
+    // in line with the rows' dots: no inset of its own
+    expect(failed).toMatch(/<button[^>]*class="mt-2 inline-flex[^"]*"[^>]*data-testid="schedule-runs-more"/)
+    // finished with problems is not failed: no next step
+    const problems = history(withRuns({ ...daily, lastOutcome: 'problems', lastChatId: 'chat-1' }, runs([run({ id: 'a', status: 'problems', chatId: 'chat-1' })])))
+    expect(problems).not.toContain('data-testid="schedule-next-step"')
+  })
+
+  test('the newest failed: its next step once, under it; a key it needed links to connect it', () => {
     const block = history(withRuns({ ...daily, lastOutcome: 'needs_key', lastNeed: { templateId: 'tpl', name: 'Demo Wiki' } }, runs([run({ id: 'k', status: 'needs_key', chatId: null, needName: 'Demo Wiki', endedAt: null })])))
     expect(block).toContain(t('scheduled.runReason.needs_keyNamed', { name: 'Demo Wiki' }))
     expect(count(block, 'data-testid="schedule-next-step"')).toBe(1)
