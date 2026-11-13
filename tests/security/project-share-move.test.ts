@@ -52,9 +52,12 @@ describe('sharing a personal project moves its folder', () => {
     expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM trash_items').get() as { n: number }).n).toBe(trashBefore)
     expect(A.ctx.db.query('SELECT 1 FROM trash_items WHERE original_path = ? AND restored_at IS NULL').get(`${p.folderPath}/old.md`)).not.toBeNull()
     expect(fs.existsSync(path.join(A.team, to, 'old.md'))).toBe(false)
-    // the history moved with the file
+    // the history moved with the file, and its versions from before stay alice's to see (saved in her own folder)
     expect(A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(`${p.folderPath}/plan.md`)).toEqual({ n: 0 })
     expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(`${to}/plan.md`) as { n: number }).n).toBeGreaterThan(0)
+    expect((await A.json('/api/files/history' + q({ path: `${to}/plan.md` }), { as: 'alice' })).body.items.length).toBeGreaterThan(0)
+    expect((await A.json('/api/files/history' + q({ path: `${to}/plan.md` }), { as: 'erin' })).body.items.length).toBe(0)
+    for (const who of ['bob', 'carol', 'dana'] as const) expect((await A.json('/api/files/history' + q({ path: `${to}/plan.md` }), { as: who })).status).toBe(404)
     // members read it; nobody else does, the owner and admins included
     for (const who of ['alice', 'erin'] as const) expect((await read(who, `${to}/plan.md`)).status).toBe(200)
     for (const who of ['bob', 'carol', 'dana'] as const) {
@@ -69,17 +72,17 @@ describe('sharing a personal project moves its folder', () => {
     const p = await personal('Rules first')
     fs.writeFileSync(path.join(A.team, p.folderPath, 'a.md'), 'a\n')
     const real = fs.renameSync
-    let seen: { subject_type: string; subject_id: string | null; access: string }[] | null = null
+    const box: { seen?: { subject_type: string; subject_id: string | null; access: string }[] } = {}
     fs.renameSync = ((from: fs.PathLike, to: fs.PathLike) => {
       if (String(from) === path.join(A.team, p.folderPath)) {
-        seen = A.ctx.db.query("SELECT r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Rules first' ORDER BY r.subject_type, r.subject_id").all() as typeof seen
+        box.seen = A.ctx.db.query("SELECT r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Rules first' ORDER BY r.subject_type, r.subject_id").all() as typeof box.seen
         // the target is there, empty, when the folder goes onto it
         expect(fs.readdirSync(String(to))).toEqual([])
       }
       return real(from, to)
     }) as typeof fs.renameSync
     try { expect((await share(p.id)).status).toBe(200) } finally { fs.renameSync = real }
-    expect(seen).toEqual([
+    expect(box.seen).toEqual([
       { subject_type: 'everyone', subject_id: null, access: 'none' },
       { subject_type: 'user', subject_id: 'alice', access: 'write' },
       { subject_type: 'user', subject_id: 'erin', access: 'write' },
@@ -114,6 +117,47 @@ describe('sharing a personal project moves its folder', () => {
     expect(again.status).toBe(200)
     expect(again.body.folderPath).toBe('projects/Fail me')
     expect(fs.readFileSync(path.join(A.team, 'projects/Fail me/keep.md'), 'utf8')).toBe('keep\n')
+  })
+
+  test('renamed but not committed: the folder goes back, nothing is removed, sharing again works', async () => {
+    const p = await personal('Commit fails')
+    fs.writeFileSync(path.join(A.team, p.folderPath, 'c.md'), 'c\n')
+    const real = fs.renameSync
+    let once = true
+    // the rename itself goes through, then the step fails (as a COMMIT that fails would)
+    fs.renameSync = ((from: fs.PathLike, to: fs.PathLike) => {
+      real(from, to)
+      if (once && String(from) === path.join(A.team, p.folderPath)) { once = false; throw Object.assign(new Error('SQLITE_FULL: database or disk is full'), { code: 'SQLITE_FULL' }) }
+    }) as typeof fs.renameSync
+    let r
+    try { r = await share(p.id) } finally { fs.renameSync = real }
+    expect(r.status).toBeGreaterThanOrEqual(400)
+    expect(fs.readFileSync(path.join(A.team, p.folderPath, 'c.md'), 'utf8')).toBe('c\n')
+    expect(folderOf(p.id)).toBe(p.folderPath)
+    expect(fs.existsSync(path.join(A.team, 'projects/Commit fails'))).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM folders WHERE path = 'projects/Commit fails'").get()).toBeNull()
+    expect((await share(p.id)).status).toBe(200)
+    expect(fs.readFileSync(path.join(A.team, 'projects/Commit fails/c.md'), 'utf8')).toBe('c\n')
+  })
+
+  test('a file a member put in the new folder before the move stops it, and is kept with the folder\'s rules', async () => {
+    const p = await personal('Not empty')
+    fs.writeFileSync(path.join(A.team, p.folderPath, 'mine.md'), 'mine\n')
+    const files = (await import('../../server/src/team-files/component')).componentC(A.ctx).files as unknown as { moveFolderOnto: (...a: unknown[]) => unknown }
+    const real = files.moveFolderOnto
+    files.moveFolderOnto = (...a: unknown[]) => {
+      fs.writeFileSync(path.join(A.team, a[2] as string, 'erin.md'), 'erin\n')
+      return real.apply(files, a)
+    }
+    let r
+    try { r = await share(p.id) } finally { files.moveFolderOnto = real }
+    expect(r.status).toBe(409)
+    expect(fs.readFileSync(path.join(A.team, p.folderPath, 'mine.md'), 'utf8')).toBe('mine\n')
+    expect(folderOf(p.id)).toBe(p.folderPath)
+    expect(fs.readFileSync(path.join(A.team, 'projects/Not empty/erin.md'), 'utf8')).toBe('erin\n')
+    // still the members' alone: its rules stayed with it
+    expect((A.ctx.db.query("SELECT COUNT(*) AS n FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Not empty'").get() as { n: number }).n).toBeGreaterThan(0)
+    expect((await read('bob', 'projects/Not empty/erin.md')).status).toBe(404)
   })
 
   test('a name already taken under projects/ steps around it ("-2"); the other folder is untouched', async () => {

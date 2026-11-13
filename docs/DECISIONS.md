@@ -17557,13 +17557,17 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   `projects/<name>` with the members' rules first (same checks as before; a taken name steps around it, "-2"), then moves
   the personal folder onto it in one step (`TeamFiles.moveFolderOnto`, the Files screen's move: the database part and
   the rename in one transaction, the rename onto the empty folder last). Everything in the folder moves, hidden files,
-  links and a `skills` folder too, with the files' history; nothing goes to the trash and no second copy is left. The
+  links and a `skills` folder too; nothing goes to the trash and no second copy is left. The files' versions from
+  before stay mine to see (as after any move out of a personal folder: they were saved in my own folder). The
   files are the members' only from the moment they arrive (the rules were there first); the owner and admins who are
   not members do not see them. A move that fails changes nothing: the folder, its files and the project stay as they
   were, and the empty `projects/<name>` goes again. What I had deleted from the folder before stays in my own trash at
   its old path (trash items do not cross a personal folder's edge, as in any move). A folder that holds another
-  project is refused (409 `project_inside`): that project would land below `projects/<name>`. A move has no copy
-  limits (nothing is duplicated). Before (2026-11-13 morning) the server copied the folder and put the old one in the
+  project is refused (409 `project_inside`, before the confirm): that project would land below `projects/<name>`. A
+  move has no copy limits (nothing is duplicated). An older personal project on another folder of mine (not
+  `users/<me>/projects/<name>`) moves that whole folder, as its copy used to share all of it. If the rename went
+  through but its transaction did not commit, the folder is renamed back; the empty `projects/<name>` is only ever
+  removed with rmdir, so nothing that is in it is lost. Before (2026-11-13 morning) the server copied the folder and put the old one in the
   sharer's trash, where restoring it gave a duplicate. Nothing about who may share changed (creator who may edit,
   `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in
   the new folder).
@@ -17587,7 +17591,7 @@ for eight changes, all built:
   the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
   A `folderPath` of `projects/<name>` only names the new folder. Sharing a personal project
   (`POST /api/projects/:id/share`) makes a new `projects/<name>` with the participants chosen and copies the files into it
-  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`); `toParent` is accepted only as `projects` from
+  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`; since 2026-11-13 it moves the folder instead, see "Making a project"); `toParent` is accepted only as `projects` from
   older clients. Pointing a project at another folder stays for admins only, only for a project whose folder is in the
   trash or gone from disk, only to an existing `projects/<name>` no other project uses (nothing is made for it).
 - **Private by rule.** A new project folder gets each participant and the creator `write` and `everyone: none`

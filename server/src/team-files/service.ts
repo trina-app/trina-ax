@@ -764,6 +764,8 @@ export class TeamFiles {
     verifyChain(this.root, target, !o.onto)
     const aside = path.join(path.dirname(fr.abs), PRODUCT.tmpPrefix + crypto.randomUUID())
     // DB first, the rename last inside the same transaction: if anything fails nothing has moved
+    let renamed = false
+    try {
     db.transaction(() => {
       const under = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
       // history kept for a file that used to live at the new path: the moved history continues after it
@@ -827,8 +829,9 @@ export class TeamFiles {
         if (process.platform !== 'win32') fs.renameSync(fr.abs, toAbs)
         else {
           fs.rmdirSync(toAbs)
-          try { fs.renameSync(fr.abs, toAbs) } catch (e) { fs.mkdirSync(toAbs, { mode: 0o700 }); throw e }
+          try { fs.renameSync(fr.abs, toAbs) } catch (e) { try { fs.mkdirSync(toAbs, { mode: 0o700 }) } catch {} throw e }
         }
+        renamed = true
       } else if (!o.fresh) fs.renameSync(fr.abs, toAbs)
       else {
         // skill_files: the new files (the card's bytes) go where the move goes, and what moved is put aside to be
@@ -841,6 +844,17 @@ export class TeamFiles {
         }
       }
     })()
+    } catch (e) {
+      // onto: renamed, but the transaction did not commit (its COMMIT failed, say): the folder goes back where the
+      // database still says it is, so nothing is left where its caller would take the empty folder away again
+      const gone = (abs: string) => { try { fs.lstatSync(abs); return false } catch { return true } }
+      if (renamed || (o.onto && gone(fr.abs) && !gone(path.join(this.root, ...target)))) {
+        try { fs.renameSync(path.join(this.root, ...target), fr.abs); if (process.platform !== 'win32') fs.mkdirSync(path.join(this.root, ...target), { mode: 0o700 }) } catch (err) {
+          this.ctx.log.error('a folder moved onto a project folder could not go back after the move failed', { from: fr.rel, to: toRel, err: String((err as Error)?.message ?? err) })
+        }
+      }
+      throw e
+    }
     this.moveTextCache(fr.rel, toRel, isDir)
     // what was moved, put aside: the caller settles it (settleAside)
     return o.fresh ? aside : null

@@ -117,9 +117,15 @@ export function makeProjectFolder(ctx: AppContext, o: { id: string; name: string
   return { path: made.path, abs: path.join(root, ...made.path.split('/')) }
 }
 
-/** Take a folder made by makeProjectFolder away again (its folders row and rules too). Call outside a transaction. */
-export function unmakeProjectFolder(ctx: AppContext, made: { path: string; abs: string }): void {
-  try { fs.rmSync(made.abs, { recursive: true, force: true }) } catch {}
+/** Take a folder made by makeProjectFolder away again (its folders row and rules too). Call outside a transaction.
+ * `onlyEmpty` (sharing a personal project, whose files may have been moved into it): only while the folder is empty;
+ * otherwise folder, row and rules all stay, so whatever is in it stays the members' alone. */
+export function unmakeProjectFolder(ctx: AppContext, made: { path: string; abs: string }, o: { onlyEmpty?: boolean } = {}): void {
+  if (o.onlyEmpty) {
+    try { fs.rmdirSync(made.abs) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { ctx.log.warn('project folder kept after a failed share: not empty', { path: made.path }); return }
+    }
+  } else try { fs.rmSync(made.abs, { recursive: true, force: true }) } catch {}
   const f = getFolderByPath(ctx.db, made.path)
   if (f) ctx.db.transaction(() => { ctx.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(f.id); ctx.db.query('DELETE FROM folders WHERE id = ?').run(f.id) })()
 }

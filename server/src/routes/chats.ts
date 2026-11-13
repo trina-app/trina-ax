@@ -20,7 +20,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
-import { badSegment } from '../policy/names'
+import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
@@ -897,11 +897,11 @@ export const chatsRoutes: RouteModule = {
       if (body.toParent !== undefined && body.toParent !== 'projects') fail('validation', tr('projectLocation', locale), { fields: { 'body.toParent': 'project_location' }, params: { reason: 'project_location' } })
       assertMayCreateTeamProject(ctx.db, p, locale)
       const participants = checkParticipants(ctx.db, p, body.participants, locale)
+      // another project on a folder inside it would land below projects/<name>, where a project never lives: refused,
+      // nothing changes (before the dry run too, so the confirm never opens for it)
+      if (projectInside(ctx, r!)) fail('conflict', tr('projectShareHoldsProject', locale), { params: { reason: 'project_inside' } })
       // (a member: the people and groups chosen only, as the new-project dry run: never who the admins are)
       if (body.dryRun) { const dry = previewAccess(ctx, p, { participants }, null, locale); return { viewersAdded: Math.max(0, dry.people - 1), ...(dry.adminsApart ? { adminsApart: true } : {}) } }
-      // another project on a folder inside it would land below projects/<name>, where a project never lives: refused,
-      // nothing changes
-      if (projectInside(ctx, r!)) fail('conflict', tr('projectShareHoldsProject', locale), { params: { reason: 'project_inside' } })
       // its skills/ moves to projects/<name>/skills: those skills switch on in this project's chats (asked first:
       // skills/switch-on.ts)
       const skillsOn = skillsUnder(ctx.files.fx.root, r!.folder_path)
@@ -914,7 +914,6 @@ export const chatsRoutes: RouteModule = {
       // one project per folder: the new folder's name steps around the folders projects name; a project made on that
       // path in the moment since is refused (here with its name, and again inside the move's transaction)
       const free = () => assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, made.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
-      let moved = false
       let out: { files: number; bytes: number }
       try {
         ctx.db.transaction(() => { replaceRules(ctx.db, ensureFolderRow(ctx.db, made.path).id, rules, auth.user.id) })()
@@ -923,16 +922,18 @@ export const chatsRoutes: RouteModule = {
           // (the move pointed the project at made.path already, as a folder move does)
           free()
           ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1 WHERE id = ?').run(made.path, r!.id)
-          moved = true
         }), 'params.id')
       } catch (e) {
-        // only the empty folder made above goes: never once the files are in it
-        if (!moved || rt.store.projectRow(r!.id)?.folder_path !== made.path) unmakeProjectFolder(ctx, made)
+        // the folder made above goes again only while it is empty (rmdir): never anything that is in it
+        if (rt.store.projectRow(r!.id)?.folder_path !== made.path) unmakeProjectFolder(ctx, made, { onlyEmpty: true })
         throw e
       }
-      audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, movedFrom: r!.folder_path, files: out.files, bytes: out.bytes, rules } })
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
-      if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
+      // the move is done: what follows only records it, and its failure never turns a done share into an error
+      try {
+        audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, files: out.files, bytes: out.bytes, rules } })
+        afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
+        if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
+      } catch (e) { ctx.log.warn('project share: a step after the move failed', { projectId: r!.id, err: String((e as Error)?.message ?? e) }) }
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
@@ -1013,5 +1014,9 @@ export const chatsRoutes: RouteModule = {
 /** Another live project on a folder inside this personal project's folder (an older project elsewhere in my folder may
  * sit on a folder that holds more): sharing it would carry that project below projects/<name>. */
 function projectInside(ctx: AppContext, r: ProjectRowT): boolean {
-  return !!ctx.db.query("SELECT 1 FROM projects WHERE id != ? AND trashed_with IS NULL AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\') LIMIT 1").get(r.id, r.folder_path, `${r.folder_path.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`)
+  // letter case and Unicode form as the volume compares them
+  const k = (p: string) => volumeKey(p, ctx.files.fx.caseInsensitive)
+  const me = k(r.folder_path)
+  const rows = ctx.db.query('SELECT folder_path FROM projects WHERE id != ? AND trashed_with IS NULL').all(r.id) as { folder_path: string }[]
+  return rows.some((x) => { const p = k(x.folder_path); return p === me || p.startsWith(me + '/') })
 }
