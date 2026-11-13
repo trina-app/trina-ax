@@ -11,7 +11,7 @@
 //   - a folded room folder's one pill (roomFolderPill): the strongest of its rooms, "?" › "@" › how many rooms are unread.
 // Folders are mine only: nothing here is shown to or sent for anyone else.
 import clsx from 'clsx'
-import { ArrowDown, ArrowUp, Folder, FolderInput, FolderMinus, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Folder, FolderMinus, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
 import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
@@ -154,12 +154,12 @@ export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: str
   if (!o.on) return { items: [], picker: null }
   if (o.blocked)
     return {
-      items: [{ label: t('navFolders.moveTo'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => {}, disabled: true, describedBy: footerId, testId: 'row-folder-move' }],
+      items: [{ label: t('navFolders.moveTo'), icon: <Folder size={14} aria-hidden />, onSelect: () => {}, disabled: true, describedBy: footerId, testId: 'row-folder-move' }],
       footer: <p id={footerId} className="max-w-56 px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pb-2" data-testid="row-folder-why">{t('navFolders.projectStays')}</p>,
       picker: null,
     }
   const items: MenuItem[] = [
-    { label: t('navFolders.moveTo'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => setPick((n) => n + 1), testId: 'row-folder-move' },
+    { label: t('navFolders.moveTo'), icon: <Folder size={14} aria-hidden />, onSelect: () => setPick((n) => n + 1), testId: 'row-folder-move' },
     ...(current ? [{ label: t('navFolders.takeOut'), icon: <FolderMinus size={14} aria-hidden />, onSelect: () => void act.file(o.id, null, current), testId: 'row-folder-out' }] : []),
   ]
   const choices: MenuItem[] = [
@@ -174,7 +174,8 @@ export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: str
       testId: 'row-folder-pick-new',
     },
   ]
-  const picker = (
+  // drawn once asked for (a list has many rows)
+  const picker = pick > 0 && (
     <MenuButton
       label={t('navFolders.moveTo')}
       heading={t('navFolders.moveTo')}

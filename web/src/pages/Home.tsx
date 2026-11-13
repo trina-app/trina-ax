@@ -180,7 +180,7 @@ function HomePage() {
                 <Folder size={14} className="shrink-0" aria-hidden />
                 <span className="truncate">{t('navFolders.goesInto', { name: folder.name })}</span>
                 <Tooltip label={t('navFolders.goesIntoClear')}>
-                  <button type="button" aria-label={t('navFolders.goesIntoClear')} onClick={() => setParams({}, { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
+                  <button type="button" aria-label={t('navFolders.goesIntoClear')} onClick={() => setParams((q) => (q.delete('folder'), q), { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
                     <X size={14} aria-hidden />
                   </button>
                 </Tooltip>

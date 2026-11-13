@@ -5234,7 +5234,7 @@ export const id: Record<MessageKey, string> = {
   "navFolders.moveTo": "Pindahkan ke folder",
   "navFolders.takeOut": "Keluarkan dari folder",
   "navFolders.newAndMove": "Folder baru…",
-  "navFolders.projectStays": "Chat proyek tetap berada di proyeknya.",
+  "navFolders.projectStays": "Chat proyek tidak bisa dimasukkan ke folder. Chat itu tetap di proyeknya.",
   "navFolders.empty": "Masih kosong",
   "navFolders.nameTaken": "Anda sudah punya folder dengan nama ini.",
   "navFolders.tooLong": "Maksimal {n} karakter.",

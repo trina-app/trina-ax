@@ -45,7 +45,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
   // the new navigation: 폴더로 옮기기 / 폴더에서 빼기 among its items, and a mouse may drag it onto a folder (a project's
   // chat stays in its project: the item is off and says why; a room's side chat is in no list folder)
   const rail = useNavRail()
-  const folder = useFolderRowItems({ on: rail && !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId, more })
+  const folder = useFolderRowItems({ on: rail && !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId || !!chat.shared, more })
   const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: folder.items })
 
   return (
@@ -57,7 +57,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       onMouseLeave={peek.hide}
       data-marker={marker?.kind}
       data-pinned={chat.pinnedAt ? '' : undefined}
-      {...(rail ? dragRow('chats', chat.id, !chat.projectId && !chat.sideRoomId) : {})}
+      {...(rail ? dragRow('chats', chat.id, !chat.projectId && !chat.shared && !chat.sideRoomId) : {})}
     >
       <NavLink
         to={`/c/${chat.id}`}

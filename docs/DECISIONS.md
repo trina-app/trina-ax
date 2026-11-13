@@ -17820,12 +17820,14 @@ read. The server half is the entry above.
   (HTML drag and drop; the row says its kind in the drag's type, so a folder only takes its own kind and a project chat
   carries nothing). **This brings drag forward from "a follow-up"** (plan §4.6), also at the owner's brief; the menu
   stays the way that works everywhere.
-- **A project's chat**: 폴더로 옮기기 is shown but off, and the menu says why under it ("프로젝트 기록은 프로젝트 안에
-  있어요."), read out with the item. A room hidden by me has no folder item (the server refuses it; show it first), as pins.
+- **A project's chat** (and a shared one): 폴더로 옮기기 is shown but off, and the menu says why under it ("프로젝트
+  기록은 폴더에 넣을 수 없어요. 프로젝트 안에 있어요."), read out with the item. A room hidden by me has no folder item
+  (the server refuses it; show it first), as pins.
 - **대화**: room folders are sections between 고정 and 팀 대화방, a room in one place only (pinned › its folder › its kind; a
   folder id that is not one of mine is ignored). A folded room folder keeps one pill, the strongest of its rooms: "?"
   (its AI waits on me) › "@" (an unread mention) › how many rooms have unread messages; muted rooms are left out, as the
-  대화 count leaves them. A folded Trina folder keeps its strongest session marker, as project groups.
+  대화 count leaves them; the room on screen stays drawn in a folded folder. A folded Trina folder keeps its strongest
+  session marker, as project groups.
 - **Empty folder**: one short line, "아직 비어 있어요" (the P2 line ran to three lines in a 240 px panel).
 - **Phones**: the same components draw in the phone's lists (P5 reuses TrinaList and RoomsByKind): the header's + and
   "⋯" always show on a touch screen, the row menus are sheets. A new chat from a folder's + uses `/?folder=`; P5's

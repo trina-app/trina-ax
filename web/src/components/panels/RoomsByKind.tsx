@@ -61,7 +61,9 @@ export function RoomsByKind() {
   const folders = useFolders('rooms')
   const { folds, set: setFold } = useFolds()
   const sections = roomsByKind(rooms, titleOf, locale, folders)
-  const flat = sections.flatMap((s) => (s.folder && folds[`room-folder:${s.folder.id}`] === 'folded' ? [] : s.rooms))
+  // a folded folder draws no rows but the room on screen (it stays in sight, as in the Trina list)
+  const drawnOf = (s: Section) => (s.folder && folds[`room-folder:${s.folder.id}`] === 'folded' ? s.rooms.filter((r) => r.id === openId) : s.rooms)
+  const flat = sections.flatMap(drawnOf)
   const [budget, setBudget] = useState(ROOMS_BUDGET)
   const draw = rowsToDraw(budget, openId ? flat.findIndex((r) => r.id === openId) : -1)
   const more = flat.length > draw
@@ -93,9 +95,10 @@ export function RoomsByKind() {
       }
       const key = `room-folder:${s.folder.id}`
       const folded = folds[key] === 'folded'
-      const shown = folded ? [] : s.rooms.slice(0, left)
+      const shown = drawnOf(s).slice(0, left)
       left -= shown.length
-      out.push(<RoomFolder key={key} folder={s.folder} rooms={s.rooms} shown={shown} folded={folded} onFold={() => setFold(key, folded ? 'open' : 'folded')} />)
+      const inIt = rooms.filter((r) => r.folderId === s.folder.id).length
+      out.push(<RoomFolder key={key} folder={s.folder} rooms={s.rooms} count={inIt} shown={shown} folded={folded} onFold={() => setFold(key, folded ? 'open' : 'folded')} />)
       continue
     }
     const shown = s.rooms.slice(0, left)
@@ -142,7 +145,7 @@ export function RoomsByKind() {
 
 /** One room folder: its header (fold ▾ with the name, the pill of what it holds while folded, its "⋯") and its rooms; a
  * room dragged onto it goes in. */
-function RoomFolder({ folder, rooms, shown, folded, onFold }: { folder: NavFolder; rooms: Room[]; shown: Room[]; folded: boolean; onFold: () => void }) {
+function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: NavFolder; rooms: Room[]; count: number; shown: Room[]; folded: boolean; onFold: () => void }) {
   const t = useT()
   const listId = useId()
   const act = useFolderActions('rooms')
@@ -162,16 +165,16 @@ function RoomFolder({ folder, rooms, shown, folded, onFold }: { folder: NavFolde
         {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10" />}
         <FolderMenu
           folder={folder}
-          count={rooms.length}
+          count={count}
           className="absolute inset-y-0 right-1 flex items-center"
           buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
         />
       </div>
-      <ul id={listId} hidden={folded}>
+      <ul id={listId} hidden={folded && !shown.length}>
         {shown.map((r) => (
           <RoomRow key={r.id} room={r} onNavigate={noop} section="folder" />
         ))}
-        {!folded && !rooms.length && <li className="px-3 py-1.5 text-xs text-faint" data-testid="room-folder-empty">{t('navFolders.empty')}</li>}
+        {!folded && !count && <li className="px-3 py-1.5 text-xs text-faint" data-testid="room-folder-empty">{t('navFolders.empty')}</li>}
       </ul>
     </section>
   )

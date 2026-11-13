@@ -5234,7 +5234,7 @@ export const ko = {
   "navFolders.moveTo": "폴더로 옮기기",
   "navFolders.takeOut": "폴더에서 빼기",
   "navFolders.newAndMove": "새 폴더 만들어 넣기",
-  "navFolders.projectStays": "프로젝트 기록은 프로젝트 안에 있어요.",
+  "navFolders.projectStays": "프로젝트 기록은 폴더에 넣을 수 없어요. 프로젝트 안에 있어요.",
   "navFolders.empty": "아직 비어 있어요",
   "navFolders.nameTaken": "이미 같은 이름의 폴더가 있어요.",
   "navFolders.tooLong": "{n}자까지 쓸 수 있어요.",

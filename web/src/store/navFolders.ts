@@ -6,7 +6,7 @@
 import { create } from 'zustand'
 import type { Chat, NavFolder, NavFolderKind, Room } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { chatGroupsChanged, readChatGroups } from './chatGroups'
+import { readChatGroups } from './chatGroups'
 import { useChats } from './chats'
 import { navFoldersChanged } from './live'
 import { useRooms, withRoom } from './rooms'
@@ -53,7 +53,8 @@ export function readNavFolders(): Promise<void> {
 let listening = false
 /** Keep the folders read while something shows them (the first caller starts listening for my other windows). */
 export function watchNavFolders(): void {
-  if (useNavFolders.getState().folders === null) void readNavFolders()
+  // many rows ask at once: one read
+  if (useNavFolders.getState().folders === null && !inFlight) void readNavFolders()
   if (listening) return
   listening = true
   navFoldersChanged.on(() => void readNavFolders())
@@ -103,7 +104,14 @@ export async function moveFolder(all: NavFolder[], f: Pick<NavFolder, 'id' | 'ki
   ;[ids[i], ids[j]] = [ids[j]!, ids[i]!]
   // at once on screen, the server's order after
   useNavFolders.setState((s) => ({ folders: (s.folders ?? []).map((x) => (x.kind === f.kind && ids.includes(x.id) ? { ...x, position: ids.indexOf(x.id) } : x)) }))
-  const r = await api.call(API.orderNavFolders, { body: { kind: f.kind, ids } })
+  let r
+  try {
+    r = await api.call(API.orderNavFolders, { body: { kind: f.kind, ids } })
+  } catch (e) {
+    // refused: the order as the server has it
+    void readNavFolders()
+    throw e
+  }
   useNavFolders.setState((s) => ({ folders: [...(s.folders ?? []).filter((x) => x.kind !== f.kind), ...r.items.filter((x) => x.kind === f.kind)] }))
   if (f.kind === 'chats') void readChatGroups()
 }
@@ -119,7 +127,6 @@ export async function fileChat(chatId: string, folderId: string | null): Promise
   useChats.getState().upsertChat(c)
   void readNavFolders()
   void readChatGroups()
-  chatGroupsChanged()
   return c
 }
 
