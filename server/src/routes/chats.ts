@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, isTeamProject, lookupFolder, mayEditProject, mayManageProject, projectFolderName, projectPaths } from '../chat/projects'
 import { projectsRestored } from '../chat/project-restore'
+import { leaveProject, leaveState } from '../chat/project-leave'
 import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjectsFolder, makeProjectFolder, membersView, newProjectRules, previewAccess, projectAccess, projectPeople, saveParticipants, unmakeProjectFolder } from '../chat/project-access'
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
@@ -210,7 +211,7 @@ export const chatsRoutes: RouteModule = {
         const out = rt.store.toProject(r, false, { audience: aud.of(r).length })
         return { ...out, instructions: '', member: false as const, canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud) }
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud) }
     }
     /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project). */
     const projectFor = (p: Principal, id: string, manage: boolean): ProjectRowT => {
@@ -808,6 +809,12 @@ export const chatsRoutes: RouteModule = {
       const r = projectFor(p, params.id, true)
       if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
       return saveParticipants(ctx, r, p, { id: auth.user.id, name: auth.user.name }, body, c.get('locale'))
+    })
+
+    // leave a team project (chat/project-leave.ts): a member, else 404 as for no project
+    kit.handle(API.leaveProject, ({ c, params, auth }) => {
+      const p = principal(ctx, auth)
+      return leaveProject(ctx, projectFor(p, params.id, false), p, c.get('locale'))
     })
 
     kit.handle(API.getProject, ({ params, query, auth }) => {

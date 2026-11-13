@@ -140,6 +140,11 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [access, project.folderPath, removed, t])
+  // a group's people who left the project (docs/DECISIONS.md "Leaving a project"): "Marketing · except Kim" on its row;
+  // adding them by name takes the exception away
+  const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(', ') })])), [access, t])
+  // left and not added back in this change
+  const leftOut = (access?.left ?? []).filter((u) => !participants.some((x) => x.subjectType === 'user' && x.subjectId === u.id))
   const editable = !!access?.editable
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
@@ -200,7 +205,23 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
         {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} />
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} />
+            {/* people who left it and whom no group row shows (docs/DECISIONS.md "Leaving a project"): one plain line,
+                Add back names them (they come back with the save) */}
+            {leftOut.length > 0 && (
+              <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm break-keep text-muted" data-testid="project-left">
+                <span>{t('projects.leftLabel')}</span>
+                {leftOut.map((u, i) => (
+                  <span key={u.id} className="inline-flex items-center gap-1">
+                    <span className="text-ink">{u.name}</span>
+                    <button type="button" className="touch-hit rounded-md px-1.5 py-0.5 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => setParticipants((xs) => [...xs, { subjectType: 'user', subjectId: u.id }])} aria-label={t('projects.addBackLabel', { name: u.name })} data-testid={`project-add-back-${u.id}`}>
+                      {t('projects.addBack')}
+                    </button>
+                    {i < leftOut.length - 1 && <span aria-hidden>·</span>}
+                  </span>
+                ))}
+              </p>
+            )}
             {/* the count after the change; with nothing changed the list of people below says it already */}
             {(changed || !people || !people.people.length) && <AccessSummary count={count} />}
           </div>

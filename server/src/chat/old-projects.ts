@@ -52,6 +52,8 @@ export function rememberUpdateStaff(ctx: AppContext): void {
 /** They read it since T and lost it again: a join recorded for them, or a members save after T that took out a rule
  * naming them. Either way someone chose it after the update. */
 function leftSince(ctx: AppContext, userId: string, r: ProjectRow, at: string): boolean {
+  // they left it with Leave project (chat/project-leave.ts): not offered again
+  if (ctx.db.query('SELECT 1 FROM project_leavers WHERE project_id = ? AND user_id = ?').get(r.id, userId)) return true
   if (ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'project.member_gained' AND target = ? AND json_valid(detail) AND json_extract(detail, '$.userId') = ? LIMIT 1").get(r.id, userId)) return true
   const saves = ctx.db.query("SELECT detail FROM audit_log WHERE action = 'folder.rules' AND target = ? AND at >= ?").all(r.folder_path, at) as { detail: string | null }[]
   const names = (list: unknown) => Array.isArray(list) && list.some((x) => x && x.subjectType === 'user' && x.subjectId === userId && x.access !== 'none')
