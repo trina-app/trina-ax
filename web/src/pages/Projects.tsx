@@ -37,7 +37,7 @@
 // ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
+import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
@@ -51,6 +51,7 @@ import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
+import { isUnused } from '../components/chat/ChatState'
 import { chatChanged } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { useProjects } from '../store/projects'
@@ -149,7 +150,7 @@ function useDeleteProject() {
       ? { title: t('projects.trashTitle', { name: now.name }), body: t('projects.trashBody'), confirm: t('files.moveToTrash') }
       : forGood
         ? { title: t('projects.deleteForGoodTitle', { name: now.name }), body: t('projects.deleteForGoodBody'), confirm: t('projects.deleteForGood') }
-        : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : t('projects.deleteBody'), confirm: t('common.delete') }
+        : { title: t('projects.deleteTitle', { name: now.name }), body: now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : now.folderPath.startsWith('users/') ? t('projects.deletePersonal') : t('projects.deleteBody'), confirm: t('common.delete') }
     if (!(await confirmDialog({ ...ask, danger: true }))) return null
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
@@ -470,6 +471,8 @@ function ProjectPage() {
   const [sharing, setSharing] = useState(false)
   // a chat row's ⋯ 프로젝트 변경
   const [moving, setMoving] = useState<Chat | null>(null)
+  // 기존 대화 가져오기
+  const [importing, setImporting] = useState(false)
   // 나를 멤버로 추가 or 되돌리기 under way
   const [busy, setBusy] = useState<'join' | 'restore' | null>(null)
   // 되돌리기 refused because its folder was deleted for good from the trash meanwhile: no 되돌리기 any more (it would
@@ -490,7 +493,8 @@ function ProjectPage() {
   const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
-  const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`) && (isAdmin(me) || me.team.projectCreators === 'members')
+  const mine = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
+  const personal = mine && !!me && (isAdmin(me) || me.team.projectCreators === 'members')
 
   /** the latest load only may fill the page (another project's page, or a load after a change, started later) */
   const loads = useRef(0)
@@ -663,7 +667,6 @@ function ProjectPage() {
       : p.canEdit
         ? [
             { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
-            ...(personal ? [{ label: t('projects.share'), icon: <Share2 size={14} aria-hidden />, onSelect: () => setSharing(true), testId: 'project-share' }] : []),
             { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
           ]
         : null
@@ -750,7 +753,20 @@ function ProjectPage() {
                     // phones: the same 수정 as in the name's menu above, so not a second button here
                     action={p.canEdit ? <button type="button" className={`${sideAction} max-md:hidden`} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
                   >
-                    {p.instructions ? <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" /> : <p className="text-faint">{t('projects.noInstructions')}</p>}
+                    {p.instructions ? (
+                      <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" />
+                    ) : (
+                      // none yet: what they are for, and 쓰기 for whoever may edit
+                      <p className="text-faint" data-testid="project-instructions-empty">
+                        {t('projects.page.instructionsEmpty', { ai: aiName(t) })}
+                        {p.canEdit && (
+                          <>
+                            {' · '}
+                            <button type="button" className="text-accent-text hover:underline" onClick={() => setEditing(true)} data-testid="project-instructions-write">{t('projects.page.write')}</button>
+                          </>
+                        )}
+                      </p>
+                    )}
                   </DisclosureRow>
                 )}
                 {!outside && phone && (
@@ -773,7 +789,13 @@ function ProjectPage() {
                     action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
                   >
                     {!files && <Skeleton lines={3} />}
-                    {files && !files.failed && !files.entries.length && <p className="text-faint">{t('files.emptyReadOnly')}</p>}
+                    {files && !files.failed && !files.entries.length && (
+                      // none yet: 올리기 opens its folder in 파일, where files are uploaded
+                      <p className="text-faint" data-testid="project-files-empty">
+                        {t('projects.page.filesEmpty')}
+                        {p.canEdit && <> · <Link to={folderLink} className="text-accent-text hover:underline" data-testid="project-files-upload">{t('projects.page.upload')}</Link></>}
+                      </p>
+                    )}
                     <ul className="-ml-2 space-y-0.5">
                       {files?.entries.slice(0, 30).map((f) => (
                         <li key={f.path}>
@@ -796,6 +818,18 @@ function ProjectPage() {
                   </DisclosureRow>
                 )}
                 {hasMembers && <MembersRow project={p} sideAction={sideAction} onManage={() => setMembers(true)} />}
+                {/* a personal project: "나만 봐요 · 멤버 추가" (sharing makes it a team project, its files move along) */}
+                {mine && !p.inTrash && (
+                  <DisclosureRow
+                    testId="project-members"
+                    icon={<Users size={16} />}
+                    label={t('projects.participants')}
+                    meta={t('projects.members.onlyMe')}
+                    action={personal ? <button type="button" className={sideAction} onClick={() => setSharing(true)} data-testid="project-share">{t('projects.members.add')}</button> : undefined}
+                  >
+                    {!personal && <p className="text-sm leading-6 break-keep text-muted" data-testid="project-share-admins-only">{t('projects.shareAdminsOnly')}</p>}
+                  </DisclosureRow>
+                )}
               </div>
               {!outside && (
                 <p className="mt-3 truncate text-xs text-faint max-md:hidden" title={p.folderPath || t('files.root')}>
@@ -810,7 +844,11 @@ function ProjectPage() {
               {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>
             {!chats && <Skeleton lines={3} />}
-            {chats && !chats.length && <p className="py-2 text-sm text-faint">{t('projects.noChats')}</p>}
+            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
+            {/* a new or nearly empty project: my chats outside projects come in from here (docs/DECISIONS.md "Making a project") */}
+            {chats && chats.length < 3 && !outside && !p.inTrash && (
+              <button type="button" onClick={() => setImporting(true)} className="mt-1 text-sm text-accent-text hover:underline" data-testid="project-import">{t('projects.page.import')}</button>
+            )}
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
                 <li key={c.id}>
@@ -823,9 +861,69 @@ function ProjectPage() {
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
+      {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); setChats((cur) => (cur && !cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
-      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) }) }} />}
+      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
     </div>
+  )
+}
+
+/** 기존 대화 가져오기: my own recent chats that may move into this project (not shared, not a room's side chat, in no
+ * project yet), each with a box; 가져오기 moves the ticked ones (PATCH /api/chats/:id each). Files Trina saved in them stay
+ * where they are, which one line says. */
+function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; onClose: () => void; onMoved: (c: Chat) => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const all = useChats((s) => s.chats)
+  const loaded = useChats((s) => s.chatsLoaded)
+  useEffect(() => {
+    if (!loaded) void useChats.getState().loadChats(true).catch(() => {})
+  }, [loaded])
+  const choices = useMemo(() => all.filter((c) => !c.projectId && !c.shared && !c.sideRoomId && !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30), [all])
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const bring = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      for (const id of ticked) onMoved(await api.call(API.updateChat, { params: { id }, body: { projectId: project.id } }))
+      toast({ level: 'success', text: t('chat.project.moved', { name: project.name }) })
+      onClose()
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('projects.page.import')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} disabled={!ticked.size} onClick={() => void bring()} data-testid="project-import-do">{t('projects.page.importDo')}</Button>
+        </>
+      }
+    >
+      <p className="mb-2 text-xs text-faint">{t('projects.page.importNote', { ai: aiName(t) })}</p>
+      {!loaded && <Skeleton lines={3} />}
+      {loaded && !choices.length && <p className="py-2 text-sm text-faint">{t('projects.page.importNone')}</p>}
+      <ul className="max-h-80 space-y-0.5 overflow-y-auto" data-testid="project-import-list">
+        {choices.map((c) => (
+          <li key={c.id}>
+            <label className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm hover:bg-hover max-md:min-h-11">
+              <input type="checkbox" checked={ticked.has(c.id)} onChange={(e) => setTicked((s) => { const n = new Set(s); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n })} />
+              <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+              <span className="shrink-0 text-xs text-faint">{formatRelative(c.updatedAt, locale)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
+    </Modal>
   )
 }
 
@@ -996,6 +1094,14 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // before sharing, plainly: who may see and edit it, the chats stay mine, and it is one way (docs/DECISIONS.md "Making
+  // a project", review M5)
+  const confirmFirst = async () => {
+    const one = participants.length === 1 && participants[0]!.subjectType === 'user' ? options.find((o) => participantKey(o) === participantKey(participants[0]!))?.name : undefined
+    const others = count ? Math.max(1, count.n - 1) : participants.length
+    const body = one ? t('projects.shareConfirmOne', { name: one }) : t('projects.shareConfirmMany', { n: others })
+    if (await confirmDialog({ title: t('projects.shareConfirmTitle'), body, confirm: t('projects.shareConfirm') })) await share()
+  }
   const share = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
@@ -1017,16 +1123,16 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
     }
   }
   return (
-    <Modal open onClose={onClose} title={t('projects.shareTitle')} width={560}
+    <Modal open onClose={onClose} title={t('projects.members.add')} width={560}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
+          <Button variant="primary" busy={busy} disabled={!participants.length} onClick={() => void confirmFirst()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <p className="text-sm break-keep text-muted">{t('projects.shareBody')}</p>
+        <p className="text-sm break-keep text-muted">{t('projects.shareMoveBody')}</p>
         <MembersField label={t('projects.participants')}>
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />

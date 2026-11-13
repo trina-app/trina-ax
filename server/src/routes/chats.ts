@@ -883,7 +883,8 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a personal project becomes a team project: a new projects/<name> with the participants chosen (as createProject
-    // makes one), the personal folder's files copied into it, the project pointed at it; the personal folder stays
+    // makes one), the personal folder's files copied into it, the project pointed at it; then the personal folder goes
+    // to my trash, so the files have moved
     kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
@@ -920,6 +921,15 @@ export const chatsRoutes: RouteModule = {
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
+      // the files moved, not copied (docs/DECISIONS.md "Making a project", review M6): two copies that do not stay in step
+      // confuse. The personal folder goes to my trash as I would put it there myself (my own folder, my own write
+      // right; restorable for the trash's days); a refusal leaves it in place and the share stands
+      try {
+        // (the trash's own file event records it)
+        await componentC(ctx).files.remove(p.id, r!.folder_path)
+      } catch (e) {
+        ctx.log.warn('project share: the personal folder stayed', { projectId: r!.id, err: String((e as Error)?.message ?? e) })
+      }
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })

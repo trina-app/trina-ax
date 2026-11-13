@@ -70,7 +70,8 @@ describe('the chat and its project', () => {
     const inP1 = inRouter(<ProjectChoices projects={list} selected="p1" onSelect={() => {}} />)
     expect(radios(inP1).map((r) => r.includes('checked=""'))).toEqual([false, true, false])
     expect(inP1).toContain(translate('en', 'chat.project.none'))
-    expect(inP1).toContain('shared/acme-launch')
+    // who sees it, not its folder (docs/DECISIONS.md "Making a project")
+    expect(inP1).not.toContain('shared/acme-launch')
     expect(inP1).toContain(translate('en', 'files.root'))
     const none = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} />)
     expect(radios(none).map((r) => r.includes('checked=""'))).toEqual([true, false, false])
@@ -85,7 +86,7 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.openProject', 'files.isProject', 'projects.whoMembers', 'projects.membersCount', 'projects.membersByCreator', 'projects.membersByAdmins', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })

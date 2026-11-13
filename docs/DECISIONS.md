@@ -11712,6 +11712,56 @@ press on 트리나 opened "What is your company website?" instead of the chats.
   step left the row still names it ("남은 일: 팀 파일"). Amends W5's "2/5 = the steps done". Known edge: with only
   put-off steps left the row opens the earliest and says its number ("1/5" after "3/5"), as the bar does there.
 - Tests: `web/test/unit/rail.test.ts`, `web/test/unit/welcome.test.tsx`, `web/test/unit/setup-row.test.tsx`.
+## Projects: a place of their own; the Trina list is pinned and recent (feat/nav-projects-tab, 2026-11-13, product owner)
+
+넣을 곳: Team AX core web (`web/src/lib/rail.ts`, `web/src/lib/tabs.ts`, `web/src/lib/screens.ts`,
+`web/src/components/panels/{ProjectsPanel,TrinaList,TrinaPanel,PanelFrame}.tsx`, `web/src/components/BottomTabs.tsx`),
+plus one additive field of `GET /api/chats/groups` (`server/src/chat/chat-groups.ts`). 이유: the owner, 2026-11-13, on the
+real team in dark mode: "여기서 프로젝트가 어디까지이고 이런게 안보여. 프로젝트를 그냥 따로 하나의 큰 탭으로 두는건 어때?? 모바일도
+그렇잖아??" and "너무 위계가 안보여". Supersedes the project part of "The Trina list: pinned, folders, projects, other chats"
+and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트리나's list).
+
+- **Rail** 트리나 · 대화 · **프로젝트** · 파일 · 활동; **phone tabs** 트리나 · 대화 · **프로젝트** · 파일 · 나 (five, as Slack; each
+  label one line, cut with "…" at a fifth of a 360 px phone). `/projects`, `/projects/:id` and `/projects/:id/files` belong
+  to 프로젝트 on both (old links land there); a project's new chat (`/?project=`) is under the project. A project's chat
+  opened from its page keeps 프로젝트 lit (`{ rail: 'projects' }` in the entry's state); opened from 최근 기록 it is 트리나's.
+  A phone entry saved under the older 프로젝트 tab (its first screen the team folder) takes that screen's tab.
+- **프로젝트's list** (panel and phone tab): "+ 새 프로젝트" on top, then two sections, **팀 프로젝트** (in the team's
+  projects folder) and **내 프로젝트** (personal, in my own folder): where a project lives decides whether admins see its
+  name and whether its chats can be shared, so the sections follow it. One plain row per project: its name and one grey
+  line, who sees it ("멤버 4명" / "나만") · when my latest chat there was active · how many chats of my list it holds ("대화
+  5개", "대화 없음"). Most recently active first, then the ones without a chat of mine, newest first. **No chats in the
+  list**: a tree in a narrow column is a developer's pattern; the project's page lists its chats (as ChatGPT's and
+  Claude's projects). There are no project pins yet, so no pinned group. The counts are the server's: `GET
+  /api/chats/groups` gains `projectActivity` (every project I can see with chats of my list: count, last activity).
+- **트리나's panel**: a fixed block on top, 트리나에게 묻기 · 검색 · 예약 작업 · 팀 스킬 (as the phone's ☰ drawer has them),
+  then in its own scroll 답을 기다려요 · 고정 · **최근 기록**. 최근 기록 is every chat of my list that is not pinned, newest
+  first, in one flat list; a project's chat shows its project's name small and grey at the row's end, so yesterday's
+  project chat is still one click away. Each chat shows once (pinned › recent); project chats are in 최근 기록 *and*
+  findable under their project's page, the one rule kept everywhere. 삭제한 기록 is in 최근 기록's "⋯" (rarely needed).
+- **The Trina list's own folders leave the screen** (the owner: personal projects take that role). The server tables and
+  endpoints stay for a release so a revert loses nothing; a chat once filed in one is in 최근 기록 like any other; the row
+  menu has no 폴더로 옮기기 (프로젝트로 옮기기 stays). 대화's folders (rooms, DMs) are unchanged.
+- **팀 스킬** is not a 파일 place any more (it showed twice): it is 트리나's 팀 스킬 page. The folder still opens from the
+  team folder's top for whoever may read it, so no access changes.
+- Decided without the owner: 최근 기록 includes project chats with a tag (not "chats outside projects"), so nothing is in two
+  lists and nothing is lost; a team project left with its creator alone stays under 팀 프로젝트 ("나만 봐요" there).
+- Tests: `web/test/unit/{rail,rail-badges,phone-nav,phone-tabs-v2,screens,app-nav,phone-project-files,nav-menus}`,
+  `tests/unit/b-chat-groups.test.ts`, e2e `rail`, `trina-panel`, `phone-tabs`, `projects-panel`.
+
+## Panels: three levels you can tell apart (feat/nav-projects-tab, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/panels/PanelFrame.tsx` (`PanelSection`, `groupHead`, `groupRows`, `GroupChevron`), used by
+트리나, 대화, 프로젝트, 파일 and 활동. 이유: the owner, 2026-11-13: "여기서도 너무 위계가 안보여" (section labels, folder headers
+and rows looked alike).
+
+- **Section label** (고정, 최근 기록, 팀 대화방, 그룹 대화, 1:1 대화, 대화 폴더, 팀/내 프로젝트, 팀 폴더, 프로젝트 폴더, 읽음): 12 px,
+  medium, the faint colour, 16 px of space above; a ▸ on its left folds the section (remembered per person in this
+  browser, `section:<panel>:<key>`); while folded its count shows beside it.
+- **Group header** (a 대화 folder): 14 px medium in ink, a ▸ on the left, a hover; its rows are indented under the ▸ with a
+  faint 1 px line down their left (as Claude Code, Linear and VS Code trees), and a small gap closes the group.
+- **Rows**: 14 px regular, unchanged. No new buttons, no cards; both themes use the existing tokens.
+
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,
@@ -17407,6 +17457,41 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
+
+## Making a project: a name, only me, people later (feat/nav-projects-tab, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/NewProjectDialog.tsx`, `web/src/components/chat/ChatProject.tsx`, `web/src/pages/Projects.tsx`,
+`server/src/routes/chats.ts` (`shareProject`). 이유: the Trina list's folders went (personal projects take their place), so
+making a project must be as light as a folder in Google Drive. Plan: the coordinator's project-create plan of 2026-11-13
+(phase 1, with its review). Supersedes the create part of "Projects live only in projects/" (the 어디에 만들까요 choice).
+
+- **The dialog asks the name only** (max 100; Enter makes it). Every new project starts **나만** (`scope: personal`, a folder
+  in my own projects folder named after it, "-2" on a clash); one faint line says people can be added later ("나만
+  봐요." alone for a member whose team lets only admins share projects). Same name as one of my personal projects: one
+  quiet line, saving still works. No members picker, no instructions box, no where-question here.
+- **Entry points**: "+ 새 프로젝트" on top of 프로젝트's list (computer panel and phone tab), the Projects page and ⌘K's "New
+  project", and a chat's **프로젝트로 옮기기 › + 새 프로젝트**: the chat's title is the name (selected), 만들기 makes it and moves
+  the chat in, the toast has 되돌리기. The move list says who sees each project ("나만", "멤버 4명"), never its folder path;
+  its hint: "다음 답부터 트리나가 이 프로젝트의 파일과 지침을 봐요." Choosing an existing project still uses 저장, because the
+  "프로젝트 멤버와 공유" switch for sharing projects lives in that dialog (left as is).
+- **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
+  모여요." and, while it has fewer than three, **기존 대화 가져오기** (my own recent chats with no project, not shared, not a
+  room's; one PATCH each; a line says files Trina saved in them stay where they are); no instructions: what they are for
+  · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일).
+- **Sharing later**: a personal project's 멤버 line says "나만 봐요 · 멤버 추가" (the menu's 팀 프로젝트로 공유 goes). 멤버 추가
+  opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
+  instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
+  admins share sees that line instead of the button.
+- **Sharing moves the files** (review M6): the server copies the personal folder into the new `projects/<name>` exactly
+  as before (same checks, same limits, same rollback), points the project there, and then puts the personal folder in
+  **my own trash** as I would (`TeamFiles.remove` as the caller, on a folder in my own space): one copy left, the old one
+  restorable for the trash's days. If the trash refuses it, the share still stands and the folder stays (logged).
+  Nothing about who may share changed (creator who may edit, `assertMayCreateTeamProject`).
+- Deleting a personal project says "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요."
+- Left for later (the plan's phase 2): renaming the folder with the project; clean folder names for long names; one
+  transaction for make-and-move.
+- Tests: `tests/security/project-is-folder.test.ts` (the personal folder is in the trash after a share, kept after a
+  refused share), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
 
 ## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
 
@@ -23544,6 +23629,16 @@ the server).
 - **Known limit (iOS):** the app cannot clear the WKWebView cookie store, so A's cookie is removed at the switch only
   when A's server answers the sign-out with 204 within 4 s; otherwise the owed sign-out ends it when the phone next
   opens A. A native WKHTTPCookieStore module is left out.
+
+## Phones: the 트리나 tab as before the redesign (feat/nav-projects-tab, 2026-11-13, product owner)
+
+The owner, 2026-11-13: the phone 트리나 tab must be identical to how it was before the navigation redesign (dev
+85c5d1deb). Home is the tab again (the greeting, the suggestions, the box at the bottom; `/new` comes back to `/` with its
+question), with ☰ on the top bar (its dot when an AI chat wants me) opening the drawer as it was: the AI's name with the
+mark, 검색, 예약 작업, 팀 스킬, 트리나 기록 (folds; filter and sort beside it; by project or by date), my status and 삭제한
+기록 at the bottom (`web/src/components/phone/TrinaDrawer.tsx`, from the old Sidebar's phone branch). Only the tab bar is
+new. Supersedes the phone part of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the list as the tab's root and its floating
+트리나에게 묻기 button).
 
 ## Phones: Home like the AI apps; a project's files in the 트리나 tab (fix/phone-home-projects, 2026-11-12, QA TC-253, TC-254)
 

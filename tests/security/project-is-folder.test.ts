@@ -113,6 +113,9 @@ describe('one project per folder', () => {
     expect(r.status).toBe(200)
     expect(r.body.folderPath).toBe('projects/Share me-2')
     expect(exists(A.team, 'projects/Share me-2/a.md')).toBe(true)
+    // the files moved: the personal folder went to alice's own trash (restorable), not left as a second copy
+    expect(exists(A.team, p.folderPath)).toBe(false)
+    expect(A.ctx.db.query("SELECT 1 FROM trash_items WHERE original_path = ?").get(p.folderPath)).not.toBeNull()
     // the old project did not come alive: no folder at its path, and it is still the only one naming it
     expect(exists(A.team, 'projects/Share me')).toBe(false)
     expect(folderOf('01900000-0000-7000-8000-00000000a004')).toBe('projects/Share me')
