@@ -33,8 +33,8 @@ Admins manage team connections but do not use them unless a rule names them. Who
 
 :::steps
 #### Open Connectors or Connected apps
-**Settings › Connectors** for yourself (your name at the bottom of the sidebar › **Settings**; on a phone the **Me**
-tab), or **Admin › Connected apps** for the team. Earlier versions had Connectors in the sidebar.
+**Settings › Connectors** for yourself (your name or photo at the bottom left › **Settings**; on a phone the **나**
+tab), or **Admin › Connected apps** for the team. Earlier versions had Connectors in the menu on the left.
 
 ![Connectors: nothing connected yet, with Discover under it on the same page](../images/mcp/connected.webp "Connectors")
 
