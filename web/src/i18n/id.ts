@@ -4986,6 +4986,8 @@ export const id: Record<MessageKey, string> = {
   "viewer.thumbOnly": "Ditampilkan versi kecil. Unduh aslinya untuk melihat ukuran penuh.",
   "viewer.failed": "Gambar asli gagal dimuat. Ditampilkan versi kecil.",
   "viewer.noPicture": "Gambar ini tidak bisa ditampilkan di sini.",
+  "fileMenu.copyImage": "Salin gambar",
+  "fileMenu.linkCopied": "Tautan disalin. Hanya orang yang bisa membukanya yang dapat memakai tautan ini.",
   "viewer.copied": "Gambar disalin",
   "viewer.copiedThumb": "Yang disalin gambar kecil di layar, bukan aslinya.",
   "viewer.copiedScaled": "Gambarnya terlalu besar, jadi disalin dalam ukuran lebih kecil.",

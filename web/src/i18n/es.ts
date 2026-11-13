@@ -4942,6 +4942,8 @@ export const es: Record<MessageKey, string> = {
   "viewer.thumbOnly": "Se muestra una copia pequeña. Descarga el original para verlo completo.",
   "viewer.failed": "El original no se cargó. Se muestra una copia pequeña.",
   "viewer.noPicture": "Esta imagen no se puede mostrar aquí.",
+  "fileMenu.copyImage": "Copiar imagen",
+  "fileMenu.linkCopied": "Enlace copiado. Solo quienes pueden abrirlo pueden usar el enlace.",
   "viewer.copied": "Imagen copiada",
   "viewer.copiedThumb": "Se copió la imagen pequeña de la pantalla en lugar del original.",
   "viewer.copiedScaled": "La imagen es muy grande, así que se copió más pequeña.",

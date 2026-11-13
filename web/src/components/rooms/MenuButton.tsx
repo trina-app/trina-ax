@@ -15,6 +15,8 @@
 // closes (a row's level menu: the row's "⋯"); `footer`: words under the rows, such as why some items are off (an item's
 // `describedBy` points at them); `dot`: a small mark on the button (something new inside: a phone's room header);
 // `describedBy`: the id of the words that describe the button (a phone's choice row: its short line, phone/PhoneChoice.tsx).
+// `at`: a right-click's menu (components/FileMenu.tsx, a Files row): on a computer it opens at that point of the window
+// (its top left corner there, moved in where it would run off), not by the button, and a scroll closes it.
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -99,7 +101,7 @@ const usable = (menu: HTMLElement | null) => [...(menu?.querySelectorAll<HTMLEle
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string }) {
+export function MenuButton({ label, items, className, buttonClassName, compact, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack, footer, dot, describedBy, at = null }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void; footer?: ReactNode; dot?: boolean; describedBy?: string; at?: { x: number; y: number } | null }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const own = useRef<HTMLButtonElement>(null)
@@ -110,6 +112,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   const hadFocus = useRef(false)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
+  /** the point it opened at (`at`, from openRequest or openSignal); null: by its button */
+  const openAt = useRef<{ x: number; y: number } | null>(null)
   // a phone's sheet: Back closes it, not the page under it (lib/backCloses.ts); an item that opens a page or a dialog
   // takes its history entry over
   useOverlayEntry(open, () => close())
@@ -132,7 +136,10 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     m.style.setProperty('--menu-x', '0px')
     m.style.setProperty('--menu-y', '0px')
     const o = m.getBoundingClientRect()
-    const { x, y } = menuSpot(a.getBoundingClientRect(), o, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight })
+    // a right-click's point: the menu's top left there (its right edge lined up `width` past it)
+    const p = openAt.current
+    const spot = p ? { top: p.y, bottom: p.y, right: p.x + o.width } : a.getBoundingClientRect()
+    const { x, y } = menuSpot(spot, o, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight })
     m.style.setProperty('--menu-x', `${x - o.left}px`)
     m.style.setProperty('--menu-y', `${y - o.top}px`)
   }
@@ -150,6 +157,8 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
       // a phone's sheet stands on its own, not by the button (hidden on a touch screen): the list moving under it (the
       // keyboard going down as the sheet opens) does not close it
       if (!window.matchMedia?.('(min-width: 48rem)').matches) return
+      // at a right-click's point: what was under it moved away
+      if (openAt.current) return setOpen(false)
       const a = box.current?.getBoundingClientRect(), s = list.getBoundingClientRect?.()
       if (a && s && (a.bottom < s.top || a.top > s.bottom)) return setOpen(false)
       fit()
@@ -166,11 +175,13 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   // a phone) is no second click that closes it
   const toggle = () => {
     if (open && Date.now() - pressedAt.current < 800) return
+    openAt.current = null
     setOpen(!open)
   }
   useEffect(() => {
     if (!openSignal) return
     pressedAt.current = Date.now()
+    openAt.current = at
     setOpen(true)
     navigator.vibrate?.(10)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,6 +189,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
   useEffect(() => {
     if (!openRequest) return
     pressedAt.current = 0
+    openAt.current = at
     setOpen(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])

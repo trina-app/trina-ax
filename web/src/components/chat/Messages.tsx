@@ -20,7 +20,7 @@ import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Ci
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
-import { thumbnailUrl } from '../../lib/api'
+import { fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
@@ -66,6 +66,8 @@ import { EngineSheet } from './EngineSheet'
 import { Tooltip } from '../Tooltip'
 import { useViewerItem } from '../ImageViewer'
 import { attachmentItem } from '../../lib/imageViewer'
+import { itemImage, teamFileLink } from '../../lib/fileMenu'
+import { useFileMenu } from '../FileMenu'
 
 export { ENGINE_LABEL }
 
@@ -141,6 +143,9 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   // a picture opens the image viewer (the chat's other pictures by ← →), any other file the side panel
   const picture = a.kind === 'image' && !thumbFailed && !(team && a.unavailable)
   const viewer = useViewerItem(picture ? (meta) => attachmentItem(a, meta) : null)
+  // its right-click menu (components/FileMenu.tsx): 이미지 복사 (a picture), 링크 복사 (the team file), 내려받기; none
+  // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
+  const fileMenu = useFileMenu(team && a.unavailable ? null : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -151,11 +156,14 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   if (picture)
     return (
       // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
+      <>
       <Tooltip label={t('common.previewNamed', { name: a.name })}>
-        <button type="button" ref={viewer.ref} onClick={viewer.open} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })} data-testid="attachment-image">
+        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44 pointer-coarse:[-webkit-touch-callout:none]', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })} data-testid="attachment-image">
           <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onLoad={() => setThumbLoaded(true)} onError={() => setThumbFailed(true)} className={clsx('block h-full w-full object-cover', !thumbLoaded && 'bg-subtle')} />
         </button>
       </Tooltip>
+      {fileMenu.menu}
+      </>
     )
   const ext = typeOf(a.name)
   const body = (
@@ -184,9 +192,12 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
     : {}
   // every attachment opens the file panel; a format without a viewer shows the notice and a download button there
   return (
-    <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={() => openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag}>
-      {body}
-    </button>
+    <>
+      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
+        {body}
+      </button>
+      {fileMenu.menu}
+    </>
   )
 }
 

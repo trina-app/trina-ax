@@ -169,6 +169,10 @@ export interface DesktopBridge {
    * Security › Files and Folders); null for anything else, an empty folder included, and always on Windows and Linux.
    * Optional: desktop apps before this addition do not have it (the page says the folder is empty). QA TC-049. */
   folderProblem?(folderName: string): Promise<'mac-blocked' | null>
+  /** 이미지 복사 (the image viewer, the right-click menu of a picture): these PNG bytes, which the page read itself, go
+   * on the computer's clipboard as a picture; false when they are no PNG or too large. The app fetches nothing.
+   * Optional: desktop apps before this addition do not have it (the page writes the async clipboard). */
+  copyImage?(png: Uint8Array): Promise<boolean>
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its
