@@ -581,8 +581,9 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   )
 }
 
-/** an edit that failed, by message: its box opens again with the words typed (EditForm) */
-const failedEdits = new Map<string, string>()
+/** an edit that failed, by message: its box opens again with the words typed and the people they mention (EditForm);
+ * kept a moment only (the box opens at once, or not: another message's box is open, the room was left) */
+const failedEdits = new Map<string, { text: string; mentions: string[] }>()
 
 /** `onAgain`: the edit failed (the old text is back): open the box again, with the words typed */
 function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void; onAgain: () => void }) {
@@ -590,15 +591,17 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
   // the box gives line breaks back as "\n" (a message from another app may have "\r\n"): the mentions' places are counted
   // in the same text
   const body0 = useMemo(() => lineBreaks(m.body), [m.body])
-  const [start] = useState(() => {
-    const kept = failedEdits.get(m.id)
+  const [kept] = useState(() => {
+    const failed = failedEdits.get(m.id)
     failedEdits.delete(m.id)
-    return kept ?? body0
+    return failed ?? null
   })
+  const start = kept?.text ?? body0
   const [draft, setDraft] = useState(start)
   const input = useRef<HTMLTextAreaElement>(null)
-  // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole
-  const [picked] = useState(() => pickedInMessage(start, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
+  // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole;
+  // a failed edit's text: the people it mentioned too
+  const [picked] = useState(() => pickedInMessage(start, [...initial, ...(kept ? members.filter((x) => kept.mentions.includes(x.id)) : []), ...allMentionNames(m, MENTION_ALL_WORDS)]))
   // "@전체" only kept or taken out: an edit notifies nobody, so it cannot add one (the server refuses it)
   const everyone = m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null
   const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked, everyone })
@@ -612,8 +615,9 @@ function EditForm({ roomId, m, initial, members, meId, onDone, onAgain }: { room
     onDone()
     void useRooms.getState().edit(roomId, m.id, body, mentions, all).then((ok) => {
       if (ok) return
-      failedEdits.set(m.id, draft)
+      failedEdits.set(m.id, { text: draft, mentions })
       onAgain()
+      setTimeout(() => failedEdits.delete(m.id), 1000)
     })
   }
   return (

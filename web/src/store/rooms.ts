@@ -286,6 +286,8 @@ const nameKey = (roomId: string) => `room:${roomId}:name`
 const readKey = (roomId: string) => `room:${roomId}:read`
 const threadReadKey = (roomId: string, rootId: string) => `room:${roomId}:thread:${rootId}:read`
 const editKey = (roomId: string, messageId: string) => `room:${roomId}:message:${messageId}:edit`
+/** a thread read still on its way: what its news mark and the room's counts were before the first of them */
+const threadSnaps = new Map<string, { had: boolean; before: Pick<Room, 'threadsUnread' | 'mentioned' | 'nextThreadId'> | null }>()
 
 /** My level for a room as it is on screen now (lib/optimistic.ts): `notify` as the server would answer it (what my
  * default gives the room stays), and `muted` with 끄기 */
@@ -400,7 +402,7 @@ interface RoomsState extends RoomsData {
   loadThread: (roomId: string, rootId: string) => Promise<void>
   loadOlderReplies: (roomId: string, rootId: string) => Promise<void>
   /** my place in a thread moved to seq: its news mark and the room's badge go at once; a failure puts them back without
-   * a word (it is asked again with the next read) */
+   * a word (asked again with a newer reply, the thread opening again or the connection coming back) */
   markThreadRead: (roomId: string, rootId: string, seq: number) => Promise<void>
   loadMembers: (roomId: string, force?: boolean) => Promise<void>
   send: (roomId: string, input: SendInput) => void
@@ -412,8 +414,8 @@ interface RoomsState extends RoomsData {
   remove: (roomId: string, messageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
-  /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (it is
-   * asked again with the next read) */
+  /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
+   * again with a newer message, the room opening again or the connection coming back) */
   markRead: (roomId: string, seq: number) => Promise<void>
   setMuted: (roomId: string, muted: boolean) => Promise<void>
   /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정"). On screen at once; a failure puts
@@ -1038,13 +1040,17 @@ export const useRooms = create<RoomsState>((set, get) => {
       if ((asked.get(key) ?? 0) >= seq) return
       asked.set(key, seq)
       // read on screen at once: the thread's news mark, and the room's count of followed threads with news (the
-      // server's room follows). Put back: as they were before this read (the room is read again for the exact count)
-      const root = findMessage(get(), roomId, rootId)
-      const had = !!root?.thread?.newReplies
-      const room = get().rooms.find((r) => r.id === roomId)
-      const before = room ? { threadsUnread: room.threadsUnread, mentioned: room.mentioned, nextThreadId: room.nextThreadId } : null
+      // server's room follows). Put back: as they were before the first read still on its way (the room is read again
+      // for the exact count)
+      const k = threadReadKey(roomId, rootId)
+      const snap = (optimisticPending(k) && threadSnaps.get(k)) || (() => {
+        const room = get().rooms.find((r) => r.id === roomId)
+        return { had: !!findMessage(get(), roomId, rootId)?.thread?.newReplies, before: room ? { threadsUnread: room.threadsUnread, mentioned: room.mentioned, nextThreadId: room.nextThreadId } : null }
+      })()
+      threadSnaps.set(k, snap)
+      const { had, before } = snap
       const r = await optimistic<boolean, RoomThreadReadState>({
-        key: threadReadKey(roomId, rootId),
+        key: k,
         from: false,
         to: true,
         show: (read) => {
@@ -1059,10 +1065,10 @@ export const useRooms = create<RoomsState>((set, get) => {
         settle: (reply) => set((s) => withRoom(s, keepPending(s, reply.room))),
         failText: false,
       })
-      if (!r.ok) {
-        if (asked.get(key) === seq) asked.delete(key)
-        if (r.newest) void get().fetchRoom(roomId).catch(() => {})
-      }
+      if (!optimisticPending(k)) threadSnaps.delete(k)
+      // not read: the room is read again for the exact count. The same place is not asked again until the thread opens
+      // again or the connection comes back (asking at once would repeat while the server says no: the news mark is back)
+      if (!r.ok && r.newest) void get().fetchRoom(roomId).catch(() => {})
     },
 
     async loadMembers(roomId, force) {
@@ -1182,11 +1188,10 @@ export const useRooms = create<RoomsState>((set, get) => {
         settle: (reply) => set((s) => withReadState(s, roomId, reply)),
         failText: false,
       })
-      if (!r.ok) {
-        if (asked.get(roomId) === seq) asked.delete(roomId)
-        // put back as it was; the room is read again for what came meanwhile
-        if (r.newest) void get().fetchRoom(roomId).catch(() => {})
-      }
+      // not read: put back as it was, and the room is read again for what came meanwhile. The same place is not asked
+      // again until a newer message, the room opening again or the connection coming back (asking at once would repeat
+      // while the server says no: the badge is back)
+      if (!r.ok && r.newest) void get().fetchRoom(roomId).catch(() => {})
     },
 
     async setMuted(roomId, muted) {
@@ -1390,6 +1395,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     reset() {
       asked.clear()
+      threadSnaps.clear()
       leaving.clear()
       unsure.clear()
       memberReads.clear()

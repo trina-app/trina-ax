@@ -22,7 +22,8 @@ import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
-import { keepPendingReads, markAllNoticesRead, markNoticeRead, useActivityUnread } from '../store/inbox'
+import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
+import { optimisticPending } from '../lib/optimistic'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useRooms } from '../store/rooms'
@@ -107,7 +108,8 @@ function ActivityOpened({ id }: { id: string | null }) {
       const got = await api.call(API.getNotification, { params: { id } })
       if (generation !== life.current) return
       setError(null)
-      if (got.readAt || marked.current) return setItem(got)
+      // the list read it as it opened it (one ask, one answer, one toast at most): shown read while that is on its way
+      if (got.readAt || marked.current || noticeReadAsked(got.id)) return setItem(!got.readAt && optimisticPending(noticeReadKey(got.id)) ? { ...got, readAt: new Date().toISOString() } : got)
       marked.current = true
       // on screen at once (a failure puts it back with a toast: store/inbox.ts); a read again of this notice meanwhile
       // shows its own answer

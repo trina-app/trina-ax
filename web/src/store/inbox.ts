@@ -19,6 +19,11 @@ let stop: (() => void) | null = null
 /** the newest read wins: an older answer that arrives late is dropped */
 let asked = 0
 
+/** the notices this window asked to mark read (since the last person signed in): their own view does not ask again */
+const readAsked = new Set<string>()
+/** this window asked to mark the notice read already (the list did as it opened it): its view does not ask again */
+export const noticeReadAsked = (id: string) => readAsked.has(id)
+
 /** a notice marked read here (lib/optimistic.ts) */
 export const noticeReadKey = (id: string) => `notice:${id}:read`
 const isNoticeKey = (key: string) => key.startsWith('notice:')
@@ -59,6 +64,7 @@ function watch(): () => void {
  * to a read made for them is dropped. */
 export function resetInbox() {
   asked++
+  readAsked.clear()
   useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
 }
 
@@ -106,6 +112,7 @@ function count(item: InboxNotification, by: 1 | -1) {
  * caller's copy; the counts go down by one), then the server; a failure puts it back with a toast and every list reads
  * again. The counts are read again after. Never rejects. */
 export async function markNoticeRead(item: InboxNotification, show: (readAt: string | null) => void): Promise<OptimisticResult<InboxNotification>> {
+  readAsked.add(item.id)
   // (the same notice read from two places at once, the list and its own view: counted once)
   let counted = !!item.readAt || optimisticPending(noticeReadKey(item.id))
   const r = await optimistic<string | null, InboxNotification>({

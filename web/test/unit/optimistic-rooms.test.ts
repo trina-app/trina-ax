@@ -159,7 +159,7 @@ test('mark a room read: the badge goes at once; a list read from before keeps it
   expect(listed(r.id)).toMatchObject({ unreadCount: 0, lastReadSeq: 4, mentioned: false })
 })
 
-test('mark a room read that fails: the badge comes back without a toast (looking at it is not a tap), and is asked again', async () => {
+test('mark a room read that fails: the badge comes back without a toast (looking at it is not a tap); the same place is not asked again at once', async () => {
   const r = room({ lastSeq: 4, unreadCount: 3, lastReadSeq: 1 })
   useRooms.setState({ rooms: [r], loaded: true })
   const done = useRooms.getState().markRead(r.id, 4)
@@ -169,10 +169,17 @@ test('mark a room read that fails: the badge comes back without a toast (looking
   await done
   expect(listed(r.id)).toMatchObject({ unreadCount: 3, lastReadSeq: 1 })
   expect(toasts()).toHaveLength(0)
-  // the room is read again for what came meanwhile, and the same place may be asked again
+  // the room is read again for what came meanwhile
   await tick()
   take(`GET /api/rooms/${r.id}`)
+  // the screen asks for the same place again (the badge came back): not sent, or it would repeat while the server says no
   void useRooms.getState().markRead(r.id, 4)
+  await tick()
+  expect(waiting.some((w) => w.key === `POST /api/rooms/${r.id}/read`)).toBe(false)
+  expect(listed(r.id).unreadCount).toBe(3)
+  // a newer message read: asked
+  useRooms.setState((s) => ({ rooms: s.rooms.map((x) => ({ ...x, lastSeq: 5, unreadCount: 4 })) }))
+  void useRooms.getState().markRead(r.id, 5)
   await tick()
   expect(waiting.some((w) => w.key === `POST /api/rooms/${r.id}/read`)).toBe(true)
 })
@@ -190,6 +197,23 @@ test('mark a thread read: its news mark and the room count go at once; a failure
   expect(useRooms.getState().timeline!.messages[0]!.thread!.newReplies).toBe(true)
   expect(listed(r.id).threadsUnread).toBe(2)
   expect(toasts()).toHaveLength(0)
+})
+
+test('two reads of one thread on their way, both refused: the news mark and the count come back as before the first', async () => {
+  const r = room({ threadsUnread: 1 })
+  const root = message({ roomId: r.id, seq: 1, thread: { replyCount: 2, lastReplyAt: at(3), repliers: [BEN], newReplies: true } })
+  useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]) })
+  const first = useRooms.getState().markThreadRead(r.id, root.id, 2)
+  const second = useRooms.getState().markThreadRead(r.id, root.id, 3)
+  expect(listed(r.id).threadsUnread).toBe(0)
+  await tick()
+  take(`POST /api/rooms/${r.id}/messages/${root.id}/thread/read`).answer(refused())
+  await tick()
+  await tick()
+  take(`POST /api/rooms/${r.id}/messages/${root.id}/thread/read`).answer(refused())
+  await Promise.all([first, second])
+  expect(useRooms.getState().timeline!.messages[0]!.thread!.newReplies).toBe(true)
+  expect(listed(r.id).threadsUnread).toBe(1)
 })
 
 const notice = (o: Partial<InboxNotification> = {}) => InboxNotification.parse({
