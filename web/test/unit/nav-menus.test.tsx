@@ -546,3 +546,44 @@ describe("the phone's ☰ drawer", () => {
     }
   })
 })
+
+describe('the history filter\'s kept "Confidential" (QA TC-1031)', () => {
+  const keep = () => localStorage.setItem('mycel.sidebar.historyView', JSON.stringify({ status: 'confidential' }))
+
+  test('without Safe operations 1A and no confidential chat: the whole list, as "Active"', async () => {
+    keep()
+    const m = await render()
+    try {
+      await m.until(() => m.html().includes('채팅 8'), 'the list', 2000)
+      expect(m.find('recents-no-match')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('li').length).toBe(8)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('with one confidential chat in the list: only that chat, the choice kept', async () => {
+    keep()
+    useChats.setState({ chats: [chat(1), chat(2, { confidential: true, title: '기밀 채팅' }), chat(3)], chatsLoaded: true, chatsCursor: null })
+    const m = await render()
+    try {
+      await m.until(() => m.html().includes('기밀 채팅'), 'the list', 2000)
+      expect(m.get('recents-list').querySelectorAll('li').length).toBe(1)
+      expect(m.html()).not.toContain('채팅 3')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('while 1A is on (Me.server.allChatsConfidential): the choice is kept', async () => {
+    keep()
+    const on = me('member')
+    useSession.setState({ status: { kind: 'signed-in', me: { ...on, server: { ...on.server, allChatsConfidential: true } } } } as never)
+    const m = await render()
+    try {
+      await m.until(() => m.find('recents-no-match'), 'the empty filter', 2000)
+    } finally {
+      await m.unmount()
+    }
+  })
+})

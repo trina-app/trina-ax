@@ -180,3 +180,50 @@ test('트리나에게 묻기 while Home is already on show puts the focus in its
   await page.keyboard.press('Control+Shift+O')
   await expect(box).toBeFocused()
 })
+
+// QA TC-1030 / TC-1031: the filter's Status submenu at 1440 in English and Korean. Its rows (the app's menu box and row,
+// rooms/MenuButton.tsx) never run into each other, and each choice is one line where the window has room; "Confidential"
+// is there only while Safe operations 1A is on (or a chat in the list is confidential).
+for (const lang of ['en', 'ko'] as const) {
+  test(`${lang}: the Status submenu's rows do not overlap and stay on one line; "Confidential" only with 1A on`, async ({ page }) => {
+    const tt = DICTS[lang]
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await reset(page, { teamLocale: lang, usersFollowTeam: true })
+    await navRail(page)
+    await signIn(page)
+    await chat(page, 'Quarterly report')
+    const openStatus = async () => {
+      await page.reload()
+      await panel(page).getByTestId('recents-filter').click()
+      await page.getByTestId('recents-view-status').click()
+      const sub = page.getByTestId('recents-submenu')
+      await expect(sub).toBeVisible()
+      return sub
+    }
+    let sub = await openStatus()
+    await expect(sub.getByTestId('recents-status-waiting')).toHaveText(tt['sidebar.filter.active'])
+    // 1A off and no confidential chat: no "Confidential"
+    await expect(sub.getByTestId('recents-status-confidential')).toHaveCount(0)
+    await expect(sub.getByRole('menuitemradio')).toHaveCount(4)
+
+    expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
+    sub = await openStatus()
+    await expect(sub.getByTestId('recents-status-confidential')).toHaveText(tt['sidebar.filter.confidential'])
+    const rows = await sub.getByRole('menuitemradio').evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect()
+        const label = el.querySelector('span')!
+        const lines = Math.round(label.getBoundingClientRect().height / parseFloat(getComputedStyle(label).lineHeight))
+        return { top: r.top, bottom: r.bottom, lines, text: el.textContent }
+      }),
+    )
+    expect(rows).toHaveLength(5)
+    for (let i = 0; i + 1 < rows.length; i++) expect(rows[i]!.bottom, `${rows[i]!.text} / ${rows[i + 1]!.text}`).toBeLessThanOrEqual(rows[i + 1]!.top + 0.5)
+    for (const r of rows) expect(r.lines, r.text ?? '').toBe(1)
+    // the submenu stays inside the window, beside the menu
+    const box = (await sub.boundingBox())!
+    const menuBox = (await page.getByTestId('recents-filter-menu').boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(menuBox.x + menuBox.width)
+    expect(box.x + box.width).toBeLessThanOrEqual(1440 - 8)
+  })
+}

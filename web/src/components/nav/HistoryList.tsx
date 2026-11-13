@@ -4,20 +4,21 @@
 // project", "Pinned chats", "Session markers". The filter's menu (RecentsMenu) and its state (useRecentsView) are here too.
 import clsx from 'clsx'
 import { Check, ChevronRight, ListFilter, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Chat } from '@mycel/shared/api'
 import { dateBucket, type DateBucket } from '../../lib/format'
 import { useT, type MessageKey } from '../../i18n'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
+import { useMe } from '../../store/session'
 import { loadChatList } from '../../lib/chatListLoad'
 import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
-import { MenuButton } from '../rooms/MenuButton'
+import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE } from '../rooms/MenuButton'
 import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
@@ -67,6 +68,22 @@ const rememberedView = (key = VIEW_KEY, base: RecentsView = DEFAULT_VIEW): Recen
   }
 }
 
+/** Status "Confidential" means something only where chats are marked: while Safe operations 1A is on for this server
+ * (Me.server.allChatsConfidential, every chat) or where a 1A workflow worked in a chat (server/src/safe-ops/confidential.ts
+ * markConfidentialTurn; nobody marks one by hand). Elsewhere it was an option that always showed nothing (TC-1031). */
+export const showsConfidential = (o: { safeOps: boolean; chats: readonly Pick<Chat, 'confidential'>[] }) => o.safeOps || o.chats.some((c) => c.confidential)
+function useConfidentialOption() {
+  const safeOps = !!useMe()?.server.allChatsConfidential
+  const chats = useChats((s) => s.chats)
+  return showsConfidential({ safeOps, chats })
+}
+/** a menu's choices, without "Confidential" where it means nothing (`confidential` false) */
+export const viewOptions = (k: ViewKey, confidential: boolean): [string, MessageKey][] =>
+  Object.entries(VIEW[k].options as Record<string, MessageKey>).filter(([id]) => confidential || k !== 'status' || id !== 'confidential')
+/** the view in use: a kept "Confidential" whose option is not shown is "Active" (kept as it was in this browser: it is
+ * back when the option is, and a list still loading does not lose it) */
+export const shownView = (v: RecentsView, confidential: boolean): RecentsView => (!confidential && v.status === 'confidential' ? { ...v, status: 'all' } : v)
+
 const remember = (key: string, v: string) => {
   try {
     localStorage.setItem(key, v)
@@ -82,7 +99,9 @@ const pinnedFirst = (list: Chat[]) => list.filter((c) => c.pinnedAt).sort((a, b)
 export function useRecentsView(o: { key?: string; base?: Partial<RecentsView> } = {}) {
   const key = o.key ?? VIEW_KEY
   const base = useMemo(() => ({ ...DEFAULT_VIEW, ...o.base }), [o.base?.group, o.base?.sort, o.base?.status, o.base?.activity]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [view, setViewState] = useState<RecentsView>(() => rememberedView(key, base))
+  const [kept, setViewState] = useState<RecentsView>(() => rememberedView(key, base))
+  const confidential = useConfidentialOption()
+  const view = useMemo(() => shownView(kept, confidential), [kept, confidential])
   const setView = useCallback((v: RecentsView) => {
     setViewState(v)
     remember(key, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== base[k]).map((k) => [k, v[k]]))))
@@ -233,12 +252,14 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
  * place with a way back. A phone (below 768px): bottom sheets instead (RecentsSheet). */
 export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
-  return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
+  const confidential = useConfidentialOption()
+  return phone ? <RecentsSheet {...props} confidential={confidential} /> : <RecentsDropdown {...props} confidential={confidential} />
 }
+type MenuProps = { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; confidential: boolean }
 
 /** A phone: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
-function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
   const t = useT()
   const [sub, setSub] = useState<ViewKey | null>(null)
   const [ask, setAsk] = useState(0)
@@ -277,7 +298,7 @@ function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange
           buttonClassName="hidden!"
           openRequest={ask}
           focusBack={() => button.current?.focus()}
-          items={Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => ({
+          items={viewOptions(sub, confidential).map(([id, label]) => ({
             label: t(label),
             checked: view[sub] === id,
             onSelect: () => onChange({ ...view, [sub]: id }),
@@ -289,21 +310,19 @@ function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange
   )
 }
 
-function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+function RecentsDropdown({ view, onChange, changed, confidential }: MenuProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 })
+  /** the submenu does not fit beside the menu (a narrow window): it takes the menu's place, with a way back */
+  const [narrow, setNarrow] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const subMenu = useRef<HTMLDivElement>(null)
-  const W = 224
-  /** the menu's height: four rows of 32 px, a line and its padding */
-  const MENU_H = 4 * 32 + 9 + 10
-  const sideBySide = typeof window !== 'undefined' && pos.left + 2 * W + 8 < window.innerWidth
   const close = (focus: boolean) => {
     setOpen(false)
     setSub(null)
+    setNarrow(false)
     if (focus) button.current?.focus()
   }
   const items = (box: HTMLElement | null) => [...(box?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
@@ -320,16 +339,58 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
   useEffect(() => {
     if (sub) (subMenu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? items(subMenu.current)[0])?.focus()
   }, [sub])
-  const openMenu = () => {
-    const r = button.current!.getBoundingClientRect()
-    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8))
-    // four rows and a line (about 160 px): above the button when they do not fit under it (its heading at the bottom)
-    setPos(r.bottom + 4 + MENU_H > window.innerHeight ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left })
-    setOpen(true)
+  /** The boxes put in their places, measured as they are drawn (they are as wide as their longest choice: the app's
+   * menu box, rooms/MenuButton.tsx menuBoxCls): the menu under the button as every menu (menuSpot), its submenu beside
+   * the row it belongs to (right of the menu, else left of it), kept inside the window; where it fits on neither side it
+   * takes the menu's place. */
+  const place = () => {
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight
+    const at = (el: HTMLElement, x: number, y: number) => {
+      el.style.left = `${x}px`
+      el.style.top = `${y}px`
+    }
+    const size = (el: HTMLElement) => {
+      at(el, 0, 0)
+      return el.getBoundingClientRect()
+    }
+    const b = button.current?.getBoundingClientRect()
+    const m = menu.current, s = subMenu.current
+    if (!b) return
+    if (m) {
+      const { x, y } = menuSpot(b, size(m), { width: vw, height: vh })
+      at(m, x, y)
+    }
+    if (!s || !sub) return
+    const o = size(s)
+    if (!m) {
+      const { x, y } = menuSpot(b, o, { width: vw, height: vh })
+      return at(s, x, y)
+    }
+    const r = m.getBoundingClientRect()
+    const right = r.right + 4, left = r.left - 4 - o.width
+    const x = right + o.width <= vw - MENU_EDGE ? right : left >= MENU_EDGE ? left : null
+    if (x === null) return setNarrow(true)
+    // its first choice level with the row (the box's padding and border above it)
+    const rowTop = m.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? r.top
+    at(s, x, Math.max(MENU_EDGE, Math.min(rowTop - 5, vh - o.height - MENU_EDGE)))
   }
+  useLayoutEffect(() => {
+    if (open) place()
+  })
+  useEffect(() => {
+    if (!open) return
+    const resized = () => {
+      setNarrow(false)
+      place()
+    }
+    window.addEventListener('resize', resized)
+    return () => window.removeEventListener('resize', resized)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sub])
   const back = () => {
     const k = sub
     setSub(null)
+    setNarrow(false)
     requestAnimationFrame(() => menu.current?.querySelector<HTMLElement>(`[data-view="${k}"]`)?.focus())
   }
   const onKey = (e: KeyboardEvent) => {
@@ -357,11 +418,9 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
       }
     } else if (e.key === 'Tab') close(false)
   }
-  const row = 'flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2'
-  const panel = 'fixed z-50 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg'
-  // the submenu beside its row, kept inside the window (up to five choices and a back row)
-  const subH = sub ? 8 + 32 * (Object.keys(VIEW[sub].options).length + (sideBySide ? 0 : 1)) : 0
-  const subTop = sub ? Math.max(8, Math.min((menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top ?? 8) - 4, window.innerHeight - subH - 8)) : 0
+  // the app's menu box and row (rooms/MenuButton.tsx): as wide as the longest choice, rows that grow with their words
+  const row = clsx(menuRowCls, 'hover:bg-hover focus-visible:-outline-offset-2')
+  const panel = clsx('fixed z-50', menuBoxCls)
   return (
     <div className="ml-auto" onKeyDown={onKey}>
       <Tooltip label={t('sidebar.filter')}>
@@ -371,7 +430,7 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={t('sidebar.filter')}
-          onClick={() => (open ? close(false) : openMenu())}
+          onClick={() => (open ? close(false) : setOpen(true))}
           className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink', open && 'bg-hover text-ink')}
           data-testid="recents-filter"
         >
@@ -383,8 +442,8 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
         createPortal(
           // its keys reach onKey through React (a portal's events bubble to the button's box)
           <div>
-            {(sideBySide || !sub) && (
-              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} style={pos} data-testid="recents-filter-menu">
+            {(!narrow || !sub) && (
+              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} data-testid="recents-filter-menu">
                 {(Object.keys(VIEW) as ViewKey[]).map((k, i) => (
                   <div key={k}>
                     {i === 2 && <div role="separator" className="mx-1 my-1 border-t border-line" />}
@@ -395,11 +454,11 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
                       aria-expanded={sub === k}
                       data-view={k}
                       onClick={() => setSub(sub === k ? null : k)}
-                      className={clsx(row, sub === k && 'bg-hover')}
+                      className={clsx(row, 'text-ink', sub === k && 'bg-hover')}
                       data-testid={`recents-view-${k}`}
                     >
-                      <span className="text-ink">{t(VIEW[k].label)}</span>
-                      <span className="ml-auto truncate text-xs text-faint">{t((VIEW[k].options as Record<string, MessageKey>)[view[k]])}</span>
+                      <span>{t(VIEW[k].label)}</span>
+                      <span className="ml-auto pl-2 text-xs text-faint">{t((VIEW[k].options as Record<string, MessageKey>)[view[k]])}</span>
                       <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
                     </button>
                   </div>
@@ -407,13 +466,13 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
               </div>
             )}
             {sub && (
-              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} style={sideBySide ? { top: subTop, left: pos.left + W + 4 } : pos} data-testid="recents-submenu">
-                {!sideBySide && (
+              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} data-testid="recents-submenu">
+                {narrow && (
                   <button type="button" role="menuitem" onClick={back} className={clsx(row, 'text-faint')}>
-                    <ChevronRight size={14} className="rotate-180" aria-hidden /> {t(VIEW[sub].label)}
+                    <ChevronRight size={14} className="shrink-0 rotate-180" aria-hidden /> {t(VIEW[sub].label)}
                   </button>
                 )}
-                {Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => (
+                {viewOptions(sub, confidential).map(([id, label]) => (
                   <button
                     key={id}
                     type="button"
@@ -423,11 +482,11 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
                       onChange({ ...view, [sub]: id })
                       back()
                     }}
-                    className={row}
+                    className={clsx(row, 'text-ink')}
                     data-testid={`recents-${sub}-${id}`}
                   >
-                    {t(label)}
-                    {view[sub] === id && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
+                    <span className="min-w-0 flex-1">{t(label)}</span>
+                    <Check size={14} className={clsx('shrink-0 text-accent-text', view[sub] !== id && 'invisible')} aria-hidden />
                   </button>
                 ))}
               </div>
