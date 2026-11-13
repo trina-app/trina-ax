@@ -110,8 +110,15 @@ describe('the history of a team room', () => {
     expect(m.last_read_seq).toBe(m.visible_from_seq)
     // he may answer in the old thread, and follows it from then on
     await send('bob', roomId, 'joining in', { threadRootId: first.id })
-    await send('alice', roomId, 'welcome', { threadRootId: first.id })
+    const welcome = await send('alice', roomId, 'welcome', { threadRootId: first.id })
     expect((await roomFor('bob', roomId)).threadsUnread).toBe(1)
+    // an unposted private answer of the removed room AI in that thread (old data, shown to nobody): never unread, and
+    // reading the thread up to its newest visible reply clears the badge
+    const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    h.ctx.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, visible_to, body, mentions, created_at, thread_root_id, thread_root_seq)
+      VALUES ('old-private-preview', ?, ?, 'ai', NULL, 'private', 'bob', 'old answer', '[]', ?, ?, ?)`).run(roomId, seq, new Date().toISOString(), first.id, first.seq)
+    await h.api('bob').call(API.markRoomThreadRead, { params: { id: roomId, messageId: first.id }, body: { seq: welcome.seq } })
+    expect((await roomFor('bob', roomId)).threadsUnread ?? 0).toBe(0)
   })
 
   test('group chats and 1:1s still start at the join', async () => {

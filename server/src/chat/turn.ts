@@ -96,7 +96,7 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
