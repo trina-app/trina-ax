@@ -160,6 +160,22 @@ function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+  // the chat left my lists while it is on screen (chat.updated "deleted": I lost the shared chat when a project's
+  // members changed, it went to a trash or was purged; also a list read again after a reconnect): read it again, so a
+  // chat I can no longer open shows the not-found page instead of its old messages and a box that cannot send, and one
+  // in a trash shows the trash line, as a reload would (QA TC-961). A reply that comes after the chat came back to a
+  // list (an undo, the member added back) changes nothing.
+  const wasListed = useRef(!!chatFromList)
+  useEffect(() => {
+    const was = wasListed.current
+    wasListed.current = !!chatFromList
+    if (!was || chatFromList) return
+    const back = () => { const s = useChats.getState(); return s.chats.some((x) => x.id === chatId) || !!s.others[chatId] }
+    api.call(API.getChat, { params: { id: chatId } }).then(
+      (c) => { if (!back()) setChat(c) },
+      (e) => { if (isApiError(e, 'not_found') && !back()) setLoadError(e) },
+    )
+  }, [chatId, chatFromList])
 
   const messages = thread.messages
   const running = runningMessage(messages)

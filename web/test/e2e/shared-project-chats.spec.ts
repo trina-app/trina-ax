@@ -527,10 +527,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await b2.goto('/')
       const inList = (await chatList(b2)).getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
       await expect(inList).toHaveCount(1)
+      // and the chat itself open in a third window of his
+      const b3 = await b.context().newPage()
+      await b3.goto(`/c/${chatId}`)
+      await expect(b3.getByTestId('messages')).toContainText('출시 체크리스트 만들어 줘')
+      // (b3's own list holds the chat and its socket is up: the event below reaches it)
+      const b3Frames: string[] = []
+      b3.on('websocket', (ws) => ws.on('framereceived', (f) => { if (typeof f.payload === 'string') b3Frames.push(f.payload) }))
+      const listRead = b3.waitForResponse((r) => new URL(r.url()).pathname === '/api/chats' && r.ok() && r.text().then((x) => x.includes(chatId), () => false))
+      await b3.reload()
+      await expect(b3.getByTestId('messages')).toContainText('출시 체크리스트 만들어 줘')
+      await listRead
+      await expect.poll(() => b3Frames.length).toBeGreaterThan(0)
       const from = frames.length
       expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()
       await expect(bobRow).toHaveCount(0)
       await expect(inList).toHaveCount(0)
+      // the open chat turns into the not-found page at once: no old messages, no box that cannot send (QA TC-961)
+      await expect(b3.getByTestId('chat-not-found')).toBeVisible()
+      await expect(b3.getByTestId('messages')).toHaveCount(0)
       const after = frames.slice(from).map((f) => JSON.parse(f) as { type: string; data?: { chatId?: string; change?: string; chat?: unknown } }).filter((f) => f.data?.chatId === chatId)
       expect(after.map((f) => [f.type, f.data!.change, f.data!.chat])).toEqual([['chat.updated', 'deleted', null]])
       await b.context().close()
