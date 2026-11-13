@@ -18,5 +18,5 @@ export function PrefSection({ title, desc, children, testId, className }: { titl
 
 /** One setting: the shared settings row (SettingRow.tsx) with its control on the right on a phone too. */
 export function PrefRow(props: { id: string; title: ReactNode; desc?: ReactNode; control?: ReactNode; below?: ReactNode; testId?: string; attrs?: Record<string, string> }) {
-  return <SettingRow inline {...props} />
+  return <SettingRow inline belowFull {...props} />
 }

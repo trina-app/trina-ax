@@ -42,12 +42,8 @@ function offScale(phone: boolean): Omit<Off, 'screen'>[] {
   const px = (el: Element) => Number.parseFloat(getComputedStyle(el).fontSize)
   // a list row's name, and a setting's name and line
   for (const el of root.querySelectorAll('.text-row')) if (shown(el) && px(el) !== row) add(`row-name-not-${row}`, el, px(el))
-  for (const r of root.querySelectorAll('[data-setting-row]')) {
-    const name = r.querySelector(':scope > div > label, :scope > div > h3, :scope > div > p')
-    if (name && shown(name) && px(name) !== row) add(`setting-name-not-${row}`, name, px(name))
-    const line = name?.nextElementSibling
-    if (line && shown(line) && !line.hasAttribute('hidden') && px(line) !== 13) add('setting-line-not-13', line, px(line))
-  }
+  for (const el of root.querySelectorAll('[data-setting-name]')) if (shown(el) && px(el) !== row) add(`setting-name-not-${row}`, el, px(el))
+  for (const el of root.querySelectorAll('[data-setting-desc]')) if (shown(el) && px(el) !== 13) add('setting-line-not-13', el, px(el))
   // meta and hints 13, body 15 (a field on a phone is 16 or more, against iOS's zoom)
   for (const el of root.querySelectorAll('.text-meta, .text-xs, .text-micro')) if (shown(el) && !el.closest('[aria-hidden="true"]') && px(el) !== 13) add('meta-not-13', el, px(el))
   for (const el of root.querySelectorAll('.text-sm')) if (shown(el) && !el.matches('input, textarea, select') && px(el) !== 15) add('body-not-15', el, px(el))
@@ -74,7 +70,7 @@ for (const width of [390, 1440]) {
     const off: Off[] = []
     for (const screen of SCREENS) {
       await page.goto(screen)
-      await expect(page.locator('#root *').first()).toBeVisible()
+      await expect(page.locator('main, [data-testid="app-layout"], #root > *').first()).toBeVisible()
       await page.waitForLoadState('networkidle')
       for (const o of await page.evaluate(offScale, phone)) off.push({ screen, ...o })
     }

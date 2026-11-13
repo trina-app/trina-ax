@@ -22,31 +22,33 @@ export const settingDesc = 'text-meta text-muted'
  * row (none under the last), the name and the control centred on a computer and the control in a 288px column (the
  * profile form). `descError`: the line is an error (an alert in the danger colour); `quietDesc`: on a phone the line is
  * for screen readers only (an error still shows); `framed`: the control has its own frame, so no hairline under it on a
- * phone.
+ * phone. `belowFull`: `below` goes under the whole row, the control's column too (a list of settings: Notifications).
  */
-export function SettingRow({ id, title, desc, descId, more, control, below, heading, inline, divided, descError, quietDesc, framed, testId, attrs }: {
+export function SettingRow({ id, title, desc, descId, more, control, below, heading, inline, divided, descError, quietDesc, framed, belowFull, testId, attrs }: {
   id?: string; title: ReactNode; desc?: ReactNode; descId?: string; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; inline?: boolean
-  divided?: boolean; descError?: boolean; quietDesc?: boolean; framed?: boolean; testId?: string; attrs?: Record<string, string>
+  divided?: boolean; descError?: boolean; quietDesc?: boolean; framed?: boolean; belowFull?: boolean; testId?: string; attrs?: Record<string, string>
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const lineId = descId ?? (id ? `${id}-desc` : undefined)
-  return (
+  const nameAttrs = { 'data-setting-name': '' }
+  const row = (
     <div
       className={clsx(
-        'flex md:flex-row md:gap-8',
-        inline ? 'items-start gap-4' : 'flex-col gap-3',
-        divided ? 'border-b border-line py-3 last:border-b-0 md:items-center md:justify-between md:gap-6' : 'py-4 md:items-start',
+        'flex md:flex-row',
+        inline ? 'items-start gap-4' : divided ? 'flex-col gap-2' : 'flex-col gap-3',
+        divided ? 'md:items-center md:justify-between md:gap-6' : belowFull ? 'md:gap-4' : 'md:items-start md:gap-8',
+        !belowFull && (divided ? 'border-b border-line py-3 last:border-b-0' : 'py-4'),
         divided && framed && 'max-md:border-b-0',
       )}
-      data-testid={testId}
+      data-testid={belowFull ? undefined : testId}
       data-setting-row=""
-      {...attrs}
+      {...(belowFull ? {} : attrs)}
     >
       <div className="min-w-0 flex-1">
-        {heading ? <h3 className={settingName}>{title}</h3> : id ? <label htmlFor={id} className={settingName}>{title}</label> : <p className={settingName}>{title}</p>}
+        {heading ? <h3 className={settingName} {...nameAttrs}>{title}</h3> : id ? <label htmlFor={id} className={settingName} {...nameAttrs}>{title}</label> : <p className={settingName} {...nameAttrs}>{title}</p>}
         {(desc || more) && (
-          <div className={clsx('mt-0.5', settingDesc, descError && 'text-danger', quietDesc && !descError && 'max-md:sr-only')} role={descError ? 'alert' : undefined}>
+          <div className={clsx('mt-0.5', settingDesc, descError && 'text-danger', quietDesc && !descError && 'max-md:sr-only')} role={descError ? 'alert' : undefined} data-setting-desc="">
             {desc && <span id={lineId}>{desc}</span>}
             {desc && more && ' '}
             {more && (
@@ -57,13 +59,16 @@ export function SettingRow({ id, title, desc, descId, more, control, below, head
           </div>
         )}
         {more && <div hidden={!open} className="mt-2 max-w-prose text-meta text-faint">{more}</div>}
-        {below}
+        {!belowFull && below}
       </div>
       {control && (
-        <div className={clsx('flex shrink-0 md:justify-end md:pt-0.5', inline ? 'items-center gap-2 pt-0.5' : 'justify-start', divided && 'min-w-0 md:w-72 md:max-w-[60%] md:pt-0', divided && inline && 'max-md:max-w-[60%] max-md:justify-end max-md:text-right')}>
-          {control}
-        </div>
+        divided
+          // the profile form's column: a block 288px wide, its field filling it (a value to read stays on the right)
+          ? <div className={clsx('min-w-0 md:w-72 md:max-w-[60%] md:shrink-0', inline && 'max-md:max-w-[60%] max-md:text-right')}>{control}</div>
+          : <div className={clsx('flex shrink-0 md:pt-0.5', inline ? 'items-center gap-2 pt-0.5' : 'justify-start', !inline && !belowFull && 'md:justify-end')}>{control}</div>
       )}
     </div>
   )
+  // `belowFull`: what is under the row takes the whole width, under the control too (quiet hours' times)
+  return belowFull ? <div className="py-3.5" data-testid={testId} {...attrs}>{row}{below}</div> : row
 }

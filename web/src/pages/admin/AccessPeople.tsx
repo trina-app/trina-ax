@@ -292,7 +292,7 @@ function PersonPicker({ users, groups, value, onPick }: { users: User[] | null; 
       >
         {icon && <UserPlus size={15} className={clsx('mt-0.5 shrink-0', on ? 'text-accent-text' : 'text-muted')} aria-hidden />}
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-ink">{label}</span>
+          <span className="block truncate text-row font-medium text-ink">{label}</span>
           <span className="block truncate text-xs text-muted">{meta}</span>
         </span>
       </div>

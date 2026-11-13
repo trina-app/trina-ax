@@ -81,13 +81,13 @@ function collect(scope: string | null): Text[] {
     // (--c-ink is primary text; any other colour is secondary: meta, hints, times)
     let token = ''
     for (let e: Element | null = el, i = 0; e && i < 4 && !token; e = e.parentElement, i++)
-      token = / text-(nano|micro|xs|label|sm|base|reading|lg|xl|2xl|row|meta|list-head|code(?:-sm|-file)?)\b/.exec(` ${clsOf(e)}`)?.[1] ?? ''
+      token = / text-(nano|micro|xs|label|sm|base|reading|lg|xl|2xl|row|meta|list-head|code(?:-sm|-file)?)(?=\s|$)/.exec(` ${clsOf(e)} `)?.[1] ?? ''
     let kind = 'body'
     if (family === 'mono') kind = 'code'
     else if (el.closest('[aria-hidden="true"]') && text.length <= 2) kind = 'glyph'
     // a badge is a known kind of element, never "any text-nano": [data-badge], or a count or tag by its test id
     else if (el.closest('[data-badge], [data-testid$="-unread"], [data-testid$="-badge"], [data-testid="inbox-unread"], [data-testid="skills-pending"]')) kind = 'badge'
-    else if (token === 'row' || el.closest('[data-setting-row] > div > label, [data-setting-row] > div > h3, [data-setting-row] > div > p:first-child')) kind = 'row'
+    else if (token === 'row' || el.closest('[data-setting-name]')) kind = 'row'
     else if (token === 'micro' || token === 'xs' || token === 'meta' || el.closest('time,kbd')) kind = 'meta'
     else if (token === 'label') kind = 'label'
     else if (el.closest('button,a,[role="tab"],[role="menuitem"],[role="option"],label,legend,summary,th,select')) kind = 'control'

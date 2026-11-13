@@ -11823,8 +11823,9 @@ so did Files, a project's files, Scheduled, Skills, the connectors, a room's peo
 
 - **One settings row**: `SettingRow` (moved from `pages/admin/common.tsx`, which re-exports it): the name `text-row
   font-medium text-ink` (15 px computer, 17 px phone), the line `text-meta text-muted` (13 px). `PrefRow` is `SettingRow
-  inline`; Settings' profile `Row` is `SettingRow divided` (hairlines, a 288 px control column). A screen never sets a
-  setting's sizes itself.
+  inline belowFull` (what is under it, quiet hours' times, takes the whole width); Settings' profile `Row` is `SettingRow divided` (hairlines, a 288 px control column). A screen never sets a
+  setting's sizes itself; a row with its own layout (push and desktop notices, the on-computer notes) takes
+  `settingName` / `settingDesc`.
 - **Every list's name is `text-row`** (or `rowName`), its second line `text-meta`; an empty list's note is body
   (`text-sm`), not a row. Hints and times are `text-xs` on every width (the `max-md:text-sm` left from when computers
   were smaller is gone).
@@ -11834,7 +11835,8 @@ so did Files, a project's files, Scheduled, Skills, the connectors, a room's peo
   project (a chip on a phone, words on a computer).
 - **Checks**: `type-scale.spec.ts` opens the main screens at 390 and 1440 px and fails when a row's name, a setting's
   name or line, meta or body leaves the scale or anything but a badge is under 12 px; `type-scale-source.test.ts` fails
-  a one-off `text-[…]` size, a per-width size switch, or a settings row of its own; `type-audit.ts` flags rows and meta
+  a one-off `text-[…]` size, a per-width size switch, or a setting drawn by hand (a `text-sm font-medium` name over a
+  `text-sm text-muted` line) in Settings, Admin or the connector pages; `type-audit.ts` flags rows and meta
   off the scale, not only under the floor.
 
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)

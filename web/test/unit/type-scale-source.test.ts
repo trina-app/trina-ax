@@ -56,9 +56,22 @@ describe('settings rows: one component, the lists’ sizes', () => {
     expect(common).toContain("export { SettingRow } from '../../components/settings/SettingRow'")
     expect(common).not.toMatch(/export function SettingRow\b/)
     const pref = sources.find((s) => s.file === 'components/settings/PrefRows.tsx')!.text
-    expect(pref).toMatch(/<SettingRow inline \{\.\.\.props\} \/>/)
+    expect(pref).toMatch(/<SettingRow inline belowFull \{\.\.\.props\} \/>/)
     const settings = sources.find((s) => s.file === 'pages/Settings.tsx')!.text
     expect(settings).toMatch(/function Row\([^)]*\)[^{]*\{\s*return <SettingRow divided /)
+  })
+
+  test('no setting drawn by hand: a name in text-sm medium ink with a text-sm muted line under it', () => {
+    // the pattern the three old rows used; a setting's name and line come from SettingRow (or settingName/settingDesc)
+    const out: string[] = []
+    for (const { file, text } of sources) {
+      if (!/^(components\/settings\/|pages\/admin\/|pages\/Settings\.tsx|components\/integrations\/)/.test(file)) continue
+      const lines = text.split('\n')
+      lines.forEach((line, i) => {
+        if (/className="[^"]*\btext-sm font-medium text-ink\b[^"]*"/.test(line) && /className="[^"]*\btext-sm text-muted\b/.test(lines[i + 1] ?? '')) out.push(`${file}:${i + 1}`)
+      })
+    }
+    expect(out).toEqual([])
   })
 
   test('the list tokens: rows 15px on a computer and 17px on a phone, meta 13px', () => {

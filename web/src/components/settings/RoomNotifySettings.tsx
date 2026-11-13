@@ -141,7 +141,7 @@ function MutedRooms() {
           return (
             <li key={r.id} className="flex items-center gap-3 py-2" data-testid="notification-muted-room">
               <RoomIcon room={r} size={24} />
-              {phone ? <span className="min-w-0 flex-1 truncate text-row">{title(r)}</span> : <label htmlFor={id} className="min-w-0 flex-1 truncate text-sm">{title(r)}</label>}
+              {phone ? <span className="min-w-0 flex-1 truncate text-row">{title(r)}</span> : <label htmlFor={id} className="min-w-0 flex-1 truncate text-row">{title(r)}</label>}
               {phone ? (
                 <PhoneChoicePill bare label={title(r)} value={n.own ?? 'default'} onChange={(v) => void set(r.id, v === 'default' ? null : v)} testId="notification-muted-room-level" className="max-w-[55%] shrink-0"
                   options={[{ value: 'default', label: `${t('rooms.notify.default')} · ${t(`rooms.notify.${n.byDefault}`)}` }, ...(['all', 'mentions', 'off'] as const).map((l) => ({ value: l, label: t(`rooms.notify.${l}`) }))]} />

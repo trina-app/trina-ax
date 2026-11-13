@@ -173,7 +173,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                         <Hash size={16} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-ink">{g.name}</span>
+                        <span className="block truncate text-row font-medium text-ink">{g.name}</span>
                         <span className="block truncate text-xs text-muted">{t('rooms.picker.groupCount', { n: g.ids.length })}</span>
                       </span>
                       <Tick checked={allIn(g.ids)} disabled={busy} onChange={() => toggleGroup(g.ids)} />

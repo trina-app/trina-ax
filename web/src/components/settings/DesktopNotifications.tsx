@@ -5,6 +5,7 @@
 // one now and, when the system refused it, says where to turn the app's notifications on. An older desktop app shows
 // the row without the button. Owners and admins still see the phone push line (the gateway's host, or that it is off),
 // as in a browser.
+import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import type { DesktopBridge, DesktopNotifyTest } from '@mycel/shared'
 import type { PushSettings } from '@mycel/shared/api'
@@ -14,6 +15,7 @@ import { api, API } from '../../lib/api'
 import { desktop } from '../../lib/desktop'
 import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
+import { settingDesc, settingName } from './SettingRow'
 
 /** The line under the row after a test: what the system said, and where to turn notifications on when that helps. */
 export function desktopTestText(outcome: DesktopNotifyTest, platform: DesktopBridge['platform'], t: ReturnType<typeof useT>): string {
@@ -55,8 +57,8 @@ export function DesktopNotifications({ bridge = desktop() }: { bridge?: DesktopB
     <div className="py-3.5" data-testid="desktop-notifications">
       <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm font-medium text-ink">{t('desktopNotify.title')}</h4>
-          <p className="mt-0.5 text-sm text-muted">{t('desktopNotify.desc')}</p>
+          <h4 className={settingName}>{t('desktopNotify.title')}</h4>
+          <p className={clsx('mt-0.5', settingDesc)}>{t('desktopNotify.desc')}</p>
         </div>
         {testNotify && <div className="flex shrink-0 items-center gap-2"><Button busy={busy} onClick={() => void test()} data-testid="desktop-notify-test">{t('desktopNotify.test')}</Button></div>}
       </div>
