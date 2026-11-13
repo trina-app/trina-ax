@@ -9,7 +9,7 @@ A chat is a conversation with the AI. Only you see your chats. Admins see which 
 
 :::steps
 #### Open a new chat
-Choose **Ask Trina** (트리나에게 묻기) at the top left, press ⇧⌘O (Ctrl+Shift+O on Windows), or type in the box on the home page. On a phone, start from the **트리나** tab. The first time, under the box, **Ready in your
+Choose **Ask Trina** (트리나에게 묻기) at the top of your Trina list (**트리나** on the bar on the left), press ⇧⌘O (Ctrl+Shift+O on Windows), or type in the box on the home page. On a phone, press **Ask Trina** at the bottom right of the **트리나** tab. The first time, under the box, **Ready in your
 team** lists what your team set up: its skills (**Example** shows a result, **Try it** opens the skill) until you have run
 one, and the team files (**Ask** puts a question about them in the box, not sent). With nothing set up yet, **Start
 here** offers one question to send.
@@ -38,6 +38,29 @@ Open **N steps** under an answer to see each tool the AI used and each file it r
 Selected context goes to the AI provider you connected. Self-hosting is not offline processing. [Read the data flows](../operate/security.md).
 :::
 
+## Your Trina list
+
+On a computer, **트리나** on the bar on the left opens your list of Trina chats beside the page; on a phone it is the
+**트리나** tab. From the top:
+
+| Part | What is in it |
+|---|---|
+| **고정** (Pinned) | The chats you pinned |
+| **폴더** (Folders) | Your own folders, only you see them |
+| **프로젝트** (Projects) | The projects you used in the last 14 days, up to 8, three chats each; **N개 더 보기** shows more |
+| **모든 프로젝트 (N)** | Every project you can see |
+| **기타 기록** (Other chats) | Your other chats, newest first |
+
+Then **예약 작업** (Scheduled), **팀 스킬** (Team skills) and **삭제한 기록** (Deleted history). The filter button at
+the top of the list can show only some chats, for example the ones that are answering or wait for you.
+
+### Folders
+
+A folder sorts your list, nothing more: it holds no files and never changes who sees a chat. Make one with **+** on
+**폴더**, then use a chat's **···** › **폴더로 옮기기** (Move to folder), or drag the chat onto the folder. A folder's
+**···** renames it, moves it up or down, or deletes it; deleting a folder keeps its chats in your list. A project's chats
+stay in their project. The **대화** list has folders for conversations the same way.
+
 ## Several chats at once
 
 Each chat in your list of Trina chats shows at most one mark, at the right end of its row:
@@ -48,15 +71,15 @@ Each chat in your list of Trina chats shows at most one mark, at the right end o
 | Grey ring | The AI is answering, or the answer waits its turn. |
 | Dot, title in bold | A new answer you have not opened yet. |
 
-Opening a chat clears its dot, and the **?** of a failed or paused answer, on every device. **Show all** says how many hidden chats need you, and its filter can show only the chats that are answering or wait for you. A room shows **?** in place of its count while the AI waits for your answer there.
+Opening a chat clears its dot, and the **?** of a failed or paused answer, on every device. A folded folder or project keeps the strongest mark of the chats in it. A room shows **?** in place of its count while the AI waits for your answer there.
 
-While the browser tab is in the background, its title counts the chats and rooms that want you, for example "(2) Trina". The desktop app shows the same number on the Dock on a Mac, and a notification when a card opens or an answer that ran over a minute ends while you look elsewhere; clicking it opens that chat. Scheduled tasks get the mark only; a question asked from Slack is answered there, so its chat gets no dot. On a phone, the ☰ button gets a dot when a chat in it wants you, the **대화** tab shows **?** while the AI waits for your answer in a room, and a short message with **Open** appears in the app.
+While the browser tab is in the background, its title counts the chats and rooms that want you, for example "(2) Trina". The desktop app shows the same number on the Dock on a Mac, and a notification when a card opens or an answer that ran over a minute ends while you look elsewhere; clicking it opens that chat. Scheduled tasks get the mark only; a question asked from Slack is answered there, so its chat gets no dot. **트리나** on the bar on the left (on a phone, the **트리나** tab) shows **?** or a dot when a chat wants you, **대화** shows **?** while the AI waits for your answer in a room, and on a phone a short message with **Open** appears in the app.
 
 ## Pin a chat
 
 In your list of Trina chats, a chat's **···** (or a right-click on its row, or a long press on a phone) has **Pin to top**
-(상단에 고정). Pinned chats come first, the most recently pinned first, with a small pin before the title: on a computer
-up to ten above the five latest chats, and all of them first in **Show all** and on a phone. A project's page lists your
+(상단에 고정). Pinned chats come first in your Trina list, the most recently pinned first, with a small pin before the
+title, on a computer and on a phone. A project's page lists your
 pinned chats there first too. **Unpin** (고정 해제) puts a chat back. A pin is yours only, also on a shared project chat,
 and it goes when the chat is deleted or you can no longer see it. You can pin up to 50 chats.
 
@@ -64,9 +87,8 @@ Conversations in **대화** (rooms, DMs and group chats) are pinned the same way
 **···**: pinned ones come first, with a small pin after the name, in every list of conversations, on a computer and in the phone's **대화** tab.
 Only you see your pins. A pin goes when you leave the room or hide it. You can pin up to 50 conversations.
 
-On a computer the sidebar's **대화** shows up to ten pins and the five latest conversations. **Show more** (더 보기) keeps
-them where they are and lists the rest below them by kind: **Team rooms** (the everyone room first, then by name),
-**Group chats** and **Direct messages** (the latest first). A pin past the first ten comes first in its own kind.
+The **대화** list shows every conversation: your pins, your folders, then **Team rooms** (the everyone room first, then
+by name), **Group chats** and **Direct messages** (the latest first). Conversations you hid are behind **숨긴 대화 N**.
 
 ## Projects
 
@@ -85,8 +107,9 @@ Start a chat from the project's page, or move a chat in from the chat title's me
 ![A project page: its title and instructions, a box to start a chat in the project, and Instructions and Files on the side](../images/chats/project.webp "A project's page")
 :::
 
-- On a phone, **프로젝트** is a tab at the bottom (트리나 · 대화 · 프로젝트 · 나). It lists your projects, and its last row,
-  **팀 폴더**, opens the team folder and its Trash. A chat you open from a project goes back to that project.
+- Your projects are in your Trina list, on a computer and on the phone's **트리나** tab: a project's name opens its page,
+  its **+** starts a chat in it. A chat you open from a project goes back to that project. The team folder and its
+  trash are under **파일**.
 - There is no member list. Whoever can read the folder sees the project.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.

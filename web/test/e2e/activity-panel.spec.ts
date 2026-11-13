@@ -158,14 +158,3 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
   await expect(page).toHaveURL(/\/activity\?in=chats$/)
   await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
 })
-
-test('with the switch off, Activity is the page it was: its tabs, no panel', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 860 })
-  await reset(page)
-  await signIn(page)
-  await page.goto('/activity?tab=mentions')
-  await expect(page.getByTestId('activity-tabs')).toBeVisible()
-  await expect(page.getByTestId('activity-tab-mentions')).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('activity-panel')).toHaveCount(0)
-  await expect(page.getByTestId('rail')).toHaveCount(0)
-})

@@ -251,22 +251,6 @@ test("another person never sees my folders (switching accounts in the same windo
   await expect(page.getByTestId('room-folder')).toHaveCount(0)
 })
 
-test('with the switch off nothing of it shows', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await reset(page)
-  await signIn(page)
-  await chat(page, 'Weekly notes')
-  let asked = false
-  page.on('request', (r) => { if (r.url().includes('/api/nav-folders')) asked = true })
-  await page.reload()
-  const row = page.locator('li').filter({ has: page.locator('a[href^="/c/"]').getByText('Weekly notes', { exact: true }) }).first()
-  await row.hover()
-  await row.getByTestId('chat-row-menu').click()
-  await expect(page.getByTestId('chat-row-pin')).toBeVisible()
-  await expect(page.getByTestId('row-folder-move')).toHaveCount(0)
-  expect(asked).toBe(false)
-})
-
 test("on a phone: the same folders in 트리나's list, the long-press menu files a chat, the folder's + opens the box at /new", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)

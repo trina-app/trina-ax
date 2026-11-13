@@ -6,10 +6,10 @@ description: Ask once and let the AI repeat the work on a schedule, in the team'
 A scheduled task runs a request again and again: every weekday morning, every Monday, the first of the month. It runs as the person who made it.
 
 :::note
-From 0.4.0, scheduled tasks have their own **Scheduled** page (예약 작업): a row on the left on a computer; **New scheduled task** in ⌘K opens it too. Before that, they are under **Settings › Schedules**.
+From 0.4.0, scheduled tasks have their own **Scheduled** page (예약 작업): a row near the end of your Trina list; **New scheduled task** in ⌘K opens it too. Before that, they are under **Settings › Schedules**.
 :::
 
-![The Scheduled tasks page: two task cards with their folders and times, and a New task button](../images/scheduled/list.webp "Scheduled tasks")
+![The Scheduled tasks page beside the Trina list: two task cards with what they do and when, and a New task button](../images/scheduled/list.webp "Scheduled tasks")
 
 ## Create a task
 
@@ -57,4 +57,4 @@ A finished one-time task, or one that can no longer run, says why it cannot be t
 
 The cards stack in one column.
 
-![Scheduled tasks on a phone: the cards in one column under the title and New task](../images/scheduled/list-phone.webp "Scheduled tasks on a phone")
+![Scheduled tasks on a phone: a search box and the tasks in one column, with the tabs Trina, Chats, Files and Me at the bottom](../images/scheduled/list-phone.webp "Scheduled tasks on a phone")

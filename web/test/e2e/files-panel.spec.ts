@@ -12,7 +12,7 @@ const t = DICTS.ko
 async function start(page: Page, on = true) {
   await page.setViewportSize({ width: 1440, height: 860 })
   await reset(page)
-  if (on) await navRail(page)
+  await navRail(page, on)
   await signIn(page)
 }
 const panel = (page: Page) => page.getByTestId('files-panel')
