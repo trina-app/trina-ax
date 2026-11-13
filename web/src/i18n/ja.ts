@@ -3142,6 +3142,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.signIn.reason.changed': "ログイン中に接続の設定が変更されました。もう一度ログインしてください。",
   'integrations.signIn.reason.superseded': "この接続で新しいログインが始まりました。そちらを完了するか、もう一度ログインしてください。",
   'integrations.signIn.reason.exchange': "サービスがログインを完了できませんでした。再試行してください。",
+  'integrations.signIn.reason.limit': "使える個人接続がすでに上限に達しています。1件削除してから、もう一度ログインしてください。",
   'integrations.signIn.expired': "ログインがタイムアウトしました。再試行してください。",
   'integrations.signIn.badUrl': "サービスから返されたログインアドレスが安全でないため、開きませんでした。",
   'integrations.signIn.phone': "コンピューターのブラウザーまたはデスクトップアプリからログインしてください。",

@@ -41,4 +41,6 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   listIntegrationTemplateMembers: { build: c => c.get(`/api/admin/integration-templates/${NONE}/members`), scope: 'nobody' },
 }
 // GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts
-export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK']
+// GET /api/integrations/oauth/client-metadata.json: public by design (a service fetches it without a session), holds
+// nothing but the product name and this server's callback; tests/unit/c-integrations-approved-apps.test.ts
+export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK', 'RAW GET CLIENT_METADATA_PATH']

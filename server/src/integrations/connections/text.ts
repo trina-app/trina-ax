@@ -112,6 +112,9 @@ export const TEXT = {
   callbackDenied: t('서비스에서 접근을 허용하지 않았어요. 연결하려면 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'Access was not allowed at the service. To connect, close this window and sign in again from the app.', 'Akses tidak diizinkan di layanan. Untuk menghubungkan, tutup jendela ini lalu login lagi dari aplikasi.', "サービスでアクセスが許可されませんでした。接続するには、このウィンドウを閉じてアプリからもう一度ログインしてください。", "No se permitió el acceso en el servicio. Para conectar, cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
   callbackChanged: t('로그인하는 동안 연결 설정이 바뀌었어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The connection’s settings changed while you were signing in. Close this window and sign in again from the app.', 'Pengaturan koneksi berubah saat Anda login. Tutup jendela ini lalu login lagi dari aplikasi.', "ログイン中に接続の設定が変更されました。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "La configuración de la conexión cambió mientras iniciaba sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
   callbackExchange: t('서비스가 로그인을 마무리하지 못했어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The service did not finish the sign-in. Close this window and sign in again from the app.', 'Layanan tidak menyelesaikan login. Tutup jendela ini lalu login lagi dari aplikasi.', "サービスがログインを完了できませんでした。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "El servicio no terminó el inicio de sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación."),
+  // the sign-in worked at the service, but the person already has as many working connections of their own as they may
+  // (service.ts MAX_PERSONAL): nothing is stored
+  callbackLimit: t('이미 작동하는 내 연결이 {n}개라 더 연결할 수 없어요. 하나를 지운 뒤 앱에서 다시 로그인해 주세요.', 'You already have {n} working connections of your own, the most you can have. Remove one, then sign in again from the app.', 'Anda sudah punya {n} koneksi pribadi yang berfungsi, jumlah maksimum. Hapus satu, lalu login lagi dari aplikasi.', "使える個人接続がすでに上限の{n}件あります。1件削除してから、アプリでもう一度ログインしてください。", "Ya tiene {n} conexiones propias que funcionan, el máximo. Elimine una y vuelva a iniciar sesión desde la aplicación."),
   callbackLogin: t('팀 계정에 로그인', 'Sign in to the team account', 'Login ke akun tim', "チームアカウントにログイン", "Iniciar sesión en la cuenta del equipo"),
   // why a check failed (lastError)
   unreachable: t('서비스에 연결하지 못했어요. 주소를 확인해 주세요.', 'Could not reach the service. Check the address.', 'Tidak dapat menghubungi layanan. Periksa alamatnya.', "サービスに接続できませんでした。アドレスを確認してください。", "No se pudo conectar con el servicio. Revise la dirección."),
@@ -132,6 +135,16 @@ export const TEXT = {
   // a sign-in server without dynamic client registration (oauth.ts register): an own app is needed
   oauth_no_registration: t('이 서비스는 앱을 스스로 등록하게 해 주지 않아요. 서비스에서 앱을 만들어 "내 앱으로 로그인"에 Client ID를 넣거나, API 키로 연결해 보세요.', 'This service does not let apps register themselves. Make an app at the service and enter its client ID under "Sign in with my own app", or try an API key instead.', 'Layanan ini tidak mengizinkan aplikasi mendaftar sendiri. Buat aplikasi di layanan itu dan masukkan client ID-nya di "Login dengan aplikasi saya", atau coba pakai kunci API.', "このサービスはアプリの自動登録を受け付けていません。サービスでアプリを作成して「自分のアプリでログイン」にクライアントIDを入力するか、APIキーをお試しください。", "Este servicio no permite que las aplicaciones se registren solas. Cree una aplicación en el servicio e introduzca su ID de cliente en «Iniciar sesión con mi propia aplicación», o pruebe con una clave de API."),
   oauth_no_registration_member: t('이 서비스는 팀이 서비스에 만든 앱으로만 로그인할 수 있어요. 관리자에게 알려 주세요.', 'This service signs in only through an app your team made there. Tell your admin.', 'Layanan ini hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Beri tahu admin Anda.', "このサービスには、チームがそこで作成したアプリでのみログインできます。管理者に知らせてください。", "Este servicio solo permite iniciar sesión con una aplicación que su equipo creó allí. Avise a su administrador."),
+  // the service refused the app this server registered for itself, or its sign-in page refused it, and no client
+  // metadata document helped (oauth.ts register, preflight): it lets only apps it approved sign in (Figma, Canva).
+  // Nothing on this team can fix it, and no API key is asked for (those services take none)
+  oauth_approved_apps_only: t('이 서비스는 승인한 앱만 로그인할 수 있게 하는데, 이 앱은 아직 승인받지 못했어요. 서비스 쪽에서만 바꿀 수 있어서 지금은 여기서 연결할 수 없어요.',
+    'This service lets only apps it has approved sign in, and it has not approved this one yet. Only the service can change that, so for now it cannot be connected here.',
+    'Layanan ini hanya mengizinkan login dari aplikasi yang sudah disetujuinya, dan aplikasi ini belum disetujui. Hanya layanan itu yang bisa mengubahnya, jadi untuk sekarang layanan ini belum bisa dihubungkan di sini.',
+    "このサービスは承認したアプリだけにログインを許可しており、このアプリはまだ承認されていません。変更できるのはサービス側だけのため、今はここで接続できません。",
+    "Este servicio solo permite iniciar sesión a las aplicaciones que ha aprobado, y todavía no ha aprobado esta. Solo el servicio puede cambiarlo, así que por ahora no se puede conectar aquí."),
+  // the registration answered 429 (oauth.ts register): too many apps registered there just now
+  oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos."),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo."),
   // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
   // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
@@ -170,7 +183,7 @@ export const FIELD_WORDS: Record<string, T> = {
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_failed' | 'key_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
   // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
@@ -179,7 +192,7 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can

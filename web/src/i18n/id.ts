@@ -3186,6 +3186,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.signIn.reason.changed': "Pengaturan koneksi berubah saat Anda login. Login lagi.",
   'integrations.signIn.reason.superseded': "Login yang lebih baru dimulai untuk koneksi ini. Selesaikan yang itu, atau login lagi.",
   'integrations.signIn.reason.exchange': "Layanan tidak menyelesaikan login. Coba lagi.",
+  'integrations.signIn.reason.limit': "Anda sudah punya koneksi pribadi yang berfungsi sebanyak batas maksimum. Hapus satu, lalu login lagi.",
   'integrations.signIn.expired': 'Waktu masuk habis. Silakan coba lagi.',
   'integrations.signIn.badUrl': 'Alamat masuk dari layanan tidak aman, jadi tidak dibuka.',
   'integrations.signIn.phone': 'Masuklah dari komputer, lewat browser atau aplikasi desktop.',

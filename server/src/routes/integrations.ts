@@ -6,15 +6,16 @@ import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import type { AppContextC } from '../http/env'
 import { linkBase } from '../auth/accounts'
-import { integrationsOf, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
+import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
 import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
 import { say, type TextKey } from '../integrations/connections/text'
+import { CALLBACK_PATH, CLIENT_METADATA_PATH, clientMetadata, documentOriginAt, documentOrigins } from '../integrations/connections/oauth'
 
-export const INTEGRATION_CALLBACK = '/api/integrations/oauth/callback'
+export const INTEGRATION_CALLBACK = CALLBACK_PATH
 const CLOSE = 'window.close()'
 const CLOSE_HASH = 'sha256-' + crypto.createHash('sha256').update(CLOSE).digest('base64')
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
@@ -22,7 +23,7 @@ const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
 /** a sign-in the service did not finish, in words (never a code, never the service's answer); one that never started
  * here (no session in this browser, a used link) says to sign in to the team account */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
-  client: 'callbackClient', client_template: 'callbackClientTemplate', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged',
+  client: 'callbackClient', client_template: 'callbackClientTemplate', limit: 'callbackLimit', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged',
 }
 
 export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
@@ -62,6 +63,16 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
   kit.handle(API.listIntegrationTemplateMembers, async ({ auth, params }) => ({ items: await tpl().members(viewer(auth), params.id) }))
+  // the client metadata document a service fetches when a sign-in uses its address as the client ID (oauth.ts
+  // clientMetadata): public, no session. Its addresses are those of the configured public address (or the office
+  // tunnel's) the service asked at, so https behind a tunnel; a host that is neither gets 404, never a document naming
+  // whatever Host header came in
+  kit.raw('GET', CLIENT_METADATA_PATH, (c) => {
+    const origin = documentOriginAt(documentOrigins(ctx.config), c.req.header('host') ?? new URL(c.req.url).host)
+    c.header('Cache-Control', 'private, max-age=300')
+    if (!origin) return c.text('not found', 404)
+    return c.json(clientMetadata(origin))
+  })
   kit.raw('GET', INTEGRATION_CALLBACK, async (c) => {
     let r: CallbackResult = { ok: false, reason: null }
     const cc = c as unknown as AppContextC
@@ -77,7 +88,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
     // static text and a same-origin link only: the code and state never go anywhere else
     return c.html(`<!doctype html><html lang="${L}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(say('callbackTitle', L))}</title>`
       + (r.ok ? `<p>${esc(say('callbackOk', L))}</p><script>${CLOSE}</script>`
-        : r.reason ? `<p>${esc(say(FAILED_TEXT[r.reason], L))}</p>`
+        : r.reason ? `<p>${esc(say(FAILED_TEXT[r.reason], L, { n: MAX_PERSONAL }))}</p>`
           : `<p>${esc(say('callbackFail', L))}</p><p><a href="/login" rel="noreferrer">${esc(say('callbackLogin', L))}</a></p>`), r.ok ? 200 : 400)
   })
 }

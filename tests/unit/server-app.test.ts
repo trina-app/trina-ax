@@ -229,6 +229,8 @@ describe('route registry', () => {
       'GET *', 'GET /api/ws',
       // External OAuth/MCP protocols are tested through their raw contracts, not our app JSON API.
       'GET /api/integrations/google-drive/callback', 'GET /api/integrations/google-apps/callback', 'GET /api/integrations/oauth/callback',
+      // the client metadata document services fetch for a sign-in (tests/unit/c-integrations-approved-apps.test.ts)
+      'GET /api/integrations/oauth/client-metadata.json',
       // Sign in with Slack's return (tests/unit/c-slack.test.ts; matrix: SLACK_RAW_COVERED)
       'GET /api/integrations/slack/oauth/callback',
       // "Add to Slack"'s return from the hosting service (the official app; tests/unit/c-slack-official.test.ts; matrix: SLACK_RAW_COVERED)
