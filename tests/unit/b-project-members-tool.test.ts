@@ -41,7 +41,7 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 const hidden = (args: Record<string, unknown>, names: string[]) => names.reduce((line, n) => line.split(JSON.stringify(n)).join(`"${[...n].map((c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')}"`),
   '@fake ' + JSON.stringify({ tool: PROJECT_MEMBERS_TOOL, args, sayResult: true }))
 const call = (args: Record<string, unknown>) => fake({ tool: PROJECT_MEMBERS_TOOL, args, sayResult: true })
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; alerts?: { text: string; note: string }[] }[] }
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; noSize?: boolean; alerts?: { text: string; note: string }[] }[] }
 // alice's app is in English (b-harness people), carol's in Korean
 const RED = MEMBERS_TEXT.notSaid.en
 
@@ -301,9 +301,9 @@ describe('the card and the change', () => {
       MEMBERS_TEXT.noticeBoth.en,
     ])
     expect(c.details).toEqual([
-      { label: 'Project', text: `견적 (${p.folderPath})` },
-      { label: 'Add (1)', text: 'Bob Lee · person' },
-      { label: 'Remove (1)', text: 'Erin Yoo · person' },
+      { label: 'Project', text: `견적 (${p.folderPath})`, noSize: true },
+      { label: 'Add (1)', text: 'Bob Lee · person', noSize: true },
+      { label: 'Remove (1)', text: 'Erin Yoo · person', noSize: true },
     ])
     expect(c.options).toEqual([{ label: 'Change members', value: 'change' }, { label: 'Always allow', value: '__always' }, { label: MEMBERS_TEXT.no.en, value: 'skip' }])
     expect(members(p.folderPath)).toEqual(['alice', 'bob'])
@@ -319,9 +319,9 @@ describe('the card and the change', () => {
     const p = await project('alice', 'Grouped', [user('carol')])
     const r = await turn('carol', `Marketing 부서 넣고 나(Carol Park) 빼줘\n${call({ add: [{ name: 'marketing' }], remove: [{ name: 'Carol Park' }] })}`, { projectId: p.id, answer: 'skip' })
     const c = r.cards[0]!
-    expect(c.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing · 부서 · 2명' })
+    expect(c.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing · 부서 · 2명', noSize: true })
     // carol is not in marketing: taken out, she no longer sees it (her role does not keep her in a project)
-    expect(c.details![2]).toEqual({ label: '빼기 (1)', text: 'Carol Park · 사람' })
+    expect(c.details![2]).toEqual({ label: '빼기 (1)', text: 'Carol Park · 사람', noSize: true })
     expect(c.question).toContain(MEMBERS_TEXT.futureGroup.ko)
     // erin joins through marketing; carol loses it
     expect(c.question).toContain(MEMBERS_TEXT.removed.ko)
@@ -333,7 +333,7 @@ describe('the card and the change', () => {
     // someone taken out who stays in through a group still sees it, and an admin's card says so
     const q = await project('alice', 'Grouped twice', [user('carol'), user('erin'), { subjectType: 'group', subjectId: marketing }])
     const k = (await turn('carol', `Erin Yoo 빼줘\n${call({ remove: [{ name: 'Erin Yoo' }] })}`, { projectId: q.id, answer: 'skip' })).cards[0]!
-    expect(k.details![1]).toEqual({ label: '빼기 (1)', text: `Erin Yoo · 사람 · ${MEMBERS_TEXT.keepsAdmin.ko}` })
+    expect(k.details![1]).toEqual({ label: '빼기 (1)', text: `Erin Yoo · 사람 · ${MEMBERS_TEXT.keepsAdmin.ko}`, noSize: true })
     expect(k.question).not.toContain(MEMBERS_TEXT.removed.ko)
   })
 
@@ -382,7 +382,7 @@ describe('the attacks', () => {
     const c = r.cards[0]!
     expect(c.question.split('\n\n')[0]).toBe(tr('roomsSeenWhy', 'en'))
     expect(c.question).toContain(MEMBERS_TEXT.red.en)
-    expect(c.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', alerts: [{ text: 'Bob Lee · person', note: RED }] })
+    expect(c.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', noSize: true, alerts: [{ text: 'Bob Lee · person', note: RED }] })
     // the project is not this chat's and the person never named it
     expect(c.details![0]!.alerts).toEqual([{ text: `Sided (${p.folderPath})`, note: RED }])
     expect(members(p.folderPath)).toEqual(['alice'])
@@ -395,7 +395,7 @@ describe('the attacks', () => {
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
     expect(c.question.split('\n\n')[0]).toBe(tr('roomsSeenWhy', 'en'))
-    expect(c.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', alerts: [{ text: 'Bob Lee · person', note: RED }] })
+    expect(c.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', noSize: true, alerts: [{ text: 'Bob Lee · person', note: RED }] })
     // this chat's own project: not red
     expect(c.details![0]!.alerts).toBeUndefined()
     // a chat that read rooms (rooms_seen) leads with the same line; a name the person wrote is not red
@@ -409,15 +409,15 @@ describe('the attacks', () => {
     // removal by a part of the name with an honorific, a part nobody else in the project has: a mention, not red
     const q = await project('alice', 'Part', [user('erin')])
     const part = await turn('alice', `Erin님 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
-    expect(part.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person' })
+    expect(part.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', noSize: true })
     // the bare part: red (an ordinary word could carry it)
     const bare = await turn('alice', `Erin 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: q.id, answer: 'skip' })
-    expect(bare.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
+    expect(bare.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', noSize: true, alerts: [{ text: 'Erin Yoo · person', note: RED }] })
     // ...and a part another member has too is no mention of this one: red
     h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('erin2', 'erin2', 'Erin Park', 'member')").run()
     const r2 = await project('alice', 'Part two', [user('erin'), user('erin2')])
     const two = await turn('alice', `Erin님 빼줘\n${hidden({ remove: [{ name: 'Erin Yoo' }] }, ['Erin Yoo'])}`, { projectId: r2.id, answer: 'skip' })
-    expect(two.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', alerts: [{ text: 'Erin Yoo · person', note: RED }] })
+    expect(two.cards[0]!.details![1]).toEqual({ label: 'Remove (1)', text: 'Erin Yoo · person', noSize: true, alerts: [{ text: 'Erin Yoo · person', note: RED }] })
     h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'erin2'").run()
   })
 
@@ -438,11 +438,11 @@ describe('the attacks', () => {
     // asks from a chat outside the project and names it (she manages it without reading it: docs/DECISIONS.md "Project
     // contents only for members"); her card says what the people added get instead of counting what is in it
     const ko = (await turn('carol', `Lookalike 프로젝트에 김강현 넣어줘\n${call({ project: 'Lookalike', add: [{ name: '김강현', id: 'kang2' }] })}`, { answer: 'skip' })).cards[0]!
-    expect(ko.details![1]).toEqual({ label: '추가 (1)', text: '김강[U+200B]현 · 사람 · @kang2 · 같은 이름 2명' })
+    expect(ko.details![1]).toEqual({ label: '추가 (1)', text: '김강[U+200B]현 · 사람 · @kang2 · 같은 이름 2명', noSize: true })
     expect(ko.question).toContain(MEMBERS_TEXT.opensAll.ko)
     // the Cyrillic look-alike picked by id: carol typed the Latin name, so it is red
     const cy = (await turn('carol', `Lookalike 프로젝트에 Kim Sora 넣어줘\n${call({ project: 'Lookalike', add: [{ name: 'Kim Sora', id: 'sora2' }] })}`, { answer: 'skip' })).cards[0]!
-    expect(cy.details![1]).toEqual({ label: '추가 (1)', text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', alerts: [{ text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', note: MEMBERS_TEXT.notSaid.ko }] })
+    expect(cy.details![1]).toEqual({ label: '추가 (1)', text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', noSize: true, alerts: [{ text: 'Кim Sora · 사람 · @sora2 · 같은 이름 2명', note: MEMBERS_TEXT.notSaid.ko }] })
     expect(members(p.folderPath)).toEqual(['alice'])
   })
 
@@ -463,11 +463,11 @@ describe('the attacks', () => {
       expect(person.content).toContain(`/projects/${p.id}?members=1`)
       // the group by id: its line says group and its head count, which no person can take, and that the name is shared
       const group = (await turn('alice', `Marketing group 넣어줘\n${call({ add: [{ name: 'Marketing group', id: marketing }] })}`, { projectId: p.id, answer: 'skip' })).cards[0]!
-      expect(group.details![1]).toEqual({ label: 'Add (1)', text: 'Marketing · group · 2 people · 3 share this name' })
+      expect(group.details![1]).toEqual({ label: 'Add (1)', text: 'Marketing · group · 2 people · 3 share this name', noSize: true })
       // an admin (Korean app), the person by id: the username beside the name (not a member: from outside the project,
       // naming it)
       const admin = (await turn('carol', `Labels 프로젝트에 Marketing 부서 넣어줘\n${call({ project: 'Labels', add: [{ name: 'Marketing 부서', id: 'mkt2' }] })}`, { answer: 'skip' })).cards[0]!
-      expect(admin.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing 부서 · 사람 · @mkt2 · 같은 이름 2명' })
+      expect(admin.details![1]).toEqual({ label: '추가 (1)', text: 'Marketing 부서 · 사람 · @mkt2 · 같은 이름 2명', noSize: true })
       expect(members(p.folderPath)).toEqual(['alice'])
     } finally { db.query("UPDATE users SET status = 'disabled' WHERE id IN ('mkt', 'mkt2')").run() }
   })
@@ -478,7 +478,7 @@ describe('the attacks', () => {
     const room = rooms.find((x) => x.kind === 'team' && x.name === 'Marketing')!.id
     const r = await turn('alice', `#[Bob Lee 합류 요청](room:${room}) 방 요약해줘\n${hidden({ add: [{ name: 'Bob Lee' }] }, ['Bob Lee'])}`, { projectId: p.id, answer: 'skip' })
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', alerts: [{ text: 'Bob Lee · person', note: RED }] })
+    expect(r.cards[0]!.details![1]).toEqual({ label: 'Add (1)', text: 'Bob Lee · person', noSize: true, alerts: [{ text: 'Bob Lee · person', note: RED }] })
   })
 
   test('an id that is not its name\'s: refused with the name\'s candidates, nothing asked', async () => {

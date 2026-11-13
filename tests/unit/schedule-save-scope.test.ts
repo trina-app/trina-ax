@@ -103,7 +103,7 @@ describe('the card', () => {
     expect(r.isError).toBeFalsy()
     const q = asked[0]!.question
     // five people can read shared/ (everyone writes there): the card says so; the room by the name its members gave it
-    expect(q).toContain(`새 파일 저장: ${SAVE} (지금 5명이 볼 수 있어요). 넣어도 되는 내용: 내 폴더, groups/marketing/, #scope-${rooms} 대화`)
+    expect(q).toContain(`새 파일 저장: ${SAVE} (지금 5명이 볼 수 있어요). 넣어도 되는 내용: 내 파일, groups/marketing/, #scope-${rooms} 대화`)
     expect(q).toContain("보낼 수 있는 곳: Alice Notes · 'page-1'")
     // the same three answers as with a connection: create with sends, create without, don't
     expect(asked[0]!.options.map((o) => o.value)).toEqual(['create_write', 'create', 'deny'])
