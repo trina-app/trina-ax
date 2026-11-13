@@ -19,7 +19,7 @@ const PLACE_WORDS = new Set([
   ...Object.values(STEP_PLACE).flatMap((x) => Object.values(x)).filter((w) => !w.includes('{')),
   ...Object.values(TEXT.placeTop),
 ].map(norm))
-/** the own folder's name with the new navigation ("내 파일"): a place word only while it is the name in use */
+/** the own folder's name in 파일 ("내 파일"): a place word only while it is the name in use */
 const FILES_WORDS = new Set(Object.values(OWN_FILES_LABEL).map(norm))
 const isPlaceWord = (w: string) => PLACE_WORDS.has(norm(w)) || (ownFolderWord() === 'files' && FILES_WORDS.has(norm(w)))
 /** "<name>님의 폴더" and its other languages, as a pattern (from placeOther itself) */

@@ -23,7 +23,7 @@ describe('translations', () => {
   test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
     for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody', 'projects.deleteBodyShared'] as const) {
-        // the chat delete confirms name the trash by the sidebar's name for it (a rename there follows)
+        // the chat delete confirms name the trash by the Trina list's name for it (a rename there follows)
         const trash = key === 'chat.deleteBody' || key === 'projects.deleteBodyShared'
         expect(placeholders(DICTS[loc][key])).toEqual(trash ? ['days', 'trash'] : ['days'])
         expect(DICTS[loc][key]).not.toMatch(/\d/)

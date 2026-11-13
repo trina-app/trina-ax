@@ -15,7 +15,7 @@ export type RailItem = 'ai' | 'chats' | 'files' | 'activity'
 /** the rail's order, top to bottom: the phone's tabs 1–3, then 활동 (the phone has it under 나) */
 export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'files', 'activity']
 
-/** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 (phase P3) */
+/** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 */
 export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files?view=recent', activity: '/activity' }
 
 /** The routes of App.tsx (under <Layout />) that belong to a place, as App.tsx writes them; any other address (Admin,
@@ -68,7 +68,7 @@ export const useRailMemory = create<{ last: Partial<Record<RailItem, string>>; r
 }))
 
 /** The history entry's own place, when a page was opened from a place's list for another place's page: 활동's list opens
- * a notice's chat, project or scheduled task on the right while 활동 stays lit (phase P3). Kept in the entry's state
+ * a notice's chat, project or scheduled task on the right while 활동 stays lit. Kept in the entry's state
  * (`{ rail: 'activity' }`), so Back and Forward keep it; a link followed inside that page lights the page's own place. */
 export const RAIL_STATE_KEY = 'rail'
 export function railState(state: unknown): RailItem | null {

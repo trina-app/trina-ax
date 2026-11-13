@@ -1,5 +1,5 @@
 // A conversation's "⋯" (docs/DECISIONS.md "대화 숨기기"): one menu wherever a room shows. In the room's header beside the
-// bell (on a phone that header is the top bar); on each row of the sidebar's 대화 and of the full list (/rooms) on hover
+// bell (on a phone that header is the top bar); on each row of the 대화 panel and of the full list (/rooms) on hover
 // or keyboard focus and with a right-click; on a phone a long press on a row of the 대화 list opens it as a sheet.
 // Items by kind: 알림 설정 (the bell's four levels: RoomNotifyMenu), 이름 바꾸기 for those who may (Room.canRename: a
 // group chat's members, owners and admins in a team room or the everyone room; the room info's name field in a prompt,
@@ -121,7 +121,7 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
   const own = useRef<HTMLButtonElement>(null)
   const more = buttonRef ?? own
   const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone)
-  // a row of the new navigation's 대화 list (`folders`): 폴더로 옮기기 / 폴더에서 빼기 before the last item (나가기 or
+  // a row of the 대화 list (`folders`): 폴더로 옮기기 / 폴더에서 빼기 before the last item (나가기 or
   // 숨기기); a hidden room has none (it is shown again first, as a pin)
   const folder = useFolderRowItems({ on: folders && !room.hidden, kind: 'rooms', id: room.id, folderId: room.folderId, more })
   const items = folder.items.length ? [...base.slice(0, -1), ...folder.items, ...base.slice(-1)] : base

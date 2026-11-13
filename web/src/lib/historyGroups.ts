@@ -1,5 +1,5 @@
 // Trina history grouped by project (docs/DECISIONS.md "Trina history by project"), like the Claude Code desktop app's
-// sidebar: one group per project the person has chats in, newest activity first, and the chats in no project (or in a
+// history: one group per project the person has chats in, newest activity first, and the chats in no project (or in a
 // project the person can no longer see: the chat page shows no project for them either) last, as "Other chats". Pure:
 // no React, no stores; components/history/HistoryGroups.tsx draws it (the Trina panel's filtered history: every project
 // and every row), test/unit/history-groups.test.ts checks it.

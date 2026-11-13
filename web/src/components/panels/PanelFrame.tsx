@@ -16,7 +16,7 @@ export function PanelFrame({ title, actions, top, children, bottom, onScroll, te
   const t = useT()
   const id = useId()
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
-  // the list is scrolled away from its top: a hairline under the rows above it (as the old sidebar's)
+  // the list is scrolled away from its top: a hairline under the rows above it
   const [scrolled, setScrolled] = useState(false)
   return (
     <nav id={PANEL_ID} tabIndex={-1} aria-labelledby={id} className="flex h-full w-[clamp(240px,min(16.75rem,18.6vw),300px)] shrink-0 flex-col border-r border-line bg-subtle outline-none" data-testid={testId}>

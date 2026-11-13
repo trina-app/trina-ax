@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { openTrinaRow } from './nav'
 
 const SHOTS = process.env.STAGE67_SHOTS
 
@@ -426,7 +427,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await dialog.getByTestId('suggest-description').fill('회의록으로 주간 보고서를 만든다')
   await page.getByTestId('suggest-send').click()
   await expect(page.getByText('스킬을 제안했어요. 검토가 끝나면 알려 드려요.')).toBeVisible()
-  await page.getByTestId('nav-skills').click()
+  await openTrinaRow(page, 'skills')
   // the page opens on the skills Bob can use; his suggestion is on "내 제안"
   await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: '내 제안' }).click()
@@ -440,7 +441,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/skills.*$/, ''), locale: 'ko-KR' })
   const owner = await ctx.newPage()
   await signIn(owner, OWNER)
-  await owner.getByTestId('nav-skills').click()
+  await openTrinaRow(owner, 'skills')
   await expect(owner.getByRole('tab', { name: '검토 대기 (1)' })).toBeVisible()
   await owner.getByTestId('review-list').getByTestId('review-open').click()
   const review = owner.getByTestId('review-dialog')
@@ -498,7 +499,7 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
     { path: 'users/bob/skills/tone.md', name: '내 말투', description: 'Bob의 메일 말투' },
   ] } })).ok()).toBeTruthy()
   await signIn(page, BOB)
-  await page.getByTestId('nav-skills').click()
+  await openTrinaRow(page, 'skills')
   await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
   // only "내 제안" besides it: no review, no recent changes
   await expect(page.getByRole('tab')).toHaveCount(2)

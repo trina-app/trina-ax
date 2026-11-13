@@ -13,7 +13,7 @@ const chat = (n: number, projectId: string | null = null, o: Partial<Chat> = {})
   id: `01900000-0000-7000-8000-0000000001${String(n).padStart(2, '0')}`, projectId, title: `chat ${n}`, engine: 'claude-code', model: null,
   createdAt: '2026-11-01T00:00:00.000Z', updatedAt: `2026-11-01T00:${String(n).padStart(2, '0')}:00.000Z`, deletedAt: null, runState: 'idle', ...o,
 })
-/** newest first, as the sidebar hands them over */
+/** newest first, as the Trina list hands them over */
 const newestFirst = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 const sees = (id: string) => id !== GONE
 const titles = (list: Chat[]) => list.map((c) => c.title)

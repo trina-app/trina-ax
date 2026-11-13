@@ -358,7 +358,7 @@ export function placeName(path: string, locale: Locale): string | null {
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
     return say('team', 2, { team: a })
   }
-  // the own folder by the name it has on this server ("내 파일" with the new navigation: folder-labels.ts ownFolderLabel)
+  // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
   if (top === 'shared') {
     // the team's start puts the brand and meeting notes folders here since docs/DECISIONS.md "Team folder basics"

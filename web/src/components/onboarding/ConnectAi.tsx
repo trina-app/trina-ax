@@ -131,7 +131,7 @@ export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; 
  * One button that opens the same dialog: "AI 연결하기" (the team's, Claude chosen while the team allows a shared Claude
  * subscription, else every way) or, with `personal`, "내 AI 연결하기" (one's own, every way). `quiet`: a text link, for a
  * second way under another action. `row`: a plain button with these classes and `children` as its content (the setup
- * row in the sidebar, SetupRow.tsx). `panel` (the team's; the setup row and the welcome steps' end screen): a dialog
+ * row, SetupRow.tsx). `panel` (the team's; the setup row and the welcome steps' end screen): a dialog
  * titled "AI 연결" with the welcome step's three ways (ConnectAiPanel), closed once AI answers.
  */
 export function ConnectAiButton({ personal = false, panel = false, size = 'sm', quiet, label, row, children, ...props }: {

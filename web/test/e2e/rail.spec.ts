@@ -42,7 +42,6 @@ const width = async (page: Page, testId: string) => Math.round((await page.getBy
 
 test('the rail replaces the sidebar; four places in order; each has its list panel', async ({ page }) => {
   await start(page, 1440)
-  await expect(page.getByRole('navigation', { name: t['sidebar.label'] })).toHaveCount(0)
   const rail = page.getByRole('navigation', { name: t['rail.label'] })
   expect(await rail.getByRole('link').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['rail-ai', 'rail-chats', 'rail-files', 'rail-activity'])
   await expect(page.getByTestId('rail-chats')).toContainText(t['tabs.chats'])

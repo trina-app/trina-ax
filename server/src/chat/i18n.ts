@@ -214,7 +214,7 @@ export const TEXT = {
   roomAiReasonsChanged: t('그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', 'The room\'s members or access changed in the meantime. Check the new reasons and post it again.', 'Anggota atau akses ruang berubah sementara itu. Periksa alasan barunya lalu kirim lagi.', "その間にルームのメンバーや権限が変わりました。新しい理由を確認して、もう一度投稿してください。", "Los miembros o el acceso de la sala cambiaron mientras tanto. Revise los nuevos motivos y publíquela de nuevo."),
   roomAiCut: t('(답이 길어서 여기까지만 올렸어요.)', '(The answer was long, so it was cut here.)', '(Jawabannya panjang, jadi dipotong di sini.)', "（回答が長いため、ここまでにしました。）", "(La respuesta era larga, así que se cortó aquí.)"),
   // "대화방에 보내기" (chat/answer-share.ts): an answer of my own AI chat sent to a room as my message
-  /** the end of a shared answer that was too long for one room message; {history}: aiHistory, the sidebar's heading */
+  /** the end of a shared answer that was too long for one room message; {history}: aiHistory, the web app's name for the AI chats */
   answerShareCut: t('…(이하 생략) 전체는 내 {history}에서', '…(cut here) The whole answer is in my {history}.', '…(dipotong di sini) Jawaban lengkapnya ada di {history} saya.', "…（以下省略）全文は私の{history}にあります。", "…(cortado aquí) La respuesta completa está en mi {history}."),
   /** the person's AI chats, as the web app's sidebar names them (sidebar.aiChats); {name}: the AI's name there */
   aiHistory: t('{name} 기록', '{name} history', 'Riwayat {name}', "{name}の履歴", "Historial de {name}"),

@@ -73,7 +73,7 @@ describe('a new message', () => {
   })
 
   test("@트리나's private answer to my question counts for me, as the server counts it (it is sent to me only)", () => {
-    // I asked in this room and went to another one: the sidebar and the dock badge said 0, a reload 1
+    // I asked in this room and went to another one: the 대화 list and the dock badge said 0, a reload 1
     const r = room({ lastSeq: 1, lastReadSeq: 1 })
     const answer = message({ roomId: r.id, seq: 2, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private' })
     const d = withMessage(data({ rooms: [r] }), r.id, answer, ME.id)

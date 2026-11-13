@@ -3857,7 +3857,6 @@ export const ja: Record<MessageKey, string> = {
   "rooms.all": "全員",
   "rooms.newChat": "新しいトーク",
   "rooms.search": "トークを検索",
-  "rooms.showAll": "すべて表示",
   "rooms.listEmpty": "トークルームはまだありません。",
   "rooms.unread": "{n, plural, one {未読メッセージ#件} other {未読メッセージ#件}}",
   "rooms.mentionedYou": "あなたへのメンションがあります",
@@ -4083,12 +4082,9 @@ export const ja: Record<MessageKey, string> = {
   "tabs.back": "戻る",
   "tabs.backTo": "{page}に戻る",
   "sidebar.aiChats": "{name}の履歴",
-  "sidebar.showMore": "もっと見る ({n})",
-  "sidebar.allRooms": "すべてのトーク",
   "rooms.section.team": "チームトーク",
   "rooms.section.group": "グループトーク",
   "rooms.section.dm": "1:1トーク",
-  "sidebar.moreUnread": "未読 {n}",
   "marker.card": "あなたの回答を待っています",
   "marker.error": "停止しました: エラー",
   "marker.paused": "上限で一時停止しました",
@@ -4100,7 +4096,6 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiWaits": "トリナがあなたの回答を待っています",
   "rooms.newMessage": "新しいメッセージがあります",
   "tabs.chats": "トーク",
-  "tabs.projects": "プロジェクト",
   "tabs.me": "自分",
   "notifications.roomMessages": "1対1・グループトークのメッセージと自分へのメンション",
   "notifications.event.room.dm": "1対1トークかグループトークに新しいメッセージがあります。",
@@ -4901,7 +4896,7 @@ export const ja: Record<MessageKey, string> = {
   "viewer.inGroup": "{room}で",
   "viewer.inDm": "{name}さんとの1:1トークで",
   "viewer.gone": "メッセージが削除されたため、このファイルはもう表示できません。",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "メンバーを招待",
   "teamMenu.switch": "別のチームに切り替え…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)

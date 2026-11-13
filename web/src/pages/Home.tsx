@@ -6,13 +6,13 @@
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
 // admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
-// time"); on a computer the sidebar's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
+// time"); on a computer the list panel's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
 // docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
 // AI answers the person (GET /api/me/ai-access), everyone gets ONE card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like an AI app (QA TC-253, TC-391): the
+// Phones (below 768px): Home is the new-chat page (/new, from the 트리나 tab), laid out like an AI app (QA TC-253, TC-391): the
 // "one thing" (the setup row, the goal, the welcome or lead card, the no-AI card) at the top, without a frame; Trina's
 // mark and the greeting in the middle of the space left; the one row of suggestions (the block under the box on a
 // computer, as chips that scroll sideways) and the box at the bottom, the box docked there so it stays in sight while
@@ -21,7 +21,7 @@
 // with a fine pointer: not on opening, not coming back from another tab or a chat): the keyboard comes up only when
 // the person taps the box, so the tab bar stays until
 // then (the owner, 11-12: "채팅이 보고싶은 걸 수도 있는데"); with the keyboard up the card sits on it. No list of the AI's
-// chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal and no
+// chats here: the 트리나 tab's list holds them. A project's new chat ("/?project=") shows no goal and no
 // setup row: they are about the team.
 // Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
 // it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
@@ -262,7 +262,7 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 /**
  * The one thing at the top of Home for owners and admins while AI answers them: on a phone the owner's quiet "설정
  * 이어서 하기 · 2/4" while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card;
- * on a computer always the goal card, since the sidebar's setup row stands for the steps there (docs/DECISIONS.md
+ * on a computer always the goal card, since the list panel's setup row stands for the steps there (docs/DECISIONS.md
  * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
  * read counts as "nothing to continue". Exported for its test.
  */

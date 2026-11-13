@@ -6,6 +6,7 @@
 // these pages is wider than the screen. A computer keeps the one page.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -29,7 +30,7 @@ function fakeDesktop() {
 }
 
 async function openTeamSettings(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await page.getByTestId('admin-row-settings').click()
   await expect(page).toHaveURL(/\/admin\/settings$/)

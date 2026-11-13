@@ -6,6 +6,7 @@ import { es } from '../../src/i18n/es'
 import { id } from '../../src/i18n/id'
 import { ko } from '../../src/i18n/ko'
 import { account, cachedPaths, offlineServer, signInOfflineTeam, warmWorker } from './offline-server'
+import { signOut } from './nav'
 
 for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: production SW, stopped listener, warm/cold assets and API-down retry retain the session`, async ({ page }) => {
@@ -89,8 +90,7 @@ for (const end of ['logout', '401'] as const) {
       // The prior sign-in choice is separate from the account's current Korean language.
       await page.evaluate(() => localStorage.setItem('mycel.locale', 'id'))
       if (end === 'logout') {
-        await page.getByTestId('account-menu').click()
-        await page.getByTestId('logout').click()
+        await signOut(page)
       } else {
         await context.clearCookies()
         await page.reload()

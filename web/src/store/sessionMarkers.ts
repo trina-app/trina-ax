@@ -382,7 +382,7 @@ export const currentCount = () => {
   return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), threadReplies: rooms.alerts?.threadReplies ?? true })
 }
 
-/** n, whether any is a "?", the AI chats' part (tab title, phone ☰ dot) and other unread rooms; re-renders when the
+/** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
  * inputs change */
 export function useAttention(): ReturnType<typeof attentionCount> {
   const chats = useChats((s) => s.chats)

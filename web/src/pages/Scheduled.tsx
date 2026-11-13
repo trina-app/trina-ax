@@ -1,4 +1,4 @@
-// Scheduled tasks, from the sidebar (like Claude's "Scheduled"): /scheduled lists the person's own tasks as quiet cards
+// Scheduled tasks, from the 트리나 list (like Claude's "Scheduled"): /scheduled lists the person's own tasks as quiet cards
 // (name, what it does, "Paused · Weekdays at 09:00", how the last run went), /scheduled/:id is one task: run now, on/off,
 // its last run, and what it does, when, and with what. The same rules as before in Settings › Scheduled tasks
 // (docs/DECISIONS.md "Scheduled tasks: run now, edit, pause", "Scheduled tasks nobody confirmed"): a finished or expired

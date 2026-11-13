@@ -1,5 +1,5 @@
 // Getting back to earlier work in ⌘K (docs/DECISIONS.md "Getting back to earlier work, part A"; components/SearchDialog.tsx):
-//   - "Needs attention" shows the sidebar's own markers and words from the sidebar's own chat list (QA TC-419): a chat
+//   - "Needs attention" shows the Trina list's own markers and words from its own chat list (QA TC-419): a chat
 //     waiting for my answer is "?" with "답을 기다려요" (it said "답하는 중"), a finished answer I have not seen is there
 //     with the dot and "새 답" (it was missing);
 //   - History rows, the list and the search results, say when the chat was last active and its project, grey on the
@@ -105,14 +105,14 @@ async function history(v: Awaited<ReturnType<typeof openAt>>['v'], n: number) {
   return v.until(() => { const s = v.find('search-section-chats'); return s && rowsIn(s).length === n ? rowsIn(s) : null }, `${n} History rows`)
 }
 
-describe('Needs attention: the sidebar\'s markers and words (TC-419)', () => {
+describe('Needs attention: the Trina list\'s markers and words (TC-419)', () => {
   test('a chat waiting for me is "?" with 답을 기다려요, a new answer is there with the dot, a running one has the ring; ⌘K\'s own words are gone', async () => {
     const waits = chat({ title: '분기 보고서', runState: 'running', waiting: true, updatedAt: ago(30) })
     const fresh = chat({ title: '견적 정리', unseen: true, updatedAt: ago(5) })
     const failed = chat({ title: '실패한 답', unseen: true, lastOutcome: 'error', updatedAt: ago(50) })
     const running = chat({ title: '긴 답', runState: 'queued', updatedAt: ago(1) })
     const idle = chat({ title: '조용한 기록', updatedAt: ago(2) })
-    // the sidebar's list is the one source; the palette's own first page (GET /api/chats) knows none of them
+    // the Trina list is the one source; the palette's own first page (GET /api/chats) knows none of them
     useChats.setState({ chats: [running, idle, fresh, waits, failed], chatsLoaded: true })
     mine = [idle]
     const { v } = await openAt('/')
@@ -125,7 +125,7 @@ describe('Needs attention: the sidebar\'s markers and words (TC-419)', () => {
         ['견적 정리', 'new', ko('marker.new')],
         ['긴 답', 'running', ko('marker.queued')],
       ])
-      // the marker is the sidebar's own component: "?" in its pill, the dot, the ring
+      // the marker is the Trina list's own component: "?" in its pill, the dot, the ring
       expect(rows[0]!.querySelector('[data-testid="marker-ask"]')).not.toBeNull()
       expect(rows[2]!.querySelector('[data-testid="marker-new"]')).not.toBeNull()
       expect(rows[3]!.querySelector('[data-testid="marker-running"]')).not.toBeNull()
@@ -140,7 +140,7 @@ describe('Needs attention: the sidebar\'s markers and words (TC-419)', () => {
     } finally { await v.unmount() }
   })
 
-  test('the chat on screen shows no dot, as in the sidebar', async () => {
+  test('the chat on screen shows no dot, as in the Trina list', async () => {
     const fresh = chat({ title: '견적 정리', unseen: true })
     useChats.setState({ chats: [fresh], chatsLoaded: true })
     useSessionMarkers.setState({ onScreen: fresh.id, visible: true })

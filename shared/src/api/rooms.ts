@@ -556,7 +556,7 @@ export const Room = z.object({
   /** the room's AI waits on me: a question I asked @트리나 there shows a card for my answer (docs/DECISIONS.md "Session
    * markers": the room's "?"). Absent = no. */
   aiWaits: z.literal(true).optional(),
-  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
+  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my 대화 list, my counts and badges, and listed under
    * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
   hidden: z.literal(true).optional(),
   /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned

@@ -1,6 +1,6 @@
 // Scheduled tasks nobody confirmed on their card are paused until their owner checks them again (docs/DECISIONS.md
 // "Scheduled tasks nobody confirmed"). One line under the other banners while any of the person's own tasks waits,
-// with the way to Scheduled tasks in the sidebar ("다시 확인" on the task's page). Not shown on that screen itself. A phone
+// with the way to Scheduled tasks (the 트리나 panel's row; "다시 확인" on the task's page). Not shown on that screen itself. A phone
 // (below 768 px): one row you tap, with a short line and a chevron, not a banner of two lines with a small link.
 import { ChevronRight, ShieldAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'

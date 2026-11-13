@@ -314,7 +314,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   )
 }
 
-/** The 나 tab's team (new navigation): the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
+/** The 나 tab's team: the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
  * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
  * phone app (or the desktop app at a phone's width) "다른 팀으로 전환…" for everyone (lib/teamSwitch.ts: the app's own
  * screen; a plain browser has none). */
@@ -337,7 +337,7 @@ function PhoneTeamGroup() {
   )
 }
 
-/** The 나 tab's status rows (new navigation; the computer's account menu has the same): my status message ("상태 설정",
+/** The 나 tab's status rows (the computer's account menu has the same): my status message ("상태 설정",
  * or what it says now) and "자리 비움으로 표시" / "접속 중으로 표시". */
 function PhoneStatusRows() {
   const t = useT()

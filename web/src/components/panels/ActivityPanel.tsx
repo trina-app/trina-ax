@@ -1,4 +1,4 @@
-// 활동's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3).
+// 활동's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1).
 // 활동 holds the notices that are not conversations: mentions and thread replies are 대화's
 // (멘션·스레드), and one quiet line on top says so and goes there. Its header: the gear (Settings › Notifications) and,
 // while something is unread, "Mark all as read" (these notices only: GET/POST /api/notifications only=notices). Then the

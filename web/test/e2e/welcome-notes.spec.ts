@@ -8,6 +8,7 @@
 // end screen offers 홈으로 only (no kept skill in the team); a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import {  } from './nav'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
 

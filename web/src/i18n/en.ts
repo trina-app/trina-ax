@@ -3901,7 +3901,6 @@ export const en: Record<MessageKey, string> = {
   "rooms.all": "Everyone",
   "rooms.newChat": "New chat",
   "rooms.search": "Search chats",
-  "rooms.showAll": "Show all",
   "rooms.listEmpty": "No chat rooms yet.",
   "rooms.unread": "{n, plural, one {# unread message} other {# unread messages}}",
   "rooms.mentionedYou": "one of them mentions you",
@@ -4127,12 +4126,9 @@ export const en: Record<MessageKey, string> = {
   "tabs.back": "Back",
   "tabs.backTo": "Back to {page}",
   "sidebar.aiChats": "{name} history",
-  "sidebar.showMore": "Show more ({n})",
-  "sidebar.allRooms": "All conversations",
   "rooms.section.team": "Team rooms",
   "rooms.section.group": "Group chats",
   "rooms.section.dm": "Direct messages",
-  "sidebar.moreUnread": "{n} unread",
   "marker.card": "Waiting for you",
   "marker.error": "Stopped: an error",
   "marker.paused": "Paused at a limit",
@@ -4144,7 +4140,6 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiWaits": "Trina is waiting for your answer",
   "rooms.newMessage": "You have a new message",
   "tabs.chats": "Chats",
-  "tabs.projects": "Projects",
   "tabs.me": "Me",
   "notifications.roomMessages": "Messages in direct and group chats, and mentions of me",
   "notifications.event.room.dm": "You have a new message in a direct or group chat.",
@@ -4945,7 +4940,7 @@ export const en: Record<MessageKey, string> = {
   "viewer.inGroup": "in {room}",
   "viewer.inDm": "in your direct messages with {name}",
   "viewer.gone": "This file is no longer available: its message was deleted.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invite people",
   "teamMenu.switch": "Switch team…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)

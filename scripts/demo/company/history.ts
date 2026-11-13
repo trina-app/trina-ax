@@ -1,7 +1,7 @@
 // The demo people's past chats (docs/DECISIONS.md "Demo company: a new hire at 트리나", round 2): each history recording
 // (<content>/recordings, record.ts) is sent again as its person in a new chat on the demo server, which replays
 // it at once (server/src/demo/replay.ts): its files are made again by the product's tools in that person's folders, and
-// the chat then says it was `daysAgo` days ago. Oldest first, so the sidebar lists the latest on top. A chat whose
+// the chat then says it was `daysAgo` days ago. Oldest first, so the Trina list shows the latest on top. A chat whose
 // title is already there is not made again (the seed can run again).
 import fs from 'node:fs'
 import path from 'node:path'
