@@ -578,8 +578,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/slack/me` | Signed in | Unlink my Slack account. |
 | `POST` | `/api/slack/link/preview` | Signed in | What confirming this one-time link would link: the Slack account and me. Changes nothing. |
 | `POST` | `/api/slack/link/confirm` | Signed in | Link the Slack account of this one-time link to me (used up). |
-| `POST` | `/api/slack/signin` | Signed in | Start "Sign in with Slack": links the Slack account I sign in to and lets the AI read Slack as me, in one step (10 minutes). `read`: I am linked already and only allow reading. |
-| `POST` | `/api/admin/slack/read-scopes/recheck` | Admin | "I updated the permissions": the next sign-in asks Slack for the user scopes again. |
+| `POST` | `/api/slack/signin` | Signed in | Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only). |
+| `POST` | `/api/admin/slack/read-scopes/recheck` | Admin | "I updated them": asks Slack again now which permissions the Slack app's bot has (reading threads and channels). |
 | `POST` | `/api/admin/slack/official/install` | Admin | "Add to Slack": Slack's install page of the hosting service's official app (10 minutes, this owner or admin only). `origin`: the address the page is open at, where links in Slack open. |
 | `POST` | `/api/slack/link/cancel` | Signed in | Throw this one-time link away without linking. |
 

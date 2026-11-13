@@ -27,11 +27,11 @@ export function SlackSignInReturn() {
 export function SlackDone({ signedIn }: { signedIn: boolean }) {
   const t = useT()
   const code = new URLSearchParams(useLocation().search).get('slack') ?? ''
-  const ok = code === 'linked' || code === 'installed' || code === 'read_allowed'
+  const ok = code === 'linked' || code === 'installed'
   return (
     <section className="mx-auto max-w-xl space-y-3 p-4 sm:p-6" data-testid="slack-done">
       <h1 className="text-title font-semibold">Slack</h1>
-      <p className={`text-sm ${ok ? '' : 'text-warn'}`} role="status" data-testid="slack-done-text">{t(code === 'linked' ? 'slack.signin.doneApp' : code === 'installed' ? 'slack.install.doneApp' : code === 'read_allowed' ? 'slack.read.doneSlack' : outcomeText(code))}</p>
+      <p className={`text-sm ${ok ? '' : 'text-warn'}`} role="status" data-testid="slack-done-text">{t(code === 'linked' ? 'slack.signin.doneApp' : code === 'installed' ? 'slack.install.doneApp' : outcomeText(code))}</p>
       {signedIn && !installOutcome(code) && <Link to={CONNECTORS_HOME} className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
     </section>
   )

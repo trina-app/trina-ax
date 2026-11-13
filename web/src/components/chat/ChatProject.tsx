@@ -21,6 +21,7 @@ import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, Modal, Skeleton, Switch } from '../ui'
 import { mayShareChat, ShareChatFlow } from './ShareChat'
+import { changeChat } from './chatActions'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
 
@@ -117,6 +118,26 @@ export function ProjectChoices({ projects, selected, current, onSelect }: { proj
   )
 }
 
+/** Move a chat into a project or out of it (null), at once on every list of this window and in `onMoved` (a page's own
+ * copy), then on the server (lib/optimistic.ts). Into a project it leaves its list folder, as the server does. */
+export function moveChat(chat: Chat, projectId: string | null, onMoved?: (c: Chat) => void, failText?: string) {
+  type Place = { projectId: string | null; folderId?: string; updatedAt: string }
+  return changeChat<Place>({
+    chat,
+    field: 'project',
+    from: { projectId: chat.projectId, folderId: chat.folderId, updatedAt: chat.updatedAt },
+    to: { projectId, folderId: projectId ? undefined : chat.folderId, updatedAt: new Date().toISOString() },
+    apply: (c, v) => {
+      const { folderId: _f, ...rest } = c
+      return { ...rest, projectId: v.projectId, updatedAt: v.updatedAt, ...(v.folderId ? { folderId: v.folderId } : {}) }
+    },
+    send: () => api.call(API.updateChat, { params: { id: chat.id }, body: { projectId } }),
+    confirmed: (c) => ({ projectId: c.projectId, folderId: c.folderId, updatedAt: c.updatedAt }),
+    onShown: onMoved,
+    failText,
+  })
+}
+
 export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; onClose: () => void; onMoved: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -133,23 +154,15 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
   const [making, setMaking] = useState(false)
   const madeAndMove = async (p: Project) => {
     setMaking(false)
-    try {
-      const c = await api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: p.id } })
-      onMoved(c)
-      const before = chat.projectId
-      toast({
-        level: 'success',
-        text: t('chat.project.moved', { name: p.name }),
-        action: {
-          label: t('chat.project.undo'),
-          run: () => void api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: before } }).then(onMoved, () => toast({ level: 'error', text: t('error.network') })),
-        },
-      })
-      onClose()
-    } catch {
-      toast({ level: 'error', text: t('chat.project.moveFailed') })
-      onClose()
-    }
+    onClose()
+    const before = chat.projectId
+    const r = await moveChat(chat, p.id, onMoved, t('chat.project.moveFailed'))
+    if (!r.ok || !r.newest) return
+    toast({
+      level: 'success',
+      text: t('chat.project.moved', { name: p.name }),
+      action: { label: t('chat.project.undo'), run: () => void moveChat(r.reply, before, onMoved) },
+    })
   }
   const movedText = useRef('')
   const shared = useRef(false)
@@ -163,20 +176,24 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
   // the switch: only for a chat of mine (every chat that can move is) going into a project whose new chats are shared
   const canShare = !!target && selected !== chat.projectId && mayShareChat(chat, target, safeOps)
   const save = async () => {
+    const to = projects?.find((p) => p.id === selected)
+    movedText.current = to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed')
+    // to be shared: the share's own steps need the move done first (and the share widens who sees it: it waits)
+    if (!(canShare && share)) {
+      // the row moves and the dialog closes at once; a refusal puts the chat back with the server's words in a toast
+      onClose()
+      const r = await moveChat(chat, selected, onMoved)
+      if (r.ok && r.newest) toast({ level: 'success', text: movedText.current })
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const c = await api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: selected } })
-      const to = projects?.find((p) => p.id === selected)
-      movedText.current = to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed')
       onMoved(c)
-      // to be shared: the share's own toast says it all; its confirm is not covered by this one (a phone's sheet), and
-      // the move is told when the chat ends up not shared
-      if (canShare && share) setSharing(c.id)
-      else {
-        toast({ level: 'success', text: movedText.current })
-        onClose()
-      }
+      // the share's own toast says it all; its confirm is not covered by this one (a phone's sheet), and the move is
+      // told when the chat ends up not shared
+      setSharing(c.id)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {

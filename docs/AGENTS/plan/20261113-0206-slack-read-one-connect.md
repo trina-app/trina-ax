@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 02:06
 - Branch: `feat/slack-read-one-connect`
-- Status: done
+- Status: done; superseded 2026-11-13 by `20261113-0912-slack-read-bot-token.md` (bot token only)
 - Where: Team AX core (`server/src/integrations/slack/`, `server/src/chat/`, `web/`). Why: the Slack connector is core
   (docs/SLACK.md); the hosting service's part is only written down here (it lives in another repo).
 - Version impact: minor, a new ability (the AI reads Slack) and a migration.

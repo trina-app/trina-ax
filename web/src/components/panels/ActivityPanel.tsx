@@ -16,6 +16,7 @@ import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
 import { chipOf, chipsFor, inChip, unreadFirst, type ActivityChip } from '../../lib/activityKinds'
 import { listTime } from '../../lib/format'
+import { ACTIVITY_OPENED_KEY } from '../../lib/localData'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
@@ -39,10 +40,73 @@ export function opensAsItself(item: InboxNotification): boolean {
   return !noticeLink(item) || !!item.handover || !!item.devEnv?.job?.tail || (item.code === 'service.request' && !!item.serviceRequest?.open)
 }
 
-/** where a notice opens: its own view, or its page with 활동 kept lit */
+/** the history entry's state key that names the notice opened from here (its page can be another notice's too) */
+export const NOTICE_STATE_KEY = 'notice'
+
+/** where a notice opens: its own view, or its page with 활동 kept lit and the notice named (openNotice) */
 export function noticeTarget(item: InboxNotification): { to: string; state?: Record<string, string> } {
   if (opensAsItself(item)) return { to: `/activity?n=${encodeURIComponent(item.id)}` }
-  return { to: noticeLink(item)!.to, state: { [RAIL_STATE_KEY]: 'activity' } }
+  return { to: noticeLink(item)!.to, state: { [RAIL_STATE_KEY]: 'activity', [NOTICE_STATE_KEY]: item.id } }
+}
+
+/** The one notice open on the right, or none: its own view (?n=); else, while 활동 is lit, the notice this entry was
+ * opened from (its state names it, or `kept` names it for this page: the rail's 활동 reopening it), or, with no name (a link from elsewhere that lit 활동), the only notice that leads to this page. Two notices
+ * can lead to one page (two people joined one project): the page alone then picks none, so at most one row is selected. */
+export function openNotice(
+  items: readonly InboxNotification[],
+  at: { pathname: string; search: string; state?: unknown; lit: string | null },
+  kept?: { here: string; id: string } | null,
+): string | null {
+  if (at.pathname === '/activity') return new URLSearchParams(at.search).get('n')
+  if (at.lit !== 'activity') return null
+  const here = `${at.pathname}${at.search}`
+  const leadsHere = (x: InboxNotification) => !opensAsItself(x) && noticeLink(x)?.to === here
+  const named = namedNotice(at.state) ?? (kept?.here === here ? kept.id : null)
+  if (named) {
+    const item = items.find((x) => x.id === named)
+    return item && leadsHere(item) ? named : null
+  }
+  const matches = items.filter(leadsHere)
+  return matches.length === 1 ? matches[0]!.id : null
+}
+const namedNotice = (state: unknown): string | null => {
+  const v = state && typeof state === 'object' ? (state as Record<string, unknown>)[NOTICE_STATE_KEY] : undefined
+  return typeof v === 'string' ? v : null
+}
+/** the notice last opened from here and its page, for this browser tab (sessionStorage, as lib/rail.ts keeps each
+ * place's page, so the rail's 활동 reopening that page after a reload still names it; signing out clears it): another
+ * page with 활동 lit forgets it */
+type Kept = { here: string; id: string }
+function readKept(): Kept | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(ACTIVITY_OPENED_KEY) ?? 'null') as Partial<Kept> | null
+    return v && typeof v.here === 'string' && typeof v.id === 'string' ? { here: v.here, id: v.id } : null
+  } catch {
+    return null
+  }
+}
+function writeKept(v: Kept | null) {
+  try {
+    if (v) sessionStorage.setItem(ACTIVITY_OPENED_KEY, JSON.stringify(v))
+    else sessionStorage.removeItem(ACTIVITY_OPENED_KEY)
+  } catch {
+    /* not kept: a private window may refuse */
+  }
+}
+/** what is kept, brought up to date with the entry on screen (only while 활동 is lit on a page of its notices) */
+function keptFor(at: { pathname: string; search: string; state?: unknown; lit: string | null }): Kept | null {
+  const kept = readKept()
+  if (at.lit !== 'activity' || at.pathname === '/activity') return kept
+  const named = namedNotice(at.state), here = `${at.pathname}${at.search}`
+  if (named) {
+    if (kept?.here !== here || kept.id !== named) writeKept({ here, id: named })
+    return { here, id: named }
+  }
+  if (kept && kept.here !== here) {
+    writeKept(null)
+    return null
+  }
+  return kept
 }
 
 export function ActivityPanel() {
@@ -138,11 +202,12 @@ export function ActivityPanel() {
   }
 
   // the row open on the right: its own view (?n=), or its page opened from here (활동 still lit)
-  const { pathname, search } = useLocation()
+  // (one row at most: openNotice)
+  const { pathname, search, state } = useLocation()
   const lit = useRailHere()
-  const here = `${pathname}${search}`
-  const openId = new URLSearchParams(search).get('n')
-  const isOpen = (item: InboxNotification) => (pathname === '/activity' ? openId === item.id : lit === 'activity' && noticeLink(item)?.to === here)
+  const at = { pathname, search, state, lit }
+  const openId = openNotice(items ?? [], at, keptFor(at))
+  const isOpen = (item: InboxNotification) => openId !== null && openId === item.id
 
   // what was unread when this list showed it stays on top while the list is open (read now, its dot goes): a row never
   // jumps away from under the pointer as it opens

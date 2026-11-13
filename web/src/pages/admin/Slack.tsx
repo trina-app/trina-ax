@@ -72,20 +72,26 @@ const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page
   clientSecret: { not_client_secret: { key: 'slack.err.not_client_secret', page: 'general' } },
 }
 
-/** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
-/** "Update Slack permissions" (docs/SLACK.md "Reading Slack"): people cannot let the AI read Slack until the Slack app
- * has the user scopes. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job),
- * then "I updated them": sign-ins ask for them from then on. The official app: Add to Slack again approves them. */
+/** "Update Slack permissions" (docs/SLACK.md "Marketplace-safe reading"): the AI reads Slack threads and channels with
+ * the bot token only, which needs the bot scopes channels:history and groups:history; an app from before them answers
+ * with reading off. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job), then
+ * "I updated them" asks Slack again. The official app: Add to Slack again approves them. */
 function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onChange: (v: SlackAdmin | undefined) => void }) {
   const t = useT(), locale = useLocale()
   const act = useAction()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // "I updated them" pressed and Slack still does not list them: said once, under the button
+  const [still, setStill] = useState(false)
   const official = s.mode === 'official'
   const approve = async () => {
     setBusy(true); setError(null)
     try { window.location.assign((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
     catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
+  }
+  const recheck = async () => {
+    setBusy(true); setStill(false)
+    try { const v = await act(() => api.call(SLACK.recheckSlackReadScopes, { body: {} })); onChange(v); setStill(v?.readScopes === 'missing') } finally { setBusy(false) }
   }
   return (
     <div className="mt-3 border-l-2 border-warn pl-3 text-sm" data-testid="slack-read-scopes">
@@ -94,19 +100,21 @@ function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onC
         : owner ? (
           <>
             <p className="mt-1 text-muted"><FixText text={t('slack.admin.readOwn')} href={slackPage(s.appId, 'oauth')} /></p>
-            <p className="mt-1 break-words font-mono text-xs" data-testid="slack-user-scopes">{s.userScopes.join(', ')}</p>
+            <p className="mt-1 break-words font-mono text-xs" data-testid="slack-missing-scopes">{s.missingScopes.join(', ')}</p>
           </>
         ) : <p className="mt-1 text-muted">{t('slack.admin.readOwnAsk')}</p>}
       {error && <p role="alert" className="mt-2 text-danger">{error}</p>}
+      {still && <p role="status" className="mt-2 text-warn" data-testid="slack-read-still">{t('slack.admin.readStill')}</p>}
       <div className="mt-2 flex flex-wrap gap-3">
         {official
           ? <Button size="sm" variant="primary" busy={busy} disabled={busy} className="max-md:h-11" onClick={() => void approve()} data-testid="slack-read-approve">{t('slack.official.add')}</Button>
-          : owner && <Button size="sm" variant="secondary" className="max-md:h-11" onClick={async () => onChange(await act(() => api.call(SLACK.recheckSlackReadScopes, { body: {} })))} data-testid="slack-read-recheck">{t('slack.admin.readRecheck')}</Button>}
+          : owner && <Button size="sm" variant="secondary" busy={busy} disabled={busy} className="max-md:h-11" onClick={() => void recheck()} data-testid="slack-read-recheck">{t('slack.admin.readRecheck')}</Button>}
       </div>
     </div>
   )
 }
 
+/** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
 function FixText({ text, href, onClick }: { text: string; href?: string; onClick?: () => void }) {
   return <>{text.split(/(\[[^\]]+\])/).map((part, i) => {
     const m = /^\[([^\]]+)\]$/.exec(part)
@@ -191,13 +199,11 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   ) : null}
                   {/* saving the own app's tokens again at the https address: the owner's (an admin cannot) */}
                   {!s.redirectUrl && !official && owner && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
-                  {/* the Slack app does not give people's read permissions (yet): one prompt to update them */}
-                  {/* the own app: until the owner says it has the user scopes (sign-ins do not ask for them before); the
-                      official app: only when Slack or the hosting service said no */}
-                  {s.enabled && (official ? s.readScopes === 'missing' : s.readScopes !== 'ok') && <ReadScopes s={s} owner={owner} onChange={set} />}
+                  {/* the bot lacks the reading scopes (an app from before them, as Slack lists the bot token's scopes): one
+                      prompt to update them; reading stays off until then */}
+                  {s.enabled && s.readScopes === 'missing' && <ReadScopes s={s} owner={owner} onChange={set} />}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
-                    {s.reading > 0 && <span data-testid="slack-reading">{t('slack.admin.reading', { n: s.reading })}</span>}
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
                     {official
                       ? <button type="button" className="text-danger underline underline-offset-2 max-md:min-h-11" onClick={() => void remove('official')} data-testid="slack-remove">{t('slack.admin.remove')}</button>
