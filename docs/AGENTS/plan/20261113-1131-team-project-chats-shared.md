@@ -30,7 +30,7 @@ In, phase 1a (no behaviour change, less confusion):
    server's 404 body does not change. (Reuses the tests of the unmerged `fix/project-chat-share-not-found`.)
 3. Copy link of a private chat in a team project: "Only you can open this chat. People you send the link to can't."
    with the action **Share with members**.
-4. A project page chat row's ⋯: **Share with project members…** for the creator's private chats in a team project.
+4. A project page chat row's ⋯: **Share with project members** for the creator's private chats in a team project.
 
 In, phase 1b:
 1. Store: `projects.share_chats` stays the stored truth (a rollback build behaves the same). Migration 292 sets it to 1

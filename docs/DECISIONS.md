@@ -15109,7 +15109,7 @@ be asked again):
   see, it may have been deleted, or it may belong to a project you're not a member of. Ask the person who sent the link
   to share it with the project's members." (the owner and admins also keep the Projects line; the server's 404 is
   unchanged). Copy link of a private chat in a team project: "Only you can open this chat. People you send the link to
-  can't." with **Share with members**; the row menus (project page, the Trina list) have "Share with project members…"
+  can't." with **Share with members**; the row menus (project page, the Trina list) have "Share with project members"
   for such a chat, and its row shows a lock (only its creator ever lists it).
 - **A shared chat asked for a personal tool.** The AI says plainly that it is not available there because everyone
   who sees the chat would see what it brings in, and points to **Continue in a chat only you see** in the chat's title
