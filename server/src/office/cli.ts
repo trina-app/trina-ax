@@ -234,7 +234,7 @@ export async function run(home: string): Promise<never> {
       if (r.line) say(r.line)
     } catch (e) { say(`Tailscale certificate check failed: ${(e as Error).message}`) }
   }
-  let tailnetProblem: string | null = null
+  let tailnetProblem: string | null | undefined // undefined: nothing said yet (the first state is always logged)
   const tailnetSay = (n: TailnetNode | null) => {
     const pr = n?.problem ?? null
     if (pr !== tailnetProblem) say(pr ? `Tailscale address ${tailnetOrigin(s)}: ${pr}` : `Tailscale address ${tailnetOrigin(s)} on ${n?.ipv4}`)

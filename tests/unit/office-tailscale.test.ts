@@ -15,7 +15,7 @@ import { portProblems, tailnetCertStep, tailnetNode, tailscaleAddress } from '..
 import { loadSettings, officePaths, parseTailscaleHost, serverConfig, settingsFrom, settingsText, tailnetOrigin } from '../../server/src/office/settings'
 import {
   certCheckDue, findTailscaleBin, inTailnetV4, pairProblem, parseStatus, refreshTailnetCert, servePorts, tailnetCertPaths,
-  TAILNET_CERT_CHECK_MS, type Run,
+  TAILNET_CERT_CHECK_MS, runner, type Run,
 } from '../../server/src/office/tailscale'
 import { viaOf } from '../../server/src/auth/accounts'
 import { harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
@@ -134,6 +134,12 @@ describe('tailscale status', () => {
     expect(findTailscaleBin({ exists: () => true })).toBe('/Applications/Tailscale.app/Contents/MacOS/Tailscale')
     expect(findTailscaleBin({ configured: '/x/tailscale', exists: () => false })).toBeNull()
     expect(findTailscaleBin({ exists: () => false })).toBeNull()
+  })
+
+  test('the runner starts the Mac app binary as the CLI (TAILSCALE_BE_CLI=1), with a small environment', () => {
+    const r = runner('/usr/bin/env')([])
+    expect(r.out).toContain('TAILSCALE_BE_CLI=1')
+    expect(r.out).toContain('PATH=/usr/bin:/bin')
   })
 
   test('a renamed Mac (another certificate name) or no CLI is a problem the supervisor reports', () => {
