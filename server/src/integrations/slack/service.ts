@@ -179,8 +179,6 @@ export class SlackConnector {
   /** what the next turn of a chat gets about the Slack question it answers (read.ts askedContext), taken once; memory
    * only, 30 minutes: the thread's text is never stored */
   readonly asked = new Map<string, { text: string; context: string; until: number; seen: ReadSource[] }>()
-  /** the official app (not listed): when a conversation's replies were last read (Slack: about once a minute) */
-  readonly repliesAt = new Map<string, number>()
   /** Slack people's names read for the AI (read.ts), 10 minutes, memory only */
   readonly names = new Map<string, { name: string; at: number }>()
   /** conversations a linked Slack user shares with the bot (read.ts), 2 minutes, memory only */
@@ -243,7 +241,8 @@ export class SlackConnector {
     this.scopesCheckedAt = this.now()
     try {
       const who = await this.api.call('auth.test', bot)
-      if (who.scopes) this.noteBotScopes(who.scopes)
+      // tokens replaced while Slack was asked (a save, an install): that answer is the old token's, not kept
+      if (who.scopes && this.botToken() === bot) this.noteBotScopes(who.scopes)
     } catch (e) { this.log.info('slack bot scopes check failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
   }
 
@@ -508,23 +507,26 @@ export class SlackConnector {
   private retiring: Promise<void> | null = null
   /** The user tokens "read Slack as the person" kept (migration 348, superseded 2026-11-13 by bot-only reading): each
    * revoked at Slack (auth.revoke with the token itself: no client secret needed; best effort) and deleted. Runs once a
-   * start; a row whose revoke Slack could not be asked about (unreachable) stays for the next start, any other answer
-   * (revoked, already invalid) or a token that no longer opens deletes it. Nothing reads these tokens any more. */
+   * start; a row whose revoke Slack could not be asked about (unreachable), or whose token does not open now, stays for
+   * the next start; any other answer (revoked, already invalid) deletes it. Nothing reads these tokens any more. */
   retireUserTokens(): Promise<void> {
     this.retiring ??= (async () => {
       let rows: { user_id: string; token_enc: string; key_version: number }[]
       try { rows = this.db.query('SELECT user_id, token_enc, key_version FROM slack_user_tokens LIMIT 1000').all() as typeof rows } catch { return }
       for (const r of rows) {
         if (this.closed) return
-        let token: string | null = null
-        try { token = this.box.open<{ token: string }>(`slack:user-token:${r.user_id}`, r.token_enc, r.key_version).token } catch { /* gone with its key */ }
-        if (token) {
-          try { await this.api.call('auth.revoke', token) } catch (e) {
-            const code = e instanceof SlackApiError ? e.code : 'unknown'
-            if (['unreachable', 'ratelimited', 'unknown', 'internal_error', 'fatal_error', 'service_unavailable', 'request_timeout'].includes(code) || (e instanceof SlackApiError && e.status >= 500)) {
-              this.log.info('slack user token not revoked yet; tried again at the next start', { reason: code })
-              continue
-            }
+        let token: string
+        // a token that does not open now (its key missing or unreadable at this start) is kept, still sealed, and tried
+        // again at the next start: deleting it would leave it working at Slack with no way to revoke it
+        try { token = this.box.open<{ token: string }>(`slack:user-token:${r.user_id}`, r.token_enc, r.key_version).token } catch {
+          this.log.warn('slack user token does not open; kept sealed and tried again at the next start')
+          continue
+        }
+        try { await this.api.call('auth.revoke', token) } catch (e) {
+          const code = e instanceof SlackApiError ? e.code : 'unknown'
+          if (['unreachable', 'ratelimited', 'unknown', 'internal_error', 'fatal_error', 'service_unavailable', 'request_timeout'].includes(code) || (e instanceof SlackApiError && e.status >= 500)) {
+            this.log.info('slack user token not revoked yet; tried again at the next start', { reason: code })
+            continue
           }
         }
         this.db.query('DELETE FROM slack_user_tokens WHERE user_id = ? AND token_enc = ?').run(r.user_id, r.token_enc)

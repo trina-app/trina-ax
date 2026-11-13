@@ -211,6 +211,9 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
     expect(textOf(await toolsOf('erin', erinChat).slack_read_thread!.call({ channel: R, thread_ts: '1700000100.000500' }, toolCtx('erin', erinChat)))).toContain('not in that conversation')
     // someone else's DM with the app
     expect(textOf(await toolsOf('erin', erinChat).slack_read_channel!.call({ channel: DM }, toolCtx('erin', erinChat)))).toContain('not in that conversation')
+    // a group DM, even one the bot and the person are in: never read
+    fake.channels['G0GROUPDM'] = { is_mpim: true, members: ['U0BOT', 'U0ALICE', 'U0BOB'], messages: [{ ts: '1700000100.000900', user: 'U0BOB', text: 'group dm' }] }
+    expect(textOf(await tools.slack_read_channel!.call({ channel: 'G0GROUPDM' }, toolCtx('alice', chat)))).toContain('not in that conversation')
     expect(fake.of('conversations.history').length).toBe(n)
     expect(readScope(h.ctx.db, chat) ?? []).toEqual([])
     expect(readScope(h.ctx.db, erinChat) ?? []).toEqual([])
@@ -384,7 +387,7 @@ describe('the user tokens the earlier design kept (migration 348)', () => {
       h.ctx.db.query('INSERT INTO slack_user_tokens (user_id, team_id, slack_user_id, scopes, token_enc, key_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(user, 'T0ACME', `U0${user.toUpperCase()}`, 'search:read', s.enc, s.keyVersion, now, now)
     }
     put('alice', 'xoxp-alice-' + 'a'.repeat(20)); put('erin', 'xoxp-erin-' + 'e'.repeat(20))
-    // a row whose token no longer opens: deleted all the same
+    // a row whose token does not open now: kept sealed (it may still work at Slack), tried again at the next start
     const now = new Date().toISOString()
     h.ctx.db.query("INSERT INTO slack_user_tokens (user_id, team_id, slack_user_id, scopes, token_enc, key_version, created_at, updated_at) VALUES ('bob', 'T0ACME', 'U0BOB', '', 'not-sealed', 1, ?, ?)").run(now, now)
     // Slack fails the first revoke (whichever token comes first): that row stays for the next start
@@ -393,15 +396,16 @@ describe('the user tokens the earlier design kept (migration 348)', () => {
     await s.retireUserTokens()
     const revokes = fake.of('auth.revoke').filter((c) => c.token?.startsWith('xoxp-'))
     expect(revokes.map((c) => c.token).sort()).toEqual(['xoxp-alice-' + 'a'.repeat(20), 'xoxp-erin-' + 'e'.repeat(20)])
-    const left = h.ctx.db.query('SELECT user_id FROM slack_user_tokens').all() as { user_id: string }[]
-    // the first one Slack answered internal_error for stays; the other and bob's are gone
-    expect(left.length).toBe(1)
-    expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.read_ended' AND json_extract(detail, '$.reason') = 'bot_only_reading'").get()).toEqual({ n: 2 })
+    const left = (h.ctx.db.query('SELECT user_id FROM slack_user_tokens').all() as { user_id: string }[]).map((r) => r.user_id)
+    // the first one Slack answered internal_error for stays, and bob's that does not open; the other is gone
+    expect(left.length).toBe(2)
+    expect(left).toContain('bob')
+    expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.read_ended' AND json_extract(detail, '$.reason') = 'bot_only_reading'").get()).toEqual({ n: 1 })
     // the next start: revoked and deleted
     const next = slackOf(h.ctx, { base: fake.url, ...DEPS })
     next.refresh()
     await next.retireUserTokens()
-    expect(h.ctx.db.query('SELECT count(*) n FROM slack_user_tokens').get()).toEqual({ n: 0 })
+    expect(h.ctx.db.query('SELECT user_id FROM slack_user_tokens').all()).toEqual([{ user_id: 'bob' }])
     expect(lines.join('\n')).not.toContain('xoxp-alice')
     await fake.connected()
   })

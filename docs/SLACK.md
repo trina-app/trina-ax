@@ -178,7 +178,7 @@ internal apps: search waits for phase 2, after listing (no code yet).
   own flow), only to prove which Slack account is linked; its user token is revoked at once. There is no "Allow reading
   Slack" anywhere. The user tokens the earlier design (#674, migration 348) kept are revoked at Slack (`auth.revoke` with
   each token, best effort) and deleted when the server starts (`SlackConnector.retireUserTokens`; a token Slack could
-  not be asked about stays for the next start); audited `slack.read_ended` with `reason: bot_only_reading`.
+  not be asked about, or one that does not open at that start, stays sealed for the next start); audited `slack.read_ended` with `reason: bot_only_reading`.
 - **Apps from before the reading scopes.** Reading needs the bot scopes `channels:history` and `groups:history`. The
   server keeps what Slack last listed for the bot token (`slack_config.bot_scopes`, from `auth.test`'s X-OAuth-Scopes:
   at save, at install, at start and every 10 minutes, and when Slack answers `missing_scope`). Without them the app
@@ -315,7 +315,8 @@ after 1, 2, 4 … seconds (at most a minute).
   `slack.read_ended` (a user token of the earlier design revoked and deleted). Older rows may show `slack.read_allowed`
   and `slack.read_scopes` (#674).
 - Reading uses the bot token only; a person's AI reads a conversation only when the bot and that person's linked Slack
-  account are both in it (checked with Slack at each read, a "yes" kept 2 minutes). No user token is asked for or kept.
+  account are both in it (checked with Slack at each read, a "yes" kept 2 minutes: someone removed from a channel may
+  still have it read for them for up to 2 minutes). No user token is asked for or kept.
 
 ## Code and tests
 

@@ -149,7 +149,6 @@ export function messageLines(msgs: Msg[], names: ReadonlyMap<string, string>, ma
  * only; `more` says so. Always the bot token. */
 export async function threadOf(s: SlackConnector, bot: string, channel: string, ts: string, keep: number): Promise<{ msgs: Msg[]; more: boolean }> {
   if (s.readLimited()) {
-    s.repliesAt.set(channel, s.now())
     const r = await s.api.call('conversations.replies', bot, { channel, ts, limit: OFFICIAL_PAGE }, { noWait: true })
     return { msgs: Array.isArray(r.messages) ? r.messages as Msg[] : [], more: r.has_more === true }
   }
@@ -186,7 +185,8 @@ export async function conversationOf(s: SlackConnector, bot: string, channel: st
 
 /** The channels (public and private) this Slack user is in that the bot can see them in (users.conversations with the
  * bot token and user=: public channels the person is in, private ones they share with the bot). Kept 2 minutes for a
- * "yes" (`want` in it); a channel not in the kept list is asked again. */
+ * "yes" (`want` in it); a channel not in the kept list is asked again. So someone who just left a channel may still have
+ * it read for them for up to 2 minutes (docs/SLACK.md). */
 async function channelsOf(s: SlackConnector, bot: string, slackUser: string, want?: string): Promise<Set<string>> {
   const hit = s.shared.get(slackUser)
   // a "no" is never taken from memory (the person may have joined since): only a "yes" is
@@ -194,7 +194,7 @@ async function channelsOf(s: SlackConnector, bot: string, slackUser: string, wan
   const ids = new Set<string>()
   let cursor: string | undefined
   for (let page = 0; page < 5; page++) {
-    const r = await s.api.call('users.conversations', bot, { user: slackUser, types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, ...(cursor ? { cursor } : {}) }, { noWait: true })
+    const r = await s.api.call('users.conversations', bot, { user: slackUser, types: 'public_channel,private_channel', exclude_archived: true, limit: 999, ...(cursor ? { cursor } : {}) }, { noWait: true })
     for (const c of Array.isArray(r.channels) ? r.channels as { id?: unknown }[] : []) if (typeof c.id === 'string' && ID.test(c.id)) ids.add(c.id)
     const next = (r.response_metadata as { next_cursor?: unknown } | undefined)?.next_cursor
     if (typeof next !== 'string' || !next) break
@@ -235,8 +235,10 @@ function refusal(s: SlackConnector, e: unknown): string {
 
 /** The bot token and the linked Slack user while the AI may read Slack for this person, or the words why not */
 function readerOr(s: SlackConnector, userId: string): { bot: string; slackUser: string } | { error: string } {
-  const bot = s.botToken(), link = s.linkOf(userId)
-  if (!bot || !link || !s.readsSlack(userId)) return { error: link ? NEEDS_UPDATE : 'The user\'s Slack account is not linked: they link it once in Settings › Connectors › Slack.' }
+  const bot = s.botToken(), cfg = s.config(), link = s.linkOf(userId, cfg)
+  if (!bot || !cfg?.enabled) return { error: 'Slack is turned off for this team now, so Slack cannot be read.' }
+  if (!link) return { error: 'The user\'s Slack account is not linked: they link it once in Settings › Connectors › Slack.' }
+  if (!s.readsSlack(userId)) return { error: NEEDS_UPDATE }
   return { bot, slackUser: link.slack_user_id }
 }
 
@@ -325,7 +327,7 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
 async function channelByName(s: SlackConnector, bot: string, name: string): Promise<string | null> {
   let cursor: string | undefined
   for (let page = 0; page < 3; page++) {
-    const r = await s.api.call('users.conversations', bot, { types: 'public_channel,private_channel', exclude_archived: true, limit: 1000, ...(cursor ? { cursor } : {}) }, { noWait: true })
+    const r = await s.api.call('users.conversations', bot, { types: 'public_channel,private_channel', exclude_archived: true, limit: 999, ...(cursor ? { cursor } : {}) }, { noWait: true })
     const hit = (Array.isArray(r.channels) ? r.channels as { id?: unknown; name?: unknown }[] : []).find((c) => typeof c.name === 'string' && c.name.toLowerCase() === name)
     if (hit && typeof hit.id === 'string' && ID.test(hit.id)) return hit.id
     const next = (r.response_metadata as { next_cursor?: unknown } | undefined)?.next_cursor
@@ -350,7 +352,8 @@ export async function askedContext(s: SlackConnector, bot: string, userId: strin
   const head = `This chat answers a question asked in Slack: workspace "${clean(team).replace(/</g, '‹')}", ${where} (channel=${q.channel}${q.threadTs ? `, thread_ts=${q.threadTs}` : ''}). Your answer goes back to the asker in Slack${q.kind === 'channel' ? ' (only they see it; they may post it to the thread)' : ''}: write for Slack, short and plain.`
   let thread = '', note = ''
   const seen: ReadSource[] = []
-  if (q.threadTs || q.kind === 'im') {
+  // a thread only (a DM's own message, not in a thread, is the question itself: nothing more to read)
+  if (q.threadTs) {
     if (q.kind === 'channel' && !s.botReads(cfg)) thread = `The messages of this Slack thread are not available: ${NEEDS_UPDATE} Answer from the question alone, and say so if the thread is needed.`
     else {
       try {
