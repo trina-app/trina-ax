@@ -11796,10 +11796,11 @@ own rows (17 px names, 40 px round faces, 64 px rows), while 프로젝트 and �
 
 - **One set**: `ListRow` (icon, name, an optional second line, an end mark, `unread`, `selected`) for 프로젝트, 파일 and
   활동, panel and phone alike; `ListSection`/`ListHeading` for every section header; `ListIcon` for every row icon,
-  `rowName` for the name of the rows that keep their own markup for menus and drag (a chat, a room, the settings
-  rows). The panels' old names (`PanelSection`, `GroupChevron`) are re-exported from it.
+  `rowName` for the name of the rows that keep their own markup for menus and drag (a chat, a room) and of the
+  phone settings lists' rows (`PhoneListRow`, `PhoneChoiceRow`, `PhoneChecks`, a form field's name), so Settings and
+  Admin on a phone match 나. The panels' old names (`PanelSection`, `GroupChevron`) are re-exported from it.
 - **Phones follow the 대화 tab**: names 17 px, read ones in ink at 500 (the second line carries what is new), unread
-  semibold; icons in a 40 px round tile; rows at least 56 px; section headers 13 px semibold grey above unindented
+  semibold; icons in a 40 px round tile; a ListRow at least 56 px (the settings rows keep their 48 px); section headers 13 px semibold grey above unindented
   rows (iOS style), as 대화's always were. Computers keep "Panels: Slack-sized type" (15 px, read rows muted, headers
   15 px in ink, rows indented).
 - **One place to change**: the difference is only in the tokens (`--text-row`, `--spacing-row-min`,

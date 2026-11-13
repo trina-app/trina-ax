@@ -4,6 +4,7 @@
 // It is a radio group, not a list: the rows are radios, one tab stop (the chosen one), and the arrow keys move to the
 // next or previous choice and pick it, Home and End the first and last (the ARIA radio group pattern).
 import clsx from 'clsx'
+import { ListHeading, rowName } from '../list/List'
 import { Check } from 'lucide-react'
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
 
@@ -48,7 +49,7 @@ export function PhoneChecks<T extends string>({ title, footer, label, value, opt
   }
   return (
     <section className="mt-6 first:mt-4" data-testid={testId}>
-      {title && <h2 id={titleId} className="px-4 pb-1.5 text-xs font-medium text-faint">{title}</h2>}
+      {title && <ListHeading as="h2" id={titleId} className="px-4 pb-1.5">{title}</ListHeading>}
       <div role="radiogroup" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : label} className="border-y border-line">
         {options.map((o, i) => {
           const on = o.value === value
@@ -58,7 +59,7 @@ export function PhoneChecks<T extends string>({ title, footer, label, value, opt
               className="group/row flex w-full items-stretch pl-4 text-left text-sm transition hover:bg-hover focus-visible:-outline-offset-2" data-testid={o.testId}>
               <span className="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
                 <span className="min-w-0 flex-1">
-                  <span className={clsx('block truncate', on && 'font-medium')}>{o.label}</span>
+                  <span className={clsx('block truncate', rowName({ selected: on }))}>{o.label}</span>
                   {o.hint && <span className="mt-0.5 block text-xs text-muted">{o.hint}</span>}
                 </span>
                 <Check size={18} className={clsx('shrink-0 text-accent', !on && 'invisible')} aria-hidden />

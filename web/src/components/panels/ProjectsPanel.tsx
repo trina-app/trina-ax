@@ -41,7 +41,7 @@ export function NewProjectRow({ phone = false }: { phone?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-row-min')} data-testid="projects-panel-new">
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-row-min! pointer-coarse:min-h-row-min!')} data-testid="projects-panel-new">
         <ListIcon><Plus /></ListIcon> <span className="truncate">{t('projects.new')}</span>
       </button>
       {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}

@@ -6,6 +6,7 @@
 // save bar, a group's Save, or at once). The pages draw these on a phone only; computers keep their select boxes
 // (QA TC-378, docs/AGENTS/plan/20261112-0507-phone-choice-rows.md). Also `phoneNumberCls`: a phone's number field.
 import clsx from 'clsx'
+import { rowName } from '../list/List'
 import { ChevronRight } from 'lucide-react'
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useT } from '../../i18n'
@@ -70,7 +71,7 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
           className="w-full" buttonClassName="w-full !rounded-none !py-0 !pr-0 !pl-4 text-left" testId={testId}
           icon={
             <span className="flex min-h-12 w-full min-w-0 items-center gap-3 border-t border-line py-2.5 pr-4 text-sm group-first/row:border-t-0">
-              <span className="min-w-0 flex-1 truncate text-ink">{title}</span>{' '}
+              <span className={clsx('min-w-0 flex-1 truncate', rowName())}>{title}</span>{' '}
               <span className="max-w-[55%] shrink-0 truncate text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
               <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
             </span>

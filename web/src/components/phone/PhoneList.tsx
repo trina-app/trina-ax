@@ -73,7 +73,7 @@ export function PhoneListRow({ icon, title, value, badge, to, state, onClick, ch
         <div className="flex items-stretch gap-3 pl-4 text-sm">
           {icon && <ListIcon className="mt-2">{icon}</ListIcon>}
           <div className="min-w-0 flex-1 border-t border-line py-2.5 pr-4 group-first/row:border-t-0">
-            {to ? <Link to={to} state={state} className="-my-1 flex min-h-11 items-center rounded hover:underline">{title}</Link> : <span className="block">{title}</span>}
+            {to ? <Link to={to} state={state} className={clsx('-my-1 flex min-h-11 items-center rounded hover:underline', rowName())}>{title}</Link> : <span className={clsx('block', rowName())}>{title}</span>}
             {/* its buttons are the page's small ones elsewhere: 44 px here, for a finger */}
             <div className="mt-1 flex flex-wrap items-center gap-2 [&_button]:min-h-11">{below}</div>
           </div>

@@ -161,7 +161,7 @@ function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: 
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
       {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
           headings reads the projects; the icon and ▾ follow it */}
-      <div className={clsx('group/head relative flex h-row items-center gap-1 pr-9 pl-3 text-row font-semibold text-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
+      <div className={clsx('group/head relative flex h-row items-center gap-1 pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
         {group.projectId ? (
           <>
             {/* the name's link is as tall as the header: 28 px, 44 px on a phone */}

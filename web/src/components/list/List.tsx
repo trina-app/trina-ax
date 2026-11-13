@@ -11,7 +11,7 @@
 // their own markup but take their name's look from `rowName` here.
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
-import { useId, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { useId, type HTMLAttributes, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useFolds } from '../panels/folds'
 
@@ -28,7 +28,7 @@ export function ListIcon({ children, className }: { children: ReactNode; classNa
   )
 }
 
-type RowLink = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'title'> & { [data: `data-${string}`]: string | undefined }
+type RowLink = { [data: `data-${string}`]: string | undefined }
 
 /**
  * One row of a list. `to` makes it a link (with `state`), else `onClick` a button. `icon`: a lucide icon (drawn in a
@@ -55,7 +55,8 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
   link?: RowLink
 }) {
   const cls = clsx(
-    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-11',
+    // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 56px)
+    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
     selected && 'bg-hover',
   )
@@ -82,7 +83,7 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
           {body}
         </Link>
       ) : (
-        <button type="button" onClick={onClick} className={cls} data-testid={testId} {...(link as HTMLAttributes<HTMLButtonElement>)}>
+        <button type="button" onClick={onClick} className={cls} data-testid={testId} {...link}>
           {body}
         </button>
       )}
