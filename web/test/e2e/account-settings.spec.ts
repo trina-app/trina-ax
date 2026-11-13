@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
-import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, tabBar, tabButtonNow } from './nav'
+import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, settingsDialog, tabBar, tabButtonNow } from './nav'
 
 const t = DICTS.en
 
@@ -142,7 +142,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await page.goto('/rooms')
   await openTab(page, 'me')
   await expect(page).toHaveURL(/\/settings$/)
-  const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+  const dialog = settingsDialog(page)
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
   await expect(tabBar(dialog)).toBeVisible()
@@ -358,7 +358,9 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   // the ⋯ menu has the chat's actions (a pin first, then its link; a chat of my own outside a project: the move too)
   await row.hover()
   await more.click()
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
+  // the new navigation's lists have folders: "Move to folder" before the project's move
+  const folder = (await isNewNav(page)) ? [t['navFolders.moveTo']] : []
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], ...folder, t['chat.project.add'], t['common.delete']])
 })
 
 test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {

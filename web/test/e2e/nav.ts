@@ -472,3 +472,6 @@ export async function activityRows(page: Page): Promise<Locator> {
   if (!isPhone(page) && (await isNewNav(page))) return (await showPanel(page, 'activity')).getByTestId('activity-panel-row')
   return page.getByTestId('notification-item')
 }
+
+/** The Settings dialog: "설정" on a computer and on today's phone, the 나 tab ("나") on the new phone tabs. */
+export const settingsDialog = (page: Page) => page.getByRole('dialog').filter({ has: page.getByTestId('settings-title') })
