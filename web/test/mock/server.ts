@@ -31,7 +31,11 @@
 // them until the next reset), POST /__test/team-address {address: string | null} (GET /api/me team.address, the team's
 // address for its members, until the next reset; none by default), POST /__test/slack {admin?: Partial<SlackAdmin>,
 // mine?: Partial<MySlack>} (Admin › Connected apps › Slack and the person's Slack line in Connectors show that, over a
-// connected own app with nobody linked, until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// connected own app with nobody linked, until the next reset), POST /__test/google-own-app {hosted?: boolean (the
+// hosting service is the Google sign-in: every Google card set up by it, the company's own app can be set), active?,
+// canGoBack?, stale? (the team's address changed since it was set), by?: {id, name}, at?, people?, shared?} (the company's own Google app, shared/src/api/google-apps.ts
+// GoogleOwnAppStatus; people and shared are counted from the connections unless given; until the next reset),
+// POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
 // POST /__test/speech {provider, key?: boolean, chosen?: false}
@@ -458,6 +462,11 @@ export class MockServer {
   readonly driveMembers = true
   /** Drives shared with the team (server/src/integrations/google-drive/shares.ts); never a token here either */
   driveShares: MockDriveShare[] = []
+  /** the company's own Google app (server/src/integrations/google-drive/own-app.ts): POST /__test/google-own-app */
+  googleOwn = MockServer.freshGoogleOwn()
+  static freshGoogleOwn() {
+    return { hosted: false, active: false, canGoBack: true, stale: false, by: null as { id: string; name: string } | null, at: null as string | null, people: null as number | null, shared: null as number | null }
+  }
   /** a share sign-in under way: its flow id, and which share it signs in again for */
   driveShareFlow: { id: string; shareId: string | null; polls: number } | null = null
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
@@ -663,6 +672,7 @@ export class MockServer {
     this.driveClient = 'none'
     this.driveShares = []
     this.driveShareFlow = null
+    this.googleOwn = MockServer.freshGoogleOwn()
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -4176,6 +4186,35 @@ export class MockServer {
       return this.driveAdminStatus()
     },
 
+    // the company's own Google app for all five (server/src/integrations/google-drive/own-app.ts): only where the
+    // hosting service is the Google sign-in; a file must list both return addresses, like the real server checks
+    googleOwnApp: () => this.googleOwnStatus(),
+    setGoogleOwnApp: (c) => {
+      const st = this.googleOwnStatus()
+      if (st.blocked || !st.returnAddresses) fail('conflict', 409, 'google_own_app_not_service', undefined, { reason: st.blocked ?? 'public_host' })
+      const own = (reason: string) => fail('bad_request', 400, `google_own_app_${reason}`, undefined, { reason })
+      if (c.body.file !== undefined) {
+        let j: { web?: { redirect_uris?: unknown; client_id?: unknown; client_secret?: unknown } } | null = null
+        try { j = JSON.parse(c.body.file) } catch { own('client_invalid') }
+        if (!j?.web || typeof j.web.client_id !== 'string' || typeof j.web.client_secret !== 'string') own('client_invalid')
+        const uris = Array.isArray(j!.web!.redirect_uris) ? j!.web!.redirect_uris : []
+        if (!uris.includes(st.returnAddresses!.drive)) own('client_redirect_drive')
+        if (!uris.includes(st.returnAddresses!.apps)) own('client_redirect_apps')
+      } else if (!/\.apps\.googleusercontent\.com$/.test(c.body.clientId ?? '')) own('client_invalid')
+      this.googleOwn = { ...this.googleOwn, active: true, stale: false, by: { id: c.user.id, name: c.user.name }, at: now() }
+      this.googleApps.ownApp = true
+      this.googleSignInsEnded()
+      return this.googleOwnStatus()
+    },
+    removeGoogleOwnApp: () => {
+      if (this.googleOwn.active) {
+        this.googleOwn = { ...this.googleOwn, active: false, stale: false, by: null, at: null }
+        this.googleApps.ownApp = false
+        this.googleSignInsEnded()
+      }
+      return this.googleOwnStatus()
+    },
+
     // Gmail, Google Calendar, Google Docs, Google Sheets (shared/src/api/google-apps.ts; test/mock/googleApps.ts)
     myGoogleApps: (c) => this.googleApps.list(c.user.id),
     authorizeGoogleApp: (c) => {
@@ -4920,7 +4959,30 @@ export class MockServer {
     if (state !== 'waiting') throw new Fail('conflict', 409, '이 요청은 더 이상 기다리고 있지 않아요.', undefined, { state })
     return r
   }
+  /** the company's own Google app (GoogleOwnAppStatus): available on a hosted team only, as the hosting service is the
+   * Google sign-in there; never the client */
+  googleOwnStatus() {
+    const o = this.googleOwn
+    const counts = this.googleApps.signInCounts()
+    const blocked = o.hosted ? null : 'not_service' as const
+    const address = 'https://acme.example.com'
+    return {
+      available: blocked === null, blocked, active: o.active, stale: o.active && o.stale, canGoBack: o.canGoBack, setBy: o.active ? o.by : null, setAt: o.active ? o.at : null,
+      people: o.people ?? counts.people.size, shared: o.shared ?? this.driveShares.length + counts.teams,
+      returnAddresses: o.hosted ? { drive: `${address}/api/integrations/google-drive/callback`, apps: `${address}/api/integrations/google-apps/callback` } : null,
+    }
+  }
+  /** a new Google app: every sign-in made with the other one needs a new one (people's, the shared ones) */
+  googleSignInsEnded() {
+    this.googleApps.signInsEnded()
+    this.driveShares = this.driveShares.map((x) => ({ ...x, status: 'needs_reconnect' as const, reason: 'client_changed' as const }))
+  }
   driveAdminStatus() {
+    if (this.googleOwn.hosted) {
+      // the hosting service sets it up (blocked "hosted"); with the company's app it is a client.json of the server's
+      return { configured: true, source: this.googleOwn.active ? 'server' as const : 'service' as const, canSetUp: false, blocked: 'hosted' as const, redirectUri: null,
+        connectedMembers: 0, membersCanConnect: this.driveMembers, sharesOn: this.driveShares.filter((x) => x.status === 'connected').length }
+    }
     const configured = this.driveClient !== 'none'
     return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
       redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0,
@@ -5269,6 +5331,14 @@ export class MockServer {
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/last-restore') this.lastRestore = (body.last as unknown as import('@mycel/shared/api').LastRestore | null) ?? null
     else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
+    else if (p === '/__test/google-own-app') {
+      const b = body as Partial<ReturnType<typeof MockServer.freshGoogleOwn>>
+      this.googleOwn = { ...this.googleOwn, ...b, ...(b.active && !b.at && !this.googleOwn.at ? { at: now() } : {}) }
+      this.googleApps.hosted = this.googleOwn.hosted
+      this.googleApps.ownApp = this.googleOwn.hosted && this.googleOwn.active
+      if (this.googleOwn.hosted) this.driveClient = 'app'
+      this.settleServiceRequests()
+    }
     else if (p === '/__test/slack') this.slackOver = { admin: SlackAdmin.partial().parse(body.admin ?? {}), mine: MySlack.partial().parse(body.mine ?? {}) }
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }

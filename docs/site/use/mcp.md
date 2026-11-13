@@ -29,6 +29,8 @@ status each. Each opens its own page, read only.
 
 Admins manage team connections but do not use them unless a rule names them. Who may use a connection is checked on every call.
 
+Google Drive, Gmail, Google Calendar, Google Docs and Google Sheets are built-in Google apps in the same lists. A company on Google Workspace can have them sign in with its own Google app: [Use your company's own Google app](google-own-app.md).
+
 ## Add a connection
 
 :::steps

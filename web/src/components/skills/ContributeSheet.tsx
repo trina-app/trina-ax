@@ -23,6 +23,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { FolderHint } from '../onboarding/FolderHint'
 import { quietLink, reasonText } from '../onboarding/SkillShareReview'
 import { Button, ErrorNote, Modal } from '../ui'
+import { dropOverCls } from '../FileDropZone'
 
 /** What the list shows of a found skill: its metadata title (else its folder name as words) and its description, read
  * from its SKILL.md header (a command: its own file) here in the browser; the server reads the header again. */
@@ -236,7 +237,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
   } else {
     body = (
       <div
-        className={clsx('space-y-4 rounded-xl transition', over && 'bg-accent-soft/70 outline-2 outline-offset-[10px] outline-accent/55 outline-dashed')}
+        className={clsx('space-y-4 rounded-xl transition', over && dropOverCls)}
         onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); setOver(true) } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
         onDrop={drop}

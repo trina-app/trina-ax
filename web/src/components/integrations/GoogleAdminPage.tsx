@@ -7,13 +7,16 @@
 // the layout of Admin › Team settings: who can use it (everyone in the team, each with their own account: there is no
 // members' switch, docs/DECISIONS.md "No members' switch for connectors"), Google Drive's Drives shared with the team
 // (DriveShares.tsx), a Google app's account shared with the team (GoogleAppTeam.tsx), and the Google APIs a card with its own Google app needs switched on. The setup dialogs stay where they were (DriveConnector.tsx DriveSetupDialog, GoogleAppAdmin.tsx).
+// First in Team settings, for owners and admins where the company's own Google app can be set or is set: Google sign-in
+// (GoogleSignInRow.tsx), the same row on all five pages. It says where sign-in comes from, so the hosting service's
+// line above goes away there, and Team settings shows on a hosted page that is not set up yet, so the row is reachable.
 import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppView } from '@mycel/shared/api'
+import type { DriveAdminStatus, GoogleAppAdminStatus, GoogleAppView, GoogleOwnAppStatus } from '@mycel/shared/api'
 import { builtInLogo, builtInName, canChange, categoryKey, developerKey, DRIVE_TOOL_LIST, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords } from '../../lib/googleApps'
 import { useT } from '../../i18n'
-import { isOwner, useMe } from '../../store/session'
+import { isAdmin, isOwner, useMe } from '../../store/session'
 import { Button } from '../ui'
 import { SettingRow, SettingsSection } from '../../pages/admin/common'
 import { AppDetail } from './AppDetail'
@@ -23,11 +26,22 @@ import { DriveAdminSettings } from './DriveShares'
 import { ApiList, googleAppAdminLine, googleAppAdminOn } from './GoogleAppAdmin'
 import { GoogleAppTeamRow } from './GoogleAppTeam'
 import { Note } from './GoogleAppConnector'
+import { GoogleSignInRow, googleSignInShown } from './GoogleSignInRow'
 
 /** Google sign-in comes from the hosting service: nothing to set up here (no Google client, no redirect address). */
 export const byHostingService = (s: { source: string; blocked: string | null }) => s.source === 'service' || s.blocked === 'hosted'
 
 const list = (t: ReturnType<typeof useT>) => ({ to: '/admin/connectors', name: t('admin.integrations') })
+
+/** The company's own Google app for the five pages (GET /api/admin/google/own-app; null on an older server) and what
+ * the page does after a change (reads the Google statuses again). */
+export interface OwnAppProps { status: GoogleOwnAppStatus | null; onChange: (s: GoogleOwnAppStatus) => void }
+
+/** The Google sign-in row's status when it shows on this page (owners and admins; it can be set here, or is set). */
+function useSignIn(ownApp: OwnAppProps | undefined) {
+  const admin = isAdmin(useMe())
+  return googleSignInShown(admin, ownApp?.status) ? ownApp!.status! : null
+}
 
 /** On the right of the name: its state, Set up while it is not set up, ⋯ with Change setup once it is. */
 function Actions({ name, state, label, on, canSetUp, configured, testId, setUpTestId, onSetUp }: {
@@ -74,9 +88,10 @@ function WhoRow({ count }: { count: number }) {
 }
 
 /** Google Drive's page in Admin › Connectors. */
-export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdminStatus; onSetUp: () => void; onStatus: (s: DriveAdminStatus) => void }) {
+export function DriveAdminPage({ status, onSetUp, onStatus, ownApp }: { status: DriveAdminStatus; onSetUp: () => void; onStatus: (s: DriveAdminStatus) => void; ownApp?: OwnAppProps }) {
   const t = useT()
   const owner = isOwner(useMe())
+  const signIn = useSignIn(ownApp)
   const id = 'google-drive' as const
   const name = builtInName(id)
   const on = driveAdminOn(status)
@@ -91,8 +106,9 @@ export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdm
         canSetUp={status.canSetUp} configured={status.configured} testId="drive-admin-state" setUpTestId="drive-setup" onSetUp={onSetUp} />}
       status={<>
         {line && <Note testId="drive-admin-line">{line}</Note>}
-        {hosted && <Note testId="drive-by-service">{t('appConnectors.byService')}</Note>}
-        {status.configured && status.source === 'server' && <Note testId="drive-by-server">{t('appConnectors.byServer')}</Note>}
+        {/* the Google sign-in row says where sign-in comes from, once */}
+        {hosted && !signIn && <Note testId="drive-by-service">{t('appConnectors.byService')}</Note>}
+        {status.configured && status.source === 'server' && !signIn?.active && <Note testId="drive-by-server">{t('appConnectors.byServer')}</Note>}
         {/* no public address: what to do next and who does it (QA TC-196). It is set on the server computer by whoever
             installed it, not in the app; the owner sees it in System › 연결 방식, and only the owner sees that page */}
         {!status.configured && status.blocked === 'public_host' && (
@@ -106,11 +122,12 @@ export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdm
       about={t('gapps.admin.driveAbout')} canChange={false}
       developer={t(developerKey(id))} category={t(categoryKey(id))} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={DRIVE_TOOL_LIST.map((x) => ({ name: x.name, title: t(`gapps.drive.tool.${x.name}`), changes: x.changes }))}>
-      {/* only once it is set up: a hosted server whose service does not answer yet says only that it is not set up */}
-      {status.configured && (
+      {/* once it is set up; before that only the Google sign-in row (a hosted server whose service does not answer yet) */}
+      {(status.configured || signIn) && (
         <TeamSettings>
-          <WhoRow count={status.connectedMembers} />
-          <DriveAdminSettings onStatus={onStatus} />
+          {signIn && <GoogleSignInRow status={signIn} onChange={ownApp!.onChange} />}
+          {status.configured && <WhoRow count={status.connectedMembers} />}
+          {status.configured && <DriveAdminSettings onStatus={onStatus} />}
         </TeamSettings>
       )}
     </AppDetail>
@@ -119,8 +136,9 @@ export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdm
 
 /** A Google app's page in Admin › Connectors (Gmail, Google Calendar, Google Docs, Google Sheets). `view`: the admin's
  * own view of it (Connectors'), for its tools; none on an older server. */
-export function GoogleAppAdminPage({ status, view, onSetUp, onStatus }: { status: GoogleAppAdminStatus; view?: GoogleAppView; onSetUp: () => void; onStatus: (s: GoogleAppAdminStatus) => void }) {
+export function GoogleAppAdminPage({ status, view, onSetUp, onStatus, ownApp }: { status: GoogleAppAdminStatus; view?: GoogleAppView; onSetUp: () => void; onStatus: (s: GoogleAppAdminStatus) => void; ownApp?: OwnAppProps }) {
   const t = useT()
+  const signIn = useSignIn(ownApp)
   const id = status.id
   const name = builtInName(id)
   const on = googleAppAdminOn(status)
@@ -138,15 +156,17 @@ export function GoogleAppAdminPage({ status, view, onSetUp, onStatus }: { status
         canSetUp={status.canSetUp} configured={status.configured} testId="gapp-admin-state" setUpTestId="gapp-admin-setup" onSetUp={onSetUp} />}
       status={<>
         {line && <Note testId="gapp-admin-line">{line}</Note>}
-        {hosted && <Note testId="gapp-by-service">{t('appConnectors.byService')}</Note>}
-        {status.configured && status.source === 'drive' && <Note testId="gapp-admin-same">{t('gapps.admin.sameAsDriveOn')}</Note>}
+        {/* the Google sign-in row says where sign-in comes from, once */}
+        {hosted && !signIn && <Note testId="gapp-by-service">{t('appConnectors.byService')}</Note>}
+        {status.configured && status.source === 'drive' && !signIn?.active && <Note testId="gapp-admin-same">{t('gapps.admin.sameAsDriveOn')}</Note>}
         {status.configured && status.source === 'server' && <Note testId="gapp-by-server">{t('appConnectors.byServer')}</Note>}
       </>}
       about={t('gapps.admin.about', { name })} canChange={canChange(tools)}
       developer={t(developerKey(id))} category={t(categoryKey(id))} signIn={GOOGLE} links={{ by: GOOGLE, privacy: GOOGLE_PRIVACY, terms: GOOGLE_TERMS }}
       tools={tools}>
-      {(status.configured || showApis) && (
+      {(status.configured || showApis || signIn) && (
         <TeamSettings>
+          {signIn && <GoogleSignInRow status={signIn} onChange={ownApp!.onChange} />}
           {status.configured && <WhoRow count={status.connectedMembers} />}
           {/* one account for the people an admin picks (an older server sends no team: nothing to show) */}
           {status.configured && status.team !== undefined && <GoogleAppTeamRow status={status} onStatus={onStatus} />}

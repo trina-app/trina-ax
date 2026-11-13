@@ -301,3 +301,177 @@ test('a member sees the shared account when it includes them, and has no way to 
   const r = await page.request.post('/api/admin/google-apps/gmail/team/authorize', { data: {} })
   expect(r.status()).toBe(403)
 })
+
+// The company's own Google app (components/integrations/GoogleSignInRow.tsx; docs/site/use/google-own-app.md): one row
+// first in Team settings on all five Google pages, where the hosting service is the Google sign-in (the mock: POST
+// /__test/google-own-app {hosted}). Set from one page, the others show it; going back asks first with the same numbers.
+const ownApp = (page: Page, body: object) => control(page, '/__test/google-own-app', body)
+const DRIVE_BACK = 'https://acme.example.com/api/integrations/google-drive/callback'
+const APPS_BACK = 'https://acme.example.com/api/integrations/google-apps/callback'
+const googleFile = (uris: string[]) => ({ name: 'client_secret_acme.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ web: { client_id: '123-acme.apps.googleusercontent.com', client_secret: 'synthetic-secret', redirect_uris: uris } })) })
+
+test('Admin sets the company\'s own Google app from Gmail\'s page, sees it on Drive\'s page, then goes back to Trina\'s sign-in', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await googleApps(page, { app: 'gmail', client: 'app' })
+  await signIn(page)
+  // a server the hosting service does not serve: no row, the per-card setup as before
+  await page.goto('/admin/connectors/gmail')
+  await expect(page.getByTestId('gapp-admin-detail')).toBeVisible()
+  await expect(page.getByTestId('gsign-row')).toHaveCount(0)
+
+  await ownApp(page, { hosted: true })
+  await googleApps(page, { app: 'gmail', connect: { userId: 'bob', email: 'bob@acme.example.com' } })
+  await page.reload()
+  const row = page.getByTestId('gsign-row')
+  await expect(row).toHaveAttribute('data-state', 'trina')
+  // first in Team settings, and the hosting service's line above is gone (the row says it)
+  const first = await page.getByTestId('team-settings').locator('[data-testid$="-row"], [data-testid="team-who"]').first().getAttribute('data-testid')
+  expect(first).toBe('gsign-row')
+  await expect(page.getByTestId('gapp-by-service')).toHaveCount(0)
+
+  await row.getByTestId('gsign-use').click()
+  const dialog = page.getByTestId('gsign-dialog')
+  await expect(dialog).toHaveAttribute('data-step', 'start')
+  await expect(dialog.getByTestId('gsign-guide')).toHaveAttribute('href', 'https://ax.trina.app/docs/use/google-own-app/')
+  await page.getByTestId('gsign-next').click()
+  await expect(dialog).toHaveAttribute('data-step', 'cloud')
+  await expect(dialog.getByTestId('drive-setup-step')).toHaveCount(6)
+  await expect(dialog.getByTestId('gsign-address-drive')).toHaveText(DRIVE_BACK)
+  await expect(dialog.getByTestId('gsign-address-apps')).toHaveText(APPS_BACK)
+  await page.getByTestId('gsign-next').click()
+  await expect(dialog).toHaveAttribute('data-step', 'add')
+  await expect(page.getByTestId('gsign-next')).toBeDisabled()
+  // a file without the apps' return address: refused here, with the address to add
+  await dialog.getByTestId('drive-setup-file').setInputFiles(googleFile([DRIVE_BACK]))
+  await page.getByTestId('gsign-next').click()
+  await expect(dialog.getByTestId('gsign-error')).toContainText(APPS_BACK)
+  await expect(dialog).toHaveAttribute('data-step', 'add')
+  await dialog.getByTestId('drive-setup-file').setInputFiles(googleFile([DRIVE_BACK, APPS_BACK]))
+  await expect(dialog.getByTestId('gsign-error')).toHaveCount(0)
+  // nothing is sent before Save
+  let sent = 0
+  page.on('request', (r) => { if (/\/api\/admin\/google\/own-app$/.test(r.url()) && r.method() !== 'GET') sent++ })
+  await page.getByTestId('gsign-next').click()
+  await expect(dialog).toHaveAttribute('data-step', 'confirm')
+  await expect(dialog.getByTestId('gsign-people')).toContainText('1')
+  // Back and forward again keep the file
+  await page.getByTestId('gsign-back').click()
+  await expect(dialog.getByTestId('drive-setup-upload')).toContainText('client_secret_acme.json')
+  await page.getByTestId('gsign-next').click()
+  expect(sent).toBe(0)
+  const put = page.waitForRequest((r) => /\/api\/admin\/google\/own-app$/.test(r.url()) && r.method() === 'PUT')
+  await page.getByTestId('gsign-save').click()
+  expect((await put).postDataJSON()).toEqual({ file: (googleFile([DRIVE_BACK, APPS_BACK]).buffer).toString() })
+  await expect(dialog).toHaveCount(0)
+  await expect(row).toHaveAttribute('data-state', 'company')
+  await expect(row).toContainText('Olga')
+
+  // Drive's page: the same row, set
+  await page.goto('/admin/connectors/google-drive')
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'company')
+  await expect(page.getByTestId('drive-by-service')).toHaveCount(0)
+  await expect(page.getByTestId('drive-by-server')).toHaveCount(0)
+
+  // back to Trina's: asks first with the numbers, then all five follow
+  await page.getByTestId('gsign-menu').click()
+  await page.getByTestId('gsign-remove').click()
+  await expect(page.getByTestId('gsign-remove-body')).toBeVisible()
+  const del = page.waitForRequest((r) => /\/api\/admin\/google\/own-app$/.test(r.url()) && r.method() === 'DELETE')
+  await page.getByTestId('dialog-confirm').click()
+  await del
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'trina')
+  await page.goto('/admin/connectors/gmail')
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'trina')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('the company\'s app: Esc closes the dialog unsaved; without Trina\'s sign-in behind it, removing says Google turns off', async ({ page }) => {
+  await reset(page)
+  await ownApp(page, { hosted: true, active: true, canGoBack: false, by: { id: 'olga', name: 'Olga' } })
+  await signIn(page)
+  await page.goto('/admin/connectors/calendar')
+  await page.getByTestId('gsign-menu').click()
+  await page.getByTestId('gsign-replace').click()
+  // Replace starts at the file
+  await expect(page.getByTestId('gsign-dialog')).toHaveAttribute('data-step', 'add')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('gsign-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('gsign-stale')).toHaveCount(0)
+  await page.getByTestId('gsign-menu').click()
+  const item = page.getByTestId('gsign-remove')
+  await expect(item).toHaveClass(/text-danger/)
+  await item.click()
+  await expect(page.getByTestId('gsign-remove-body')).toBeVisible()
+  await expect(page.getByTestId('gsign-people')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'company')
+})
+
+test('a member sees no Google sign-in row; after the switch their Gmail asks to connect again', async ({ page }) => {
+  await reset(page)
+  await ownApp(page, { hosted: true })
+  await googleApps(page, { app: 'gmail', connect: { userId: 'bob', email: 'bob@acme.example.com' } })
+  await signIn(page)
+  await page.goto('/admin/connectors/gmail')
+  await page.getByTestId('gsign-use').click()
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('drive-setup-manual').click()
+  await page.getByTestId('drive-setup-id').fill('123-acme.apps.googleusercontent.com')
+  await page.getByTestId('drive-setup-secret').fill('synthetic-secret')
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-save').click()
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'company')
+
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  // the page the row is on (Admin › Connectors › Gmail) is not theirs: no row there, only the admins-only page
+  await page.goto('/admin/connectors/gmail')
+  await expect(page.getByTestId('admin-only')).toBeVisible()
+  await expect(page.getByTestId('gsign-row')).toHaveCount(0)
+  await expect(page.getByTestId('gapp-admin-detail')).toHaveCount(0)
+  // their own Gmail page: their usual Reconnect, and no row either
+  await page.goto('/connectors/gmail')
+  const detail = page.getByTestId('gapp-detail')
+  await expect(detail.getByTestId('gapp-reconnect')).toBeVisible()
+  await expect(page.getByTestId('gsign-row')).toHaveCount(0)
+  // the setting is not theirs
+  expect((await page.request.get('/api/admin/google/own-app')).status()).toBe(403)
+})
+
+test('the team\'s address changed after the company\'s app was set: the row says so, and Replace opens at the new return addresses', async ({ page }) => {
+  await reset(page)
+  await ownApp(page, { hosted: true, active: true, stale: true, by: { id: 'olga', name: 'Olga' } })
+  await signIn(page)
+  await page.goto('/admin/connectors/sheets')
+  await expect(page.getByTestId('gsign-row')).toHaveAttribute('data-state', 'company')
+  await expect(page.getByTestId('gsign-stale')).toBeVisible()
+  await page.getByTestId('gsign-menu').click()
+  await page.getByTestId('gsign-replace').click()
+  const dialog = page.getByTestId('gsign-dialog')
+  await expect(dialog).toHaveAttribute('data-step', 'cloud')
+  await expect(dialog.getByTestId('gsign-address-drive')).toHaveText(DRIVE_BACK)
+  await expect(dialog.getByTestId('gsign-address-apps')).toHaveText(APPS_BACK)
+  // then the new file, and Save: no longer stale
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('drive-setup-file').setInputFiles(googleFile([DRIVE_BACK, APPS_BACK]))
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-save').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('gsign-stale')).toHaveCount(0)
+})
+
+test('Trina\'s own client file is not taken in the dialog: it asks for Google\'s file or the ID and secret', async ({ page }) => {
+  await reset(page)
+  await ownApp(page, { hosted: true })
+  await signIn(page)
+  await page.goto('/admin/connectors/gmail')
+  await page.getByTestId('gsign-use').click()
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('gsign-next').click()
+  await page.getByTestId('drive-setup-file').setInputFiles({ name: 'client.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ clientId: '123-acme.apps.googleusercontent.com', clientSecret: 'synthetic-secret', redirectUri: DRIVE_BACK })) })
+  await page.getByTestId('gsign-next').click()
+  await expect(page.getByTestId('gsign-error')).toContainText('Download JSON')
+  await expect(page.getByTestId('gsign-dialog')).toHaveAttribute('data-step', 'add')
+})

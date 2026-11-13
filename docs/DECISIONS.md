@@ -26139,3 +26139,32 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   Admin's AddNamed (folder permissions, skill editors, connector requests: Avatar and GroupTile). The invite dialog's
   group checkboxes choose which groups a new person joins; no picker of people. Letter tiles stay neutral, as Avatar
   everywhere (no per-person colour).
+
+## The company's own Google app for the whole Google family (feat/google-own-app, 2026-11-13)
+
+- **Decision:** where the hosting service is the Google sign-in (a hosted server, whether or not the hosting service
+  answers yet, or a self-installed server it serves) and the operator set no Google client, an owner or admin may set
+  the company's own Google app once for Google Drive, Gmail, Calendar, Docs and Sheets (an Internal Workspace app: no
+  Google review, no user limit). This reverses "a hosted server: the hosting service owns its setup"
+  (feat/drive-broker, feat/google-one-library) for this one setting only; the per-card setup and its
+  `blocked: 'hosted'` stay. Plan: `docs/AGENTS/plan/20261113-0917-google-own-app.md`.
+- **Stored as today's files** (`server/src/integrations/google-drive/own-app.ts`): Drive's `client.json` (0600, renamed
+  into place, read back, earlier file restored on failure) and each app set to `{by:'drive'}`; settings
+  `integrations.googleOwnApp` = `{ key, by, at, apps }`, `apps` = each app's setting before it, put back on removal
+  only for an app still on "same as Drive". A `client.json` with another fingerprint is the operator's: never replaced
+  or deleted here. API `GET/PUT/DELETE /api/admin/google/own-app` (owners and admins); audits `google.own_app_set`
+  `{ replaced }` and `google.own_app_removed` `{}`, never the client ID or secret.
+- **The team host on a hosted server.** The hosting service's enrollment writes the team address to `publicOrigins`, never
+  `tunnel` (`shared/src/cloud-protocol/enroll.ts`; a rename changes it the same way), so the Google return addresses were
+  null on every hosted server. `system/deployment.ts publicHostOf`: `tunnel.host`, else on a hosted server the host of
+  the first https `publicOrigins` entry; `redirectUriOf` and `driveRedirectUri` use it. Card-level answers on a hosted
+  server are unchanged (`redirectUri` still hidden behind `blocked: 'hosted'`).
+- **Going back without a restart.** The Drive service decided once at start whether the hosting service signs in, and
+  a server started with a `client.json` had none. Now a `client.json` this setting wrote keeps the hosting service's
+  sign-in ready behind it (oauth.ts), and removal asks the hosting service at once, so all five go back immediately.
+  Removal is "going back" only where there is a hosting service sign-in (`canGoBack`); otherwise Google turns off.
+- **Both return addresses required** in the uploaded file (`client_redirect_drive`, `client_redirect_apps`); the ID and
+  secret are accepted too. A switch either way ends every Google sign-in here (people and shared counts are shown
+  first); nothing is revoked at Google by the switch.
+- **Backups:** like Drive's client today, the file is not in `admin.js archive`; after a restore the admin adds the app
+  again (the guide says so).

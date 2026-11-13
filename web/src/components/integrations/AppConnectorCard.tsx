@@ -62,7 +62,7 @@ export function CardMenu({ label, items, testId }: { label: string; items: CardM
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={label} className="absolute right-0 z-30 mt-1 min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid={`${testId}-items`}>
+        <div role="menu" aria-label={label} className="absolute right-0 z-30 mt-1 w-max max-w-[min(20rem,calc(100vw-2rem))] min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid={`${testId}-items`}>
           {items.map((it) => (
             <button key={it.testId} type="button" role="menuitem" disabled={it.disabled}
               className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-hover focus:bg-hover focus:outline-none disabled:opacity-50 ${it.danger ? 'text-danger' : ''}`}

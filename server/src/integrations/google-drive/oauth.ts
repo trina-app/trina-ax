@@ -4,14 +4,14 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { resolveLayout } from '../../system/layout'
-import { DRIVE_SCOPE, configKey, hash, readDriveConfig, type DriveConfig } from './config'
+import { DRIVE_SCOPE, OWN_APP_SETTING, configKey, hash, readDriveConfig, type DriveConfig } from './config'
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
 import { googleAccountInUse, googleEmailOf, signsTeamGoogleApp } from '../connections/store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
-import { setSetting } from '../../admin/settings'
+import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
@@ -64,7 +64,10 @@ export class GoogleDrive {
     this.clientFromEnv = !!process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE
     this.clientFile = process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE || path.join(dir, 'client.json')
     this.cfg = deps.config !== undefined ? deps.config : readDriveConfig(this.clientFile, ctx.config.teamRoot)
-    const brokerOpts = deps.broker !== undefined ? deps.broker : driveBrokerFor(ctx, !!this.cfg, this.clientFromEnv)
+    // a client.json the company's own Google app wrote (own-app.ts) still keeps the hosting service's sign-in ready
+    // behind it: removing that app goes back to the hosting service at once, without a restart
+    const byOwnApp = !!this.cfg && getSetting<{ key?: unknown }>(ctx.db, OWN_APP_SETTING)?.key === configKey(this.cfg)
+    const brokerOpts = deps.broker !== undefined ? deps.broker : driveBrokerFor(ctx, !!this.cfg && !byOwnApp, this.clientFromEnv)
     this.broker = brokerOpts ? new DriveBroker(brokerOpts, deps.fetch ?? fetch, this.now) : null
     this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)
@@ -78,6 +81,23 @@ export class GoogleDrive {
     sweep()
     const timer = setInterval(sweep, 60_000); timer.unref?.()
     ctx.onClose(() => { clearInterval(timer); for (const set of this.operations.values()) for (const c of set) c.abort() })
+  }
+  /** the hosting service's sign-in is there and its last answer said it serves this team */
+  get brokerServes() { return !!this.broker && this.brokerOk }
+  /** The company's own Google app (own-app.ts) is the client in use: its settings row names this client. The cards then
+   * keep no setup of their own (driveAdminStatus, google-apps adminStatus: blocked 'hosted'). */
+  get ownAppActive() {
+    return !!this.cfg && !this.clientFromEnv && getSetting<{ key?: unknown }>(this.ctx.db, OWN_APP_SETTING)?.key === this.cfgKey
+  }
+  /** For the admin page: the hosting service's answer, asked again when the last one is older than `maxAge`, waiting at
+   * most `wait` ms (a slow hosting service keeps the earlier answer; the page stays fast). */
+  async brokerFresh(maxAge = 60_000, wait = 2_500): Promise<boolean> {
+    if (!this.broker) return false
+    if (this.brokerCheckedAt && this.now() - this.brokerCheckedAt < maxAge) return this.brokerOk
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([this.checkBroker().catch(() => false), new Promise((r) => { timer = setTimeout(r, wait) })])
+    clearTimeout(timer)
+    return this.brokerOk
   }
   /** Read the client file again (after an admin's in-app setup). Connections and flows made with another client then
    * fail their config_key checks and ask the person to reconnect, as after an operator's change and restart. */

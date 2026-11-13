@@ -21,9 +21,9 @@
 // delete in ⋯, its tools, and Team settings with who may use it). Members' personal connections are not listed (nobody but the owner can use
 // those).
 import { Check, Plus, Send } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
+import { SLACK, type DriveAdminStatus, type GoogleAppAdminStatus, type GoogleAppId, type GoogleAppView, type GoogleOwnAppStatus, type Group, type Integration, type IntegrationRequest, type IntegrationTemplate, type RequestableService, type SlackAdmin, type User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { connectorFor, connectorHref, connectorLogo, CONNECTORS, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { connectionRowStatus, covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
@@ -78,6 +78,14 @@ export default function AdminIntegrations() {
   const personal = useLoad(async () => { try { return (await api.call(API.listIntegrations)).personalAllowed } catch { return true } })
   // the admin's own view of them (Connectors'), for each page's tools
   const views = useLoad(async () => { try { return (await api.call(API.myGoogleApps)).apps } catch { return [] as GoogleAppView[] } })
+  // the company's own Google app for all five Google pages (an older server has none: no row). After a change every
+  // Google status is read again: the shared rows ask to reconnect, the cards follow the new app
+  const ownApp = useLoad(async () => { try { return await api.call(API.googleOwnApp) } catch { return null as GoogleOwnAppStatus | null } })
+  const reloadDrive = drive.reload, reloadGapps = gapps.reload, reloadViews = views.reload, setOwnApp = ownApp.setData
+  const ownAppProps = useMemo(() => ({
+    status: ownApp.data,
+    onChange: (st: GoogleOwnAppStatus) => { setOwnApp(st); void reloadDrive(); void reloadGapps(); void reloadViews() },
+  }), [ownApp.data, setOwnApp, reloadDrive, reloadGapps, reloadViews])
   const [gappSetup, setGappSetup] = useState<GoogleAppId | null>(null)
   const setGapp = (st: GoogleAppAdminStatus) => gapps.setData((a) => a?.map((x) => (x.id === st.id ? st : x)) ?? a)
   // a page: /admin/connectors/<id> (a Google connector, a listed service) or /admin/connectors/mcp/<id> (a team
@@ -166,9 +174,9 @@ export default function AdminIntegrations() {
         {(list) => {
           const tpls = templates.data ?? []
           const d = drive.data
-          if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} />
+          if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} ownApp={ownAppProps} />
           const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
-          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} />
+          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} ownApp={ownAppProps} />
           /** a team connection's page: ⋯ (check again, edit, delete), its tools, and Team settings with who may use it */
           const teamPage = (i: Integration) => (
             <ConnectionPage list={adminList} i={i} actions={actions} onEdit={() => setDialog({ existing: i })}
