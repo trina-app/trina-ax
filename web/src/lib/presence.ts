@@ -13,6 +13,10 @@
 //   The same state decides a push to the person's phone (docs/DECISIONS.md "Phone notifications when I'm away": in
 //   use = no phone push). A browser tab cannot see the computer: it is in use only while visible and within 10 minutes
 //   of its own input; a hidden tab is idle at once (it must not keep the phone quiet).
+// - An older desktop app (no word on the computer, e.g. the Mac App Store 0.4.0): macOS calls a Trina window hidden as
+//   soon as other windows cover it, so the browser rule would send the phone every notice while the person works in
+//   another app. There a hidden window keeps the 10-minute rule from its last input or focus instead (as Slack counts a
+//   computer without the system's idle time).
 // - Only a change is sent (input only notes the time, at most once a second), and the current state again after each
 //   hello (the server takes a window that has just connected as in use). Nothing is sent while disconnected.
 import type { WindowActivity } from '@mycel/shared/api'
@@ -29,6 +33,9 @@ export interface ActivityEnv {
   visible(): boolean
   /** a phone: a hidden page is idle at once */
   phone: boolean
+  /** inside the desktop app (its bridge is there), even an older one that tells nothing about the computer: a hidden
+   * window is not idle at once, only 10 minutes after its last input */
+  desktop?: boolean
 }
 
 export class ActivityTracker {
@@ -94,8 +101,8 @@ export class ActivityTracker {
   private compute(): WindowActivity {
     if (this.env.phone) return this.env.visible() ? 'active' : 'idle'
     if (this.locked) return 'idle'
-    // a browser tab (no word from a desktop app): hidden is idle at once
-    if (!this.hasSystem && !this.env.visible()) return 'idle'
+    // a browser tab: hidden is idle at once (a desktop app's window, even an older one, keeps the 10-minute rule)
+    if (!this.hasSystem && !this.env.desktop && !this.env.visible()) return 'idle'
     return this.env.now() - this.last >= this.idleMs ? 'idle' : 'active'
   }
 
@@ -125,13 +132,14 @@ const phone = () => !!mobileApp() || (typeof window !== 'undefined' && !!window.
 const INPUTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'] as const
 
 /** The tracker on this page's own input and visibility; `send` gets each change. */
-export function startActivity(send: (s: WindowActivity) => void, systemActivity?: (cb: (a: { locked: boolean; idleMs: number }) => void) => () => void): ActivityTracker & { detach(): void } {
+export function startActivity(send: (s: WindowActivity) => void, systemActivity?: (cb: (a: { locked: boolean; idleMs: number }) => void) => () => void, inDesktopApp = false): ActivityTracker & { detach(): void } {
   const t = new ActivityTracker(send, {
     now: () => Date.now(),
     setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
     clearTimeout: (id) => globalThis.clearTimeout(id as ReturnType<typeof setTimeout>),
     visible: () => document.visibilityState === 'visible',
     phone: phone(),
+    desktop: inDesktopApp,
   })
   const onInput = () => t.input()
   const onVisible = () => t.visibility()

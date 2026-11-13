@@ -43,11 +43,11 @@ class FakeTimers implements Timers {
   }
 }
 
-function tracker(phone: boolean) {
+function tracker(phone: boolean, desktop = false) {
   const timers = new FakeTimers()
   let visible = true
   const sent: WindowActivity[] = []
-  const env: ActivityEnv = { now: () => timers.now(), setTimeout: (f, ms) => timers.setTimeout(f, ms), clearTimeout: (id) => timers.clearTimeout(id), visible: () => visible, phone }
+  const env: ActivityEnv = { now: () => timers.now(), setTimeout: (f, ms) => timers.setTimeout(f, ms), clearTimeout: (id) => timers.clearTimeout(id), visible: () => visible, phone, desktop }
   const t = new ActivityTracker((s) => sent.push(s), env)
   return { t, timers, sent, show: (v: boolean) => { visible = v; t.visibility() } }
 }
@@ -106,6 +106,34 @@ describe('this window\'s activity (lib/presence.ts)', () => {
     a.timers.advance(IDLE_AFTER_MS)
     expect(a.sent).toEqual(['idle'])
     a.show(true)
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('an older desktop app (no word on the computer): a hidden window keeps the 10-minute rule, not idle at once (TC-834)', () => {
+    const a = tracker(false, true)
+    // covered by other windows (macOS says hidden): still in use
+    a.timers.advance(60_000)
+    a.show(false)
+    expect(a.t.current).toBe('active')
+    expect(a.sent).toEqual([])
+    // idle 10 minutes after the last input (the hidden page gets none)
+    a.timers.advance(IDLE_AFTER_MS - 60_000 - 1000)
+    expect(a.sent).toEqual([])
+    a.timers.advance(2000)
+    expect(a.sent).toEqual(['idle'])
+    // shown again: in use
+    a.show(true)
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('a desktop app that tells about the computer: the same as before (the flag changes nothing once it speaks)', () => {
+    const a = tracker(false, true)
+    a.t.system({ locked: false, idleMs: 0 })
+    a.show(false)
+    expect(a.sent).toEqual([])
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    a.t.system({ locked: false, idleMs: 1000 })
     expect(a.sent).toEqual(['idle', 'active'])
   })
 

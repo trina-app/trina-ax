@@ -25040,7 +25040,11 @@ default.
   `lock-screen` / `unlock-screen` events (a focus event while locked does not unlock). A browser tab cannot see the
   computer: it is in use only while visible and within 10 minutes of its own input; **a hidden tab is idle at once**
   (it must not keep the phone quiet). This also changes the team's dot for a hidden browser tab ("접속 상태": away 10
-  minutes after the last input before; now at once). Older desktop apps: their page's rule as a browser tab.
+  minutes after the last input before; now at once). Older desktop apps (no `systemActivity`, such as the Mac App
+  Store 0.4.0): **not** the browser-tab rule. macOS calls a window hidden as soon as other windows cover it, so the
+  owner's phone rang for every DM while they worked at the Mac (QA TC-834, 2026-11-13). Inside the desktop app (its
+  bridge is there) a hidden window keeps the 10-minute rule from its last input or focus; the computer's own input is
+  counted only by a desktop app that tells it.
 - **A cancelled push does not silence the run.** A room notice holds the next one of its run back while unread (one
   notice per unread run). A notice whose phone push was cancelled (any `cancelled` phone row) no longer does: the next
   message makes a new notice, decided afresh, so leaving the computer with an unread DM does not leave the phone silent
@@ -25060,7 +25064,7 @@ default.
 - **Tests:** `tests/unit/b-push-away.test.ts` (cancel at Trina, not sent later, away sends, grace, manual away, Always,
   the caller's own, another person's phone untouched, the start wait, the next unread DM after a cancel, Web Push /
   retries / the owner's locked password check still go), `tests/unit/b-presence.test.ts` (inUse, silence,
-  grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
+  grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word, an older desktop app's hidden window),
   `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.
 
 ## Always allow on every card (feat/always-allow-everywhere, 2026-11-13, product owner)
