@@ -6,14 +6,15 @@
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Search, User, Users, X } from 'lucide-react'
+import { ChevronDown, Search, User, Users, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { Group, ProjectAccessPreview, ProjectParticipant, SubjectType } from '@mycel/shared/api'
+import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { isAdmin, useMe } from '../store/session'
 import { IconButton } from './ui'
+import { Avatar } from './Avatar'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
 export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly ProjectParticipant[]) => {
@@ -68,8 +69,10 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * 새로 and a row taken out stays, struck through, with 되돌리기 until the save. Focusing the search lists everyone who
  * can be added, typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
  * Esc, or focus leaves the picker (the search is cleared then). After × or 되돌리기 the keyboard stays on the row.
+ * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
+ * list them.
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -77,10 +80,15 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   fixed?: ReadonlyMap<string, string>
   /** the members as saved now: rows show what the save changes */
   current?: readonly ProjectParticipant[]
+  /** group id → the people in the project it holds */
+  groupPeople?: ReadonlyMap<string, readonly ProjectPerson[]>
   testId?: string
 }) {
   const t = useT()
   const [q, setQ] = useState('')
+  // the group rows opened to show their people
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (id: string) => setOpened((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -196,10 +204,25 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
             const s = sub(x)
+            const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
+            const open = opened.has(x.subjectId)
             return (
-              <li key={k} className="flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 sm:min-h-10" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
+              <li key={k} className="flex min-h-11 flex-wrap items-center gap-x-2.5 rounded-md px-2 py-1.5 sm:min-h-10" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
                 <RowIcon group={x.subjectType === 'group'} />
-                {/* the name on one line; the title, the group tag and the tag under it */}
+                {/* the name on one line; the title, the group tag and the tag under it (a group's: how many people, and
+                    the name opens to list them) */}
+                {inside ? (
+                  <button type="button" aria-expanded={open} aria-controls={`${testId}-group-${x.subjectId}`} onClick={() => toggle(x.subjectId)} className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left" data-testid={`participant-group-toggle-${x.subjectId}`}>
+                    <span className="min-w-0">
+                      <span className={clsx('block truncate group-hover:underline', out && 'text-faint line-through')}>{x.name}</span>
+                      <span className="block truncate text-xs text-faint">
+                        {[s, t('projects.groupPeople', { n: inside.length })].join(' · ')}
+                        {fresh && <> · <span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
+                      </span>
+                    </span>
+                    <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform motion-reduce:transition-none', open && 'rotate-180')} aria-hidden />
+                  </button>
+                ) : (
                 <span className="min-w-0 flex-1">
                   <span className={clsx('block truncate', out && 'text-faint line-through')}>{x.name}</span>
                   {(s || fresh) && (
@@ -209,6 +232,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                     </span>
                   )}
                 </span>
+                )}
                 {tag === undefined && (out ? (
                   <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
                     {t('projects.undoRemove')}
@@ -218,6 +242,17 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                     <X size={14} aria-hidden />
                   </IconButton>
                 ))}
+                {inside && (
+                  <ul id={`${testId}-group-${x.subjectId}`} hidden={!open} className="basis-full pt-1 pb-0.5 pl-6" aria-label={x.name} data-testid={`participant-group-people-${x.subjectId}`}>
+                    {open && inside.map((u) => (
+                      <li key={u.id} className="flex min-h-7 items-center gap-2 text-xs text-muted">
+                        <Avatar user={u} size={18} />
+                        <span className="min-w-0 truncate">{u.name}</span>
+                      </li>
+                    ))}
+                    {open && !inside.length && <li className="text-xs text-faint">{t('projects.groupNobody')}</li>}
+                  </ul>
+                )}
               </li>
             )
           })}

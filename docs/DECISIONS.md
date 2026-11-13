@@ -25489,3 +25489,22 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Tests:** `web/test/unit/connector-detail-tools.test.tsx`, `integration-always-allow.test.tsx`; the e2e specs that
   used the row (integrations, connectors-hub, integration-templates, integration-requests, skill-tool-counts, a11y,
   phone-admin-pages).
+
+## Who is in a project, by face (feat/project-people, 2026-11-13)
+
+- **Why:** a team project's page said only "멤버 5명" and "새 채팅은 멤버 5명이 볼 수 있어요", and its members dialog listed
+  the creator and a group ("리드 · 부서"), never the five people. Nobody could see who was in it.
+- **Decision:** a small stack of faces (4 and "+N", on a phone too; the photo or the first letter; the name on hover)
+  under a shared project's name, one line, no card. Clicking it opens the members dialog, for everyone who sees the
+  page. The 멤버 line keeps its number with the same faces after it. A personal project shows none.
+- **The dialog:** a group row says how many people it holds and opens to list them; under the picker one list of
+  everyone in it now, each person once even when two groups hold them, the creator and "나" marked. A member who does
+  not manage it gets that list only, the line that says who changes the members, and 닫기.
+- **The server:** `GET /api/projects/:id/people` answers the project's audience (who reads its folder now, which in
+  projects/ is its members only), each person once with `avatarVersion`, the creator first, then by name. Its members
+  and whoever manages it (the owner, admins, its creator) read it; anyone else gets 404 as for no project. The groups,
+  expanded, go only to whoever manages it: they read its participants in GET …/access anyway, and a member is not told
+  which groups were chosen. A personal project is 409 `project_personal`; a project made before outside projects/ is
+  409 `project_legacy` (the owner and admins see it by their role, so its list would tell a member who they are); one
+  in the trash has nobody in it. Tests: `tests/unit/b-project-people.test.ts`, the permission matrix
+  (`alice-project-people`), `web/test/e2e/project-people.spec.ts`.
