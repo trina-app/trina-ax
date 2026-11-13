@@ -141,14 +141,16 @@ describe('asked again while a read is on its way', () => {
     let release!: () => void
     hold = new Promise((r) => (release = r))
     const read = readManagedList()
-    // deleted on this page while the read was on its way (the server answered before the delete)
+    // deleted on this page, and the other renamed, while the read was on its way (the server answered before both)
     useProjects.getState().setManaged((xs) => xs.filter((x) => x.id !== P1))
+    useProjects.getState().put({ ...projects[1]!, name: 'Acme sales 2' })
     const answered = projects
-    projects = projects.filter((p) => p.id !== P1)
+    projects = projects.filter((p) => p.id !== P1).map((p) => ({ ...p, name: 'Acme sales 2' }))
     release()
     await read
     expect(answered).toHaveLength(2)
     expect(useProjects.getState().managed!.map((p) => p.id)).toEqual([P2])
+    expect(useProjects.getState().byId[P2]!.name).toBe('Acme sales 2')
     // read once more after it, which is the server's own list now
     expect(count(MANAGE)).toBe(3)
   })

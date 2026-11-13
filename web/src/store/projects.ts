@@ -134,10 +134,14 @@ export function readManagedList(o: { fresh?: boolean } = {}): Promise<void> {
   const read: Promise<void> = api.call(API.listProjects, { query: { manage: '1' } }).then(
     (r) => {
       if (mine !== generation) return
+      // changed here while it was asked (a delete, a save): this answer may be from before it (put would write its
+      // older copies back too), read once more instead
+      if (edits !== managedEdits) {
+        managedAgain = true
+        return
+      }
       useProjects.getState().put(...r.items)
-      // changed here while it was asked (a delete, a save): this answer may be from before it, read once more
-      if (edits !== managedEdits) managedAgain = true
-      else useProjects.setState({ managed: r.items })
+      useProjects.setState({ managed: r.items })
     },
   ).finally(() => {
     if (managedRead === read) managedRead = null
