@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 19:36
 - Branch: `fix/fullcheck-findings`
-- Status: in progress
+- Status: done
 - Where: Team AX core web (`web/src/`, `web/test/`). Why: every item is core UI (the Trina list, the chat, projects,
   files, activity) and the test mock (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (web only; no API, no migration)
@@ -64,4 +64,10 @@ touched areas, the e2e specs of the Trina panel, projects, files trash, activity
 
 ## Result
 
-(filled in at the end)
+Built as planned, all eleven items. Differences:
+- TC-1080: the caps (`capGroups`, "N more", and a new "Show all projects (N more)") came back from #651 into the shared
+  `HistoryGroups`; a task's runs count as one row (`newestRunsOnly`). The groups sit under the section's words.
+- TC-1086: one new key, `chat.footerPrivate`, for a deleted or read-only chat of mine (Home's footer now says "Only you
+  can see new chats."). The "Only me" chip did not change, so the server's refusal that names it still matches.
+- TC-1084: the tags go on the name's line in the member pickers for people (groups keep their second line).
+- Page title positions (Projects list, Team skills vs the project page) left for a design pass (a shared column width).

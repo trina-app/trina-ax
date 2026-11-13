@@ -11785,6 +11785,53 @@ and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트�
 - Tests: `web/test/unit/{rail,rail-badges,phone-nav,phone-tabs-v2,screens,app-nav,phone-project-files,nav-menus}`,
   `tests/unit/b-chat-groups.test.ts`, e2e `rail`, `trina-panel`, `phone-tabs`, `projects-panel`.
 
+## Trina history: the default view is grouped by project (fix/fullcheck-findings, 2026-11-14, QA TC-1080..1089)
+
+넣을 곳: Team AX core web (`web/src/components/panels/TrinaList.tsx`, `web/src/components/history/HistoryGroups.tsx`,
+`web/src/lib/historyGroups.ts`), 이유: the full screen check of combined dev found the Trina panel's filter saying
+"Group by: Project" (its default) over a flat "Recent" list; the grouped list showed only once a setting differed from
+the default. Plan: `docs/AGENTS/plan/20261113-1936-fullcheck-findings.md`.
+
+- **The default view is what the menu says.** 트리나 기록 in the Trina panel is grouped by project, as "Trina history by
+  project" (owner, 2026-11-12) built it, with that decision's caps: at most **five projects** (the newest activity
+  first), **three rows** each, "N개 더 보기" opens a group in place, "프로젝트 모두 보기 (N개 더)" the projects past five
+  (for this visit); the chats outside projects last as "기타 기록"; a person with no chat in a project sees no headers,
+  one flat list; a folded group keeps the strongest mark of its chats, and "N more" / "Show all" the mark of the rows
+  they hold back; + per project; the chat on screen and its project stay in sight past the caps. A task's runs are one
+  row (its newest run), so the caps count rows. Any other choice in the filter shows the filtered history as before,
+  **"Group by: None" its flat list** (each project chat with its project's name at the row's end).
+- This **supersedes** the 최근 기록 part of "Projects: a place of their own; the Trina list is pinned and recent"
+  (2026-11-13): the projects keep their own place (rail, phone tab, page); the Trina list groups its own chats by
+  project again because its menu's default says so. The owner reviews the screenshots before this merges.
+- **One name for the AI history**: "트리나 기록" / "Trina history" (`sidebar.aiChats`) on every screen; the panel's
+  "최근 기록" / "Recent" (`trinaList.recent`) is gone.
+- **One way to say who sees a chat**, the same sentence shape everywhere: "이 채팅은 나만 볼 수 있어요." / "Only you can
+  see this chat." (a chat of mine: its header's lock, the line under its box, its footer), "N명이 이 채팅을 볼 수
+  있어요." / "N people can see this chat.", "새 채팅은 나만 볼 수 있어요." / "Only you can see new chats." (Home's footer,
+  a personal project's box), and the switch "나만 보기" / "Only me" (unchanged, so the server's refusal that names it,
+  `shareChatsAlways`, still matches). A deleted or read-only chat of mine says "Only you can see this chat." in its
+  footer (`chat.footerPrivate`), not Home's line.
+- **The move dialog is named by the item that opened it** (`moveLabel`): "프로젝트 바꾸기" / "Change project" for a chat
+  in a project, "프로젝트로 옮기기" / "Move to project" otherwise. `chat.project.title` is gone.
+- **One "나" / "You"** (`projects.youTag`) for me in the member pickers (new project, share a personal project, members),
+  on the name's line with the creator tag ("You · Creator"), so my row is as tall as the others; `projects.whoMe`
+  ("Me") is gone.
+- **One Trash countdown**: "30일 후 삭제" / "removed in 30 days" on phones and computers (`files.purgeIn`;
+  `files.purgeInShort` "gone in …" is gone).
+- **Activity**: the main area beside an empty list says only "No notifications yet."; the hint to pick a notification
+  shows only while the list has some (and "No notifications yet." never shows beside read ones).
+- Smaller: a phone's project chat row keeps the author's face, not the name cut to "O." (read by a screen reader still);
+  a section header with a link (파일's 팀 폴더) uses the same 24px ▸ slot as the others (the touch area from
+  `touch-hit`); the chat title menu is the app's menu box (as wide as its longest item); the trashed-project note's
+  lines under its title are one size (13px) and wrap without a lone last word; "Mentions & threads" in one form.
+- Left for a design pass: the Projects list and Team skills use the 1024px page column (title at x=412 at 1440), the
+  project page its 1080px one (x=384); one column width for all is a wider change.
+- The test mock's `GET /api/chats/groups` returns `projectActivity` as the server does.
+- Tests: `web/test/unit/history-groups.test.ts`, `who-sees.test.tsx`, `chat-title-pin.test.tsx`, `list-pieces.test.tsx`,
+  `project-chat-faces.test.tsx`, `project-form.test.tsx`; e2e `trina-panel`, `activity-panel`, `projects-panel`,
+  `optimistic-chats`, `project-list-menu`.
+- Version impact: patch (web only).
+
 ## Panels: three levels you can tell apart (feat/nav-projects-tab, 2026-11-13, product owner)
 
 넣을 곳: `web/src/components/panels/PanelFrame.tsx` (`PanelSection`, `groupHead`, `groupRows`, `GroupChevron`), used by

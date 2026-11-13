@@ -296,11 +296,13 @@ export function ListHeading({ id, children, className, as: Tag = 'h3', testId }:
   )
 }
 
-/** A group's ▸ (left of its name): folds and opens it */
+/** A group's ▸ (left of its name): folds and opens it. The same 24px slot as a section header's own ▸, so a header
+ * with a link (파일's 팀 폴더) starts its words where the others do (QA TC-1082). A finger gets 44px: on a phone from
+ * touch-hit, on a touch screen wider than a phone a 44px box that takes only the slot's 24px (its margins). */
 export function GroupChevron({ folded, controls, label, onClick, testId }: { folded: boolean; controls: string; label?: string; onClick: () => void; testId: string }) {
   return (
     // no-tooltip: a disclosure's ▸ (aria-expanded)
-    <button type="button" aria-expanded={!folded} aria-controls={controls} aria-label={label} onClick={onClick} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded text-muted hover:text-ink pointer-coarse:size-11" data-testid={testId}>
+    <button type="button" aria-expanded={!folded} aria-controls={controls} aria-label={label} onClick={onClick} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded text-muted hover:text-ink pointer-coarse:h-11 md:pointer-coarse:-mx-2.5 md:pointer-coarse:w-11" data-testid={testId}>
       <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
     </button>
   )

@@ -111,8 +111,8 @@ function keptFor(at: { pathname: string; search: string; state?: unknown; lit: s
 }
 
 /** what 활동's list keeps between visits */
-type KeptFeed = { items: InboxNotification[]; cursor: string | null; unread: number }
-const FEED_KEY = 'feed:panel'
+export type KeptFeed = { items: InboxNotification[]; cursor: string | null; unread: number }
+export const FEED_KEY = 'feed:panel'
 
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
