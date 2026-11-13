@@ -29,11 +29,12 @@ export function ProjectTrashNote({ project, children }: { project: Pick<Project,
     <div className="max-w-3xl rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="project-in-trash">
       <p role="status" className="flex items-start gap-2">
         <Trash2 size={15} className="mt-0.5 shrink-0" aria-hidden />
-        <span>
+        <span className="text-pretty">
           {t('projects.inTrash')}
-          {moved && <span className="block text-xs" data-testid="project-trashed-by">{moved}</span>}
+          {/* the lines under it in one size, the note's meta; no lone last word on a phone */}
+          {moved && <span className="block text-meta" data-testid="project-trashed-by">{moved}</span>}
           {/* nothing to press here: who can bring it back */}
-          {!children && <span className="mt-1 block break-keep" data-testid="project-trash-restores">{restores}</span>}
+          {!children && <span className="block text-meta break-keep" data-testid="project-trash-restores">{restores}</span>}
         </span>
       </p>
       {children && <div className="mt-2 flex flex-wrap items-center gap-2 pl-[23px]">{children}</div>}

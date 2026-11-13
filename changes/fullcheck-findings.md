@@ -1,0 +1,5 @@
+- The Trina history's filter now says "Group by: None", as the list it shows. Choosing "Group by: Project" groups the history: up to five projects with three chats each, "N more" and "Show all projects", the chats outside projects last.
+- One name for the AI history: "Trina history" everywhere (the panel said "Recent").
+- Who sees a chat is said one way: "Only you can see this chat.", "N people can see this chat.", "Only you can see new chats." The move dialog's title is the menu item that opened it ("Change project" or "Move to project").
+- Member pickers say "You" for you, on your name's line. The Trash says "removed in 30 days" on phones and computers. Activity with no notifications no longer asks you to pick one.
+- Phones: a project chat row shows the author's face without a cut-off name; Files' "Team folders" heading lines up with "Project folders". The chat title menu is as wide as its longest item.

@@ -63,10 +63,28 @@ describe('the words', () => {
         return { text: el.textContent, kind: el.getAttribute('data-who'), lock: el.innerHTML.includes('lucide-lock'), tag: el.tagName }
       } finally { await m.unmount() }
     }
-    expect(await lineOf(null, 'chat')).toEqual({ text: '나만 보는 채팅', kind: 'me', lock: true, tag: 'SPAN' })
+    // one sentence shape for who sees a chat, mine and shared alike (QA TC-1086)
+    expect(await lineOf(null, 'chat')).toEqual({ text: '이 채팅은 나만 볼 수 있어요.', kind: 'me', lock: true, tag: 'SPAN' })
+    expect(await lineOf(null, 'new')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', kind: 'me', lock: true, tag: 'SPAN' })
     expect(await lineOf({ audience: 4, alone: true }, 'chat')).toEqual({ text: '나와 관리자만 봐요', kind: 'admins', lock: false, tag: 'SPAN' })
     expect(await lineOf({ audience: 4 }, 'chat')).toEqual({ text: '4명이 이 채팅을 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
     expect(await lineOf({ audience: 2 }, 'new')).toEqual({ text: '새 채팅은 2명이 볼 수 있어요.', kind: 'people', lock: false, tag: 'SPAN' })
+  })
+
+  test('English: "Only you can see this chat." / "N people can see this chat." / "Only you can see new chats." / "Only me", and the footers say the same (QA TC-1086)', () => {
+    const en = (k: Parameters<typeof translate>[1], p?: Record<string, number>) => translate('en', k, p)
+    expect(en('chat.privateLabel')).toBe('Only you can see this chat.')
+    expect(en('chat.sharedSeen', { n: 3 })).toBe('3 people can see this chat.')
+    expect(en('projects.newChatMe')).toBe('Only you can see new chats.')
+    expect(en('projects.onlyMe')).toBe('Only me')
+    // the footers end with the same sentences: Home (a new chat), a chat only I see, a shared chat
+    expect(en('chat.footer').endsWith(en('projects.newChatMe'))).toBe(true)
+    expect(en('chat.footerPrivate').endsWith(en('chat.privateLabel'))).toBe(true)
+    expect(en('chat.footerShared', { n: 3 }).endsWith(en('chat.sharedSeen', { n: 3 }))).toBe(true)
+    for (const loc of ['ko', 'id', 'ja', 'es'] as const) {
+      expect(translate(loc, 'chat.footer').endsWith(translate(loc, 'projects.newChatMe'))).toBe(true)
+      expect(translate(loc, 'chat.footerPrivate').endsWith(translate(loc, 'chat.privateLabel'))).toBe(true)
+    }
   })
 })
 

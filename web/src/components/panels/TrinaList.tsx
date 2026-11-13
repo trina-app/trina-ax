@@ -2,7 +2,7 @@
 // "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
 //   답을 기다려요 N (one quiet row while an AI chat waits on me) ·
 //   고정 (my pinned chats) ·
-//   최근 기록 (its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
+//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
 // Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx), and a personal
 // project ("내 프로젝트") is where a person keeps their own chats together: the owner dropped the Trina list's folders
@@ -27,6 +27,7 @@ import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { foldRuns } from '../nav/TaskRunsRow'
+import { aiName } from '../../lib/tabs'
 import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
 
 export { useFolds } from './folds'
@@ -128,7 +129,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
       {/* always there once read, empty or not: its "⋯" holds 삭제한 기록 and its "더 보기" the next page (the first page may
           be all pinned chats) */}
       {loaded && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           <ul>
             {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
             {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
@@ -163,8 +164,8 @@ function RecentMenu() {
   const navigate = useNavigate()
   return (
     <MenuButton
-      label={t('trinaList.recentMenu')}
-      tip={t('trinaList.recentMenu')}
+      label={t('trinaList.recentMenu', { name: aiName(t) })}
+      tip={t('trinaList.recentMenu', { name: aiName(t) })}
       compact
       muted
       items={[{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }]}

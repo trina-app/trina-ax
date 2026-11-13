@@ -80,8 +80,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // private: the lock in the header and the full sentence under the box (QA TC-1068)
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
-      await expect(page.getByTestId('chat-private')).toHaveAccessibleName('나만 보는 채팅')
-      await expect(seenLine(page)).toContainText('나만 보는 채팅')
+      await expect(page.getByTestId('chat-private')).toHaveAccessibleName('이 채팅은 나만 볼 수 있어요.')
+      await expect(seenLine(page)).toContainText('이 채팅은 나만 볼 수 있어요.')
       await audit(page, 'private chat in a team project')
       // the title menu's share: the confirm first, the focus on 취소 (QA TC-1073)
       await page.getByTestId('chat-menu').click()
@@ -165,7 +165,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'move dialog from the row menu')
       await dialog.getByTestId('chat-project-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
-      // a computer's 최근 기록 names the row's project; it is still private
+      // a computer's 트리나 기록 names the row's project; it is still private
       if (!vp.phone) await expect(list.getByRole('listitem').filter({ hasText: '경쟁사 메모' }).getByTestId('chat-row-project')).toHaveText('Launch')
       // the one place to share chats brought or moved in: the project page's line
       await page.goto(`/projects/${id}`)

@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { ListHeading, ListRow, ListSection, rowName } from '../../src/components/list/List'
+import { GroupChevron, ListHeading, ListRow, ListSection, rowName } from '../../src/components/list/List'
 import { useSession } from '../../src/store/session'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 
@@ -173,6 +173,26 @@ describe('ListSection and ListHeading', () => {
     try {
       expect(m.get('h').localName).toBe('h2')
       expect(m.get('h').className).toContain('text-list-head font-semibold text-list-head-ink')
+    } finally {
+      await m.unmount()
+    }
+  })
+})
+
+// QA TC-1082: a header with a link (파일's 팀 폴더) put its words ~20px right of the others on a phone: its ▸ was a 44px
+// box. The same 24px slot as a header's own ▸; a finger gets its 44px from touch-hit.
+describe('GroupChevron', () => {
+  test('the 24px slot of a section header\'s ▸, at every width; the touch area from touch-hit', async () => {
+    const m = await mount(<GroupChevron folded={false} controls="x" label="Team folders" onClick={() => {}} testId="chev" />)
+    try {
+      const cls = m.get('chev').className.split(' ')
+      expect(cls).toContain('size-6')
+      expect(cls).toContain('touch-hit')
+      // a phone: nothing wider than the slot (touch-hit's ::after takes the taps); a wider touch screen: 44px that takes
+      // only 24px of the row (-10px each side)
+      expect(cls.filter((c) => /(^|:)(size|w|min-w)-/.test(c) && c !== 'size-6' && !c.startsWith('md:pointer-coarse:'))).toEqual([])
+      expect(cls).toContain('md:pointer-coarse:w-11')
+      expect(cls).toContain('md:pointer-coarse:-mx-2.5')
     } finally {
       await m.unmount()
     }

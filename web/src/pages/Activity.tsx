@@ -26,7 +26,8 @@ import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, 
 import { optimisticPending } from '../lib/optimistic'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
-import { peekCached, rememberCached } from '../store/listCache'
+import { peekCached, rememberCached, useListCache } from '../store/listCache'
+import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
@@ -97,6 +98,10 @@ export default function Activity() {
 function ActivityOpened({ id }: { id: string | null }) {
   const t = useT(), locale = useLocale()
   const unread = useActivityUnread()
+  // the list beside it (components/panels/ActivityPanel.tsx keeps what it read): with nothing in it there is nothing to
+  // pick, so the hint to pick one is left out (QA TC-1088)
+  const feed = useListCache((s) => s.data[FEED_KEY] as KeptFeed | undefined)
+  const empty = !!feed && !feed.items.length && !feed.cursor
   const [item, setItem] = useState<InboxNotification | null>(null)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0)
@@ -130,8 +135,8 @@ function ActivityOpened({ id }: { id: string | null }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center" data-testid="activity-pick">
         <Bell size={28} className="text-faint" aria-hidden />
-        <p className="text-sm font-semibold text-ink">{unread > 0 ? t('notifications.unread', { count: unread }) : t('notifications.empty')}</p>
-        <p className="max-w-sm text-sm text-muted">{t('activity.pick')}</p>
+        {unread > 0 ? <p className="text-sm font-semibold text-ink">{t('notifications.unread', { count: unread })}</p> : empty && <p className="text-sm font-semibold text-ink">{t('notifications.empty')}</p>}
+        {!empty && <p className="max-w-sm text-sm text-muted" data-testid="activity-pick-hint">{t('activity.pick')}</p>}
       </div>
     )
   return (

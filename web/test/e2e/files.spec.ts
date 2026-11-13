@@ -325,7 +325,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
           expect(Math.abs(Date.parse(item.purgeAt) - Date.parse(item.deletedAt) - days * 86400_000)).toBeLessThan(1000)
           savedDates.set(item.id, item.purgeAt)
         }
-        // "removed for good in N days", the saved date in its tooltip
+        // "removed in N days", the saved date in its tooltip
         const entry = page.locator(`[data-testid="trash-item"][data-path="${item.originalPath}"]`)
         await expect(entry.getByTestId('trash-purge')).toHaveAttribute('title', translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
       }

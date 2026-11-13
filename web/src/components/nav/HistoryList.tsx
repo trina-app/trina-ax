@@ -23,7 +23,8 @@ import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from './ChatItem'
-import { foldRuns } from './TaskRunsRow'
+import { foldRuns, newestRunsOnly } from './TaskRunsRow'
+import { useLocation } from 'react-router-dom'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
@@ -39,9 +40,14 @@ const VIEW = {
 } as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
 type ViewKey = keyof typeof VIEW
 export type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
-const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'project', sort: 'updated' }
+/** Group by: None (the owner, 2026-11-14: the Trina list is the flat 트리나 기록, so its menu says so; docs/DECISIONS.md
+ * "Trina history: Group by defaults to None") */
+const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'none', sort: 'updated' }
 /** what differs from the default only, so a later default reaches everyone who did not choose otherwise */
-const VIEW_KEY = 'mycel.sidebar.historyView'
+const VIEW_KEY = 'mycel.sidebar.historyView.v2'
+/** 2026-11-12 to 11-14 the default was Group by: Project, so what this key kept never held a grouping (the default was
+ * left out): its other choices are kept, and the grouping is the new default (a "project" here was never chosen) */
+const PROJECT_DEFAULT_KEY = 'mycel.sidebar.historyView'
 /** before 2026-11-12 (docs/DECISIONS.md "Trina history by project") the whole view was kept, its grouping the old
  * default "by date" for everyone who ever touched the menu: its other choices are kept, a grouping by date is not */
 const OLD_VIEW_KEY = 'mycel.sidebar.recentsView'
@@ -55,11 +61,13 @@ const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number, inProjec
   const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
   return ok && fresh
 }
-const rememberedView = (key = VIEW_KEY, base: RecentsView = DEFAULT_VIEW): RecentsView => {
+export const rememberedView = (key = VIEW_KEY, base: RecentsView = DEFAULT_VIEW): RecentsView => {
   try {
     const kept = localStorage.getItem(key)
-    const v = JSON.parse(kept ?? (key === VIEW_KEY ? localStorage.getItem(OLD_VIEW_KEY) : null) ?? '{}') as Partial<RecentsView>
-    if (kept === null && key === VIEW_KEY && v.group === 'date') delete v.group
+    const between = kept === null && key === VIEW_KEY ? localStorage.getItem(PROJECT_DEFAULT_KEY) : null
+    const v = JSON.parse(kept ?? between ?? (key === VIEW_KEY ? localStorage.getItem(OLD_VIEW_KEY) : null) ?? '{}') as Partial<RecentsView>
+    // an older key's grouping is the default it had then, never a choice: the new default takes its place
+    if (kept === null && key === VIEW_KEY && (between !== null ? v.group === 'project' : v.group === 'date')) delete v.group
     const out = { ...base }
     for (const k of Object.keys(VIEW) as ViewKey[]) if (v[k] && v[k] in VIEW[k].options) (out as Record<string, string>)[k] = v[k] as string
     return out
@@ -118,7 +126,10 @@ export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
  * The whole history as the filter and sort in the panel's header choose it (`viewState`; the list has no title row of
  * its own). `peek` is the hover quick view of the column it sits in.
  */
-export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () => void; peek: ChatPeek; viewState: RecentsViewState }) {
+/** `caps`: the Trina panel's grouped view (by hand, "Group by: Project"): at most five projects and three rows each,
+ * "N more" and "Show all projects" (docs/DECISIONS.md "Trina history by project"); none: every project, every row (the
+ * phone's drawer) */
+export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate: () => void; peek: ChatPeek; viewState: RecentsViewState; caps?: { projects: number; rows: number } }) {
   const t = useT()
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
@@ -163,7 +174,11 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
   }, [chats, view, cards, here, inProject])
   // the history by project (docs/DECISIONS.md "Trina history by project"); without a chat in a project there are no
   // headers: the plain list, by date or in one list
-  const byProject = useHistoryGroups(filtered)
+  // capped, a task's runs count as one row (its newest run stands for them)
+  const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
+  const groupRows = useMemo(() => (caps ? newestRunsOnly(filtered) : filtered), [caps, filtered])
+  const groupCaps = useMemo(() => (caps ? { ...caps, open: openChat } : {}), [caps?.projects, caps?.rows, openChat]) // eslint-disable-line react-hooks/exhaustive-deps
+  const byProject = useHistoryGroups(groupRows, groupCaps)
   const grouped = byProject.grouped && view.group === 'project'
   const dateGroups = useMemo(() => {
     const by = view.group === 'none' ? 'none' : 'date'

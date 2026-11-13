@@ -15,6 +15,7 @@ import { mayShareChat, openShareChat } from './ShareChat'
 import type { MenuItem } from '../rooms/MenuButton'
 import { useChatActions } from './chatActions'
 import { useChatLinkItem } from './copyChatLink'
+import { moveLabel } from './ChatProject'
 
 export interface ChatMenuOptions {
   /** the items' test ids: `<testId>-pin`, `-copy-link`, `-rename`, `-move`, `-delete` */
@@ -52,7 +53,7 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat, onChanged)), testId: `${testId}-rename` }] : []),
     ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
-    ...(rights.canMove && onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
+    ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
     ...(share ? [{ label: t('chat.shareChat.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => openShareChat(chat.id)), testId: `${testId}-share` }] : []),
     ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat, (c, trashed) => (trashed ? onRemoved?.(c) : onChanged?.(c)))), testId: `${testId}-delete` }] : []),
   ]

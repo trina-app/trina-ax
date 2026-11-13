@@ -535,7 +535,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}</p>}
+        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footerPrivate')}</p>}
       </div>
       {members && project && (
         <ProjectMembersDialog

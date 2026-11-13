@@ -483,9 +483,10 @@ describe('a chat row\'s "…"', () => {
       expect(sent).toEqual([{ projectId: P }])
       expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
-      // the row is under its project's header at once (docs/DECISIONS.md "Trina history by project")
-      expect(m.get('history-group-name').textContent).toBe('Acme launch')
-      expect(m.get('history-group-rows').querySelectorAll('a').map((a) => a.textContent)).toEqual(['채팅 1'])
+      // Group by: None by default (docs/DECISIONS.md "Trina history: Group by defaults to None"): the row stays in the
+      // one list, no project header
+      expect(m.find('history-group')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('a').map((a) => a.textContent)).toEqual(['채팅 1'])
     } finally {
       await m.unmount()
     }

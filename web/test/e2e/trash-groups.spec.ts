@@ -54,7 +54,7 @@ test('an admin: names and places, one row for three copies, restores the oldest 
   await expect(sheet.getByTestId('trash-where')).toHaveText('Company-wide › Sales')
   await expect(sheet.getByTestId('trash-copies')).toHaveText('3 copies')
   await expect(sheet).toContainText('Deleted by Dana')
-  await expect(sheet.getByTestId('trash-purge')).toHaveText(/^removed for good in (29|30) days$/)
+  await expect(sheet.getByTestId('trash-purge')).toHaveText(/^removed in (29|30) days$/)
   await expect(page.getByTestId('trash-list')).not.toContainText(/(groups|shared|skills|users)\//)
 
   // open the row: three copies, newest first, each with who and its own Restore

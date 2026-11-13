@@ -4,7 +4,7 @@
 // the name is a 44px button.
 import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import { MenuButton } from './rooms/MenuButton'
+import { MenuButton, menuBoxCls, menuRowCls } from './rooms/MenuButton'
 import { useMediaQuery } from './ui'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useOverlayEntry } from '../lib/backCloses'
@@ -88,14 +88,16 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
         />
       )}
       {open && !phone && (
-        <div role="menu" aria-label={name} className="absolute top-full left-0 z-30 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
+        // the app's menu box and row (rooms/MenuButton.tsx): as wide as its longest item, so "Share with project
+        // members" stays on one line (QA TC-1083)
+        <div role="menu" aria-label={name} className={clsx('absolute top-full left-0 z-30 mt-1', menuBoxCls)}>
           {items.map((it) => (
             <button
               key={it.testId}
               role="menuitem"
               type="button"
               disabled={it.disabled}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:bg-transparent', it.danger && 'text-danger')}
+              className={clsx(menuRowCls, '-outline-offset-2 hover:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:bg-transparent', it.danger && 'text-danger')}
               onClick={() => {
                 setOpen(false)
                 it.onSelect()

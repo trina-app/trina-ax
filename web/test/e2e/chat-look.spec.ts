@@ -34,7 +34,7 @@ async function chatWithTwoAnswers(page: Page, projectId?: string) {
 const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요.'
 /** who sees a chat of one person (docs/DECISIONS.md "Who sees it, always"): after the note on a computer, alone on a phone */
 // an open chat only I see: the full sentence (QA TC-1068)
-const ONLY_ME = '나만 보는 채팅'
+const ONLY_ME = '이 채팅은 나만 볼 수 있어요.'
 
 /** The box holds the text, the mic and the send key (the mic right before send, as in ChatGPT); attach and the engine
  * are in the row under it. */

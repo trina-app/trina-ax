@@ -92,7 +92,9 @@ export function ChatFaces({ shared, focusFrom }: { shared: NonNullable<Chat['sha
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <Avatar user={one} size={20} />
-        <span className="truncate" data-testid="project-chat-by">{one.name}</span>
+        {/* a phone keeps the face only, so the title has the room (a name cut to "O." said nothing; QA TC-1081); a
+            screen reader still reads it */}
+        <span className="truncate max-md:sr-only" data-testid="project-chat-by">{one.name}</span>
       </span>
     )
   }

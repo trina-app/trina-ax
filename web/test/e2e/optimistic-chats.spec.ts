@@ -31,7 +31,7 @@ async function holdPatch(page: Page, id: string, o: { refuse?: boolean } = {}) {
   return { release, seen: () => seen }
 }
 
-/** The chat's project as the 트리나 list shows it: 최근 기록's tag on a computer; on a phone the history drawer has no
+/** The chat's project as the 트리나 list shows it: 트리나 기록's tag on a computer; on a phone the history drawer has no
  * tag, so the row's menu, whose item says "프로젝트 바꾸기" once the chat is in one (and "프로젝트로 옮기기" when not). */
 async function expectInProject(page: Page, id: string, title: string, inIt: boolean) {
   if (!isPhone(page)) {
@@ -108,7 +108,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const held = await holdPatch(page, id)
       await openRowMenu(page, 'Competitor notes')
       await page.getByTestId('chat-row-move').click()
-      const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
+      const dialog = page.getByRole('dialog', { name: t['chat.project.add'] })
       await dialog.getByRole('radio', { name: /Launch/ }).check()
       await dialog.getByTestId('chat-project-save').click()
       await expect(dialog).toHaveCount(0)
@@ -131,7 +131,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const held = await holdPatch(page, id, { refuse: true })
       await openRowMenu(page, 'Competitor notes')
       await page.getByTestId('chat-row-move').click()
-      const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
+      const dialog = page.getByRole('dialog', { name: t['chat.project.add'] })
       await dialog.getByRole('radio', { name: /Launch/ }).check()
       await dialog.getByTestId('chat-project-save').click()
       await expect.poll(held.seen).toBe(true)

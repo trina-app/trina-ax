@@ -1513,7 +1513,7 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
   const me = useMe()
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
   const options = useParticipantOptions()
-  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.whoMe')]] : []), [me, t])
+  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.youTag')]] : []), [me, t])
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
