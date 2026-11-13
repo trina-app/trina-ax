@@ -1,14 +1,16 @@
-// 트리나's list in the rail's panel and on the phone's 트리나 tab (docs/DECISIONS.md "The Trina list: pinned, recent";
-// "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
+// 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, recent"; "Trina history by project";
+// "Trina history: the default view is grouped by project"). In this order, each a section whose label folds it
+// (PanelFrame.tsx PanelSection):
 //   답을 기다려요 N (one quiet row while an AI chat waits on me) ·
 //   고정 (my pinned chats) ·
-//   최근 기록 (its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
-//   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
-// Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx), and a personal
-// project ("내 프로젝트") is where a person keeps their own chats together: the owner dropped the Trina list's folders
-// (2026-11-13; the server keeps their tables, and a chat once filed in one is in 최근 기록 like any other).
-// The pinned chats come from the server's one read (store/chatGroups.ts); 최근 기록 is the chat list this window keeps
-// (store/chats.ts, as the filtered history reads it), so its rows and marks are live.
+//   트리나 기록 (its "⋯" holds 삭제한 기록; every other chat of mine, newest first, grouped by project as the filter's
+//   default "Group by: Project" says, like the Claude Code desktop sidebar: at most five projects with three rows each,
+//   "N more" in place, "Show all", the chats outside projects last as "Other chats"; a person with no chat in a project
+//   sees no headers, one flat list; "더 보기" reads the next page). Any other choice in the filter shows the filtered
+//   history instead (TrinaPanel.tsx, nav/HistoryList.tsx), "Group by: None" its flat list.
+// The owner dropped the Trina list's folders (2026-11-13; the server keeps their tables, and a chat once filed in one is
+// in 트리나 기록 like any other). The pinned chats come from the server's one read (store/chatGroups.ts); 트리나 기록 is
+// the chat list this window keeps (store/chats.ts, as the filtered history reads it), so its rows and marks are live.
 import clsx from 'clsx'
 import { Pin, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,14 +21,16 @@ import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/ch
 import { useChats } from '../../store/chats'
 import { loadChatList } from '../../lib/chatListLoad'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
-import { readProjectList } from '../../store/projects'
+import { readProjectList, useProjects } from '../../store/projects'
 import { cardChats, useWaitingChats } from '../../store/sessionMarkers'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
+import { HistoryGroups, useHistoryGroups } from '../history/HistoryGroups'
+import { aiName } from '../../lib/tabs'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
-import { foldRuns } from '../nav/TaskRunsRow'
+import { foldRuns, newestRunsOnly } from '../nav/TaskRunsRow'
 import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
 
 export { useFolds } from './folds'
@@ -105,8 +109,12 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   // 최근 기록: every chat of my list that is not pinned, newest first (a chat made only to hold attachments is not a
   // conversation yet)
   const recent = useMemo(() => chats.filter((c) => !isUnused(c) && !c.pinnedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
+  // grouped by project (the filter's default): a task's runs are one row (its newest run), so the caps count rows
+  const rows = useMemo(() => newestRunsOnly(recent), [recent])
+  const caps = useMemo(() => ({ projects: GROUP_PROJECTS, rows: GROUP_ROWS, open: openChat }), [openChat])
+  const byProject = useHistoryGroups(rows, caps)
 
-  if (!groups) {
+  if (!groups || (loaded && !byProject.ready)) {
     if (error) return <LoadError error={error} onRetry={() => void readChatGroups()} what="chats" minor className="mx-1 mt-2" />
     return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   }
@@ -128,11 +136,18 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
       {/* always there once read, empty or not: its "⋯" holds 삭제한 기록 and its "더 보기" the next page (the first page may
           be all pinned chats) */}
       {loaded && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
-          <ul>
-            {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
-            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
-          </ul>
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
+          {byProject.grouped ? (
+            // the groups' headers and rows start under the section's words, as the flat list's rows do (sectionBody)
+            <div className="pl-[calc(var(--spacing-row-indent)-0.75rem)]">
+              <HistoryGroups state={byProject} row={row} pool={recent} onNavigate={noop} menuSpace />
+            </div>
+          ) : (
+            <ul>
+              {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
+              {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
+            </ul>
+          )}
           {cursor && (
             <button
               type="button"
@@ -150,12 +165,29 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         </PanelSection>
       )}
 
-      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatGroupsChanged() }} />}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => {
+        const id = moving.id
+        setMoving(null)
+        // the moved row is a new row in its project's group: the keyboard goes to its "···" where it is now
+        requestAnimationFrame(() => {
+          if (document.activeElement && document.activeElement !== document.body) return
+          listRef.current?.querySelector(`a[href="/c/${id}"]`)?.closest('li')?.querySelector<HTMLElement>('[data-testid="chat-row-menu"]')?.focus()
+        })
+      }} onMoved={(c) => {
+        useChats.getState().upsertChat(c)
+        chatGroupsChanged()
+        // the dialog read the project list a moment ago: the row goes to its project's group at once
+        const p = c.projectId ? useProjects.getState().byId[c.projectId] : undefined
+        if (p) byProject.projects.add(p)
+      }} />}
     </div>
   )
 }
 
 const noop = () => {}
+/** the default list's caps (docs/DECISIONS.md "Trina history by project"): five projects, three rows each */
+const GROUP_PROJECTS = 5
+const GROUP_ROWS = 3
 
 /** 최근 기록's "⋯": 삭제한 기록 (the deleted AI chats, /trash), rarely needed, so not a row of its own */
 function RecentMenu() {
@@ -163,8 +195,8 @@ function RecentMenu() {
   const navigate = useNavigate()
   return (
     <MenuButton
-      label={t('trinaList.recentMenu')}
-      tip={t('trinaList.recentMenu')}
+      label={t('trinaList.recentMenu', { name: aiName(t) })}
+      tip={t('trinaList.recentMenu', { name: aiName(t) })}
       compact
       muted
       items={[{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }]}

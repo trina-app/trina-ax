@@ -125,7 +125,7 @@ test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 
   // a read row: 15px at 400 in a 30px row, as 파일's
   expect(ai.row).toEqual({ ...looks.files!.row, weight: '400' })
   expect(ai.row.height).toBe(30)
-  // every row of 트리나's list is one height; the tags end at one edge, 13px, at most 40% of their row
+  // every row of 트리나's list is one height; a tag ends at the row's edge, 13px, at most 40% of its row
   const list = page.getByTestId('trina-list')
   const heights = await list.locator('li > a').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
   expect(new Set(heights)).toEqual(new Set([30]))
@@ -133,8 +133,11 @@ test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 
     const r = e.getBoundingClientRect(), row = e.closest('a')!.getBoundingClientRect()
     return { right: Math.round(r.right), share: r.width / row.width, size: getComputedStyle(e).fontSize, text: e.textContent }
   }))
-  expect(tags.map((x) => x.text)).toEqual(expect.arrayContaining(['acme-web', 'Hello', 'ops']))
-  expect(tags.length).toBe(4)
+  // grouped by project (QA TC-1080): the projects are headers, so a row's tag is only the task's time; the headers
+  // are the section headers' look
+  expect(tags.length).toBe(1)
+  await expect(list.getByTestId('history-group-name')).toHaveText(['ops', 'Hello', 'acme-web'])
+  expect(await list.getByTestId('history-group-head').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))).toEqual([30, 30, 30, 30])
   expect(new Set(tags.map((x) => x.right)).size, JSON.stringify(tags)).toBe(1)
   for (const x of tags) {
     expect(x.size).toBe('13px')

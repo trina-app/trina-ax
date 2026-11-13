@@ -23,6 +23,14 @@ import { SessionMarker } from '../chat/ChatState'
 export type Run = Chat & { schedule: NonNullable<Chat['schedule']> }
 const isRun = (c: Chat): c is Run => !!c.schedule && !c.pinnedAt
 
+/** The list without the older runs of each task (its newest run stands for the task's one row): what a capped list
+ * counts, so "N more" never holds back only runs that fold into a row already in sight (panels/TrinaList.tsx) */
+export const newestRunsOnly = (chats: readonly Chat[]): Chat[] => {
+  const newest = new Map<string, Chat>()
+  for (const c of chats) if (isRun(c) && !(c.updatedAt <= (newest.get(c.schedule.id)?.updatedAt ?? ''))) newest.set(c.schedule.id, c)
+  return chats.filter((c) => !isRun(c) || newest.get(c.schedule.id) === c)
+}
+
 /** A list's rows with the runs of each task folded into one row where its newest run is (`chats` in the list's order,
  * newest first). `row`: the list's own row for every other chat. `pool`: the whole list when `chats` is one of its
  * groups (a date, a project): the task's row is in the group of its newest run only, and counts all of its runs. `task`:

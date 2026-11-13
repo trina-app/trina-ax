@@ -3,7 +3,8 @@
 // chats out of sight.
 import { describe, expect, test } from 'bun:test'
 import type { Chat } from '@mycel/shared/api'
-import { groupByProject, hasProjects, OTHER, strongestMark } from '../../src/lib/historyGroups'
+import { capGroups, groupByProject, hasProjects, OTHER, strongestMark } from '../../src/lib/historyGroups'
+import { newestRunsOnly } from '../../src/components/nav/TaskRunsRow'
 
 const A = '01900000-0000-7000-8000-00000000aaaa'
 const B = '01900000-0000-7000-8000-00000000bbbb'
@@ -44,6 +45,57 @@ describe('groupByProject', () => {
     const groups = groupByProject(list, sees)
     expect(groups.map((g) => g.key)).toEqual([B, A])
     expect(titles(groups[1]!.chats)).toEqual(['a', 'c'])
+  })
+})
+
+describe('capGroups', () => {
+  // seven projects with four chats each, newest project first (P0), and three other chats
+  const projects = Array.from({ length: 7 }, (_, p) => `01900000-0000-7000-8000-0000000000${String(p).padStart(2, '0')}`)
+  const list = newestFirst([
+    ...projects.flatMap((id, p) => Array.from({ length: 4 }, (_, i) => chat(80 - p * 10 - i, id))),
+    chat(1), chat(2), chat(3),
+  ])
+  const groups = groupByProject(list, () => true)
+
+  test('the Trina panel\'s default list (QA TC-1080): the latest five projects and the other chats, three rows each, the rest behind "N more"', () => {
+    const { shown, behind } = capGroups(groups, { projects: 5, rows: 3 })
+    expect(shown.map((g) => g.key)).toEqual([...projects.slice(0, 5), OTHER])
+    expect(behind.map((g) => g.key)).toEqual(projects.slice(5))
+    expect(shown[0]!.rows.length).toBe(3)
+    expect(shown[0]!.hidden.length).toBe(1)
+    expect(titles(shown[0]!.rows)).toEqual(['chat 80', 'chat 79', 'chat 78'])
+    // the other chats: three, nothing hidden
+    expect(shown.at(-1)!.hidden).toEqual([])
+  })
+
+  test('"N more" opens a group in place: all its rows', () => {
+    const { shown } = capGroups(groups, { projects: 5, rows: 3, opened: new Set([projects[1]!]) })
+    expect(shown[1]!.rows.length).toBe(4)
+    expect(shown[1]!.hidden).toEqual([])
+    expect(shown[0]!.rows.length).toBe(3)
+  })
+
+  test('the chat on screen is always in sight: its row past the cap, its project past the five (before the other chats)', () => {
+    const deep = list.find((c) => c.projectId === projects[6] && c.title === 'chat 17')!
+    const { shown, behind } = capGroups(groups, { projects: 5, rows: 3, open: deep.id })
+    expect(shown.map((g) => g.key)).toEqual([...projects.slice(0, 5), projects[6], OTHER])
+    expect(behind.map((g) => g.key)).toEqual([projects[5]])
+    expect(titles(shown[5]!.rows)).toEqual(['chat 20', 'chat 19', 'chat 18', 'chat 17'])
+  })
+
+  test('a whole panel (no caps): every project, every row', () => {
+    const { shown, behind } = capGroups(groups)
+    expect(shown.length).toBe(8)
+    expect(behind).toEqual([])
+    expect(shown.every((g) => g.hidden.length === 0)).toBe(true)
+  })
+})
+
+describe('newestRunsOnly', () => {
+  test('a task\'s runs count as one row, its newest run (the caps count rows, not runs)', () => {
+    const run = (n: number) => chat(n, A, { schedule: { id: 'task-1', title: 'Daily brief' } as Chat['schedule'] })
+    const list = newestFirst([run(1), run(5), chat(3, A), run(2)])
+    expect(titles(newestRunsOnly(list))).toEqual(['chat 5', 'chat 3'])
   })
 })
 
