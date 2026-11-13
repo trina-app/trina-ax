@@ -534,4 +534,68 @@ describe('to a teammate by name', () => {
     const off = postToRoomOff({ shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId: chat, locale: 'en' } as never })
     expect(off!.summary).toBe('post_to_room -> refused: scheduled run')
   })
+
+  test('a 1:1 chat that matches only by a part of the name does not take the post: the other people who match are asked about', async () => {
+    // A: a 1:1 chat with "Hana Kim"; "Hana" also matches Hana Park and Hana Kimura, who have none
+    const dm = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'hana' } })).id
+    const before = authored(dm, 'alice')
+    const a = await turn('alice', post({ room: 'Hana', text: 'Lunch?', own_words: true }))
+    expect(a.card).toBeNull()
+    expect(a.content).toContain(`room_id=${dm}`)
+    expect(a.content).toContain('room="person:hanap"')
+    expect(a.content).toContain('room="person:hanak"')
+    // Hana Kim stands in the list as her 1:1 chat, not twice
+    expect(a.content).not.toContain('room="person:hana"')
+    expect(authored(dm, 'alice')).toBe(before)
+    // her name in full is that 1:1 chat, with no question
+    const full = await turn('alice', post({ room: 'Hana Kim', text: 'Lunch?', own_words: true }), { answer: 'no' })
+    expect(full.card!.question).toBe('Send this to 1:1 chat with Hana Kim (2 people)?')
+    // B: a 1:1 chat with "Gina Han"; "Gina Hanson", a teammate named in full, holds that name
+    h.ctx.db.query("INSERT INTO users (id, username, name, role, status) VALUES ('ginah', 'ghanson', 'Gina Hanson', 'member', 'active')").run()
+    try {
+      const b = await turn('alice', post({ room: 'Gina Hanson', text: 'Hi', own_words: true }))
+      expect(b.card).toBeNull()
+      expect(b.content).toContain(`room_id=${dmOf('alice', 'gina')}`)
+      expect(b.content).toContain('- Gina Hanson · a teammate, no 1:1 chat with the user yet · room="person:ginah"')
+    } finally { h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'ginah'").run() }
+  })
+
+  test('the checks run for a 1:1 chat not made yet: a linked file the other person cannot open is on the card; own words offer no copies', async () => {
+    put('users/alice/notes.md', 'my notes')
+    const text = 'See [notes.md](/files/view?path=users/alice/notes.md)'
+    const r = await turn('alice', post({ room: 'person:hanap', text }), { answer: 'no' })
+    expect(r.card!.question).toBe("Send this to Hana Park in a new 1:1 chat?\n\n1 person can't open 1 linked file.\nWith the files, everyone there can see it.")
+    expect(r.card!.options!.map((x) => x.value)).toContain('send_files')
+    const own = await turn('alice', post({ room: 'person:hanap', text, own_words: true }), { answer: 'no' })
+    expect(own.card!.question).toBe("Send this to Hana Park in a new 1:1 chat?\n\n1 person can't open 1 linked file.")
+    expect(own.card!.options!.map((x) => x.value)).not.toContain('send_files')
+    expect(dmOf('alice', 'hanap')).toBeNull()
+  })
+
+  test('the other person turned off while the card waits: refused, nothing made', async () => {
+    try {
+      const r = await turn('alice', post({ room: 'person:hanap', text: 'Lunch?', own_words: true }), {
+        answer: 'send', meanwhile: () => { h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'hanap'").run() },
+      })
+      expect(r.content).toContain('Hana Park can no longer be reached')
+      expect(dmOf('alice', 'hanap')).toBeNull()
+    } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'hanap'").run() }
+  })
+
+  test('"Always allow" on: own words to a teammate with no 1:1 chat go without a card, the checks still run, the chat is made', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
+    try {
+      const text = 'See [notes.md](/files/view?path=users/alice/notes.md)'
+      const r = await turn('alice', post({ room: 'person:hanak', text, own_words: true }))
+      expect(r.card).toBeNull()
+      const dm = dmOf('alice', 'hanak')!
+      expect(dm).toBeTruthy()
+      const m = (await messagesAs('alice', dm)).at(-1)!
+      expect(m.body).toBe(text)
+      expect(m.sharedAnswer ?? null).toBeNull()
+      // the check ran: Hana Kimura cannot open alice's own file, counted on the audit row
+      expect(audits('alice').at(-1)).toMatchObject({ target: m.id, kind: 'dm', people: 1, via: 'ai', ownWords: true, openedDm: true })
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_to_room') }
+  })
 })

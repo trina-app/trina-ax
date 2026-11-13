@@ -25659,8 +25659,11 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
 - **A teammate by name.** `room` is matched against my rooms first, as before. When none matches, against the team's
   active people but me (`rooms/reader.ts findPeople`): the whole name beats a part of it (two letters at least), the
   username counts only in full, "님"/"씨" after it are dropped. Several equally good: nothing is posted and the AI gets
-  them (`room="person:<id>"`) to ask the user, then calls again with the chosen one. A person named in full who has no
-  1:1 chat with me, next to rooms that match by name (a group chat with them in it): asked too, never sent to the room.
+  the first 10 (and how many match) as `room="person:<id>"` to ask the user, then calls again with the chosen one. The
+  people are matched also when rooms match (review, 2026-11-13): a room match that is only a part of a name gives way to
+  every other person who matches (a 1:1 chat with "Hana Kim" for "Hana" while Hana Park matches too; one with "Bob" for
+  "Bob Kim"), an exact one (`findRoom`'s `exact`) to a person named in full; the people a listed 1:1 chat stands for
+  are not listed twice. Either way the user is asked: with "Always allow" a wrong guess would post with no card.
   Disabled and deleted accounts and I myself are never found, by name or by `person:<id>`; the answer for them is the
   same as for nobody.
 - **The 1:1 chat is made on Send, not before.** With a 1:1 chat already there it is that room, unchanged. With none,
@@ -25671,17 +25674,24 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   checked once more as that room and sent. A key names a 1:1 chat by its two people (`keyRoomOf`, `dm:<dm_key>`), so the
   card's key is the made room's key when nothing changed; a change refuses ("ask again"). [보내지 않기], no answer, or a
   refusal before the chat is made leaves no room behind. A change found after it is made leaves an empty 1:1 chat, as
-  opening one in the app does. The person turned off while the card waited: refused, nothing made.
+  opening one in the app does. The person turned off while the card waited: refused, nothing made. The check after the
+  yes takes the sending budget before the chat is made, and the made room's check takes none (`prepareShare`
+  `budget: false`): two sends from the budget, as for a room, and a refusal for the budget leaves nothing behind.
 - **Own words.** `own_words: true` posts `text` as my own message with no AI-answer quote (no `answer_at`), for what I
   dictated ("X라고 보내줘"). Not with `note` (refused: the text is the whole message). The card labels it "Your message,
-  sent under your name" and shows exactly what goes; it is never cut (a text too long is refused before the card). The
+  sent under your name" and shows exactly what goes; it is never cut (a text too long is refused before the card).
+  [파일도 함께 보내기] is not offered with it: a copy stands in for a link only inside the AI's quote (`attachedLinksOn`),
+  so the card says who cannot open a linked file and the user decides. The
   same checks run: the AI wrote the words and may have read things the other person cannot. Without it, nothing changes:
   the text is quoted as the AI's answer. Not chosen: a separate `message` field (two text fields for one message, and the
   AI could fill both).
 - **Audit.** The `room.answer_share` row adds `ownWords: true` and `openedDm: true` when they apply. Making the 1:1
   chat gets no row of its own: as for every 1:1 chat (`Rooms.openDm`), the audit log is the admins' and must not tell
   them who talks to whom; the row names the room by its kind only.
-- **Unchanged.** Always one card (or "Always allow", the owner's 2026-11-13 rule, which covers this post like any other);
+- **Always allow.** The owner, 2026-11-13: always allow covers a new 1:1 chat too. With it on, the message goes out with
+  no card, also a first message that opens a new 1:1 chat; the checks still run and the chat is still made only when it
+  goes (not offered on a card with [파일도 함께 보내기], as before).
+- **Unchanged.** Always one card unless "Always allow" is on;
   every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
   template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
   `own_words`, and to ask when several match.

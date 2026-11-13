@@ -162,18 +162,23 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const ref = a.data.room
           const refAi = neutralizeTags(oneLine(ref, 120))
           const f = ref.trim().startsWith(PERSON_REF) ? null : findRoom(db, spec.userId, ref)
-          // the team's people when no room of mine matches ("tell bob …"); also a person named in full with no 1:1 chat
-          // yet next to rooms that match by name: the rooms alone would never reach them, so the user is asked
-          const p = f && 'one' in f && f.one.room.kind === 'dm' ? null : findPeople(db, spec.userId, ref)
+          // the team's people too ("tell bob …"): alone when no room of mine matches; next to rooms that match, the people
+          // those rooms do not already stand for (their 1:1 chat listed) are asked about when the room match is only a part
+          // of a name (a 1:1 chat with "Hana Kim" for "Hana" while "Hana Park" matches too; one with "Bob" for "Bob Kim"),
+          // or, next to an exact match, when they are named in full: the rooms alone would never reach them
+          const p = findPeople(db, spec.userId, ref)
           const people = p ? ('one' in p ? [p.one] : p.many) : []
-          const asked = f ? people.filter((t) => t.exact && !t.dmRoomId) : people.length > 1 ? people : []
+          const roomsListed = f ? ('many' in f ? f.many : [f.one]) : []
+          const listed = new Set(roomsListed.map((r) => r.room.id))
+          const others = people.filter((t) => !t.dmRoomId || !listed.has(t.dmRoomId))
+          const asked = f ? (f.exact ? others.filter((t) => t.exact) : others) : people.length > 1 ? people : []
+          const morePeople = p && 'many' in p && p.total > p.many.length ? ` (the first ${p.many.length} of ${p.total} people who match: ask the user for a fuller name)` : ''
           const personLine = (t: Teammate) => `- ${neutralizeTags(oneLine(t.name, 80))} · a teammate${t.dmRoomId ? '' : ', no 1:1 chat with the user yet'} · room="${PERSON_REF}${t.id}"`
           if (asked.length || (f && 'many' in f)) {
-            const roomsListed = f ? ('many' in f ? f.many : [f.one]) : []
             const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))} · last activity ${localTime(r.view.activityAt, rt.timeZone)} · room_id=${r.room.id}`), ...asked.map(personLine)]
-            return no(`Nothing was posted: several rooms or people match "${refAi}". Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>":\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
+            return no(`Nothing was posted: several rooms or people match "${refAi}". Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
           }
-          if (f) roomId = (f as { one: { room: RoomRow } }).one.room.id
+          if (f && 'one' in f) roomId = f.one.room.id
           else if (people.length === 1) {
             const t = people[0]!
             if (t.dmRoomId) roomId = t.dmRoomId
@@ -216,8 +221,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const share = shareTo(roomId)
         const answer = { messageId: spec.assistantId, content }
         type Refused = { refused: { content: { type: 'text'; text: string }[]; isError?: boolean; summary: string } }
-        const prepareIn = async (rid: string): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }> | Refused> => {
-          try { return await prepareShare(ctx, spec.userId, spec.chatId, answer, shareTo(rid), L) } catch (e) { return { refused: refusalOf(e, titleAi, rid) } }
+        // (`budget` false: a 1:1 chat made on the yes, whose check just before took the sending budget, so the post costs
+        // what a post to a room costs, and a refusal for the budget comes before the chat is made)
+        const prepareIn = async (rid: string, budget = true): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }> | Refused> => {
+          try { return await prepareShare(ctx, spec.userId, spec.chatId, answer, shareTo(rid), L, { budget }) } catch (e) { return { refused: refusalOf(e, titleAi, rid) } }
         }
         // a teammate with no 1:1 chat yet: the same checks with them as the audience, nothing made
         const prepare = async (): Promise<PreparedShare | PendingShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }> | Refused> => {
@@ -245,7 +252,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
 
         // ---- the card ----
         const none = await shareChoice(ctx, spec.userId, first, new Set())
-        const all = first.offered.size ? await shareChoice(ctx, spec.userId, first, first.offered) : null
+        // own words go without copies: a copy stands in for a link only inside the AI's quote (rooms/store.ts
+        // attachedLinksOn), so [파일도 함께 보내기] is not offered and the card names who cannot open a linked file
+        const all = !plain && first.offered.size ? await shareChoice(ctx, spec.userId, first, first.offered) : null
         // (a new 1:1 chat: the user and the teammate)
         const people = pendingTo ? 2 : memberCount(db, roomId)
         const quote = root ? oneLine(plainRoomRefs(root.body), 40) || oneLine((db.query('SELECT name FROM room_files WHERE message_id = ? ORDER BY created_at, id LIMIT 1').get(root.id) as { name: string } | null)?.name ?? '', 40) : ''
@@ -315,7 +324,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
             return no(`Nothing was posted: ${neutralizeTags(oneLine(pendingTo.name, 40))} can no longer be reached (their account was turned off or removed from the team). Tell the user.`, 'refused: person not active')
           }
           opened = !existed
-          const real = await prepareIn(roomId)
+          const real = await prepareIn(roomId, false)
           if ('refused' in real) return real.refused
           if (real.status === 'sent') return sent(real, true)
           try { if (!(await fits(real))) return changed() } catch (e) { return refusalOf(e, titleAi, roomId) }

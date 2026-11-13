@@ -492,8 +492,9 @@ export type PendingShare = Omit<PreparedShare, 'room' | 'me'> & { room: { id: st
  * order: a confidential conversation; a room I am in (404 like one that does not exist); the same clientMessageId again
  * (the first message: 'sent', nothing checked or counted again); the thread's first message; the sending budget (and one
  * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
+ * `o.budget`: false only for post_to_room's 1:1 chat just made on the yes, whose check before it took the budget.
  */
-export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain'>, locale: Locale): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
   const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
   if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
@@ -507,23 +508,23 @@ export async function prepareShare(ctx: AppContext, userId: string, chatId: stri
   }
   // a reply in a thread: its first message before anything else (it may be gone since the question was asked)
   if (b.threadRootId !== undefined && !rooms.threadRootOf(room.id, b.threadRootId, me)) fail('conflict', tr('answerShareThreadRoot', locale), { params: { reason: 'thread_root' } })
-  const r = await checkShare(ctx, userId, chatId, answer, b, room.id, keyRoomOf(room), locale)
+  const r = await checkShare(ctx, userId, chatId, answer, b, room.id, keyRoomOf(room), locale, o.budget !== false)
   return { status: 'prepared', room, me, ...r }
 }
 
 /** The budget and the check of prepareShare, for a room (its id) or a 1:1 chat not made yet (its people): the message's
  * body, the check, and the key under `keyRoom` (keyRoomOf). */
-async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale) {
+async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
   const rooms = roomsOf(ctx)
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
-  rooms.takeSendToken(userId)
+  if (budget) rooms.takeSendToken(userId)
   // the person's own words (post_to_room's own_words): the text alone, no note, no quote; never cut (the tool refuses a
   // text too long for one message before any card)
   const { body, at, cut } = b.plain ? { body: answer.content.trim(), at: 0, cut: false } : answerShareBody(b.note, answer.content, answerCutLine(locale))
   // and one more for every LINKS_PER_TOKEN links past the first: a row per file is a count per file, so an answer made to
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
-  for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
+  if (budget) for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
   const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at))
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
