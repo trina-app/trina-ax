@@ -124,7 +124,7 @@ function ChatView({ chatId }: { chatId: string }) {
     error: (e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }),
   })
 
-  // the title menu's "Move to project…" (components/chat/ChatProject.tsx); the project's name before the title comes
+  // the title menu's "Move to project" (components/chat/ChatProject.tsx); the project's name before the title comes
   // from the projects store there
   const projectId = chat?.projectId ?? null
   const [movingProject, setMovingProject] = useState(false)

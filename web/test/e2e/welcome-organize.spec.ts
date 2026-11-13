@@ -157,7 +157,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // the folder picker and ✕ are full-height touch targets under the name
     const select = row(page, '견적서_양식.md').getByTestId('organize-row-folder')
     expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(36)
-    await select.selectOption({ label: '새 폴더…' })
+    await select.selectOption({ label: '새 폴더' })
     await expect(group(page, '새 폴더')).toBeVisible()
     await page.getByTestId('organize-apply').click()
     await expect(page.getByTestId('organize-result-title')).toBeVisible()

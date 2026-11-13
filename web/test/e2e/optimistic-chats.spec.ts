@@ -32,7 +32,7 @@ async function holdPatch(page: Page, id: string, o: { refuse?: boolean } = {}) {
 }
 
 /** The chat's project as the 트리나 list shows it: 최근 기록's tag on a computer; on a phone the history drawer has no
- * tag, so the row's menu, whose item says "프로젝트 바꾸기…" once the chat is in one (and "프로젝트로 옮기기…" when not). */
+ * tag, so the row's menu, whose item says "프로젝트 바꾸기" once the chat is in one (and "프로젝트로 옮기기" when not). */
 async function expectInProject(page: Page, id: string, title: string, inIt: boolean) {
   if (!isPhone(page)) {
     const tag = (await chatList(page)).locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).getByTestId('chat-row-project')
@@ -113,7 +113,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await dialog.getByTestId('chat-project-save').click()
       await expect(dialog).toHaveCount(0)
       await expect.poll(held.seen).toBe(true)
-      // held: the row already shows its project (최근 기록's tag; a phone: its menu offers "프로젝트 바꾸기…")
+      // held: the row already shows its project (최근 기록's tag; a phone: its menu offers "프로젝트 바꾸기")
       await expectInProject(page, id, 'Competitor notes', true)
       // the "moved" toast once the server has it
       await expect(page.getByText(translate('ko', 'chat.project.moved', { name: 'Launch' }))).toHaveCount(0)

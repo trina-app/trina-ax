@@ -1,5 +1,5 @@
 // The "…" on each card of the Projects list (이름 바꾸기, 링크 복사, 삭제 with the project page's own confirm), and
-// "프로젝트로 옮기기…" in a chat row's "…" in the sidebar (the phone's drawer), which a shared project chat never offers.
+// "프로젝트로 옮기기" in a chat row's "…" in the sidebar (the phone's drawer), which a shared project chat never offers.
 // The cards' "…" at 1440 px (a phone's 프로젝트 tab has plain rows without one); the chat row's move at 1440 and 390
 // px (a touch phone: a bottom sheet), with axe on each screen.
 import AxeBuilder from '@axe-core/playwright'
@@ -242,7 +242,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       return { row, menu }
     }
 
-    test('"프로젝트로 옮기기…" opens the move dialog; the chat moves, and its row then says "프로젝트 바꾸기…"', async ({ page }) => {
+    test('"프로젝트로 옮기기" opens the move dialog; the chat moves, and its row then says "프로젝트 바꾸기"', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const id = await project(page, 'Launch', 'marketing')

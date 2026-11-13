@@ -163,7 +163,7 @@ export const memoriesRoutes: RouteModule = {
       return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })),
         ...sections.filter((x) => !listed.has(x.skill.path)).map((x) => ({ ...skillInfo(x.skill), ...(x.by ? { shadowedBy: shadow(x.by) } : {}) }))] }
     })
-    // "옮기기…" on the Skills page (skills/move.ts): where a skill can go, then the move as seen
+    // "옮기기" on the Skills page (skills/move.ts): where a skill can go, then the move as seen
     kit.handle(API.skillMoveOptions, ({ c, auth, query }) => moveOptions(ctx, auth.user.id, query.path, c.get('locale')))
     kit.handle(API.moveSkill, ({ c, auth, body }) => {
       const L = c.get('locale')

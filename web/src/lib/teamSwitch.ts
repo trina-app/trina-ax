@@ -1,4 +1,4 @@
-// "다른 팀으로 전환…" (UX review S6, docs/DECISIONS.md "Switching teams from the logo menu and 나"): only where one app holds
+// "다른 팀으로 전환" (UX review S6, docs/DECISIONS.md "Switching teams from the logo menu and 나"): only where one app holds
 // several teams. The desktop app: its own menu of teams under the pointer, the OS menu's 팀 list (⌘1–9) and "팀 목록…"
 // (DesktopBridge.teamMenu; an older app opens its team list). The phone app: its own "다른 팀에 연결" screen over the team
 // (change-team-v1), the one its signed-out footer opens. A plain browser, phone or computer, is one team per address:
