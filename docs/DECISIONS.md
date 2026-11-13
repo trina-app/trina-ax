@@ -11861,6 +11861,21 @@ headers" every phone list (대화, 프로젝트, 파일, 나, Settings, the draw
 - **Left as they are**: a setting's name keeps `font-medium` (500) at the new 16 px (`SettingRow`), the drawer's fixed
   rows keep their 44 px height, the 36 px faces of a room notice and the people picker; headings, body and the message boxes are not list tokens.
 
+## Connection rows: one look (fix/rows-connections, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/integrations/ConnectionRow.tsx` (`ConnectionRow`, `connectionLogo`). 이유: the list-row audit
+(2026-11-13) found six hand-built rows for connections and AI apps (Connectors' connections and Discover, Admin's member
+asks, the AI apps list, the AI app connections, Admin › AI apps on a phone, Google Drive's card), 56 to 69 px tall with
+36 or 40 px logos, side by side on one page.
+
+- **One row**: a 40 px logo tile, the name (`text-row`, 500) with an optional small label (Team), one cut line under it,
+  and one status or action at the right. Extra lines only where they say something (a connection's expiry, what it
+  lacks). The row is 56 px on a computer and 64 px on a phone (room for a 44 px button), wherever it shows.
+- A row that opens a page keeps its right-side control separate (Discover's +, Reconnect); a phone's AI app row is one
+  button with a › (`whole`).
+- The phone's AI accounts list (Admin › AI accounts) uses `CompactRow` with `onOpen`, like members and groups; its
+  `lead` slot holds the engine's mark.
+
 ## Settings rows: one component, the lists' sizes (fix/type-consistency, 2026-11-13, product owner)
 
 넣을 곳: `web/src/components/settings/SettingRow.tsx` (`SettingRow`, `settingName`, `settingDesc`), the list rows that

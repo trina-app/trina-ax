@@ -25,6 +25,7 @@ import { Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
 import { LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
+import { connectionLogo } from './ConnectionRow'
 import { Tooltip } from '../Tooltip'
 
 const DRIVE = APP_CONNECTORS[0]
@@ -135,7 +136,7 @@ export function DriveTeamShares({ shares }: { shares: DriveTeamShare[] }) {
 export function DriveCard({ s }: { s: DriveConnectionState }) {
   const p = useDriveParts(s)
   return (
-    <AppConnectorCard testId="drive-card" state={p.state} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={p.line} lineTone={p.reconnect ? 'warn' : 'muted'} action={p.action}>
+    <AppConnectorCard testId="drive-card" state={p.state} logo={<DriveLogo className={connectionLogo} />} name={DRIVE.name} line={p.line} lineTone={p.reconnect ? 'warn' : 'muted'} action={p.action}>
       {p.steps}
       <DriveTeamShares shares={p.shares} />
     </AppConnectorCard>

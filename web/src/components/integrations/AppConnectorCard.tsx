@@ -1,9 +1,10 @@
-// One card in the App connectors grid (Settings › App connectors and Admin › App connectors), in the style of the MCP
-// Discover grid: logo, name, one line, and one action on the right (a button or a ⋯ menu). Anything a card shows while
-// it works (waiting for Google, "connect this account?") goes under that line, inside the card.
+// Google Drive's own row among the connections (DriveConnector.tsx DriveCard): a ConnectionRow (logo, name, one line,
+// one action on the right: a button or a ⋯ menu). Anything it shows while it works (waiting for Google, "connect this
+// account?") goes under the row, inside it. CardMenu is the ⋯ every connection's page uses.
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { IconButton } from '../ui'
+import { ConnectionRow } from './ConnectionRow'
 
 export function AppConnectorCard({ logo, name, line, lineTone, action, children, testId, state }: {
   logo: ReactNode
@@ -17,17 +18,9 @@ export function AppConnectorCard({ logo, name, line, lineTone, action, children,
   state?: string
 }) {
   return (
-    <li className="flex flex-col gap-3 rounded-xl bg-subtle p-3" data-testid={testId} data-state={state}>
-      <div className="flex items-start gap-3">
-        {logo}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-row font-medium">{name}</span>
-          <span className={`mt-0.5 block truncate text-xs ${lineTone === 'warn' ? 'text-warn' : 'text-muted'}`} data-testid={`${testId}-line`}>{line}</span>
-        </span>
-        {action && <span className="flex shrink-0 items-center gap-1">{action}</span>}
-      </div>
-      {children}
-    </li>
+    <ConnectionRow testId={testId} data={{ 'data-state': state }} logo={logo} name={name} line={line} lineTone={lineTone} end={action}>
+      <div className="flex flex-col gap-3 pb-3 empty:hidden">{children}</div>
+    </ConnectionRow>
   )
 }
 

@@ -15,7 +15,10 @@ import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, reloadAsked } from '../store/live'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../components/ui'
-import { AiAppDialog, AiAppRows, ConnectorOff } from '../components/integrations/AiAppConnect'
+import { AiAppDialog, AiAppLogo, AiAppRows, appIdFor, ConnectorOff } from '../components/integrations/AiAppConnect'
+import { ConnectionRow, connectionLogo } from '../components/integrations/ConnectionRow'
+import { InitialTile } from '../components/integrations/ConnectorsView'
+import { AI_APPS } from '../lib/connectors'
 import { useMeStrict } from '../store/session'
 import type { AiApp } from '../lib/connectors'
 import { mobileApp } from '../lib/mobile'
@@ -74,20 +77,22 @@ export default function AiApps() {
       {items && items.length > 0 && (
         <div data-testid="connected-apps">
           <p className="mb-1 text-xs font-medium text-muted">{t('aiApps.connectedApps')}</p>
-          <ul className="divide-y divide-line rounded-xl border border-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 px-3 py-2.5" data-testid="connector-item">
-            <div className="min-w-0 flex-1">
-              <p className="break-words text-sm font-medium">{item.clientName}</p>
-              <p className="mt-0.5 text-xs text-muted">{t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · {item.scopes.map(label).join(' · ')}</p>
-              <p className="mt-0.5 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</p>
-              {/* an owner's or admin's connection made before group management came, or while they were a member: it
-                  never gains it (a refresh only narrows), so a new connection gets it */}
-              {/* a connection made before conversations came to AI apps (or with the box unticked) never gains them;
-                  one line, also when it lacks group management too */}
-              {!item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</p>}
-              {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
-            </div>
-            <Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void (phone ? askDisconnect(item) : disconnect(item.id))} data-testid="connector-disconnect">{t('connectors.disconnect')}</Button>
-          </li>)}</ul>
+          <ul className="divide-y divide-line rounded-xl border border-line">{items.map(item => {
+            const app = AI_APPS.find((a) => a.id === (appIdFor(item.clientName) ?? 'other'))
+            return <ConnectionRow key={item.id} testId="connector-item" className="px-3"
+              logo={app ? <AiAppLogo app={app} className={connectionLogo} /> : <InitialTile name={item.clientName} className={connectionLogo} />}
+              name={item.clientName} line={`${t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · ${item.scopes.map(label).join(' · ')}`}
+              more={<>
+                <span className="mt-0.5 block truncate text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</span>
+                {/* an owner's or admin's connection made before group management came, or while they were a member: it
+                    never gains it (a refresh only narrows), so a new connection gets it */}
+                {/* a connection made before conversations came to AI apps (or with the box unticked) never gains them;
+                    one line, also when it lacks group management too */}
+                {!item.scopes.includes('mcp:rooms') && <span className="mt-0.5 block text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</span>}
+                {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <span className="mt-0.5 block text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</span>}
+              </>}
+              end={<Button variant="danger" size="sm" className="max-md:h-11" disabled={busy !== null} busy={busy === item.id} onClick={() => void (phone ? askDisconnect(item) : disconnect(item.id))} data-testid="connector-disconnect">{t('connectors.disconnect')}</Button>} />
+          })}</ul>
         </div>
       )}
       {items && on && items.length === 0 && <p className="text-xs text-muted" data-testid="connectors-empty">{t('connectors.empty')}</p>}

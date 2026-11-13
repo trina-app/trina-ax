@@ -3,11 +3,13 @@
 // something (a username that is not the name, the email a search matched, a status). It replaces the three-line cards
 // (name, then username, then the role on a line of its own). The chip may be a control (the owner's member ↔ admin
 // choice): then it is 44 px tall to tap. `onOpen`: the name and its line open the row's own page (a person's, a
-// group's), as a button the height of the row.
+// group's, an engine's), as a button the height of the row; `lead`: a small mark before the name.
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
-export function CompactRow({ title, chip, second, menu, className, testId, rowRef, onOpen, openLabel }: {
+export function CompactRow({ lead, title, chip, second, menu, className, testId, data, rowRef, onOpen, openLabel }: {
+  /** before the name: a small mark (an engine's logo) */
+  lead?: ReactNode
   title: ReactNode
   chip?: ReactNode
   /** the second line; null, empty or false: none */
@@ -15,6 +17,8 @@ export function CompactRow({ title, chip, second, menu, className, testId, rowRe
   menu?: ReactNode
   className?: string
   testId?: string
+  /** more attributes for the row (data-*) */
+  data?: Record<`data-${string}`, string | undefined>
   rowRef?: React.Ref<HTMLLIElement>
   /** opens the row's own page */
   onOpen?: () => void
@@ -28,7 +32,8 @@ export function CompactRow({ title, chip, second, menu, className, testId, rowRe
     </>
   )
   return (
-    <li ref={rowRef} className={clsx('flex min-h-12 items-center gap-2 py-1.5 text-sm', className)} data-testid={testId}>
+    <li ref={rowRef} className={clsx('flex min-h-12 items-center gap-2 py-1.5 text-sm', className)} data-testid={testId} {...data}>
+      {lead}
       {onOpen ? (
         <button type="button" onClick={onOpen} aria-label={openLabel} className="-my-1.5 flex min-h-12 min-w-0 flex-1 flex-col justify-center py-1.5 text-left -outline-offset-2" data-testid="row-open">
           {text}

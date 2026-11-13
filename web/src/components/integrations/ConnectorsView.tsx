@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
+import { ConnectionRow, connectionLogo } from './ConnectionRow'
 import { Button, IconButton, StickyHeader, inputCls } from '../ui'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
@@ -88,24 +89,17 @@ export interface DiscoverItem { id: string; name: string; line: string; logo: st
 export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) {
   const t = useT()
   return (
-    <li className="flex items-center gap-3 border-b border-line py-3" data-testid="connector-card" data-id={c.id} data-state={c.state}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={c.onOpen} data-testid="connector-open">
-        <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-row font-medium">{c.name}</span>
-          <span className="mt-0.5 line-clamp-1 text-xs text-muted">{c.line}</span>
-        </span>
-      </button>
-      {c.state === 'off' && !admin ? (
-        <span className="max-w-28 shrink-0 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
+    <ConnectionRow testId="connector-card" data={{ 'data-id': c.id, 'data-state': c.state }} className="border-b border-line" onOpen={c.onOpen} openTestId="connector-open"
+      logo={<LogoTile src={c.logo} className={connectionLogo} />} name={c.name} line={c.line}
+      end={c.state === 'off' && !admin ? (
+        <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
+        <Link to="/admin/connectors" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
-        <IconButton label={t('integrations.discover.add', { name: c.name })} className="shrink-0 rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
+        <IconButton label={t('integrations.discover.add', { name: c.name })} className="rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
         </IconButton>
-      )}
-    </li>
+      )} />
   )
 }
 
@@ -140,30 +134,27 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
 }) {
   const t = useT()
   return (
-    // a phone: the row's open button and its status link are 44 px tall, the row as tall as before
-    <li className="flex items-center gap-3 border-b border-line py-2.5 last:border-b-0 max-md:py-2" data-testid={testId} data-id={id} data-state={status}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={onOpen} data-testid="connector-row-open">
-        {logo ? <LogoTile src={logo} className="size-10 rounded-xl p-2" /> : <InitialTile name={name} />}
-        <span className="min-w-0 truncate text-row font-medium">{name}</span>
-        {team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
-      </button>
-      {note}
-      {status === 'connected' || status === 'on' ? (
-        <span className="flex shrink-0 items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
-          <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}
-        </span>
-      ) : status === 'off' ? (
-        <span className="shrink-0 text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
-      ) : status === 'signin' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
-      ) : status === 'reconnect' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
-      ) : status === 'attention' ? (
-        <button type="button" className="touch-hit shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
-      ) : (
-        <Button size="sm" variant="primary" className="shrink-0" onClick={onConnect ?? onOpen} aria-label={`${t('aiApps.connect')}: ${name}`} data-testid="template-connect">{t('aiApps.connect')}</Button>
-      )}
-    </li>
+    <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={onOpen} openTestId="connector-row-open"
+      logo={logo ? <LogoTile src={logo} className={connectionLogo} /> : <InitialTile name={name} className={connectionLogo} />} name={name}
+      badge={team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
+      end={<>
+        {note}
+        {status === 'connected' || status === 'on' ? (
+          <span className="flex items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
+            <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}
+          </span>
+        ) : status === 'off' ? (
+          <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
+        ) : status === 'signin' ? (
+          <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
+        ) : status === 'reconnect' ? (
+          <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('drive.reconnect')}: ${name}`} data-testid="connector-row-status">{t('drive.reconnect')}</button>
+        ) : status === 'attention' ? (
+          <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('connectors.state.attention')}: ${name}`} data-testid="connector-row-status">{t('connectors.state.attention')}</button>
+        ) : (
+          <Button size="sm" variant="primary" className="shrink-0" onClick={onConnect ?? onOpen} aria-label={`${t('aiApps.connect')}: ${name}`} data-testid="template-connect">{t('aiApps.connect')}</Button>
+        )}
+      </>} />
   )
 }
 
