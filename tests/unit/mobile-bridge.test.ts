@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { FileTransfers, type TransferIO } from '../../mobile/src/bridge'
 import { googleOAuthUrl, MAX_FILE_BYTES, parseMessage, sameTeam, safeFileName, type FileMessage } from '../../mobile/src/protocol'
-import { backAction, backGestures, openScript, START_TAB_SCRIPT } from '../../mobile/src/nav'
+import { backAction, backGestures, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from '../../mobile/src/nav'
 const base = { v: 1 as const, nonce: 'a'.repeat(64), generation: 1, id: 'transfer-123' }
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
 const begin = (s: string): FileMessage => ({ ...base, type: 'file-begin', name: 'report.txt', mime: 'text/plain', size: Buffer.byteLength(s), sha256: hash(s) })
@@ -106,6 +106,22 @@ test('nav-v1: the iOS swipe and Android Back follow the page, and stay as before
   expect(backGestures({ canGoBack: false, home: false })).toBe(false)
   expect(backAction({ canGoBack: false, home: false }, true)).toBe('start-tab')
   expect(backAction({ canGoBack: false, home: true }, true)).toBe('exit')
+})
+
+test('iOS swipe at a tab\'s root: off through the module, so WebKit keeps the root\'s picture (swipe-back dark flash)', () => {
+  const root = { canGoBack: false, home: false }, deeper = { canGoBack: true, home: false }
+  // with the module the property stays on (WebKit records its pictures only while it is on) and the module turns the
+  // swipe off at the root; a swipe back to the root then slides over its picture, not WebKit's white view
+  expect(swipeGate(root, true)).toEqual({ prop: true, swipe: false })
+  expect(swipeGate(deeper, true)).toEqual({ prop: true, swipe: true })
+  expect(swipeGate(null, true)).toEqual({ prop: true, swipe: true })
+  // without it (Android, a build without the module, or one that found nothing to set): the property, as before
+  expect(swipeGate(root, false)).toEqual({ prop: false, swipe: false })
+  expect(swipeGate(deeper, false)).toEqual({ prop: true, swipe: true })
+  // the module set nothing while a page is on screen: back to the property; before a page said, no web view yet
+  expect(nativeGateLost(0, root)).toBe(true)
+  expect(nativeGateLost(0, null)).toBe(false)
+  expect(nativeGateLost(2, root)).toBe(false)
 })
 
 test('nav-v1: a tapped notification goes to the page\'s router, or loads the path when nothing in the page takes it', () => {

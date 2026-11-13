@@ -8,6 +8,10 @@
     <meta name="theme-color" content="#0e0c0b" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta name="referrer" content="same-origin" />
+    <!-- the first paint in the chosen look (theme-boot.js sets it on <html>; lib/theme.ts once the app runs) in the page
+         colour (--c-canvas once the stylesheet is in, these values before), so no white frame before the bundle -->
+    <script src="/theme-boot.js"></script>
+    <style>html { background: var(--c-canvas, #fcfbf8); } html.dark { background: var(--c-canvas, #0e0c0b); }</style>
     <!-- the product's icons (web/scripts/make-icons.ts), also with a team logo set: the logo shows only in the sidebar -->
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />

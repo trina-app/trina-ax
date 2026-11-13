@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar'
 import { NavigationBar } from 'expo-navigation-bar'
+import { requireOptionalNativeModule } from 'expo'
 import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
@@ -9,7 +10,7 @@ import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, Back
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { documentId, documentScript, FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
-import { backAction, backGestures, openScript, START_TAB_SCRIPT } from './src/nav'
+import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
 import { SheetGate } from './src/sheet'
@@ -47,6 +48,10 @@ quietForeground()
 type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void; clearCache?(includeDiskFiles: boolean): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
 const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttributes<WebHandle>>
+/** iPhone: the app's own module (modules/edge-swipe) that turns the page's edge swipe on and off while WebKit keeps its
+ * pictures of earlier screens (src/nav.ts swipeGate); null on Android and in a build without it. */
+interface EdgeSwipeModule { setEnabled(enabled: boolean): Promise<number> }
+const edgeSwipe = Platform.OS === 'ios' ? requireOptionalNativeModule<EdgeSwipeModule>('EdgeSwipe') : null
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
 const Look = createContext<Palette>(LIGHT)
 type PageLook = { dark: boolean; system: boolean }
@@ -418,6 +423,16 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // where Back goes in the document on screen, as the page said (nav-v1, src/nav.ts); null until it has (an older
   // server, a page loading): the WebView's own history then, as before
   const [pageNav, setPageNav] = useState<PageNav | null>(null)
+  // iOS: the swipe goes off through the module and the property stays on, so a swipe back to a tab's root slides over
+  // its picture, not a white view (src/nav.ts swipeGate); the property again if the module finds nothing to set
+  const [nativeGate, setNativeGate] = useState(!!edgeSwipe)
+  const gate = swipeGate(pageNav, nativeGate)
+  useEffect(() => {
+    if (!edgeSwipe || !nativeGate) return
+    let gone = false
+    edgeSwipe.setEnabled(gate.swipe).then(set => { if (!gone && nativeGateLost(set, pageNav)) setNativeGate(false) }, () => { if (!gone) setNativeGate(false) })
+    return () => { gone = true }
+  }, [gate.swipe, nativeGate, pageNav])
   const [source, setSource] = useState(address.origin + address.entryPath)
   // the team answered GET /api/me for a signed-in person (src/session-check.ts); until then the address stays under the page
   const [signedIn, setSignedIn] = useState(false), sessionCheck = useRef(0)
@@ -595,9 +610,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
       injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
       javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
-      // iOS: the edge swipe only while Back has somewhere to go in the page (nav-v1, src/nav.ts). No pull-to-refresh: the
-      // page is live, and a pull at the top of a room (or of any list) reloaded the whole app
-      allowsBackForwardNavigationGestures={backGestures(pageNav)} allowsInlineMediaPlayback
+      // iOS: the edge swipe only while Back has somewhere to go in the page (nav-v1; on through the module, gate above). No
+      // pull-to-refresh: the page is live, and a pull at the top of a room (or of any list) reloaded the whole app
+      allowsBackForwardNavigationGestures={gate.prop} allowsInlineMediaPlayback
       // iOS: no ^ v ✓ bar above the keyboard; the page's message box sits right on it (the page has no form to step through)
       hideKeyboardAccessoryView
       // Camera (photo attachment) and microphone (voice input) for the team's own page only; iOS asks once per app.
