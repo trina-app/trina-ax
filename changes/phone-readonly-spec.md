@@ -1,0 +1,1 @@
+- No change for people: a test of the phone's ⋯ sheet in a read-only folder now waits for the folder's listing, where the file panel reads whether a file can be edited, instead of a request it no longer makes.
