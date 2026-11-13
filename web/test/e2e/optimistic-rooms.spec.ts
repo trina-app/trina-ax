@@ -176,3 +176,31 @@ test.describe('1440 wide, the 활동 panel', () => {
     expect(read.count()).toBe(0)
   })
 })
+
+test.describe('1440 wide, rename', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test('a rename shows at once; a refusal puts the old name back and asks again with the name typed', async ({ page }) => {
+    await reset(page)
+    await routeRooms(page, ROOMS)
+    const patch = await hold(page, new RegExp(`/api/rooms/${GROUP}$`), 'PATCH')
+    await signIn(page)
+    await page.goto(`/rooms/${GROUP}`)
+    await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
+    await page.getByTestId('room-menu').click()
+    await page.getByTestId('room-menu-rename').click()
+    const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
+    const field = prompt.getByRole('textbox', { name: '대화방 이름' })
+    await field.fill('디자인 리뷰 2차')
+    await field.press('Enter')
+    await expect.poll(() => patch.count()).toBe(1)
+    // the server has not answered: the new name already shows
+    await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰 2차')
+    await patch.refuse()
+    await expect(page.getByTestId('toast')).toHaveCount(1)
+    await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
+    // asked again, with what was typed
+    await expect(prompt).toBeVisible()
+    await expect(field).toHaveValue('디자인 리뷰 2차')
+  })
+})

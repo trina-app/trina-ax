@@ -426,8 +426,9 @@ interface RoomsState extends RoomsData {
   /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
   createGroup: (userIds: string[], name: string | null) => Promise<Room>
   /** the room's own name ('' or null: the server's name). On screen at once; a failure puts the old name back with a
-   * toast (lib/optimistic.ts), so it never rejects */
-  rename: (roomId: string, name: string | null) => Promise<void>
+   * toast (lib/optimistic.ts). Never rejects: false when it failed and nothing newer of it was made since (the field
+   * can open again with the name typed) */
+  rename: (roomId: string, name: string | null) => Promise<boolean>
   invite: (roomId: string, userIds: string[]) => Promise<void>
   /** leave a group chat: it goes from the list (and every window) */
   leave: (roomId: string) => Promise<void>
@@ -1227,7 +1228,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     async rename(roomId, name) {
       const next = name?.trim() || null
       // on screen at once (the header, the list, the members dialog); a failure puts the old name back and says so
-      await optimistic<string | null, Room>({
+      const r = await optimistic<string | null, Room>({
         key: nameKey(roomId),
         from: get().rooms.find((r) => r.id === roomId)?.name ?? null,
         to: next,
@@ -1236,6 +1237,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         confirmed: (room) => room.name,
         settle: (room) => set((s) => withRoom(s, keepPending(s, room))),
       })
+      return r.ok || !r.newest
     },
 
     async invite(roomId, userIds) {

@@ -74,20 +74,21 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
   const fallbackOf = useNameFallback()
-  const rename = async () => {
+  const rename = async (typed?: string): Promise<void> => {
     const name = await promptDialog({
       title: t('rooms.info.rename'),
       body: t(room.kind === 'group' ? 'rooms.info.nameHintGroup' : 'rooms.info.nameHintTeam'),
       label: t('rooms.info.nameLabel'),
-      initial: room.name ?? '',
+      initial: typed ?? room.name ?? '',
       placeholder: fallbackOf(room),
       allowEmpty: true,
       maxLength: ROOM_NAME_MAX,
       confirm: t('common.save'),
     })
     if (name === null || name === (room.name ?? '')) return
-    // on screen at once; a failure puts the old name back with its own toast (store/rooms.ts rename)
-    await useRooms.getState().rename(room.id, name || null)
+    // on screen at once; a failure puts the old name back with its own toast (store/rooms.ts rename) and asks again
+    // with the name typed
+    if (!(await useRooms.getState().rename(room.id, name || null))) await rename(name)
   }
   const copyLink = async () => {
     await copy(roomLink(room.id))

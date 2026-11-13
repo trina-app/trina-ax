@@ -109,7 +109,8 @@ test('rename that fails: the old name comes back with one toast', async () => {
   expect(listed(r.id).name).toBeNull()
   await tick()
   take(`PATCH /api/rooms/${r.id}`).answer(refused())
-  await done
+  // the caller hears false: its field opens again with the name typed
+  expect(await done).toBe(false)
   expect(listed(r.id).name).toBe('Old plan')
   expect(toasts()).toHaveLength(1)
 })

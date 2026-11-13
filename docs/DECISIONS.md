@@ -24323,7 +24323,8 @@ audit). Each shows at once, goes back on a refusal and ignores an answer that is
   level, the bell and the grey badge at 끄기 change before the answer; what my default gives the room stays as the
   server said. A refusal: the old level and one toast.
 - **Rename a room** (⋯ › 이름 바꾸기, the members dialog; `room:<id>:name`): the trimmed name shows at once and the
-  dialog's field closes; a refusal: the old name and one toast.
+  dialog's field closes; a refusal: the old name and one toast, and the field (or the 이름 바꾸기 prompt) opens again
+  with the name typed (the owner, on the PR).
 - **Edit my message** (`room:<id>:message:<mid>:edit`): the text, its mentions and the edited mark show at once and the box
   closes; a refusal puts the old text back with one toast and opens the box again with the words typed (only when no
   other message's box is open), so nothing typed is lost. A `room.message.updated` from before it is ignored while

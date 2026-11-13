@@ -98,12 +98,14 @@ function NameRow({ room }: { room: Room }) {
   const title = useRoomTitle()(room)
   const fallback = useNameFallback()(room)
   const [draft, setDraft] = useState<string | null>(null)
-  // the new name shows at once; a failure puts the old one back with its own toast (store/rooms.ts rename)
+  // the new name shows at once; a failure puts the old one back with its own toast (store/rooms.ts rename) and opens
+  // the field again with the name typed (unless it was opened again meanwhile)
   const save = () => {
     if (draft === null) return
     const next = draft.trim()
     setDraft(null)
-    if (next !== (room.name ?? '')) void useRooms.getState().rename(room.id, next || null)
+    if (next === (room.name ?? '')) return
+    void useRooms.getState().rename(room.id, next || null).then((ok) => { if (!ok) setDraft((d) => d ?? next) })
   }
   if (draft === null)
     return (
