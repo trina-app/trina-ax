@@ -7,10 +7,11 @@
 // run can reach it, and srt's seccomp filter blocks AF_UNIX inside the sandbox. So the server runs, as the server
 // account:
 //
-//		mycel-sandbox port-forward --cgroup /sys/fs/cgroup/.../trina-dev-<runId>.scope --port N --socket <path>
+//		mycel-sandbox port-forward --cgroup /sys/fs/cgroup/.../trina-dev@<runId>.service --port N --socket <path>
 //
-//	 1. It reads the processes of the run's scope cgroup. Only systemd (root) can move a process into that cgroup, so a
-//	    process of another run is never there (attack A26).
+//	 1. It reads the processes of the run's unit cgroup (trina-dev@<runId>.service; trina-dev-<runId>.scope on an install
+//	    whose root files are older). Only systemd (root) can move a process into that cgroup, so a process of another
+//	    run is never there (attack A26).
 //	 2. It finds the one network namespace, other than its own, where a process of the run listens on port N.
 //	 3. It opens that namespace, and its owner user namespace (NS_GET_USERNS: srt's seccomp helper makes a nested user
 //	    namespace, which does not own the network namespace). The owner must be the server account, and its parent must
@@ -54,7 +55,7 @@ const nsenterPath = "/usr/bin/nsenter"
 const maxConns = 256
 
 var (
-	scopeRe    = regexp.MustCompile(`^trina-dev-[a-z0-9]{16}\.scope$`)
+	scopeRe    = regexp.MustCompile(`^trina-dev(@[a-z0-9]{16}\.service|-[a-z0-9]{16}\.scope)$`)
 	nsLinkRe   = regexp.MustCompile(`^(net|user):\[(\d+)\]$`)
 	srtPorts   = map[int]bool{3128: true, 1080: true}
 	errNoMatch = errors.New("nothing listens on this port in the run")
@@ -72,13 +73,13 @@ func previewPort(p int) error {
 }
 
 // scopeDir checks a --cgroup value of port-forward: a clean path below /sys/fs/cgroup whose last part is a run's
-// scope (trina-dev-<16>.scope).
+// unit (trina-dev@<16>.service, or trina-dev-<16>.scope of an older install).
 func scopeDir(d string) (string, error) {
 	if _, err := cgroupDir(d); err != nil {
 		return "", err
 	}
 	if !scopeRe.MatchString(filepath.Base(d)) {
-		return "", fmt.Errorf("--cgroup must be the folder of a run's scope (trina-dev-<id>.scope), not %q", d)
+		return "", fmt.Errorf("--cgroup must be the folder of a run's unit (trina-dev@<id>.service), not %q", d)
 	}
 	return d, nil
 }

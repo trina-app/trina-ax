@@ -396,16 +396,15 @@ case "$OSID:$OSVER" in debian:12|debian:13|ubuntu:24.04) OS_OK=1 ;; esac
 [ "$OS_OK" = 1 ] || die "unsupported system $OSID $OSVER: Debian 12/13 or Ubuntu 24.04 only (spec 1)"
 # ---- the dev environment on srt: on or off for this install (DEVENV_ON), and why not (DEVENV_WHY). A hosted server gets it
 # from its image (scripts/image/files/mycel-devenv-boot, by plan); a self-install runs install-srt.sh after the server
-# answers (step 15). install-srt.sh supports Debian 13 only. Ubuntu 24.04: not AppArmor (srt's apply-seccomp inherits
-# <ID>-bwrap), but systemd 255 sends polkit no unit name for a transient scope, so devenv.rules.in cannot match.
+# answers (step 15). install-srt.sh supports Debian 13 and Ubuntu 24.04 (runs are instances of a root-installed
+# template unit, so polkit gets the unit name on systemd 255; AppArmor: srt's apply-seccomp inherits <ID>-bwrap).
 DEVENV_ON=0 DEVENV_WHY=""
 if [ "$HOSTED" = 1 ]; then
   { given devenv || given nodevenv; } && die "--dev-env and --no-dev-env are for self-installs; a hosted server's plan decides"
 elif [ "$DEV_ENV" = 0 ]; then DEVENV_WHY="off (--no-dev-env)"
 elif [ "$MINIMAL" = 1 ]; then DEVENV_WHY="off: --minimal leaves out its tools (the default groups)"
 elif [ "$SYSTEMD" = 0 ]; then DEVENV_WHY="off: it needs systemd (its slice and polkit rule)"
-elif [ "$OSID:$OSVER" = ubuntu:24.04 ]; then DEVENV_WHY="off: not on Ubuntu 24.04 yet (its systemd 255 gives polkit no unit name for a transient scope, so the server account cannot be limited to its run scopes)"
-elif [ "$OSID:$OSVER" != debian:13 ]; then DEVENV_WHY="off: install-srt.sh supports Debian 13 only (this is $OSID $OSVER)"
+elif [ "$OSID:$OSVER" != debian:13 ] && [ "$OSID:$OSVER" != ubuntu:24.04 ]; then DEVENV_WHY="off: install-srt.sh supports Debian 13 and Ubuntu 24.04 only (this is $OSID $OSVER)"
 else DEVENV_ON=1; fi
 [ "$DEV_ENV" != 1 ] || [ "$DEVENV_ON" = 1 ] || [ "$HOSTED" = 1 ] || die "--dev-env: the dev environment is ${DEVENV_WHY#off: }"
 MACH=$(uname -m)

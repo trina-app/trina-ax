@@ -69,15 +69,21 @@ func TestPreviewPort(t *testing.T) {
 }
 
 func TestScopeDir(t *testing.T) {
-	good := "/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abcdefgh01234567.scope"
-	if _, err := scopeDir(good); err != nil {
-		t.Errorf("%s: %v", good, err)
+	for _, good := range []string{
+		"/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev@abcdefgh01234567.service",
+		"/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abcdefgh01234567.scope",
+	} {
+		if _, err := scopeDir(good); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
 	}
 	for _, d := range []string{
 		"", "relative/trina-dev-abcdefgh01234567.scope", "/tmp/trina-dev-abcdefgh01234567.scope",
 		"/sys/fs/cgroup/mycel.slice/mycel-server.service", "/sys/fs/cgroup/x/../trina-dev-abcdefgh01234567.scope",
 		"/sys/fs/cgroup/x/trina-dev-short.scope", "/sys/fs/cgroup/x/trina-dev-ABCDEFGH01234567.scope",
-		"/sys/fs/cgroup/x/trina-dev-abcdefgh01234567.service",
+		"/sys/fs/cgroup/x/trina-dev-abcdefgh01234567.service", "/sys/fs/cgroup/x/trina-dev@abcdefgh01234567.scope",
+		"/sys/fs/cgroup/x/trina-dev@short.service", "/sys/fs/cgroup/x/trina-dev@ABCDEFGH01234567.service",
+		"/sys/fs/cgroup/x/other@abcdefgh01234567.service", "/tmp/trina-dev@abcdefgh01234567.service",
 	} {
 		if _, err := scopeDir(d); err == nil {
 			t.Errorf("%q accepted", d)

@@ -1,5 +1,6 @@
 // The parts of a run on srt with no side effects (docs/research/srt-dev-env.md section 2): the srt settings file, the
-// environment of the run and the argv of `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
+// environment of the run, the arguments of a run unit (trina-dev@<runId>.service) and the argv of an older install's
+// `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
@@ -17,6 +18,8 @@ export const SRT_PATHS = {
   runWrap: '/opt/trina/devenv/run-wrap',
   systemdRun: '/usr/bin/systemd-run',
   systemctl: '/usr/bin/systemctl',
+  /** the run template that install-srt.sh writes (scripts/dev-env/srt/devenv-run.service.in) */
+  template: '/etc/systemd/system/trina-dev@.service',
   /** macOS (a Mac team server): srt's CLI with the localhost rules of the run's own port (srt-mac.mjs). It runs
    * full.mjs, so it is also the Full internet CLI there */
   cliMac: `/opt/trina/srt/${SRT_VERSION}/mac.mjs`,
@@ -29,10 +32,17 @@ export const SRT_PATHS = {
 export type DevPlatform = 'linux' | 'darwin'
 export const devPlatform = (p: string = process.platform): DevPlatform => (p === 'darwin' ? 'darwin' : 'linux')
 
-/** The unit name of a run. The polkit rule allows only this pattern (scripts/dev-env/srt/devenv.rules.in). */
-export const UNIT_RE = /^trina-dev-[a-z0-9]{16}\.scope$/
+/** The unit name of a run: an instance of the run template (the polkit rule allows only this pattern,
+ * scripts/dev-env/srt/devenv.rules.in), or the scope of an older install whose root files are not updated yet
+ * (docs/DECISIONS.md "Dev environment on srt: runs as template units"). */
+export const UNIT_RE = /^trina-dev(?:@[a-z0-9]{16}\.service|-[a-z0-9]{16}\.scope)$/
+export const TEMPLATE_UNIT_RE = /^trina-dev@[a-z0-9]{16}\.service$/
 export const RUN_ID_RE = /^[a-z0-9]{16}$/
-export const unitName = (runId: string) => `trina-dev-${runId}.scope`
+/** Is the run template installed? Then every run is an instance of it. Else this install is older and runs are scopes. */
+export const templateInstalled = (file: string = SRT_PATHS.template) => fs.existsSync(file)
+export const unitName = (runId: string, template: boolean = templateInstalled()) => (template ? `trina-dev@${runId}.service` : `trina-dev-${runId}.scope`)
+/** the run id in a unit name of either kind, or '' */
+export const runIdOfUnit = (unit: string) => (UNIT_RE.test(unit) ? unit.slice('trina-dev-'.length, unit.lastIndexOf('.')) : '')
 
 /** Ids that become folder names: a user id or a chat id. Anything else is refused before a path is made. */
 export const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -347,8 +357,9 @@ export function runEnv(i: EnvInput): Record<string, string> {
 
 export interface ScopeLimits { cpus: number; memoryMiB: number; pids: number; runtimeMaxSec: number }
 
-/** The argv of one run: systemd-run makes the scope with the limits, run-wrap sets rlimits and the OOM score and
- * writes the exit code, srt runs the command. One argv, no shell. */
+/** The argv of one run on an older install (no run template yet): systemd-run makes the scope with the limits, run-wrap
+ * sets rlimits and the OOM score and writes the exit code, srt runs the command. One argv, no shell. Remove with the
+ * scope path when every server has the template. */
 export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; exitFile: string; settingsFile: string; command: string; full?: boolean }): string[] {
   const m = o.limits.memoryMiB
   return [
@@ -361,10 +372,36 @@ export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; e
     '--', ...wrappedArgv(o),
   ]
 }
+/** the command line of srt in a run (after run-wrap's `<exit-file> --`) */
+export function srtArgv(o: { settingsFile: string; command: string; full?: boolean }): string[] {
+  return [SRT_PATHS.node, o.full ? SRT_PATHS.cliFull : SRT_PATHS.cli, '--settings', o.settingsFile, '-c', o.command]
+}
+
+/** The run's cgroup values for `systemctl set-property --runtime` before the start of its unit. The template sets
+ * OOMPolicy=kill, MemorySwapMax=0 and a RuntimeMaxSec ceiling; RuntimeMaxSec cannot change at runtime on systemd 255, so
+ * the runner stops a run at its own limit. No MemoryHigh: it throttles a run near the limit for hours in place of an
+ * OOM kill (spike VM, A21). */
+export function unitLimits(l: ScopeLimits): string[] {
+  return [`MemoryMax=${l.memoryMiB}M`, 'MemorySwapMax=0', `CPUQuota=${Math.round(l.cpus * 100)}%`, `TasksMax=${l.pids}`]
+}
+
+/** The arguments file of a run unit (<base>/devenv/run/<runId>.args), which run-wrap --unit reads: NUL-separated
+ * fields, see scripts/dev-env/srt/run-wrap. The environment names are checked; no field may hold a NUL. */
+export function unitArgs(o: { cwd: string; stdoutFile: string; stderrFile: string; exitFile: string; env: Record<string, string>; argv: string[] }): string {
+  const env = Object.entries(o.env).map(([k, v]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`bad environment variable ${k.slice(0, 40)}`)
+    return `${k}=${v}`
+  })
+  if (env.length > 999) throw new Error('too many environment variables')
+  if (!o.argv.length || !path.isAbsolute(o.argv[0]!)) throw new Error('the program of a run must be an absolute path')
+  const fields = ['trina-run-1', o.cwd, o.stdoutFile, o.stderrFile, o.exitFile, String(env.length), ...env, ...o.argv]
+  if (fields.some((f) => f.includes('\0'))) throw new Error('a NUL in the arguments of a run')
+  return fields.map((f) => `${f}\0`).join('')
+}
 
 /** run-wrap and srt, also used with no systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker attack test). */
 export function wrappedArgv(o: { exitFile: string; settingsFile: string; command: string; full?: boolean }): string[] {
-  return [SRT_PATHS.runWrap, o.exitFile, '--', SRT_PATHS.node, o.full ? SRT_PATHS.cliFull : SRT_PATHS.cli, '--settings', o.settingsFile, '-c', o.command]
+  return [SRT_PATHS.runWrap, o.exitFile, '--', ...srtArgv(o)]
 }
 
 /** macOS: the argv of one run (docs/DECISIONS.md "Dev environment on a Mac team server"). sudo switches to the run's

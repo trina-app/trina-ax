@@ -14,7 +14,7 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -517,13 +517,14 @@ describe('the srt settings file', () => {
 })
 
 describe('the argv of a run', () => {
-  test('systemd-run makes a scope that the polkit rule allows, with the limits; srt gets the command as one argument', () => {
+  test('an older install (no run template): systemd-run makes a scope with the limits; srt gets the command as one argument', () => {
     const runId = newRunId()
     expect(runId).toMatch(RUN_ID_RE)
     const a = scopeArgv({ runId, id: 'mycel', limits: { cpus: 1.5, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 }, exitFile: '/x.exit', settingsFile: '/s.json', command: 'npm test; rm -rf /' })
     expect(a.slice(0, 4)).toEqual(['/usr/bin/systemd-run', '--scope', '--quiet', '--no-ask-password'])
-    expect(a).toContain(`--unit=${unitName(runId)}`)
-    expect(unitName(runId)).toMatch(UNIT_RE)
+    expect(a).toContain(`--unit=trina-dev-${runId}.scope`)
+    expect(unitName(runId, false)).toBe(`trina-dev-${runId}.scope`)
+    expect(unitName(runId, false)).toMatch(UNIT_RE)
     expect(a).toContain('--slice=mycel-devenv.slice')
     for (const p of ['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
     expect(a.some((x) => x.startsWith('MemoryHigh'))).toBe(false)
@@ -532,13 +533,135 @@ describe('the argv of a run', () => {
     expect(f).toContain(SRT_PATHS.cliFull)
     expect(f).not.toContain(SRT_PATHS.cli)
   })
-  test('the polkit rule allows the same unit names as the runner, and no .service', () => {
-    const rule = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8')
-    const re = /\/(\^trina-dev-\[a-z0-9\]\{16\}\\\.scope\$)\//.exec(rule)
-    expect(re).not.toBeNull()
-    expect(new RegExp(re![1]!).source).toBe(UNIT_RE.source)
-    expect(rule.split('\n').filter((l) => !l.startsWith('//')).join('\n')).not.toContain('.service')
-    expect(rule).toContain('manage-units')
+  test('a run unit: an instance of the template; its limits for set-property; its name gives back the run id', () => {
+    const runId = newRunId()
+    expect(unitName(runId, true)).toBe(`trina-dev@${runId}.service`)
+    for (const u of [unitName(runId, true), unitName(runId, false)]) { expect(u).toMatch(UNIT_RE); expect(runIdOfUnit(u)).toBe(runId) }
+    expect(unitName(runId, true)).toMatch(TEMPLATE_UNIT_RE)
+    for (const u of ['trina-dev@x.service', `trina-dev@${runId}.scope`, `trina-dev-${runId}.service`, `trina-dev@${runId.toUpperCase()}.service`, `other@${runId}.service`, `trina-dev@${runId}.service.d`]) {
+      expect(UNIT_RE.test(u)).toBe(false)
+      expect(runIdOfUnit(u)).toBe('')
+    }
+    expect(unitLimits({ cpus: 1.5, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 })).toEqual(['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512'])
+    expect(srtArgv({ settingsFile: '/s.json', command: 'npm test; rm -rf /' })).toEqual([SRT_PATHS.node, SRT_PATHS.cli, '--settings', '/s.json', '-c', 'npm test; rm -rf /'])
+    expect(srtArgv({ settingsFile: '/s.json', command: 'x', full: true })[1]).toBe(SRT_PATHS.cliFull)
+  })
+  test('the arguments file of a run unit: NUL-separated, checked names, no NUL in a field', () => {
+    const t = unitArgs({ cwd: '/w', stdoutFile: '/o', stderrFile: '/e', exitFile: '/x.exit', env: { HOME: '/h', A_B: 'a b\nc' }, argv: ['/usr/bin/node', 'cli.js', '-c', 'echo "$HOME"; rm -rf /'] })
+    expect(t.endsWith('\0')).toBe(true)
+    expect(t.slice(0, -1).split('\0')).toEqual(['trina-run-1', '/w', '/o', '/e', '/x.exit', '2', 'HOME=/h', 'A_B=a b\nc', '/usr/bin/node', 'cli.js', '-c', 'echo "$HOME"; rm -rf /'])
+    const ok = { cwd: '/w', stdoutFile: '/o', stderrFile: '/e', exitFile: '/x', env: {}, argv: ['/bin/true'] }
+    expect(() => unitArgs({ ...ok, env: { 'A=B': 'x' } })).toThrow()
+    expect(() => unitArgs({ ...ok, env: { '1A': 'x' } })).toThrow()
+    expect(() => unitArgs({ ...ok, env: { A: 'x\0y' } })).toThrow()
+    expect(() => unitArgs({ ...ok, argv: ['true'] })).toThrow()
+    expect(() => unitArgs({ ...ok, argv: [] })).toThrow()
+    expect(() => unitArgs({ ...ok, cwd: '/w\0/x' })).toThrow()
+  })
+  // the rendered rule, run with a stand-in of polkit's JavaScript API (not a text match)
+  const ruleFor = (user: string) => {
+    const src = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8').replaceAll('@SRV_USER@', user)
+    const rules: ((a: unknown, s: unknown) => unknown)[] = []
+    const polkit = { Result: { YES: 'yes', NO: 'no' }, addRule: (f: (a: unknown, s: unknown) => unknown) => rules.push(f), log: () => {} }
+    new Function('polkit', src)(polkit)
+    expect(rules.length).toBe(1)
+    return (o: { id?: string; user?: string; unit?: string; verb?: string }) =>
+      rules[0]!({ id: o.id ?? 'org.freedesktop.systemd1.manage-units', lookup: (k: string) => (k === 'unit' ? o.unit : k === 'verb' ? o.verb : undefined) }, { user: o.user ?? user }) === 'yes'
+  }
+  test('the polkit rule: only start, stop, reset-failed and set-property of trina-dev@<16>.service, only for the server account', () => {
+    const allow = ruleFor('mycel')
+    const id = newRunId()
+    for (const verb of ['start', 'stop', 'reset-failed', 'set-property']) expect(allow({ unit: `trina-dev@${id}.service`, verb })).toBe(true)
+    // systemd 255 sends no unit and no verb for StartTransientUnit: never allowed
+    expect(allow({})).toBe(false)
+    expect(allow({ verb: 'start' })).toBe(false)
+    for (const verb of ['restart', 'reload', 'kill', 'enable', 'try-restart', 'reload-or-restart', 'freeze', 'clean', '']) expect(allow({ unit: `trina-dev@${id}.service`, verb })).toBe(false)
+    for (const unit of [`trina-dev-${id}.scope`, `trina-dev-${id}.service`, 'trina-dev@x.service', `trina-dev@${id.toUpperCase()}.service`, `trina-dev@${id}x.service`, `xtrina-dev@${id}.service`,
+      `trina-dev@${id}.service.d`, `getty@${id}.service`, 'ssh.service', 'mycel-server.service', 'mycel-devenv.slice', `trina-dev@${id}.socket`]) expect(allow({ unit, verb: 'start' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', user: 'bob' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', id: 'org.freedesktop.systemd1.manage-unit-files' })).toBe(false)
+    expect(allow({ unit: `trina-dev@${id}.service`, verb: 'start', id: 'org.freedesktop.login1.power-off' })).toBe(false)
+    // the rule's pattern is the runner's
+    const re = /\/(\^trina-dev@[^/]+)\//.exec(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8'))
+    expect(new RegExp(re![1]!).source).toBe(TEMPLATE_UNIT_RE.source)
+  })
+  test('the run template: the server account and slice fixed by root, and the server unit\'s sandbox lines', () => {
+    const tpl = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv-run.service.in'), 'utf8')
+    const srv = fs.readFileSync(path.join(REPO, 'scripts/linux/systemd/server.service.in'), 'utf8')
+    const keys = (t: string) => {
+      const m = new Map<string, string>()
+      let sect = ''
+      for (const l of t.split('\n')) {
+        if (/^\[.*\]$/.test(l)) { sect = l; continue }
+        if (sect !== '[Service]' || l.startsWith('#') || !l.includes('=') || /^\s/.test(l)) continue
+        m.set(l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1))
+      }
+      return m
+    }
+    const t = keys(tpl), sv = keys(srv)
+    for (const [k, v] of Object.entries({ Type: 'exec', User: '@SRV@', Group: '@SRV@', Slice: '@ID@-devenv.slice', OOMPolicy: 'kill', MemorySwapMax: '0', KillMode: 'control-group', RuntimeMaxSec: String(8 * 3600 + 600) })) expect([k, t.get(k)]).toEqual([k, v])
+    expect(t.get('ExecStart')).toBe('-/opt/trina/devenv/run-wrap --unit @BASE@/devenv/run %i')
+    expect(t.get('ExecStart')!.split(' ')[0]!.slice(1)).toBe(SRT_PATHS.runWrap)
+    expect(t.get('ExecStopPost')).toBe('+/usr/bin/rm -rf /run/systemd/system.control/trina-dev@%i.service.d /etc/systemd/system.control/trina-dev@%i.service.d')
+    expect(tpl).toContain('# install=@ID@')
+    // no environment or extra rights of the server's own
+    for (const k of ['Environment', 'EnvironmentFile', 'Delegate']) expect(t.has(k)).toBe(false)
+    // every other line of the server unit's [Service] is its sandbox: the template has the same value
+    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE'])
+    for (const [k, v] of sv) {
+      if (notSandbox.has(k)) continue
+      if (k === 'ReadWritePaths') {
+        const tp = t.get(k)!.split(' ').map((p) => p.replace(/^-/, ''))
+        expect(tp.sort()).toEqual([...v.split(' '), '@BASE@/devenv'].sort())
+        continue
+      }
+      expect([k, t.get(k)]).toEqual([k, v])
+    }
+  })
+  test('the install writes the template and checks a run before the server drop-in; the kits carry the template', () => {
+    const sh = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(sh).toContain('"debian 13"|"ubuntu 24.04") ;;')
+    expect(sh).toContain('TEMPLATE=/etc/systemd/system/trina-dev@.service')
+    expect(sh.indexOf('systemctl start --wait --no-ask-password "$PU"')).toBeGreaterThan(0)
+    expect(sh.indexOf('systemctl start --wait --no-ask-password "$PU"')).toBeLessThan(sh.indexOf('put_changed "$T" 644 "$DROPIN"'))
+    expect(sh).toContain(`printf '%s\\0' trina-run-1 / /dev/null /dev/null "$PEXIT" 0 /bin/true`)
+    expect(fs.readFileSync(path.join(REPO, 'scripts/build-bundle.ts'), 'utf8')).toContain("'devenv-run.service.in'")
+    expect(fs.readFileSync(path.join(REPO, 'scripts/image/build-ami.sh'), 'utf8')).toContain(' devenv-run.service.in ')
+    const un = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/uninstall-srt.sh'), 'utf8')
+    expect(un).toContain("'trina-dev@*.service' 'trina-dev-*.scope'")
+    expect(un).toContain('grep -qsx "# install=$ID" "$TEMPLATE"')
+  })
+  // run-wrap --unit needs bash 4.4 or later (mapfile -d); macOS has 3.2
+  const bash44 = (() => { const r = Bun.spawnSync(['bash', '-c', 'mapfile -d "" -t A < /dev/null && echo ok']); return r.stdout.toString().trim() === 'ok' })()
+  test.skipIf(!bash44)('run-wrap --unit: reads the arguments file, runs the program with only its environment, writes the exit code', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'rw-'))
+    const id = newRunId()
+    const out = path.join(d, 'out'), exit = path.join(d, 'x.exit')
+    fs.writeFileSync(out, '')
+    fs.writeFileSync(path.join(d, `${id}.args`), unitArgs({ cwd: d, stdoutFile: out, stderrFile: out, exitFile: exit, env: { HOME: '/h', X: 'a b\nc' }, argv: ['/bin/sh', '-c', 'pwd; env | sort; echo err >&2; exit 7'] }), { mode: 0o600 })
+    const wrap = path.join(REPO, 'scripts/dev-env/srt/run-wrap')
+    const r = Bun.spawnSync(['bash', wrap, '--unit', d, id], { env: { PATH: '/usr/bin:/bin', SECRET: 'no' } })
+    expect(r.exitCode).toBe(7)
+    expect(fs.readFileSync(exit, 'utf8')).toBe('7\n')
+    const o = fs.readFileSync(out, 'utf8')
+    expect(o).toContain(fs.realpathSync(d))
+    expect(o).toContain('HOME=/h\n')
+    expect(o).toContain('X=a b\nc\n')
+    expect(o).toContain('err\n')
+    expect(o).not.toContain('SECRET')
+    expect(fs.existsSync(path.join(d, `${id}.args`))).toBe(false)
+    // a bad run id, a missing file or a link is refused before anything runs
+    for (const a of [['--unit', d, '../x'], ['--unit', d, 'abc'], ['--unit', d, newRunId()]]) expect(Bun.spawnSync(['bash', wrap, ...a]).exitCode).toBe(2)
+    const id2 = newRunId()
+    fs.writeFileSync(path.join(d, 'real.args'), unitArgs({ cwd: d, stdoutFile: out, stderrFile: out, exitFile: exit, env: {}, argv: ['/bin/true'] }))
+    fs.symlinkSync(path.join(d, 'real.args'), path.join(d, `${id2}.args`))
+    expect(Bun.spawnSync(['bash', wrap, '--unit', d, id2]).exitCode).toBe(2)
+    // an output file that is a link is refused
+    const id3 = newRunId()
+    fs.symlinkSync('/etc/hostname', path.join(d, 'lnk'))
+    fs.writeFileSync(path.join(d, `${id3}.args`), unitArgs({ cwd: d, stdoutFile: path.join(d, 'lnk'), stderrFile: out, exitFile: exit, env: {}, argv: ['/bin/true'] }), { mode: 0o600 })
+    expect(Bun.spawnSync(['bash', wrap, '--unit', d, id3]).exitCode).toBe(2)
+    fs.rmSync(d, { recursive: true, force: true })
   })
   test('the install pins the same srt version, and hides the same server files outside the base', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/package.json'), 'utf8'))
@@ -658,7 +781,8 @@ describe('the host names of this server', () => {
   test('the cgroup path follows systemd\'s slice nesting, also for an id with a dash', () => {
     expect(slicePath('mycel-devenv.slice')).toBe('mycel.slice/mycel-devenv.slice')
     expect(slicePath('trina-ax-devenv.slice')).toBe('trina.slice/trina-ax.slice/trina-ax-devenv.slice')
-    expect(cgroupDir('mycel', 'abc')).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abc.scope')
+    expect(cgroupDir('mycel', 'abc', false)).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abc.scope')
+    expect(cgroupDir('mycel', 'abc', true)).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev@abc.service')
   })
 })
 

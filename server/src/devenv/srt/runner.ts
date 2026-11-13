@@ -1,7 +1,8 @@
 // The srt runner of the dev environment (docs/research/srt-dev-env.md), the only runner (docs/DECISIONS.md "Dev
 // environment: box runner removed, srt only"). The AI's commands run on the team server as the server account, inside
-// Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in a `systemd-run --scope` unit with
-// memory, CPU and pids limits. Each command, job or dev server is one srt process in its own scope.
+// Anthropic's sandbox runtime srt (bwrap, a proxy with a domain allowlist), in its own systemd unit with memory, CPU
+// and pids limits: an instance trina-dev@<runId>.service of a root-installed template (an older install: a
+// `systemd-run --scope` unit). Each command, job or dev server is one srt process in its own unit.
 //
 // A run is not locked to a project. It belongs to the person who owns the chat: it may read and write exactly the team
 // folders that person may open now (srt/access.ts, built from the folder rules for every command and every job start),
@@ -35,7 +36,7 @@ import { mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
 import { projectZoneFolders } from '../../policy/zone'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
@@ -82,7 +83,7 @@ export function srtConfig(env: Record<string, string | undefined> = process.env)
     if (!m.ok) return { id, base, system: directSystem(), planFile, problem: m.reason }
     return { id, base, system: macSystem(m.c), planFile }
   }
-  return { id, base, system: systemdSystem(id), planFile }
+  return { id, base, system: systemdSystem(id, base), planFile }
 }
 
 const listEnv = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
@@ -146,7 +147,7 @@ export const newRunId = () => {
 
 // ---------------- availability ----------------
 
-/** Can this server run srt? '' = yes, else why not. Checks the files of the install and that a scope can be made. */
+/** Can this server run srt? '' = yes, else why not. Checks the files of the install and that a run unit can start. */
 export async function srtProblem(c = srtConfig()): Promise<string> {
   const p = planState(c)
   if (!p.ok) return p.reason
@@ -157,7 +158,8 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
     for (const b of ['bwrap', 'socat', 'rg']) if (!['/usr/bin', '/bin', '/usr/local/bin'].some((d) => fs.existsSync(path.join(d, b)))) return `${b} is missing`
   }
-  if (!selfTest || Date.now() - selfTest.at > 10 * 60_000) selfTest = { at: Date.now(), problem: await c.system.selfTest(c.id) }
+  // a failed check is tried again after a minute: an update brings the server before install-srt.sh's new root files
+  if (!selfTest || Date.now() - selfTest.at > (selfTest.problem ? 60_000 : 10 * 60_000)) selfTest = { at: Date.now(), problem: await c.system.selfTest(c.id) }
   return selfTest.problem
 }
 
@@ -431,7 +433,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       const t = setTimeout(() => stop('timeout'), o.timeoutMs)
       const onAbort = () => stop('stopped')
       o.signal?.addEventListener('abort', onAbort, { once: true })
-      // the scope's cgroup goes away when the run ends, so its OOM count is read while it runs
+      // the unit's cgroup goes away when the run ends, so its OOM count is read while it runs
       const watch = setInterval(() => { if ((c.system.oomKills(runId) ?? 0) > 0) oom = true }, 1000)
       const ended = await sp.exited
       clearTimeout(t); clearInterval(watch); o.signal?.removeEventListener('abort', onAbort)
@@ -461,7 +463,7 @@ const openRuns = (db: Database, state: 'waiting' | 'running', kind?: 'job' | 'se
   db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL AND state = ? ${kind ? 'AND kind = ?' : ''} ORDER BY started_at, id`).all(...(kind ? [state, kind] : [state])) as RunRow[]
 const spaceOfRow = (r: RunRow): Space => ({ userId: r.user_id, chatId: r.chat_id, projectId: r.project_id, root: r.root })
 
-const runIdOf = (unit: string) => (UNIT_RE.test(unit) ? unit.slice('trina-dev-'.length, -'.scope'.length) : '')
+const runIdOf = runIdOfUnit
 const logFile = (c: SrtConfig, userId: string, name: string) => path.join(personLogs(c.base, userId), `${name}.log`)
 
 /** Does a job or dev server with this log name still run or wait for this person? (The log is per person.) */
@@ -632,8 +634,9 @@ async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail
     return { running: false, code, reason: a?.stopReason ?? 'exit', tail }
   }
   const u = await c.system.unit(runId)
-  // a run this process just spawned: systemd may not know its scope yet (''), or know it but not have started it yet
-  // (inactive). While its process lives it runs; ending it here would delete its settings file before srt reads it
+  // a run this process just spawned: systemd may not know its unit yet (''), or know it but not have started it yet
+  // (inactive; an instance of the template is always known). While its process (systemd-run, or systemctl start
+  // --wait) lives it runs; ending it here would delete its settings file before srt reads it
   if (u.state === 'active' || u.state === 'activating' || u.state === 'deactivating' || (a && !a.stopReason && (u.state === '' || u.state === 'inactive') && a.pid && alive(a.pid))) {
     // a large log: cut it, the AI reads only the end
     try { if (fs.statSync(log).size > LOG_MAX_BYTES) { fs.truncateSync(log, 0); fs.appendFileSync(log, '(log cut at 64 MiB)\n') } } catch {}
@@ -673,6 +676,9 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     }
     const s = await rowStatus(c, r)
     const seconds = Math.round((Date.now() - Date.parse(r.run_at ?? r.started_at)) / 1000)
+    // the time limit of a job or dev server: systemd 255 cannot give a run unit its own RuntimeMaxSec (the template
+    // has the longest kind's), so the tracker stops it
+    if (s.running && seconds > (r.kind === 'server' ? SERVER_MAX_SEC : JOB_MAX_SEC)) { await stopRow(ctx, r, 'timeout'); continue }
     if (s.running) {
       out.set(r.id, { name: r.name, state: 'running', code: null, seconds, tail: s.tail, lastLine: lastLine(s.tail) })
       if (r.kind === 'server') await idleCheck(ctx, c, r)

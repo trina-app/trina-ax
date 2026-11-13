@@ -1,0 +1,45 @@
+# Trina dev environment (srt runner): one run (a command, a job or a dev server) is one instance trina-dev@<runId>.service
+# (docs/DECISIONS.md "Dev environment on srt: runs as template units"). install-srt.sh writes this file as root to
+# /etc/systemd/system/trina-dev@.service. The server account starts an instance with StartUnit; the polkit rule allows
+# only trina-dev@<16 letters or digits>.service and the verbs start, stop, reset-failed and set-property.
+# The instance name gives no arguments: run-wrap reads them from <base>/devenv/run/<runId>.args (the server writes it;
+# the sandbox cannot read that folder). Per-run memory, CPU and tasks come from `systemctl set-property --runtime`.
+# A run is not a child of the server, so it does not inherit the server unit's sandbox as a scope did. The lines
+# below the mark copy it from scripts/linux/systemd/server.service.in (tests/unit/dev-env-srt.test.ts compares them).
+# install=@ID@
+[Unit]
+Description=Trina dev environment run %i (@ID@)
+
+[Service]
+Type=exec
+User=@SRV@
+Group=@SRV@
+Slice=@ID@-devenv.slice
+# "-": the run's own exit code goes to the exit file; a failed command must not leave a failed unit. OOM and the
+# runtime limit still end the unit with Result=oom-kill or timeout.
+ExecStart=-/opt/trina/devenv/run-wrap --unit @BASE@/devenv/run %i
+# set-property --runtime writes drop-ins for this instance; root removes them when the run ends
+ExecStopPost=+/usr/bin/rm -rf /run/systemd/system.control/trina-dev@%i.service.d /etc/systemd/system.control/trina-dev@%i.service.d
+OOMPolicy=kill
+MemoryAccounting=yes
+MemorySwapMax=0
+# the root-set ceiling of one run: the longest kind (a dev server, 8 hours) and 10 minutes. The runner stops a command
+# at its timeout and a job at 6 hours itself.
+RuntimeMaxSec=29400
+KillMode=control-group
+TimeoutStopSec=20
+# ---- the server unit's sandbox (same values) ----
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-@BASE@/app -@BASE@/data -@BASE@/team -@BASE@/config -@BASE@/secrets -@BASE@/setup -@BASE@/status -@BASE@/run/tools -@BASE@/devenv
+ProtectHome=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectKernelModules=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=

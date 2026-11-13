@@ -189,7 +189,11 @@ slice (section 4) gives a hard ceiling that the server cannot raise.
 
 ### 2.2 The call
 
-For each run the server spawns this (one argv, no shell):
+Since 2026-11-13 a run is an instance `trina-dev@<runId>.service` of a root-installed template, started with
+`systemctl set-property --runtime` (the limits) and `systemctl start --wait`; run-wrap reads the argv below (after
+`run-wrap <exit-file> --`) from an arguments file (docs/DECISIONS.md "Dev environment on srt: runs as template units").
+The scope call below stays only for a server whose root files are older. Before that change, for each run the server
+spawned this (one argv, no shell):
 
 ```
 systemd-run --scope --quiet --collect
@@ -669,7 +673,7 @@ no canary comes back and the action fails.
 | A22 | a fork bomb | stopped at TasksMax; the server answers |
 | A23 | `dd` in the project folder up to the disk floor | the run stops with `disk` |
 | A24 | chromium `--headless --no-sandbox` opens `file:///var/lib/<ID>/secrets/...` | not found |
-| A25 | as the server account outside the sandbox: start `trina-dev-x.service` or `other.scope` | polkit says no |
+| A25 | as the server account outside the sandbox: start a transient `.service`, `trina-dev@x.service`, another template or `other.scope`; restart a run unit; set `User=`, `Slice=` or `ExecStart=` of a run unit | polkit or systemd says no |
 | A26 | preview of job A's port through job B's socket; the sandbox opens a preview socket | fails |
 
 CI: lines A1-A20 and A24 run in the existing Docker job (bwrap works there), with a delegated cgroup in place of
@@ -738,7 +742,8 @@ Verified after the scope change (2026-11-04):
   throttled it at 1471 MiB until `RuntimeMaxSec` ended it. The scope now has no `MemoryHigh`. On the second VM run
   (same checks, 0 failed) the bomb ended with `Result=oom-kill` at 1536 MiB, and the server lived.
 - A25b (info): polkit allows a `trina-dev-<16>.scope` in another slice. Only the server account can ask (the sandbox
-  cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1).
+  cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1). Closed by the
+  template units (2026-11-13): `Slice=` is in the root-installed template, and set-property refuses it.
 
 Code: `server/src/devenv/srt/` (`config.ts` settings, environment and argv; `plan.ts`; `system.ts`; `runner.ts`), the
 forks in `tool.ts`, `jobs.ts`, `setting.ts` and `routes/dev-env.ts`, migration `222_b_dev_env_run_state.sql`, install in
