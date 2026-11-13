@@ -127,6 +127,10 @@ describe('the card', () => {
     expect(plain[0]!.options.map((o) => o.value)).toEqual(['create', 'deny'])
     expect(latest()!.save_sources).toBeNull()
     for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) for (const k of ['saveLine', 'saveLineBare', 'sendsLine', 'recheckQuestion', 'resave'] as const) expect(TEXT[k][L].length).toBeGreaterThan(3)
+    // the person's own folder is 내 파일 on the card, as the app names it (web scheduled.sourceMineFiles)
+    expect(TEXT.sourceMine.ko).toBe('내 파일')
+    expect(TEXT.recheckQuestion.ko).toContain('내 파일')
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(TEXT.recheckQuestion[L]).not.toMatch(/내 폴더|own folder|folder Anda|自分のフォルダー|propia carpeta/)
   })
 
   test('refused before the card: a top, own, skills, missing or file folder; unknown places; an own connection without recipients; send_to for a team one', async () => {
