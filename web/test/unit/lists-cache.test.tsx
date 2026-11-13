@@ -8,8 +8,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaul
 import { MemoryRouter } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
-import { markStale, peekCached, putCached, readCached, useListCache } from '../../src/store/listCache'
+import { markStale, peekCached, putCached, readCached, readSchedules, scheduleKey, SHARED, useListCache } from '../../src/store/listCache'
 import { schedulesChanged, skillsChanged } from '../../src/store/live'
+import { optimistic } from '../../src/lib/optimistic'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import Skills from '../../src/pages/Skills'
@@ -190,6 +191,29 @@ describe('the "paused for review" banner', () => {
     await m.until(() => !m.find('schedule-review-banner'), 'the banner gone after the task was checked')
     expect(count(/\/api\/schedules/)).toBe(2)
     await m.unmount()
+  })
+})
+
+describe('a task switched on or off while the answer is on its way', () => {
+  test('a Search read of the tasks does not bring the old value back; the list keeps the new one', async () => {
+    const task = { id: 'acme-report', title: 'Acme report', prompt: 'x', repeat: 'daily', time: '09:00', date: null, weekday: null, day: null, projectId: null, enabled: true, needsReview: false,
+      nextRunAt: null, lastRunAt: null, lastChatId: null, resumeBlockedReason: null }
+    schedules = [task]
+    putCached(SHARED.schedules, () => ({ items: [task], timeZone: 'Asia/Seoul' }))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const done = optimistic({
+      key: scheduleKey(task.id), from: true, to: false,
+      show: (v) => putCached<{ items: typeof task[] }>(SHARED.schedules, (d) => ({ ...d!, items: d!.items.map((x) => ({ ...x, enabled: v })) })),
+      send: async () => { await gate; return { ...task, enabled: false } },
+      confirmed: (u) => u.enabled,
+      settle: () => {},
+    })
+    // the server still says "on": Search reads the shared list the way it does
+    await readCached(SHARED.schedules, readSchedules, { fresh: true })
+    expect(peekCached<{ items: typeof task[] }>(SHARED.schedules)?.items[0]?.enabled).toBe(false)
+    release()
+    await done
   })
 })
 
