@@ -69,6 +69,7 @@ export async function storeSafeError(res: Response, store = noPurchaseLinks()): 
   headers.delete('content-length')
   return new Response(JSON.stringify(fixed), { status: res.status, statusText: res.statusText, headers })
 }
+// uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
 const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => storeSafeError(await fetch(input, inWindow(init)))) as typeof fetch
 
 export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })

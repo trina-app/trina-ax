@@ -96,6 +96,8 @@ describe("the server's seat refusal", () => {
     expect(await storeSafeError(web, false)).toBe(web)
     const invitee = seatRefusal({ reason: 'seat_limit', limit: 5 })
     expect(await storeSafeError(invitee, true)).toBe(invitee)
+    const conflict = new Response(JSON.stringify({ error: { code: 'conflict', message: 'x', params: { changePlan: true } } }), { status: 409 })
+    expect(await storeSafeError(conflict, true)).toBe(conflict)
     const other = new Response('not json', { status: 409 })
     expect(await storeSafeError(other, true)).toBe(other)
     const ok = new Response('{}', { status: 200 })
@@ -109,6 +111,8 @@ describe('the store wording in every language', () => {
       const s = DICTS[id][k]
       expect({ id, k, link: /https?:|www\.|\.app\b/.test(s), price: /[$€₩¥]|\d+\s?(usd|krw|idr)/i.test(s) }).toEqual({ id, k, link: false, price: false })
     }
-    expect(translate('ko', 'plan.membersFullStore')).not.toMatch(/올리|바꿔/)
+    // none says to change the plan
+    const change: Record<string, RegExp> = { en: /change/i, ko: /올리|바꿔|바꾸/, id: /ubah/i, ja: /変更/, es: /cambi/i }
+    for (const { id } of LOCALES) for (const k of STORE_KEYS) expect({ id, k, steer: change[id].test(DICTS[id][k]) }).toEqual({ id, k, steer: false })
   })
 })

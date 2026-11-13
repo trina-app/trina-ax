@@ -3635,7 +3635,7 @@ export const es: Record<MessageKey, string> = {
   "teamLink.skillHint": "Al unirse, esta habilidad se abre enseguida.",
   "teamLink.noSkill": "Ninguna",
   "teamLink.noSeats": "No quedan plazas. Desactive una cuenta que ya no se use o cambie de plan.",
-  "teamLink.noSeatsStore": "No quedan plazas. Desactive una cuenta que ya no se use. El propietario del equipo administra el plan en la web.",
+  "teamLink.noSeatsStore": "No quedan plazas. Deshabilite una cuenta que ya no se use. El propietario del equipo administra el plan en la web.",
   "teamLink.replaceNote": "Al crear un enlace nuevo, el actual deja de funcionar enseguida.",
   "teamLink.create": "Crear enlace de invitación",
   "teamLink.stepTitle": "Invite a su equipo",
