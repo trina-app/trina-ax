@@ -41,7 +41,7 @@ import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
 import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
-import { ListHeading, ListIcon, rowName } from './list/List'
+import { ListHeading, ListIcon } from './list/List'
 import { MenuButton } from './rooms/MenuButton'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
@@ -318,7 +318,8 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
           <ScrollText />
         </ListIcon>
         <span className="min-w-0 flex-1">
-          <span className={clsx('flex min-w-0 items-baseline gap-1.5', rowName())}>
+          {/* the "/" menu's look for a skill's name (medium, in ink), not a read row's: a name people type */}
+          <span className="flex min-w-0 items-baseline gap-1.5 text-row font-medium">
             <span className="truncate" data-testid="skill-name">{shown}</span>
             {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
             {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
