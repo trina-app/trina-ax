@@ -11,7 +11,7 @@ import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { PresenceText } from '../Presence'
 import { dragRow } from './NavFolders'
-import { rowName } from '../list/List'
+import { rowBox, rowName } from '../list/List'
 
 /** The kinds' sections of the 대화 list, in this order: team rooms (전체 and the groups' rooms), group chats, DMs. */
 export const ROOM_SECTIONS = ['team', 'group', 'dm'] as const
@@ -86,7 +86,9 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
         }}
         className={({ isActive }) =>
           clsx(
-            'flex h-row items-center gap-2 rounded-lg px-3 hover:bg-hover max-md:h-10 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]',
+            // the lists' row height (rowBox: 30px, 48px on a phone)
+            'flex items-center gap-2 rounded-lg px-3 hover:bg-hover pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]',
+            rowBox,
             'pointer-fine:group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[aria-expanded=true]]:pr-9 group-has-[[aria-expanded=true]]:bg-hover',
             // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
             '[--presence-bg:var(--c-subtle)] hover:[--presence-bg:var(--c-hover)] aria-[current=page]:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',

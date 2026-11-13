@@ -27,7 +27,7 @@ import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { foldRuns } from '../nav/TaskRunsRow'
-import { PanelSection, panelRow } from './PanelFrame'
+import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
 
 export { useFolds } from './folds'
 
@@ -131,12 +131,12 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('trinaList.recent')} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           <ul>
             {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
-            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true })}
+            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
           </ul>
           {cursor && (
             <button
               type="button"
-              className="flex h-row w-full items-center rounded-lg px-3 text-left text-meta text-muted hover:bg-hover"
+              className={clsx(panelRowBox, 'text-meta text-muted')}
               disabled={moreLoading}
               onClick={() => {
                 setMoreLoading(true)

@@ -26188,3 +26188,37 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   first); nothing is revoked at Google by the switch.
 - **Backups:** like Drive's client today, the file is not in `admin.js archive`; after a restore the admin adds the app
   again (the guide says so).
+
+## Lists: every row on ListRow, tags at one edge (fix/trina-panel-rows, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/list/List.tsx` (`ListRow`'s `lead`, `tag`, `menu`, `menuSpace`, `choice`, `li`; `rowBox`,
+`headBox`, `rowTag`) and its users; the guard `web/test/unit/list-row-source.test.ts`; the check in
+`web/test/e2e/type-scale.spec.ts` ("panel rows at 1440px"). 이유: the owner, 2026-11-13, on a computer: 트리나's 고정 and
+최근 기록 rows look different from the other panels', the project tag sits at a different x on each row, and the folded
+scheduled row's "어제" runs to the edge. Measured at 1440 the names were already 15 px / 400 / 20 px in 30 px rows, as
+대화, 프로젝트, 파일 and 활동; what differed was the row being hand-built (nav/ChatItem.tsx): the tag took what the
+title left (cut to "H…" by the title's 60% floor) and the scheduled row had no room for the "···" the chat rows keep,
+so its time ended 24 px further right.
+
+- **A chat's row is a ListRow**: its pin and shared icon in `lead`, its project (or a side chat's room) in `tag`, its
+  "···" in `menu`, its marker in the "···" spot. `tag` is a fixed trailing slot: 13 px, faint, right-aligned at the
+  row's edge, at most 40% of the row, the title cut first. A task's folded runs (nav/TaskRunsRow.tsx) put "project ·
+  time" in the same slot and, among chat rows (`menuSpace`), keep the same room for the "···", so every tag ends at
+  one edge.
+- **One height**: `rowBox` (30 px, 48 px on a phone, 44 px or more on a touch screen) is every row's box: ListRow,
+  the panels' fixed rows (`panelRowBox`, so 프로젝트's phone override is gone), a room's row (was 40 px on a phone), the
+  setup row (was 40 px); the 트리나 drawer's rows (검색, 예약 작업, 팀 스킬, 상태, 삭제한 기록) are ListRows with the round
+  tile; the filtered history's project headers use ListSection's `headBox`.
+- **People lists**: the room's members and the new-chat / invite picker are ListRows with the face box (`face`, 28 px
+  on a computer, 32 px on a phone); the picker's rows are the labels of their ticks (`choice`). They lose the hairlines
+  between rows, as the other lists have none.
+- **ListRow grew what the remaining rows needed** (backward compatible): `actions` (buttons beside the click area,
+  outside its link: a skill's 실행 and "…"), `rowMenu` (a "···" from rooms/MenuButton.tsx with the right-click and long
+  press of `useRowMenu`, which moved there from RoomMenu.tsx and is re-exported), `rowRef`, `strong` (a list of things
+  to pick, not to read: a skill's name at medium weight in ink, as the "/" menu's) and the `<li>`'s className, data-*
+  and aria-*. The project page's chats, the skills list and Skills' share-review rows are ListRows now.
+- **The guard**: a file that uses the row tokens (`rowName`, `h-row`, `min-h-row`, `size-list-icon/glyph`) must be one
+  of the shared pieces in its ALLOW list (with the reason); a stale entry fails, so the list only shrinks. The other
+  single-source rows for kinds ListRow is not (ConnectionRow, SettingRow, CompactRow) are listed there as SHARED.
+- **The project page's chats** keep #752's rule (QA TC-990: marks after the title, the "···" slot always kept, the time
+  at one edge) on ListRow: a chat and a task's folded runs are both ListRows built the same way.

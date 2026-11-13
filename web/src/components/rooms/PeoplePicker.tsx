@@ -16,6 +16,7 @@ import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
+import { ListRow } from '../list/List'
 import { Button, ErrorNote, inputCls, Modal, Skeleton } from '../ui'
 
 export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'invite'; roomId: string }
@@ -141,8 +142,9 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
       </Button>
     </>
   )
-  const row = 'flex w-full cursor-pointer items-center gap-3 px-5 py-2.5 text-left hover:bg-hover max-sm:px-4 has-[:disabled]:opacity-60'
   const label = 'px-5 pt-3 pb-1 text-xs font-medium text-faint max-sm:px-4'
+  // the rows' words line up with the dialog's 20px (16px on a phone)
+  const list = 'px-2 max-sm:px-1'
   return (
     <Modal open onClose={onClose} title={inviting ? t('rooms.picker.invite') : t('rooms.newChat')} width={420} footer={footer}>
       <div className="-mx-5 -mt-5 border-b border-line px-5 py-3 max-sm:-mx-4 max-sm:px-4">
@@ -165,38 +167,37 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           {groupRows.length > 0 && (
             <>
               <p className={label}>{t('rooms.picker.groups')}</p>
-              <ul className="divide-y divide-line" data-testid="picker-groups">
+              {/* the lists' rows (components/list/List.tsx): a list of people's face box, each row the label of its tick */}
+              <ul className={list} data-testid="picker-groups">
                 {groupRows.map((g) => (
-                  <li key={g.id}>
-                    <label className={row} data-testid="picker-group">
-                      <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-muted">
-                        <Hash size={16} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-row font-medium text-ink">{g.name}</span>
-                        <span className="block truncate text-xs text-muted">{t('rooms.picker.groupCount', { n: g.ids.length })}</span>
-                      </span>
-                      <Tick checked={allIn(g.ids)} disabled={busy} onChange={() => toggleGroup(g.ids)} />
-                    </label>
-                  </li>
+                  <ListRow
+                    key={g.id}
+                    choice
+                    face
+                    icon={<Hash />}
+                    name={g.name}
+                    meta={t('rooms.picker.groupCount', { n: g.ids.length })}
+                    end={<Tick checked={allIn(g.ids)} disabled={busy} onChange={() => toggleGroup(g.ids)} />}
+                    testId="picker-group"
+                  />
                 ))}
               </ul>
               {shown.length > 0 && <p className={label}>{t('rooms.picker.people')}</p>}
             </>
           )}
           {shown.length > 0 && (
-            <ul className="divide-y divide-line" data-testid="people-list">
+            <ul className={list} data-testid="people-list">
               {shown.map((p) => (
-                <li key={p.id}>
-                  <label className={row} data-testid="people-row">
-                    <Avatar user={p} size={36} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-row font-medium text-ink">{p.name}</span>
-                      {p.title && <span className="block truncate text-xs text-muted">{p.title}</span>}
-                    </span>
-                    <Tick checked={picked.includes(p.id)} disabled={busy} onChange={() => toggle(p.id)} />
-                  </label>
-                </li>
+                <ListRow
+                  key={p.id}
+                  choice
+                  face
+                  icon={<Avatar user={p} size="fill" />}
+                  name={p.name}
+                  meta={p.title || undefined}
+                  end={<Tick checked={picked.includes(p.id)} disabled={busy} onChange={() => toggle(p.id)} />}
+                  testId="people-row"
+                />
               ))}
             </ul>
           )}
@@ -210,7 +211,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
  * accent when ticked. */
 function Tick({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: () => void }) {
   return (
-    <span className="relative flex size-6 shrink-0 items-center justify-center">
+    <span className="relative flex size-6 shrink-0 items-center justify-center self-center">
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className="peer absolute inset-0 cursor-pointer opacity-0" data-testid="picker-tick" />
       <span aria-hidden className="flex size-5 items-center justify-center rounded-full border border-field-border text-transparent peer-checked:border-accent peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
         <Check size={13} strokeWidth={3} />

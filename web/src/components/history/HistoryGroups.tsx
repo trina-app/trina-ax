@@ -28,6 +28,7 @@ import { useMeStrict } from '../../store/session'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 import { SessionMarker } from '../chat/ChatState'
 import { Tooltip } from '../Tooltip'
+import { headBox } from '../list/List'
 
 /** how long a window coming back to the front waits before the project list is read again */
 const REFOCUS_READ_MS = 60_000
@@ -136,18 +137,19 @@ export function useHistoryGroups(chats: readonly Chat[]) {
 
 /** The groups, each with its header and its rows (`row`: the caller's row, the same as a plain list's). `onNavigate`:
  * called when a header leads to a project. */
-export function HistoryGroups({ state, row, pool, onNavigate }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void }) {
+/** `menuSpace`: the rows are chats with a "···" (nav/ChatItem.tsx), so a task's folded runs keep clear of it (TaskRunsRow) */
+export function HistoryGroups({ state, row, pool, onNavigate, menuSpace }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void; menuSpace?: boolean }) {
   return (
     <div data-testid="history-groups">
       {state.shown.map((g) => (
         // a project whose chats here are all older runs of a task whose newest run is in another group: no empty header
-        (!pool || !g.chats.length || foldRuns(g.chats, row, { pool }).length > 0) && <Group key={g.key} group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} />
+        (!pool || !g.chats.length || foldRuns(g.chats, row, { pool }).length > 0) && <Group key={g.key} group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} menuSpace={menuSpace} />
       ))}
     </div>
   )
 }
 
-function Group({ group, state, row, pool, onNavigate }: { group: HistoryGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void }) {
+function Group({ group, state, row, pool, onNavigate, menuSpace }: { group: HistoryGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void; menuSpace?: boolean }) {
   const t = useT()
   const navigate = useNavigate()
   const listId = useId()
@@ -161,9 +163,10 @@ function Group({ group, state, row, pool, onNavigate }: { group: HistoryGroup; s
   const fold = () => state.fold(group.key)
   return (
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
+      {/* a section header's row and words, as ListSection's (components/list/List.tsx headBox, text-list-head) */}
       {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
           headings reads the projects; the icon and ▾ follow it */}
-      <div className={clsx('group/head relative flex h-row items-center gap-1 pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
+      <div className={clsx(headBox, 'group/head relative pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
         {group.projectId ? (
           <>
             {/* the name's link is as tall as the header: 28 px, 44 px on a phone */}
@@ -212,7 +215,7 @@ function Group({ group, state, row, pool, onNavigate }: { group: HistoryGroup; s
         )}
       </div>
       <ul id={listId} hidden={folded} data-testid="history-group-rows">
-        {!folded && foldRuns(group.chats, row, { pool })}
+        {!folded && foldRuns(group.chats, row, { pool, menuSpace })}
       </ul>
     </div>
   )

@@ -34,14 +34,15 @@ export function ProjectsPanel() {
   )
 }
 
-/** "+ 새 프로젝트": the name-only dialog (NewProjectDialog.tsx); made, the new project's page opens */
-export function NewProjectRow({ phone = false }: { phone?: boolean }) {
+/** "+ 새 프로젝트": the name-only dialog (NewProjectDialog.tsx); made, the new project's page opens. A phone's row is
+ * the lists' 48px by panelRow itself (`phone` is kept for the phone's page, which still passes it) */
+export function NewProjectRow(_: { phone?: boolean } = {}) {
   const t = useT()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-row-min! pointer-coarse:min-h-row-min!')} data-testid="projects-panel-new">
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium')} data-testid="projects-panel-new">
         <ListIcon><Plus /></ListIcon> <span className="truncate">{t('projects.new')}</span>
       </button>
       {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}

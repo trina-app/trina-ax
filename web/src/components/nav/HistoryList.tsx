@@ -175,10 +175,10 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
             {pinnedRows.map(row)}
           </ul>
         )}
-        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} />}
+        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} menuSpace />}
         {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => {
           // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
-          const rows = foldRuns(items, row, { pool: filtered })
+          const rows = foldRuns(items, row, { pool: filtered, menuSpace: true })
           return rows.length > 0 && (
             <div key={key || 'all'} className="mb-2">
               {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}

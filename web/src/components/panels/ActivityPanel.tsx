@@ -248,7 +248,7 @@ export function ActivityPanel() {
         <>
           <SetupRow />
           {/* two lines when the words are long (English, Spanish): never cut */}
-          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox.replace('h-row', 'min-h-row py-1'), 'text-row text-muted')} data-testid="activity-panel-to-chats">
+          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox, 'py-1 text-row text-muted')} data-testid="activity-panel-to-chats">
             <AtSign size={16} className="shrink-0" aria-hidden />
             <span className="min-w-0 flex-1">{t('activity.inChats')}</span>
             <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />

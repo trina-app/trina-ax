@@ -5,7 +5,9 @@
 // but a badge. A screen whose rows or body leave the scale fails here, so the next one-off size is caught in CI.
 // (The full sweep of every view is web/scripts/type-audit.ts against a test server.)
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { CSRF_HEADER } from '@mycel/shared/api'
+import { openRail, reset, signIn } from './helpers'
+import { routeRoom } from './rooms-mock'
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
 const notice = (n: number, code: string, minutes: number, o: Record<string, unknown> = {}) =>
@@ -77,3 +79,65 @@ for (const width of [390, 1440]) {
     expect(off, off.map((o) => `${o.screen} ${o.rule} ${o.px}px [${o.testid}] "${o.text}" .${o.cls}`).join('\n')).toEqual([])
   })
 }
+
+// The rail's five panels at 1440 (docs/DECISIONS.md "Lists: one set of rows and headers"): 트리나's 고정 · 최근 기록 rows
+// (nav/ChatItem.tsx, a ListRow) read at the other panels' row size, line height and height, its section headers at
+// theirs, and the trailing tags (a chat's project, a task's last run) are 13px, end at one edge on every row and never
+// take more than 40% of the row.
+test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 프로젝트, 파일 and 활동\'s', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page)
+  await signIn(page)
+  await routeNotices(page)
+  await routeRoom(page, { members: [{ id: 'minjun', name: '민준' }] })
+  const post = (url: string, data: unknown = {}) => page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
+  const made = async (url: string, data: unknown) => ((await (await post(url, data)).json()) as { id: string }).id
+  const projects: Record<string, string> = {}
+  for (const name of ['acme-web', 'Hello', 'ops']) projects[name] = await made('/api/projects', { name, scope: 'team', instructions: '' })
+  await post(`/api/chats/${await made('/api/chats', { title: 'Pinned plan' })}/pin`)
+  await made('/api/chats', { title: 'Short one', projectId: projects['acme-web'] })
+  await made('/api/chats', { title: 'A much longer chat title that has to be cut somewhere', projectId: projects.Hello })
+  await made('/api/chats', { title: 'Notes', projectId: projects.ops })
+  expect((await page.request.post('/__test/schedule', { data: { title: '아침 요약', runs: 2 } })).ok()).toBeTruthy()
+  await page.reload()
+  type Look = { size: string; weight: string; lh: string; height: number }
+  // `box`: what the height is measured on (a row's link; a header's row)
+  const look = (sel: string, box: string) => page.locator(sel).first().evaluate((el, box) => {
+    const s = getComputedStyle(el)
+    return { size: s.fontSize, weight: s.fontWeight, lh: s.lineHeight, height: Math.round(el.closest(box)!.getBoundingClientRect().height) }
+  }, box)
+  // a row's name: the ListRow's name span, or a room's link that carries the name's look itself (nav/RoomsList.tsx)
+  const rowName = '#rail-panel li > a .text-row, #rail-panel li > a.text-row'
+  const head = '#rail-panel section[aria-labelledby] > div > h3'
+  const looks: Record<string, { row: Look; head?: Look }> = {}
+  for (const item of ['chats', 'projects', 'files', 'activity', 'ai'] as const) {
+    await openRail(page, item)
+    await expect(page.locator(rowName).first()).toBeVisible()
+    looks[item] = { row: await look(rowName, 'a'), head: (await page.locator(head).count()) ? await look(head, 'div') : undefined }
+  }
+  const ai = looks.ai!
+  for (const item of ['chats', 'projects', 'files', 'activity']) {
+    const o = looks[item]!
+    expect({ size: ai.row.size, lh: ai.row.lh }, `트리나's row against ${item}'s`).toEqual({ size: o.row.size, lh: o.row.lh })
+    if (o.head) expect(ai.head, `트리나's section header against ${item}'s`).toEqual(o.head)
+  }
+  // a read row: 15px at 400 in a 30px row, as 파일's
+  expect(ai.row).toEqual({ ...looks.files!.row, weight: '400' })
+  expect(ai.row.height).toBe(30)
+  // every row of 트리나's list is one height; the tags end at one edge, 13px, at most 40% of their row
+  const list = page.getByTestId('trina-list')
+  const heights = await list.locator('li > a').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
+  expect(new Set(heights)).toEqual(new Set([30]))
+  const tags = await list.locator('[data-testid="chat-row-project"], [data-testid="task-runs-row"] .text-meta').evaluateAll((els) => els.map((e) => {
+    const r = e.getBoundingClientRect(), row = e.closest('a')!.getBoundingClientRect()
+    return { right: Math.round(r.right), share: r.width / row.width, size: getComputedStyle(e).fontSize, text: e.textContent }
+  }))
+  expect(tags.map((x) => x.text)).toEqual(expect.arrayContaining(['acme-web', 'Hello', 'ops']))
+  expect(tags.length).toBe(4)
+  expect(new Set(tags.map((x) => x.right)).size, JSON.stringify(tags)).toBe(1)
+  for (const x of tags) {
+    expect(x.size).toBe('13px')
+    expect(x.share).toBeLessThanOrEqual(0.41)
+  }
+})

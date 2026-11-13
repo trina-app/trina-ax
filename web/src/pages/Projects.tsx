@@ -499,25 +499,27 @@ export function ProjectList() {
   )
 }
 
-/** A project page's chat list rows (a chat, a scheduled task's runs folded into one) share this shell, so every title
- * starts at one x in one size, weight and colour, every row has one height, and every time ends at one x (QA TC-990):
- * the row keeps the "···" slot at its end whether it has a menu or not, so the menu showing on hover moves nothing.
- * What a row is (pinned, shared, a scheduled task's clock) is a small mark after the title, never before it, so no mark
- * moves a title off the list's edge; how a chat stands (who wrote in it) is before its time. */
-const projectRowCls = 'group -mx-2 flex min-h-12 items-center gap-4 rounded-md py-2 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12'
-function ProjectRowBody({ title, trail, end, at }: { title: string; trail?: ReactNode; end?: ReactNode; at: string }) {
+/** A project page's chat list rows (a chat, a scheduled task's runs folded into one) are the lists' rows
+ * (components/list/List.tsx ListRow) built the same way, so every title starts at one x in one size, weight and colour,
+ * every row has one height, and every time ends at one x (QA TC-990): each keeps the "···" slot at its end whether it
+ * has a menu or not (`rowMenu`, `menuSpace`), so the menu showing on hover moves nothing. What a row is (pinned, shared,
+ * a scheduled task's clock) is a small mark after the title, never before it, so no mark moves a title off the list's
+ * edge; how a chat stands (who wrote in it, how a task's runs went) is before its time. */
+function projectRowName(title: string, marks?: ReactNode) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate" data-testid="project-row-title">{title}</span>
+      {marks}
+    </span>
+  )
+}
+function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
   const locale = useLocale()
   return (
-    <>
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate" data-testid="project-row-title">{title}</span>
-        {trail}
-      </span>
-      <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
-        {end}
-        <time dateTime={at} className="shrink-0 tabular-nums">{formatRelative(at, locale)}</time>
-      </span>
-    </>
+    <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 self-center text-meta text-faint">
+      {children}
+      <time dateTime={at} className="shrink-0 tabular-nums">{formatRelative(at, locale)}</time>
+    </span>
   )
 }
 
@@ -533,40 +535,33 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
+  const name = c.title || t('chat.untitled')
   return (
-    <div className="group relative">
-      <Link ref={row} to={`/c/${c.id}`} state={{ [RAIL_STATE_KEY]: 'projects' }} className={projectRowCls} data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
-        <ProjectRowBody
-          at={c.updatedAt}
-          title={c.title || t('chat.untitled')}
-          trail={
+    <ListRow
+      to={`/c/${c.id}`}
+      state={{ [RAIL_STATE_KEY]: 'projects' }}
+      rowRef={row}
+      name={projectRowName(
+        name,
+        <>
+          {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
+          {c.shared && <SharedIcon className="text-faint" />}
+        </>,
+      )}
+      end={
+        <ProjectRowEnd at={c.updatedAt}>
+          {c.shared && (
             <>
-              {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-              {c.shared && <SharedIcon className="text-faint" />}
+              <ChatFaces shared={c.shared} focusFrom={row} />
+              <span aria-hidden>·</span>
             </>
-          }
-          end={
-            c.shared && (
-              <>
-                <ChatFaces shared={c.shared} focusFrom={row} />
-                <span aria-hidden>·</span>
-              </>
-            )
-          }
-        />
-      </Link>
-      <MenuButton
-        label={t('rooms.menu.rowLabel', { name: c.title || t('chat.untitled') })}
-        tip={t('rooms.menu.label')}
-        items={items}
-        sheetTitle={c.title || t('chat.untitled')}
-        // centred by flex, not a transform: a transform here would hold the phone's fixed bottom sheet inside this box
-        className="absolute inset-y-0 right-0 flex items-center"
-        buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
-        buttonRef={more}
-        testId="project-chat-menu"
-      />
-    </div>
+          )}
+        </ProjectRowEnd>
+      }
+      rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'project-chat-menu' }}
+      testId="project-chat"
+      link={{ 'data-shared': c.shared ? 'true' : undefined }}
+    />
   )
 }
 
@@ -575,10 +570,21 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
 function ProjectTaskRow({ runs }: { runs: Run[] }) {
   const t = useT()
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const unread = runsUnread(runs, here)
   return (
-    <Link to={taskRunsPath(runs)} className={projectRowCls} data-testid="task-runs-row" {...taskRunsAttrs(runs, runsUnread(runs, here))}>
-      <ProjectRowBody at={runs[0]!.updatedAt} title={scheduleName(runs[0]!.schedule, t)} trail={<TaskRunsIcon />} end={<TaskRunsMark runs={runs} />} />
-    </Link>
+    <ListRow
+      to={taskRunsPath(runs)}
+      unread={unread}
+      menuSpace
+      name={projectRowName(scheduleName(runs[0]!.schedule, t), <TaskRunsIcon />)}
+      end={
+        <ProjectRowEnd at={runs[0]!.updatedAt}>
+          <TaskRunsMark runs={runs} />
+        </ProjectRowEnd>
+      }
+      testId="task-runs-row"
+      link={taskRunsAttrs(runs, unread)}
+    />
   )
 }
 
@@ -1137,10 +1143,8 @@ function ProjectPage() {
             <ul className="divide-y divide-line">
               {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
-                <li>
-                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
-                </li>
-              ), { task: (runs) => <li><ProjectTaskRow runs={runs} /></li> })}
+                <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+              ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>
         </div>
