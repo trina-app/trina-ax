@@ -126,7 +126,7 @@ export function FoldersLabelWords({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   return (
     <>
-      {folderKindName(t, kind)} <span className="font-normal">· {t('trinaList.onlyYou')}</span>
+      {folderKindName(t, kind)} <span className="text-meta font-normal text-faint">· {t('trinaList.onlyYou')}</span>
     </>
   )
 }

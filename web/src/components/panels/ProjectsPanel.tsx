@@ -10,7 +10,7 @@
 import clsx from 'clsx'
 import { Lock, Plus, SquareKanban, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, matchPath, useLocation, useNavigate } from 'react-router-dom'
+import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
@@ -21,6 +21,7 @@ import { isAdmin, useMe } from '../../store/session'
 import { readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
+import { ListIcon, ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 import { useGroupsRead } from './TrinaList'
 
@@ -40,8 +41,8 @@ export function NewProjectRow({ phone = false }: { phone?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-11')} data-testid="projects-panel-new">
-        <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-row-min')} data-testid="projects-panel-new">
+        <ListIcon><Plus /></ListIcon> <span className="truncate">{t('projects.new')}</span>
       </button>
       {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
     </>
@@ -95,22 +96,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
         const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        return (
-          <li key={p.id}>
-            <Link
-              to={`/projects/${p.id}`}
-              aria-current={on ? 'page' : undefined}
-              className={clsx('flex items-start gap-2.5 rounded-lg px-3 py-1.5 text-left hover:bg-hover focus-visible:-outline-offset-2', phone && 'py-2.5', on && 'bg-hover')}
-              data-testid="projects-panel-row"
-            >
-              <SquareKanban size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className={clsx('block truncate text-row', on ? 'font-semibold text-ink' : 'text-muted')} title={p.name} data-testid="projects-panel-name">{p.name}</span>
-                <span className="block truncate text-meta text-faint tabular-nums" data-testid="projects-panel-meta">{meta}</span>
-              </span>
-            </Link>
-          </li>
-        )
+        return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={<SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
       })}
     </ul>
   )

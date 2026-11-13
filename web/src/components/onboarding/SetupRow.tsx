@@ -27,7 +27,7 @@ const PHONE = '(max-width: 767.98px)'
 /** the progress is read again on a page change at most this often (another tab, a share applied on its own page) */
 const FRESH_MS = 5000
 
-const row = 'flex h-row min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-row font-medium text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent max-sm:h-10'
+const row = 'flex h-row pointer-coarse:min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-row font-medium text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent max-sm:h-10'
 
 export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT()

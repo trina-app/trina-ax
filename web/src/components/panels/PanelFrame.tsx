@@ -4,12 +4,11 @@
 // Slack-sized type"). Below 1052 px its header has "목록 숨기기" (rail/railPanel.ts); the rail then
 // shows the button that brings it back. A <nav> named by its title; the skip link "목록으로" lands on it (Layout.tsx).
 import clsx from 'clsx'
-import { ChevronRight, PanelLeftClose } from 'lucide-react'
-import { useId, useState, type HTMLAttributes, type ReactNode } from 'react'
+import { PanelLeftClose } from 'lucide-react'
+import { useId, useState, type ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { IconButton, useMediaQuery } from '../ui'
 import { PANEL_ALWAYS_PX, useRailPanel } from '../rail/railPanel'
-import { useFolds } from './folds'
 
 export const PANEL_ID = 'rail-panel'
 
@@ -57,11 +56,6 @@ export const panelRowBox = 'flex h-row w-full pointer-coarse:min-h-11 items-cent
 /** a row at the top of a panel (트리나에게 묻기, 검색, 예약 작업, 팀 스킬; 새 프로젝트): 15 px in ink, as the list's rows */
 export const panelRow = `${panelRowBox} text-row text-ink`
 export const panelRowActive = ({ isActive }: { isActive: boolean }) => clsx(panelRow, isActive && 'bg-hover font-semibold')
-/** a place row in a section (프로젝트, 파일): muted while it is not the one on screen, ink and semibold when it is */
-export const placeRow = (on: boolean) => clsx(panelRowBox, 'text-row', on ? 'bg-hover font-semibold text-ink' : 'text-muted')
-/** a section's body: its rows (a list's `li > a`, a quiet button) indented so their icon starts under the header's words */
-const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent'
-
 /* The panels' three levels (docs/DECISIONS.md "Panels: three levels you can tell apart", "Panels: Slack-sized type"; the
  * owner, 2026-11-13: "위계가 안 보여", then "글자가 너무 작아"): a section's header (PanelSection: the rows' 15 px,
  * semibold in ink, space above it, a ▸ on its left that folds it, its rows indented under its words), a group's header
@@ -73,82 +67,6 @@ const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent'
 export const groupHead = 'group/head relative flex h-row items-center gap-1 rounded-md pr-2 pl-0.5 text-row font-medium text-ink hover:bg-hover pointer-coarse:min-h-11 max-md:min-h-11'
 /** A group's rows: indented under the header's ▸ with a faint guide line, a small gap after the group */
 export const groupRows = 'mb-1.5 ml-[15px] border-l border-line pl-1.5'
-/** A group's ▸ (left of its name): folds and opens it */
-export function GroupChevron({ folded, controls, label, onClick, testId }: { folded: boolean; controls: string; label?: string; onClick: () => void; testId: string }) {
-  return (
-    // no-tooltip: a disclosure's ▸ (aria-expanded)
-    <button type="button" aria-expanded={!folded} aria-controls={controls} aria-label={label} onClick={onClick} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded text-muted hover:text-ink pointer-coarse:size-11" data-testid={testId}>
-      <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
-    </button>
-  )
-}
-
-/**
- * A section of a panel's list (트리나's 고정, 트리나 폴더, 최근 기록; 대화's kinds; 파일's places; 활동's 읽음): its header,
- * the rows' size, semibold in ink with space above it, folds the section with the ▸ on its left (remembered per person in this
- * browser, `foldKey`); `count`, when given, shows beside the label while it is folded. `link`: the label's words open
- * a page (파일's 팀 폴더), so the ▸ is a button of its own.
- */
-export function PanelSection({ id, label, icon, count, action, link, foldKey, labelTestId, children, className, ...rest }: {
-  id: string
-  label: ReactNode
-  icon?: ReactNode
-  count?: number
-  action?: ReactNode
-  link?: ReactNode
-  foldKey: string
-  labelTestId: string
-  children: ReactNode
-  className?: string
-} & Omit<HTMLAttributes<HTMLElement>, 'id'> & { [data: `data-${string}`]: string | undefined }) {
-  const { folds, set } = useFolds()
-  const key = `section:${foldKey}`
-  const folded = folds[key] === 'folded'
-  const bodyId = useId()
-  const toggle = () => set(key, folded ? 'open' : 'folded')
-  const words = (
-    <>
-      {icon}
-      <span className="truncate">{label}</span>
-      {folded && count !== undefined && count > 0 && <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="panel-section-count">{count}</span>}
-    </>
-  )
-  return (
-    <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} {...rest}>
-      <div className="flex h-row items-center gap-1 pr-1 pointer-coarse:min-h-11 max-md:min-h-11" data-testid={labelTestId}>
-        <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 text-row font-semibold text-ink">
-          {link ? (
-            <>
-              <GroupChevron folded={folded} controls={bodyId} label={typeof label === 'string' ? label : undefined} onClick={toggle} testId="panel-section-fold" />
-              <span className="flex min-w-0 items-center gap-1.5">{link}</span>
-            </>
-          ) : (
-            <button type="button" aria-expanded={!folded} aria-controls={bodyId} onClick={toggle} className="flex h-row min-w-0 flex-1 items-center gap-1.5 rounded-md pr-1 text-left hover:text-muted pointer-coarse:min-h-11 max-md:min-h-11" data-testid="panel-section-fold">
-              <span className="flex size-6 shrink-0 items-center justify-center text-muted">
-                <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
-              </span>
-              {words}
-            </button>
-          )}
-        </h3>
-        {action}
-      </div>
-      <div id={bodyId} hidden={folded} className={sectionBody}>
-        {!folded && children}
-      </div>
-    </section>
-  )
-}
-
-/** A header that does not fold (a few rows that are not a section of their own). Same look as PanelSection's. */
-export function PanelLabel({ id, icon, action, children, testId }: { id: string; icon?: ReactNode; action?: ReactNode; children: ReactNode; testId: string }) {
-  return (
-    <div className="mt-4 flex h-row items-center gap-1 pr-1 pl-2 first:mt-0 pointer-coarse:h-auto pointer-coarse:min-h-8" data-testid={testId}>
-      <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-row font-semibold text-ink">
-        {icon}
-        <span className="truncate">{children}</span>
-      </h3>
-      {action}
-    </div>
-  )
-}
+/** The section, its header and the group's ▸ are the lists' own (components/list/List.tsx), under the names the panels
+ * have always used */
+export { GroupChevron, ListSection as PanelSection } from '../list/List'

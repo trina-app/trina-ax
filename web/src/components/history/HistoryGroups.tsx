@@ -173,14 +173,14 @@ function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: 
             <FolderKanban size={14} className="shrink-0 text-muted" aria-hidden />
             {/* no-tooltip: a disclosure's ▾ (aria-expanded), as on the section titles above */}
             <button type="button" aria-expanded={!folded} aria-controls={listId} aria-label={t('history.group.chats', { name })} onClick={fold} className="touch-hit -ml-1 flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="history-group-fold">
-              <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+              <ChevronDown size={14} className={clsx('text-muted transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
           </>
         ) : (
           <h3 className="flex h-full min-w-0">
             <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="flex h-full max-w-full items-center gap-1 rounded hover:text-muted" data-testid="history-group-fold">
               <span className="truncate">{t('history.other')}</span>
-              <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+              <ChevronDown size={14} className={clsx('shrink-0 text-muted transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
           </h3>
         )}

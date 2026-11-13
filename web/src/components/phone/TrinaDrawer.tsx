@@ -77,7 +77,8 @@ function DrawerBody({ close }: { close: () => void }) {
       return !v
     })
   const [scrolled, setScrolled] = useState(false)
-  const nav = 'flex h-11 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover'
+  // the lists' row size and icon (components/list/List.tsx tokens): 17px words, 20px icons on a phone
+  const nav = 'flex min-h-11 items-center gap-3 rounded-lg px-3 text-row text-ink hover:bg-hover [&>svg]:size-list-glyph [&>svg]:shrink-0 [&>svg]:text-muted'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
   const filtered = view.changed.length > 0
   return (

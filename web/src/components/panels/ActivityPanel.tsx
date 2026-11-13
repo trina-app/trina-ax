@@ -26,6 +26,7 @@ import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
 import { Tooltip } from '../Tooltip'
 import { IconButton } from '../ui'
+import { ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRowBox } from './PanelFrame'
 
 /** while the unread ones are not all loaded, this many older pages are read by themselves */
@@ -199,7 +200,7 @@ export function ActivityPanel() {
         </>
       }
     >
-      {error && <p role="alert" className="px-3 py-2 text-xs text-danger">{error}</p>}
+      {error && <p role="alert" className="px-3 py-2 text-meta text-danger">{error}</p>}
       {!items && !error && <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />}
       {items && !shown.length && !cursor && <p className="px-3 py-2 text-row text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
@@ -226,32 +227,26 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
   const Icon = kind === 'trina' ? CalendarClock : kind === 'requests' ? Plug : Bell
   const target = noticeTarget(item)
   return (
-    <li>
-      <Link
-        to={target.to}
-        state={target.state}
-        onClick={onOpen}
-        aria-current={open ? 'page' : undefined}
-        className={clsx('flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-hover focus-visible:-outline-offset-2', open && 'bg-hover')}
-        data-testid="activity-panel-row"
-        data-unread={unread ? '' : undefined}
-        data-chip={kind ?? 'other'}
-      >
-        <Icon size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className={clsx('line-clamp-2 text-row break-words', unread ? 'font-semibold text-ink' : 'text-muted')} data-testid="activity-panel-text">
-            {noticeText(item, t, locale)}
-          </span>
-          <time dateTime={item.createdAt} className="mt-0.5 block text-meta text-faint">
-            {listTime(item.createdAt, locale, t('sidebar.yesterday'))}
-          </time>
-        </span>
-        {unread && (
-          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent" data-testid="activity-panel-dot">
+    <ListRow
+      to={target.to}
+      state={target.state}
+      onClick={onOpen}
+      selected={open}
+      unread={unread}
+      wrap
+      icon={<Icon />}
+      name={noticeText(item, t, locale)}
+      nameTestId="activity-panel-text"
+      meta={<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time>}
+      end={
+        unread && (
+          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">
             <span className="sr-only">{t('notifications.unreadMark')}</span>
           </span>
-        )}
-      </Link>
-    </li>
+        )
+      }
+      testId="activity-panel-row"
+      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': kind ?? 'other' }}
+    />
   )
 }

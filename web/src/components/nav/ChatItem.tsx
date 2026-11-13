@@ -22,6 +22,7 @@ import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
 import { useRoomTitle } from '../rooms/RoomIcon'
+import { rowName } from '../list/List'
 
 /** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
  * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
@@ -71,7 +72,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
         className={({ isActive }) =>
-          clsx('flex h-row items-center gap-2 rounded-lg pr-9 pl-3 text-row hover:bg-hover max-md:h-11 max-md:pr-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17', isActive ? 'bg-hover font-semibold text-ink' : needsMe(marker) ? 'font-semibold text-ink' : 'text-muted')
+          clsx('flex h-row items-center gap-2 rounded-lg pr-9 pl-3 hover:bg-hover max-md:h-11 max-md:pr-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17', isActive ? 'bg-hover' : '', rowName({ selected: isActive, unread: needsMe(marker) }))
         }
       >
         {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
