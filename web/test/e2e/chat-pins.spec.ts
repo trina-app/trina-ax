@@ -5,7 +5,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatList, oldNav, openDrawer, pinnedChats, showChats } from './nav'
+import { chatList, isNewNav, oldNav, openDrawer, pinnedChats, showChats } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -114,6 +114,8 @@ test('the chat\'s own title menu pins and unpins it, the row menu\'s item (QA TC
   await first.click()
   // to the top of the list with the pin, above the five latest (as from the row's "···"), or in the 트리나 panel's 고정
   const pinned = pinnedChats(page)
+  // the first row of the list in today's sidebar; the first of the 고정 section in the 트리나 panel
+  if (!(await isNewNav(page))) await expect(titles(s).first()).toHaveText('제목 메뉴로 고정')
   await expect(pinned.first().locator('a[href^="/c/"] .truncate')).toHaveText('제목 메뉴로 고정')
   await expect(pinned.first().getByTestId('chat-pin-icon')).toBeVisible()
   // after a reload too; then 고정 해제 from the same menu

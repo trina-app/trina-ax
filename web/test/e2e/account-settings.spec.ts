@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
-import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openUsage, tabBar, tabButtonNow } from './nav'
+import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openTrinaRow, openUsage, tabBar, tabButtonNow } from './nav'
 
 const t = DICTS.en
 
@@ -91,7 +91,7 @@ test('the account menu opens above the profile line (beside the rail\'s photo), 
 
 test('Settings opens as a dialog over the page, keeps the keyboard inside, and Esc or ✕ goes back', async ({ page }) => {
   await start(page)
-  await page.getByRole('link', { name: t['sidebar.projects'] }).click()
+  await openTrinaRow(page, 'projects')
   await expect(page).toHaveURL(/\/projects$/)
   await openSettings(page)
   await expect(page).toHaveURL(/\/settings$/)

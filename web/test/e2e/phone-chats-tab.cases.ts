@@ -11,7 +11,7 @@
 // phone-chats-tab.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { activityCount, oldNav, tabButtonNow, tabMark } from './nav'
+import { oldNav, tabButtonNow, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -279,7 +279,7 @@ export function chatsTabCases() {
     // today's sidebar (the new navigation has the 멘션·스레드 row on computers too: chats-panel.spec.ts, rail.spec.ts)
     test('as it was: no 멘션·스레드 row, no 대화 type in search, the sidebar\'s Activity counts everything', async ({ page }) => {
       await start(page, true)
-      await expect(await activityCount(page)).toContainText('3')
+      await expect(page.getByTestId('inbox-unread')).toContainText('3')
       await page.goto('/rooms')
       await expect(page.getByTestId('rooms-row')).toHaveCount(2)
       await expect(page.getByTestId('rooms-activity')).toBeHidden()

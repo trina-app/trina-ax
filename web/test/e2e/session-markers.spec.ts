@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatFilterClear, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
+import { chatFilterClear, drawerButton, isNewNav, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
 
 /** the chat's row in the AI's history on screen (the sidebar or the 트리나 panel; on a phone the drawer or the 트리나 tab) */
 const rowOf = (page: Page, id: string) => navChatRow(page, { id })
@@ -168,6 +168,7 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   await expect(tabMark(page, 'chats')).toHaveAttribute('data-ai-waits', '')
   await expect(tabMark(page, 'chats').locator('[aria-hidden]')).toHaveText('?')
   await expect(tabMark(page, 'chats')).toContainText('18')
+  if (!(await isNewNav(page))) await expect(drawerButton(page)).toBeVisible()
   await expect(await phoneAiMark(page)).toHaveCount(0)
 })
 

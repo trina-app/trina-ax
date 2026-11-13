@@ -90,9 +90,18 @@ export async function tabButton(page: Page, which: PhoneTab | 'projects'): Promi
 export async function openProjectsTab(page: Page) {
   if (await isNewNav(page)) {
     await openTab(page, 'ai')
-    await page.getByTestId('trina-all-projects').click()
+    await allProjects(page, page)
   } else await page.getByTestId('tab-projects').last().click()
   await expect(page).toHaveURL(/\/projects$/)
+}
+
+/** The 트리나 list's way to every project: "모든 프로젝트 (N)", or with no project yet "+ 새 프로젝트"'s list (the
+ * projects page; the list draws no "모든 프로젝트" row while there is none). */
+async function allProjects(page: Page, scope: Page | Locator) {
+  const all = scope.getByTestId('trina-all-projects')
+  await expect(all.or(scope.getByTestId('trina-new-project')).first()).toBeVisible()
+  if (await all.isVisible()) await all.click()
+  else await page.goto('/projects')
 }
 
 /** The tab bar itself (to check it shows or hides). */
@@ -175,10 +184,7 @@ export async function openTrinaRow(page: Page, row: 'scheduled' | 'skills' | 'tr
   const neu = await isNewNav(page)
   if (isPhone(page)) {
     if (row === 'projects') {
-      if (neu) {
-        await openTab(page, 'ai')
-        await page.getByTestId('trina-all-projects').click()
-      } else await page.getByTestId('tab-projects').click()
+      await openProjectsTab(page)
       return
     }
     if (neu) {
@@ -188,7 +194,9 @@ export async function openTrinaRow(page: Page, row: 'scheduled' | 'skills' | 'tr
     return
   }
   if (neu) {
-    await (await showPanel(page, 'trina')).getByTestId(row === 'projects' ? 'trina-all-projects' : `nav-${row}`).click()
+    const p = await showPanel(page, 'trina')
+    if (row === 'projects') await allProjects(page, p)
+    else await p.getByTestId(`nav-${row}`).click()
     return
   }
   if (row === 'trash') {
@@ -348,6 +356,10 @@ export async function signOut(page: Page) {
   if (isPhone(page)) {
     await openTab(page, 'me')
     await page.getByTestId('settings-logout').click()
+    // the 나 tab asks first
+    const confirm = page.getByTestId('dialog-confirm')
+    await expect(confirm.or(page.getByTestId('login-username')).first()).toBeVisible()
+    if (await confirm.isVisible()) await confirm.click()
   } else await (await openAccountMenu(page)).getByTestId('logout').click()
   await expect(page.getByTestId('login-username')).toBeVisible()
 }

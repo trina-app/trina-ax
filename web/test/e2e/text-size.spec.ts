@@ -136,6 +136,7 @@ test.describe('on a 390px phone', () => {
       expect(await sideways(page), path).toEqual([])
     }
     // the phone's tabs keep their names whole
+    await expect(tabBar(page).getByRole('link')).toHaveCount(4)
     for (const tab of await tabBar(page).getByRole('link').all()) {
       const fits = await tab.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
       expect(fits, await tab.getAttribute('data-testid') ?? '').toBe(true)
