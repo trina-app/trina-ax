@@ -32,7 +32,8 @@ import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
-import { Button, PageHeader, Skeleton } from '../components/ui'
+import { Button, PageHeader, Skeleton, useMediaQuery } from '../components/ui'
+import { useNavRail } from '../lib/navRail'
 import { LoadError } from '../components/LoadError'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
@@ -62,9 +63,23 @@ export default function Rooms() {
     }, { replace: true })
   }, [asked, setParams])
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
+  // the new navigation on a computer (lib/navRail.ts): the 대화 panel beside the page is the list (with its ⊕ 새 대화), so
+  // the page says to pick one and keeps only what the panel has not: the hidden conversations
+  const navRail = useNavRail()
+  const computer = useMediaQuery('(min-width: 768px)')
+  const railPage = navRail && computer
   if (resuming) return <div className="h-full" />
   const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
   const hidden = everyRoom.filter((r) => r.hidden)
+  if (railPage)
+    return (
+      <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
+          <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
+          {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
+        </div>
+      </div>
+    )
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
       <div className="max-md:hidden">

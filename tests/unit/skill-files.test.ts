@@ -25,7 +25,7 @@ import { planFolderAction, runFolderAction, type FolderActionInput, type FolderP
 import { allowSkillAction, requireSkillApproval, takeSkillAction } from '../../server/src/skills/guard'
 import { skillFilesRefusal } from '../../server/src/chat/skill-files'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
-import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { listSkills } from '../../server/src/chat/skills'
 import { TurnFiles } from '../../server/src/files/service'
 import { sha256 } from '../../server/src/files/store'
@@ -505,11 +505,10 @@ describe('who may call it (M9)', () => {
   test('each other mode is refused before any card, saying why and what to do', () => {
     expect(r({ spec: { ...base.spec, clientKind: 'schedule' } })).toContain('scheduled run with nobody watching')
     expect(r({ spec: { ...base.spec, clientKind: 'schedule' } })).toContain('did not refuse anything')
-    expect(r({ room: { roomId: 'r1' } })).toContain('team chat room')
     expect(r({ shared: { project: {} } })).toContain('shared project chat')
     expect(r({ templateRun: true })).toContain('limited to its scheduled task')
     expect(r({ restricted: true })).toContain('draft')
-    for (const t of [r({ room: { roomId: 'r1' } }), r({ templateRun: true })]) expect(t).toContain('Next step:')
+    for (const t of [r({ templateRun: true })]) expect(t).toContain('Next step:')
     // a sub-agent (another agent's state), or a call whose agent is not known
     expect(r({}, undefined, files.forAgent('agent-1'))).toContain('only the main AI')
     expect(r({}, undefined, new TurnFiles())).toContain('only the main AI')
@@ -530,7 +529,6 @@ describe('who may call it (M9)', () => {
     expect(r({ roomsSeen: true })).toBeNull()
   })
   test('not offered in rooms or shared chats; the main AI\'s only', () => {
-    expect(ROOM_TOOLS.has('skill_files')).toBe(false)
     expect(SHARED_TOOLS.has('skill_files')).toBe(false)
     expect(PARENT_ONLY_TOOLS.has('skill_files')).toBe(true)
   })

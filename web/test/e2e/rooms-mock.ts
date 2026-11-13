@@ -2,6 +2,7 @@
 // through page.route, contract-shaped, and the messages sent to it kept for the spec to read. The signed-in owner (olga)
 // is a member; the others are people of this room only (not in the directory).
 import type { Page } from '@playwright/test'
+import { reportBrowserAnswers } from './coverage-report'
 
 export const ROOM_ID = '019a5f00-0000-7000-8000-00000000a001'
 const T0 = Date.parse('2026-11-05T09:00:00.000Z')
@@ -22,14 +23,11 @@ export interface MockRoom {
  * more contract fields as they are (reactions, a thread's summary, …). */
 export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
 
-/** The AI in the room as GET /api/rooms/:id/ai and GET /api/rooms/:id/ai/requests answer it, read at each request (a
- * spec changes it as the server would: a question of mine running, its card open, answered). */
-export interface MockRoomAi { answering: number; mine: unknown[]; requests: unknown[] }
-
-/** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `ai`: the AI's state
- * (none by default); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
+/** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `room`: fields of the room as they are (its name, threads with new replies, …). A PATCH of the
  * room (my notification level) answers with the room changed. */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi; room?: Record<string, unknown> }): Promise<MockRoom> {
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; room?: Record<string, unknown> }): Promise<MockRoom> {
+  // its answers count for the feature map (docs/FEATURES.md) like the mock server's
+  reportBrowserAnswers(page)
   const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
@@ -65,8 +63,6 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}`) return route.fulfill(json(room))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/messages`) return route.fulfill(json({ items: messages, nextCursor: null }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/members`) return route.fulfill(json({ items: members.map((user) => ({ user, joinedAt: at(-60) })) }))
-    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: o.ai?.answering ?? 0, mine: o.ai?.mine ?? [] }))
-    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai/requests`) return route.fulfill(json({ items: o.ai?.requests ?? [] }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
     if (method === 'PATCH' && path === `/api/rooms/${ROOM_ID}`) {
       const b = req.postDataJSON() as { notifyLevel?: string | null }
@@ -138,6 +134,7 @@ export interface MockRooms {
  * contract-shaped.
  * The signed-in owner (olga) is in all of them. */
 export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<MockRooms> {
+  reportBrowserAnswers(page)
   const state: MockRooms = { hidden: [], left: [], updated: [], pinned: [] }
   const NOW = Date.parse('2026-11-07T09:00:00.000Z')
   const when = (ago: number) => new Date(NOW - ago * 60_000).toISOString()

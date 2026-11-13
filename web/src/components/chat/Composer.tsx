@@ -9,7 +9,7 @@
 // The attach button opens a small menu (on a phone the attach sheet every message box has: AttachSheet.tsx): upload from
 // this computer, or add files of the team folder (TeamFilePicker), which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
-// Files from this computer dropped anywhere on the chat's page go into the box (components/FileDropZone.tsx).
+// Files from this computer dropped anywhere on the chat's page, Home or a project's page go into the box (components/FileDropZone.tsx).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
@@ -186,9 +186,10 @@ export default function Composer({
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
-  // files from this computer dropped anywhere on the chat's page (pages/Chat.tsx: FileDropZone) come here, with the box's
-  // own checks: none for someone who may not write a shared chat's project folder, no more in a full box. Outside such a
-  // page (Home) the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no highlight).
+  // files from this computer dropped anywhere on the chat's page, Home or a project's page (their FileDropZone) come here,
+  // with the box's own checks: none for someone who may not write a shared chat's project folder, no more in a full box.
+  // Outside such a page the box takes them on itself, and refuses them in the same case (the not-allowed cursor, no
+  // highlight).
   // A team file dragged from the file screen, a preview or a message goes on the box only.
   const noComputer = computer ? null : t('drop.noComputer')
   const inZone = useDropTarget({ files: (all) => void addFiles(all), refusal: () => noComputer ?? (live.length >= MESSAGE_ATTACHMENTS_MAX ? t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) : null) })
@@ -392,7 +393,7 @@ export default function Composer({
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
   const attachControls = phone ? (
     // the card's +: a quiet round button as tall as the picker beside it
-    <AttachSheet onFiles={(all) => void addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - live.length} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={stacked ? 20 : 19} />} testId="attach-button" filesTestId="file-input" buttonClassName={stacked ? 'size-9 rounded-full! border border-line p-0! text-ink!' : undefined} />
+    <AttachSheet key={draftId} onFiles={(all) => void addFiles(all)} room={MESSAGE_ATTACHMENTS_MAX - live.length} onTeam={() => setPicker(true)} computer={computer} icon={<Plus size={stacked ? 20 : 19} />} testId="attach-button" filesTestId="file-input" buttonClassName={stacked ? 'size-9 rounded-full! border border-line p-0! text-ink!' : undefined} />
   ) : (
     <>
       <div

@@ -5,8 +5,7 @@
 // background behind it (--typing-bg: the side column and the phone's sheet set their surface), and the room's "to newest"
 // button sits above it (pages/Room.tsx). A short
 // fade (none with reduced motion, index.css). Screen readers hear it politely, and only when the people change (the
-// words stay the same between pings). Trina answering keeps its own line under the messages (RoomAiStatus), so it is
-// not repeated here.
+// words stay the same between pings).
 import clsx from 'clsx'
 import type { UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'

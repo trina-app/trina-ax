@@ -25,6 +25,7 @@ import { aiAccessFor } from '../credentials/access'
 import { memberOwnAllowed } from '../credentials/policy'
 import { answerJson } from './draft'
 import { profileFactLines, readCompanyProfile } from './profile'
+import { organizeSystemPrompt, type OrganizeMaterial } from './files-organize-ai'
 
 /** At most this many picks are read from an answer (the instructions ask for at most this many). */
 export const RANK_PICKS_MAX = 200
@@ -38,7 +39,7 @@ export interface FileRankMaterial {
   company: string[]
   entries: RankFileEntry[]
 }
-export interface FileRankScope { chatId: string; userId: string; material: FileRankMaterial }
+export interface FileRankScope { chatId: string; userId: string; material: FileRankMaterial | OrganizeMaterial }
 
 export const FILE_RANK_REFUSAL = 'This chat only picks which of the listed files the team should have: no tool and no team file is available here. Answer from the material in your instructions.'
 
@@ -52,9 +53,9 @@ const TEXT = {
 } satisfies Record<string, Record<Locale, string>>
 
 /** The material's own tags inside it are broken, so "</material>" in a file name cannot close the block. */
-const noTag = (s: string) => s.replace(/<(\/?)(material)/gi, '‹$1$2')
+export const noTag = (s: string) => s.replace(/<(\/?)(material)/gi, '‹$1$2')
 /** One line, no control characters, at most n characters. */
-const flat = (s: string, n: number) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim().slice(0, n)
+export const flat = (s: string, n: number) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim().slice(0, n)
 
 /**
  * The rank marking of a chat with its material, read when the turn starts, or null for every other chat. Only a
@@ -70,14 +71,16 @@ export function fileRankOf(db: Database, chatId: string): FileRankScope | null {
     throw e
   }
   if (!r) return null
-  return { chatId, userId: r.user_id, material: JSON.parse(r.material) as FileRankMaterial }
+  return { chatId, userId: r.user_id, material: JSON.parse(r.material) as FileRankMaterial | OrganizeMaterial }
 }
 
 const sizeText = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 /** The instructions of a rank turn (fixed, English like every instruction). */
 export function fileRankSystemPrompt(d: FileRankScope, o: { history?: { role: 'user' | 'assistant'; content: string }[] | null }): string {
-  const m = d.material
+  // the setup's folder plan (onboarding/files-organize.ts) runs on the same marking with its own instructions
+  if ('kind' in d.material && d.material.kind === 'organize') return organizeSystemPrompt(d.material, o)
+  const m = d.material as FileRankMaterial
   const lines = [
     `You are the team assistant of ${PRODUCT.displayName}. This chat has one task: the owner or an admin of this team picked a folder on their computer and wants to know which of its files the whole team should have in the team folder. You see only each file's name, the folder it is in inside the picked folder, its type, size and date, never what is in it. The person sees your picks ticked in a list and decides; you upload nothing. You have no tools in this chat and need none.`,
     '',
@@ -182,15 +185,31 @@ export interface RankOptions {
 export async function rankTeamFiles(ctx: AppContext, rt: ChatRuntime, who: RankCaller, entries: readonly RankFileEntry[], locale: Locale, o: RankOptions = {}): Promise<RankedTeamFiles> {
   sweepFileRanks(ctx, rt)
   if (!entries.length) return { ai: 'done', picks: [] }
-  if (!aiAnswers(ctx, rt, who, locale)) return { ai: 'none', picks: [] }
-  const teamLocale = teamDefaultLocale(ctx.db)
-  let company: string[] = []
-  try {
-    const profile = readCompanyProfile(ctx.files, ctx.files.principal(who.id))
-    company = profile ? profileFactLines(profile, PROFILE_BLOCK_MAX, getTeamSettings(ctx.db).teamName) : []
-  } catch { /* no profile */ }
-  const material: FileRankMaterial = { locale: teamLocale, company, entries: entries.slice(0, TEAM_FILES_LIMITS.toAi).map((e) => ({ ...e })) }
+  const material: FileRankMaterial = { locale: teamDefaultLocale(ctx.db), company: companyLines(ctx, who.id), entries: entries.slice(0, TEAM_FILES_LIMITS.toAi).map((e) => ({ ...e })) }
+  const r = await runFilesTurn(ctx, rt, who, material, locale, { ...o, ask: o.ask ?? TEXT.ask[rt.userLocale(who.id)], limitMs: Math.min(o.timeoutMs ?? TEAM_FILES_LIMITS.rankMs, TEAM_FILES_LIMITS.rankMs) })
+  if (r.ai !== 'done') return { ai: r.ai, picks: [] }
+  const picks = parseFileRank(r.content, material.entries.map((e) => e.id))
+  return picks ? { ai: 'done', picks } : { ai: 'failed', picks: [] }
+}
 
+/** The company profile's fact lines for the material (none when there is no profile). */
+export function companyLines(ctx: AppContext, userId: string): string[] {
+  try {
+    const profile = readCompanyProfile(ctx.files, ctx.files.principal(userId))
+    return profile ? profileFactLines(profile, PROFILE_BLOCK_MAX, getTeamSettings(ctx.db).teamName) : []
+  } catch { return [] }
+}
+
+export type FilesTurnResult = { ai: 'done'; content: string } | { ai: 'none' | 'failed' | 'timeout' }
+
+/**
+ * One no-tools turn of `who` over `material` (a rank or, with `kind: 'organize'`, the setup's folder plan:
+ * onboarding/files-organize.ts): a new chat marked in onboarding_file_ranks, the turn started with `o.ask`, its answer
+ * waited for at most `o.limitMs` (then, or when `o.signal` aborts, stopped: timeout), the chat deleted after. `none`: no
+ * AI answers the caller now (their connection, their budget).
+ */
+export async function runFilesTurn(ctx: AppContext, rt: ChatRuntime, who: RankCaller, material: FileRankMaterial | OrganizeMaterial, locale: Locale, o: RankOptions & { ask: string; limitMs: number; title?: string }): Promise<FilesTurnResult> {
+  if (!aiAnswers(ctx, rt, who, locale)) return { ai: 'none' }
   const userLocale = rt.userLocale(who.id)
   let chatId: string
   let answerId: string
@@ -200,7 +219,7 @@ export async function rankTeamFiles(ctx: AppContext, rt: ChatRuntime, who: RankC
     const now = new Date().toISOString()
     ctx.db.transaction(() => {
       ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
-        .run(chatId, who.id, TEXT.title[userLocale], engine, model ?? null, now, now)
+        .run(chatId, who.id, o.title ?? TEXT.title[userLocale], engine, model ?? null, now, now)
       ctx.db.query('INSERT INTO onboarding_file_ranks (chat_id, user_id, material, created_at) VALUES (?,?,?,?)').run(chatId, who.id, JSON.stringify(material), now)
     })()
     const chat = rt.store.chatRow(chatId)!
@@ -208,7 +227,7 @@ export async function rankTeamFiles(ctx: AppContext, rt: ChatRuntime, who: RankC
       const te = turnEngine(ctx, who, chat, {}, userLocale, (e) => rt.defaultModelFor(e))
       const started = rt.createTurn({ chat, userId: who.id, locale: userLocale, windowId: null, clientKind: null, engine: te.engine, model: te.model,
         ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
-        user: { parentId: null, content: o.ask ?? TEXT.ask[userLocale], attachments: [], clientMessageId: `tfr-${chatId}` } })
+        user: { parentId: null, content: o.ask, attachments: [], clientMessageId: `tfr-${chatId}` } })
       answerId = started.assistantMessage.id
     } catch (e) {
       // queue full, server draining: no chat stays behind
@@ -216,24 +235,21 @@ export async function rankTeamFiles(ctx: AppContext, rt: ChatRuntime, who: RankC
       throw e
     }
   } catch (e) {
-    ctx.log.warn('team file pick not started', { err: e instanceof Error ? e.message : String(e) })
-    return { ai: 'failed', picks: [] }
+    ctx.log.warn('team file turn not started', { err: e instanceof Error ? e.message : String(e) })
+    return { ai: 'failed' }
   }
 
-  const limit = Math.min(o.timeoutMs ?? TEAM_FILES_LIMITS.rankMs, TEAM_FILES_LIMITS.rankMs)
-  const until = Date.now() + limit
+  const until = Date.now() + o.limitMs
   try {
     for (;;) {
       const m = rt.store.messageRow(answerId)
-      if (!m) return { ai: 'failed', picks: [] }
+      if (!m) return { ai: 'failed' }
       if (m.status !== 'streaming') {
         o.onAnswer?.(m.content)
-        if (m.status !== 'done') return { ai: 'failed', picks: [] }
-        const picks = parseFileRank(m.content, material.entries.map((e) => e.id))
-        return picks ? { ai: 'done', picks } : { ai: 'failed', picks: [] }
+        return m.status === 'done' ? { ai: 'done', content: m.content } : { ai: 'failed' }
       }
-      if (o.signal?.aborted) return { ai: 'timeout', picks: [] }
-      if (Date.now() >= until) return { ai: 'timeout', picks: [] }
+      if (o.signal?.aborted) return { ai: 'timeout' }
+      if (Date.now() >= until) return { ai: 'timeout' }
       await Bun.sleep(POLL_MS)
     }
   } finally {

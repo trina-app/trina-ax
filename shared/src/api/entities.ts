@@ -239,6 +239,9 @@ export const Chat = z.object({
   /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
    * a shared project chat nobody else sees my pin. Absent = not pinned. */
   pinnedAt: IsoTime.optional(),
+  /** the list folder I keep it in (PUT /api/chats/:id/folder; docs/DECISIONS.md "List folders"). Mine only, and only on
+   * my own chat with no project. Absent = in no folder. */
+  folderId: Uuid7.optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({
@@ -568,6 +571,10 @@ export const FileVersion = z.object({
   savedBy: UserRef.nullable().optional(),
   /** the AI turn of the save that produced this content (null: not during an AI answer, or not known) */
   savedTurnId: Uuid7.nullable().optional(),
+  /** the AI chat of `savedTurnId` (the version history's "Open the chat"), only when the caller may open that chat now
+   * (server/src/chat/version-chats.ts). Absent otherwise: someone else's chat, one in the trash or gone, a confidential
+   * chat that is not theirs, an answer hidden from them in a shared chat, a room's AI, and older servers. */
+  savedChatId: Uuid7.optional(),
 })
 export type FileVersion = z.infer<typeof FileVersion>
 

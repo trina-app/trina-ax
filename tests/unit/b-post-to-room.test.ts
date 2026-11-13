@@ -19,7 +19,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnTool } from '../../server/src/services'
 import { postToRoomOff } from '../../server/src/chat/post-to-room'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
-import { ROOM_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { ROOMS_POST_RULE, sideRoomSection } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
@@ -183,7 +183,7 @@ describe('where it may not post', () => {
     expect(answer.split(' | ')[0]!.split(',')).not.toContain('post_to_room')
     expect(authored(rooms.all, 'bob')).toBe(before)
     // the reason, when reached anyway
-    const off = postToRoomOff({ room: null, shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId, locale: 'ko' } as never })
+    const off = postToRoomOff({ shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId, locale: 'ko' } as never })
     expect(off!.text).toContain('Nothing was posted: a scheduled run has nobody to answer the card')
     expect(off!.text).toContain('"대화방에 보내기"')
   })
@@ -203,31 +203,30 @@ describe('where it may not post', () => {
     // its next answer: no such tool at all
     const next = await turn('bob', fake({ echo: 'tools' }), { chat: r.chatId })
     expect(next.content).not.toContain('post_to_room')
-    const off = postToRoomOff({ room: null, shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'web', chatId: r.chatId, locale: 'en' } as never })
+    const off = postToRoomOff({ shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'web', chatId: r.chatId, locale: 'en' } as never })
     expect(off).toEqual({ text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' })
   })
 
   test('every run it is not offered in, with its reason; an ordinary chat of mine gets it', () => {
     const chatId = h.ctx.db.query('SELECT id FROM chats LIMIT 1').get() as { id: string }
-    const off = (o: { clientKind?: string; room?: boolean; shared?: boolean; restricted?: boolean; templateRun?: boolean }) => postToRoomOff({
-      room: o.room ? { roomId: rooms.all } : null, shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun,
+    const off = (o: { clientKind?: string; shared?: boolean; restricted?: boolean; templateRun?: boolean }) => postToRoomOff({
+      shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun,
       rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never,
     })?.summary ?? null
     // (draft, judge, merge and file-rank chats are all `restricted`: chat/turn.ts TurnExec.restricted)
     expect([
-      off({ clientKind: 'schedule' }), off({ clientKind: 'slack' }), off({ room: true }), off({ shared: true }), off({ restricted: true }), off({ templateRun: true }), off({}),
+      off({ clientKind: 'schedule' }), off({ clientKind: 'slack' }), off({ shared: true }), off({ restricted: true }), off({ templateRun: true }), off({}),
     ]).toEqual([
-      'post_to_room -> refused: scheduled run', 'post_to_room -> refused: Slack', 'post_to_room -> refused: room session', 'post_to_room -> refused: shared chat',
+      'post_to_room -> refused: scheduled run', 'post_to_room -> refused: Slack', 'post_to_room -> refused: shared chat',
       'post_to_room -> refused: not here', 'post_to_room -> refused: not here', null,
     ])
     // each says why and what to do
-    const text = (o: Parameters<typeof off>[0]) => postToRoomOff({ room: o.room ? { roomId: rooms.all } : null, shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun, rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never })!.text
+    const text = (o: Parameters<typeof off>[0]) => postToRoomOff({ shared: o.shared ? { project: {} } as never : null, restricted: !!o.restricted, templateRun: !!o.templateRun, rt: h.rt() as never, spec: { clientKind: o.clientKind ?? 'web', chatId: chatId.id, locale: 'ko' } as never })!.text
     expect(text({ clientKind: 'slack' })).toContain('"Post to channel"')
     expect(text({ clientKind: 'slack' })).toContain('Tell the user to ask in the app')
     expect(text({ shared: true })).toContain('"대화방에 보내기"')
     expect(text({ restricted: true })).toContain('Tell the user to ask in one of their own chats')
     expect(text({ templateRun: true })).toBe(text({ restricted: true }))
-    expect(text({ room: true })).toContain('Answer here instead')
   })
 
   test('a sub-agent\'s call that reaches it anyway is refused on the server, nothing posted', async () => {
@@ -260,7 +259,6 @@ describe('where it may not post', () => {
   test('the lists: main AI only, its own card after a room read, never in a room session or a shared chat; the prompt says when it posted', () => {
     expect(PARENT_ONLY_TOOLS.has('post_to_room')).toBe(true)
     expect(ROOMS_SEEN_READ_ONLY_TOOLS.has('post_to_room')).toBe(true)
-    expect(ROOM_TOOLS.has('post_to_room')).toBe(false)
     expect(SHARED_TOOLS.has('post_to_room')).toBe(false)
     expect(ROOMS_POST_RULE).toContain('say it was posted only when its result\'s status is "sent"')
     const side = sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'ko', true)

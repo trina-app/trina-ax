@@ -8,7 +8,7 @@ import path from 'node:path'
 import { API, type SkillDraftState } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { draftFiles, freeSkillName, parseSkillDraft, skillDraftSystemPrompt, skillFileOf, slugBase, type ParsedSkillDraft, type SkillMaterial } from '../../server/src/onboarding/skill-draft'
+import { draftFiles, subjectParticleKo, freeSkillName, parseSkillDraft, skillDraftSystemPrompt, skillFileOf, slugBase, type ParsedSkillDraft, type SkillMaterial } from '../../server/src/onboarding/skill-draft'
 import { leftoversIn, specificsOf } from '../../server/src/onboarding/specifics'
 import { checkSkill, isRecurring, parseSkill } from '../../server/src/chat/skills'
 import { outsideContentTool } from '../../server/src/chat/team-content-tools'
@@ -34,6 +34,14 @@ const good = {
   files: [{ path: NOTES, latest: false }],
   steps: '1. 쓰는 자료의 회의록을 읽어요.\n2. 할 일을 사람마다 한 줄씩, 기한과 출처를 붙여 써요.\n3. "내 할 일"이면 묻는 사람의 할 일만 써요.',
 }
+
+describe('the Korean subject particle after a file name', () => {
+  test('이 after a final consonant, 가 after a vowel, 이(가) when the name does not end in Hangul', () => {
+    expect(subjectParticleKo('견적서 양식')).toBe('이')
+    expect(subjectParticleKo('주간회의')).toBe('가')
+    expect(subjectParticleKo('Report v2')).toBe('이(가)')
+  })
+})
 
 describe('reading a draft (no server)', () => {
   test('a valid answer: the card\'s part, the steps kept; weekly; the notes as their folder and "the latest"', () => {

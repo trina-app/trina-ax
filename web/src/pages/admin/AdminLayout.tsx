@@ -11,6 +11,9 @@
 // the menu's title is the team's ("<team> admin", with its logo) and one line above every page says so ("Applies to
 // everyone in <team>", common.tsx AdminScope), so page titles keep the same nouns as Settings'. Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
+// Slack is one of the connected apps, not a menu item (owner, 2026-11-12): /admin/slack (its menu item until then, and
+// where "Add to Slack" came back with ?slack=…) opens Slack's page in Connected apps with the same query, for the
+// owner and admins alike (admins manage Slack too since 2026-11-13).
 //
 // Below 768 px (phones): /admin is a list (PhoneRoot.tsx) and each page opens over it with a push, under its own bar
 // (‹ and the page's name; the phone top bar steps aside for /admin). The list is always under a page, also one opened
@@ -18,13 +21,14 @@
 // phones: a list you tap into"). Team settings is one more list there: its groups, each a page at
 // /admin/settings/<group> under "‹ Team settings" (teamSettingsGroups.ts); System too, at /admin/system/<group> under
 // "‹ System" (systemGroups.ts). Computers keep each one page.
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
 import { useGoBack } from '../../lib/back'
+import { useNavRail } from '../../lib/navRail'
 import { BELOW, entryBelow, useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useMediaQuery } from '../../components/ui'
@@ -33,7 +37,7 @@ import { settingsPageName } from '../settingsTabs'
 import { AdminScope } from './common'
 import { teamSettingsGroup, teamSettingsRedirect } from './teamSettingsGroups'
 import { systemGroup, systemRedirect } from './systemGroups'
-import { APP_CONNECTORS, CONNECTORS } from '../../lib/connectors'
+import { APP_CONNECTORS, CONNECTORS, SLACK_ADMIN_PATH, SLACK_APP } from '../../lib/connectors'
 import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
@@ -48,7 +52,6 @@ const Engines = lazy(() => import('./Engines'))
 const Integrations = lazy(() => import('./Integrations'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
-const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
@@ -74,8 +77,6 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'connectors', label: 'admin.integrations', icon: Cable },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
-      // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
-      { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
     ],
   },
   {
@@ -129,8 +130,11 @@ const DETOURS = ['/files', '/projects']
 
 /** The old addresses that open another page (see the top of this file), else null. An item's page that is a phone's
  * only (adminScreens.ts ADMIN_DETAILS) is the item in its page on a computer, and the other way round. */
-function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
+export function redirectOf(section: string, sub: string | undefined, search: string, phone: boolean): string | null {
   const q = new URLSearchParams(search)
+  // Slack's menu item until 2026-11-12: its page in Connected apps, with the query "Add to Slack" came back with
+  // (?slack=installed)
+  if (section === 'slack') return `${SLACK_ADMIN_PATH}${search}`
   if (sub && !phone) {
     const desktop = adminDesktopOf(section, sub)
     if (desktop) return desktop
@@ -143,8 +147,8 @@ function redirectOf(section: string, sub: string | undefined, search: string, ph
     if (q.get('drive') === '1') return '/admin/connectors/google-drive'
   }
   // a connector this app does not list (a typo, an old link): the list
-  // (a team connection's page is /admin/connectors/mcp/<id>)
-  if (section === 'connectors' && sub && sub !== 'mcp' && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
+  // (a team connection's page is /admin/connectors/mcp/<id>; Slack's is its own)
+  if (section === 'connectors' && sub && sub !== 'mcp' && sub !== SLACK_APP.id && !APP_CONNECTORS.some((c) => c.id === sub) && !CONNECTORS.some((c) => c.id === sub)) return '/admin/connectors'
   if (section === 'plugins' && !sub && q.get('focus')) return `/admin/plugins/${encodeURIComponent(q.get('focus')!)}`
   // a phone: an engine is a page of its own (?engine= opened its row in place)
   if (phone && section === 'providers' && !sub && q.get('engine') && q.get('tab') !== 'team') return `/admin/providers/${encodeURIComponent(q.get('engine')!)}`
@@ -184,8 +188,11 @@ export default function AdminLayout() {
   const { search, hash } = location
   // phones: the list and its pages (below 768 px, the width of the phone top bar and tabs)
   const phone = useMediaQuery('(max-width: 767.98px)')
-  // tablets: the menu as a rail of icons (names in tips); computers: with the names
-  const wide = useMediaQuery('(min-width: 1024px)')
+  // tablets: the menu as a rail of icons (names in tips); computers: with the names. With the new navigation
+  // (lib/navRail.ts) the app's rail is beside it already: the menu is a 240 px list at every computer width, so two rails
+  // never stand side by side (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1)
+  const navRail = useNavRail()
+  const wide = useMediaQuery('(min-width: 1024px)') || navRail
   const content = useRef<HTMLDivElement>(null)
   // the width this entry first showed at: a redirect after a resize (Team settings' one page ↔ its groups) says what is
   // under it, so the new entry gets no list put under it (a resize never builds a back stack, lib/backStack.ts)
@@ -244,7 +251,6 @@ export default function AdminLayout() {
       {section === 'connectors' && <Integrations />}
       {section === 'ai-apps' && <AiApps />}
       {section === 'plugins' && <Plugins />}
-      {section === 'slack' && <Slack />}
       {section === 'usage' && <Usage />}
       {section === 'audit' && <Audit />}
       {section === 'settings' && <TeamSettingsPage />}

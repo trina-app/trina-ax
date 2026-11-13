@@ -14,10 +14,13 @@
 // The person sees title, one line, the inputs and the files, never the steps or the slug, and shares it: written as
 // them (FileService.humanSave, as approving a suggestion: folder rules, versions, the skills/ change audit and the
 // owner/admin notices) to skills/<marketing|general>/<slug>/SKILL.md with metadata title, inputs and recurring.
+// A draft can also start from a form in the team folder (startFormSkillDraft; onboarding/form-skill.ts): no source chat,
+// the form's text as material, the AI names it and its inputs only, the steps are fixed.
 import type { Database } from 'bun:sqlite'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
-import { SKILL_DRAFT_DESCRIPTION_MAX, SKILL_DRAFT_FILES_MAX, SKILL_DRAFT_TITLE_MAX, SKILL_DRAFT_VISIBLE_INPUTS, SkillInputs, skillTitle, type Locale, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftProblem, type SkillDraftStarted, type SkillDraftState, type SkillInput } from '@mycel/shared/api'
+import { TEMPLATES_FOLDER } from '@mycel/shared'
+import { SKILL_DRAFT_DESCRIPTION_MAX, SKILL_DRAFT_FILES_MAX, SKILL_DRAFT_TITLE_MAX, SKILL_DRAFT_VISIBLE_INPUTS, SkillInputs, formSkillType, formStem, skillTitle, type Locale, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftProblem, type SkillDraftStarted, type SkillDraftState, type SkillInput } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
@@ -41,6 +44,10 @@ import { DATED, leftoversIn, nameStem, specificsOf } from './specifics'
 import { readCompanyProfile } from './profile'
 import { packSkillNames } from './skill-packs'
 import { readWelcome } from './welcome'
+import { planFormAt } from './files-organize'
+import { FORM_RULES, FORM_TEXT_MAX, formNameSpecifics, formSkillSystemPrompt, isFormMaterial, parseFormSkillDraft, type FormMaterial } from './form-skill'
+import { extractText } from '../files/extract'
+import { readRegular } from '../files/store'
 
 /** What the draft is made from, taken when it starts (onboarding_skill_drafts.material). */
 export interface SkillMaterial {
@@ -61,9 +68,11 @@ export interface SkillMaterial {
    * team's folder then) */
   pack: 'marketing' | 'general'
 }
+/** A draft's row. A draft from a form (`material.kind === 'form'`) has no source chat or message ("" in the row: the
+ * columns are NOT NULL) and its form's path in `sourcePath`. */
 export interface SkillDraftScope {
   chatId: string; userId: string; sourceChatId: string; sourceMessageId: string
-  material: SkillMaterial; rewriteAt: string | null; savedPath: string | null
+  material: SkillMaterial | FormMaterial; rewriteAt: string | null; savedPath: string | null; sourcePath?: string | null
 }
 
 const QUESTION_MAX = 4000
@@ -75,17 +84,17 @@ const SLUG_MAX = 40
 /** The skill draft marking of a chat, or null for every other chat. Only a database without the table (a test database
  * of another component) reads as "not a draft"; any other failure throws, and the turn refuses to run (fails closed). */
 export function skillDraftOf(db: Database, chatId: string): SkillDraftScope | null {
-  let r: { chat_id: string; user_id: string; source_chat_id: string; source_message_id: string; material: string; rewrite_at: string | null; saved_path: string | null } | null
+  let r: { chat_id: string; user_id: string; source_chat_id: string; source_message_id: string; material: string; rewrite_at: string | null; saved_path: string | null; source_path?: string | null } | null
   try {
-    r = db.query('SELECT chat_id, user_id, source_chat_id, source_message_id, material, rewrite_at, saved_path FROM onboarding_skill_drafts WHERE chat_id = ?').get(chatId) as typeof r
+    r = db.query('SELECT * FROM onboarding_skill_drafts WHERE chat_id = ?').get(chatId) as typeof r
   } catch (e) {
     if (/no such table: onboarding_skill_drafts/.test(String((e as Error)?.message ?? e))) return null
     throw e
   }
   if (!r) return null
-  let material: SkillMaterial
-  try { material = JSON.parse(r.material) as SkillMaterial } catch { throw new Error('skill draft material does not read') }
-  return { chatId: r.chat_id, userId: r.user_id, sourceChatId: r.source_chat_id, sourceMessageId: r.source_message_id, material, rewriteAt: r.rewrite_at, savedPath: r.saved_path }
+  let material: SkillMaterial | FormMaterial
+  try { material = JSON.parse(r.material) as SkillMaterial | FormMaterial } catch { throw new Error('skill draft material does not read') }
+  return { chatId: r.chat_id, userId: r.user_id, sourceChatId: r.source_chat_id, sourceMessageId: r.source_message_id, material, rewriteAt: r.rewrite_at, savedPath: r.saved_path, sourcePath: r.source_path ?? null }
 }
 
 export const SKILL_DRAFT_FILE_REFUSAL = 'This chat only turns one finished piece of work into a team skill: no tool and no team file is available here. Answer from the material in your instructions.'
@@ -105,6 +114,7 @@ const EXAMPLES: Record<Locale, { title1: string; title2: string; changes: string
 
 /** The instructions of a skill draft turn (fixed, English like every instruction; the skill in the team's language). */
 export function skillDraftSystemPrompt(d: SkillDraftScope, o: { history?: { role: 'user' | 'assistant'; content: string }[] | null }): string {
+  if (isFormMaterial(d.material)) return formSkillSystemPrompt(d.material, o)
   const m = d.material
   const lang = LANGUAGE[m.locale]
   const ex = EXAMPLES[m.locale] ?? EXAMPLES.en
@@ -250,8 +260,17 @@ const HEADINGS = {
   how: { ko: '하는 방법', en: 'How to do it', id: 'Cara mengerjakan', ja: 'やり方', es: 'Cómo hacerlo' },
   rules: { ko: '지킬 것', en: 'Rules', id: 'Aturan', ja: '守ること', es: 'Reglas' },
 } satisfies Record<string, Record<Locale, string>>
+/** The Korean subject particle after a name: 이 after a final consonant, 가 after a vowel, 이(가) when the name does not
+ * end in a Hangul syllable (a number or a Latin letter: no guess). */
+export function subjectParticleKo(word: string): string {
+  const c = word.normalize('NFC').trim().slice(-1).charCodeAt(0)
+  // the particles as escapes (이, 가): Hangul literals belong in language tables (tests/unit/i18n-languages.test.ts)
+  if (!(c >= 0xac00 && c <= 0xd7a3)) return '\uc774(\uac00)'
+  return (c - 0xac00) % 28 ? '\uc774' : '\uac00'
+}
+
 const LATEST: Record<Locale, (folder: string, like: string) => string> = {
-  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}'가 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
+  ko: (folder: string, like: string) => `\`${folder}/\` 폴더${like ? `에서 이름에 '${like}'${subjectParticleKo(like)} 들어간` : '의'} 가장 최근 파일(파일 이름의 날짜로, 날짜가 없으면 고친 날짜로 정해요)`,
   en: (folder: string, like: string) => `the newest file${like ? ` whose name has '${like}'` : ''} in \`${folder}/\` (by the date in its name, else the last change)`,
   id: (folder: string, like: string) => `berkas terbaru${like ? ` yang namanya memuat '${like}'` : ''} di \`${folder}/\` (menurut tanggal di namanya, atau perubahan terakhir)`,
   ja: (folder: string, like: string) => `\`${folder}/\` フォルダーの${like ? `名前に「${like}」を含む` : ''}最新のファイル(ファイル名の日付で、なければ更新日で決めます)`,
@@ -270,7 +289,7 @@ const quoted = (s: string) => JSON.stringify(s.replace(/[\r\n\v\f\u0085\u2028\u2
 
 /** The SKILL.md of a shared draft: the header the server reads (name, description, metadata title, inputs, recurring),
  * then the description, the files it uses, the steps and the fixed rules, in the team's language. */
-export function skillFileOf(d: ParsedSkillDraft, o: { name: string; title: string; locale: Locale }): string {
+export function skillFileOf(d: ParsedSkillDraft, o: { name: string; title: string; locale: Locale; form?: boolean }): string {
   const header = [
     '---',
     `name: ${o.name}`,
@@ -286,7 +305,7 @@ export function skillFileOf(d: ParsedSkillDraft, o: { name: string; title: strin
     ...header, '', `# ${o.title}`, '', ...(d.description ? [d.description, ''] : []),
     ...(files.length ? [`## ${HEADINGS.files[o.locale]}`, ...files, ''] : []),
     `## ${HEADINGS.how[o.locale]}`, d.steps, '',
-    `## ${HEADINGS.rules[o.locale]}`, RULES[o.locale], '',
+    `## ${HEADINGS.rules[o.locale]}`, (o.form ? FORM_RULES : RULES)[o.locale], '',
   ].join('\n')
 }
 
@@ -323,7 +342,7 @@ export function freeSkillName(base: string, taken: (name: string) => boolean): s
 
 // ---------------------------------------------------------------- the routes
 
-const TEXT: Record<'ask' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential' | 'unverified', Record<Locale, string>> = {
+const TEXT: Record<'ask' | 'formAsk' | 'formNotInForms' | 'formTitle' | 'formNotFile' | 'formNamed' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential' | 'unverified', Record<Locale, string>> = {
   unverified: {
     ko: '이 대화가 읽은 파일을 모두 확인할 수 없어서 팀 스킬로 만들 수 없어요.',
     en: 'Not every file this conversation read can be checked, so it cannot become a team skill.',
@@ -358,6 +377,35 @@ const TEXT: Record<'ask' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 
     id: 'Jadikan percakapan ini skill tim.',
     ja: 'この会話をチームのスキルにまとめてください。',
     es: 'Convierta esta conversación en una habilidad del equipo.',
+  },
+  formAsk: {
+    ko: '이 양식을 채우는 팀 스킬로 정리해 주세요.',
+    en: 'Turn this form into a team skill that fills it in.',
+    id: 'Jadikan formulir ini skill tim yang mengisinya.',
+    ja: 'このテンプレートに記入するチームのスキルにまとめてください。',
+    es: 'Convierta esta plantilla en una habilidad del equipo que la rellene.',
+  },
+  formNotInForms: {
+    ko: '팀 양식 폴더(전사 공유 › 양식)에 있는 양식만 스킬로 만들 수 있어요.',
+    en: 'Only a form in the team\'s forms folder (company-wide › Templates) can become a skill.',
+    id: 'Hanya formulir di folder templat tim (seluruh perusahaan › Templat) yang bisa dijadikan skill.',
+    ja: 'チームのテンプレートフォルダー(全社共有 › テンプレート)にあるテンプレートだけをスキルにできます。',
+    es: 'Solo una plantilla de la carpeta de plantillas del equipo (toda la empresa › Plantillas) puede ser una habilidad.',
+  },
+  formTitle: { ko: '양식 스킬 초안', en: 'Form skill draft', id: 'Draf skill formulir', ja: 'テンプレートスキルの下書き', es: 'Borrador de habilidad de plantilla' },
+  formNotFile: {
+    ko: '스킬로 만들 수 있는 양식은 한글(.hwp, .hwpx), 엑셀(.xlsx), 워드(.docx) 파일이에요.',
+    en: 'A form skill can be made from a Hangul (.hwp, .hwpx), Excel (.xlsx) or Word (.docx) file.',
+    id: 'Skill formulir bisa dibuat dari berkas Hangul (.hwp, .hwpx), Excel (.xlsx), atau Word (.docx).',
+    ja: 'スキルにできるテンプレートは Hangul(.hwp、.hwpx)、Excel(.xlsx)、Word(.docx)のファイルです。',
+    es: 'Se puede crear una habilidad de plantilla a partir de un archivo de Hangul (.hwp, .hwpx), Excel (.xlsx) o Word (.docx).',
+  },
+  formNamed: {
+    ko: '고객이나 회사 이름이 들어간 파일이라 팀 양식으로 쓰지 않아요: {files}',
+    en: 'This file\'s name holds a customer\'s or company\'s name, so it is not used as the team\'s form: {files}',
+    id: 'Nama berkas ini memuat nama pelanggan atau perusahaan, jadi tidak dipakai sebagai formulir tim: {files}',
+    ja: '顧客や会社の名前が入ったファイルなので、チームのテンプレートとして使いません: {files}',
+    es: 'El nombre de este archivo contiene el de un cliente o una empresa, así que no se usa como plantilla del equipo: {files}',
   },
   title: { ko: '팀 스킬 초안', en: 'Team skill draft', id: 'Draf skill tim', ja: 'チームスキルの下書き', es: 'Borrador de habilidad del equipo' },
   notDone: {
@@ -400,7 +448,7 @@ const fill = (s: string, p: Record<string, string>) => s.replace(/\{(\w+)\}/g, (
 
 /** The names a run may hold that are not the team's own: every account's name (deleted ones too), and the team's and
  * the company's names, which a skill may use. */
-function namesOf(ctx: AppContext, userId: string): { people: string[]; own: string[] } {
+export function namesOf(ctx: AppContext, userId: string): { people: string[]; own: string[] } {
   const people = (ctx.db.query('SELECT name FROM users').all() as { name: string }[]).map((u) => u.name)
   const own = [getTeamSettings(ctx.db).teamName]
   try { const p = readCompanyProfile(ctx.files, ctx.files.principal(userId)); if (p?.name) own.push(p.name) } catch { /* no profile */ }
@@ -511,7 +559,7 @@ function evaluate(ctx: AppContext, rt: ChatRuntime, userId: string, d: SkillDraf
   const base = { draft: null, problem: null, saved }
   if (!answer || answer.status === 'streaming') return { state: { ...base, status: 'running' }, answerId: null, read: null }
   if (answer.status !== 'done') return { state: { ...base, status: 'failed', problem: 'failed' }, answerId: answer.id, read: null }
-  const read = parseSkillDraft(answer.content, d.material, namesOf(ctx, userId))
+  const read = isFormMaterial(d.material) ? parseFormSkillDraft(answer.content, d.material, namesOf(ctx, userId)) : parseSkillDraft(answer.content, d.material, namesOf(ctx, userId))
   if (read.ok) return { state: { ...base, status: 'done', draft: publicDraft(read.draft) }, answerId: answer.id, read }
   if (!d.rewriteAt) return { state: { ...base, status: 'running', rewrite: true }, answerId: answer.id, read }
   return { state: { ...base, status: 'failed', problem: read.problem }, answerId: answer.id, read }
@@ -570,6 +618,92 @@ export function startSkillDraft(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo
     rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: null, clientKind: auth.session.client, engine: te.engine, model: te.model,
       ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
       user: { parentId: null, content: TEXT.ask[locale], attachments: [], clientMessageId: `skd-${id}` } })
+  } catch (e) {
+    // queue full, server draining: no empty chat stays behind
+    ctx.db.query('DELETE FROM chats WHERE id = ?').run(id)
+    throw e
+  }
+  rt.publishChat(auth.user.id, id, 'created')
+  return { draftChatId: id }
+}
+
+/** the forms folder's names (folder-labels TEMPLATES_FOLDER, every language), lower case */
+const TEMPLATE_NAMES = new Set((Object.values(TEMPLATES_FOLDER) as string[]).map((n) => n.normalize('NFC').toLowerCase()))
+/** a form bigger than this is not read (the start refuses it) */
+const FORM_MAX_BYTES = 30 * 1024 * 1024
+
+/**
+ * Start a draft from a form in the team folder (POST …/from-form; docs/DECISIONS.md "Setup 팀 파일: forms become
+ * skills"): a .hwp, .hwpx, .xlsx or .docx the caller can open, that the people a team skill is shared with can open too,
+ * whose name holds no customer's or company's name (formNameSpecifics: a filled-in copy is no form). A new chat of the
+ * caller marked as a draft with the form's text (the text layer, FORM_TEXT_MAX characters) and its path; the turn queued
+ * like a message they send. The same form again: its unsaved draft (working or done), or its one rewrite, or a new draft
+ * after a failed one (as startSkillDraft).
+ */
+export async function startFormSkillDraft(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, locale: Locale, body: { path: string }): Promise<SkillDraftStarted> {
+  const type = formSkillType(body.path)
+  if (!type) throw new HttpError('validation', TEXT.formNotFile[locale], { fields: { 'body.path': 'not_a_form' } })
+  let rel: string
+  let abs: string
+  let size: number
+  try {
+    const r = authorizePath(ctx.files.fx, ctx.files.rules(), ctx.files.principal(auth.user.id), body.path.normalize('NFC'), 'read', { mustExist: true })
+    if (!r.st?.isFile()) throw new HttpError('not_found')
+    rel = r.rel; abs = r.abs; size = r.st.size
+  } catch (e) {
+    if (e instanceof HttpError) throw e
+    throw new HttpError('not_found')
+  }
+  if (!isTeamFilePath(rel)) throw new HttpError('validation', undefined, { fields: { 'body.path': 'not_a_team_file' } })
+  const name = path.posix.basename(rel)
+  const closed = narrower(ctx, [rel])
+  if (closed.length) throw refuse(locale, 'private', closed)
+  // only the team's forms folder (shared/양식 in any of the five languages) or a form the caller's own folder plan just
+  // put somewhere: never a personal folder, skills/, .system or any other team file
+  const segs = rel.split('/')
+  const inForms = segs.length === 3 && segs[0] === 'shared' && TEMPLATE_NAMES.has(segs[1]!.normalize('NFC').toLowerCase())
+  if (!inForms && !planFormAt(auth.user.id, rel)) throw new HttpError('validation', TEXT.formNotInForms[locale], { fields: { 'body.path': 'not_in_forms_folder' } })
+  if (formNameSpecifics(rel, namesOf(ctx, auth.user.id)).length) throw new HttpError('conflict', fill(TEXT.formNamed[locale], { files: name }), { params: { reason: 'named' } })
+  const had = ctx.db.query(`SELECT d.chat_id FROM onboarding_skill_drafts d JOIN chats c ON c.id = d.chat_id AND c.deleted_at IS NULL
+    WHERE d.user_id = ? AND d.source_path = ? AND d.saved_path IS NULL ORDER BY d.created_at DESC LIMIT 1`).get(auth.user.id, rel) as { chat_id: string } | null
+  const prev = had ? skillDraftOf(ctx.db, had.chat_id) : null
+  if (prev) {
+    const e = evaluate(ctx, rt, auth.user.id, prev)
+    if (e.state.rewrite && e.answerId && e.read && !e.read.ok && askRewrite(ctx, rt, auth.user.id, prev.chatId, e.answerId, e.read) !== 'no') return { draftChatId: prev.chatId }
+    if (e.state.status !== 'failed' && !e.state.rewrite) return { draftChatId: prev.chatId }
+  }
+  const b = budgetBlock(ctx.db, auth.user.id, locale)
+  if (b) throw new HttpError('budget_exceeded', b.message)
+  // the form's text (an unreadable form still gets a draft: its name says what it is)
+  let text = ''
+  if (size <= FORM_MAX_BYTES) {
+    const stop = new AbortController()
+    const timer = setTimeout(() => stop.abort(), 15_000)
+    try {
+      const { bytes } = readRegular(abs, FORM_MAX_BYTES)
+      const c = ctx.engineConfig
+      text = (await extractText(rel, bytes, { pandoc: c.pandoc ?? null, pdftotext: c.pdftotext ?? null, ocr: c.ocr ?? null, quarantine: ctx.files.quarantine, textLayerOnly: true }, stop.signal))
+        .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, FORM_TEXT_MAX)
+    } catch (e) {
+      ctx.log.warn('form text not read', { err: e instanceof Error ? e.message : String(e) })
+    } finally { clearTimeout(timer) }
+  }
+  const material: FormMaterial = { kind: 'form', path: rel, name, type, text, like: formStem(name), locale: teamDefaultLocale(ctx.db), pack: 'general' }
+  const { engine, model } = newChatEngine(ctx, auth.user, {}, locale)
+  const id = newId(), now = new Date().toISOString()
+  const title = `${TEXT.formTitle[locale]} · ${name.slice(0, 60)}`
+  ctx.db.transaction(() => {
+    ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
+      .run(id, auth.user.id, title, engine, model ?? null, now, now)
+    ctx.db.query("INSERT INTO onboarding_skill_drafts (chat_id, user_id, source_chat_id, source_message_id, source_path, material, created_at) VALUES (?,?,'','',?,?,?)")
+      .run(id, auth.user.id, rel, JSON.stringify(material), now)
+  })()
+  const chat = rt.store.chatRow(id)!
+  const te = turnEngine(ctx, auth.user, chat, {}, locale, (e) => rt.defaultModelFor(e))
+  try {
+    rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: null, clientKind: auth.session.client, engine: te.engine, model: te.model,
+      ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
+      user: { parentId: null, content: TEXT.formAsk[locale], attachments: [], clientMessageId: `skf-${id}` } })
   } catch (e) {
     // queue full, server draining: no empty chat stays behind
     ctx.db.query('DELETE FROM chats WHERE id = ?').run(id)
@@ -641,18 +775,29 @@ export function saveSkillDraft(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo,
   const e = evaluate(ctx, rt, auth.user.id, d)
   if (!e.read?.ok) throw new HttpError('conflict', TEXT.notReady[locale], { params: { reason: e.read && !e.read.ok ? e.read.problem : 'not_ready' } })
   const draft = e.read.draft
-  const no = sourceRefusal(ctx, locale, d.sourceChatId, { used: [...new Set([...(d.material.used ?? d.material.files), ...draft.files.map((f) => f.path)])], outside: false })
-  if (no) throw no
+  const m = d.material
+  if (isFormMaterial(m)) {
+    // a form's skill reads the newest form of its folder: the people it is shared with must open that folder
+    const closed = narrower(ctx, draft.files.map((f) => f.path))
+    if (closed.length) throw refuse(locale, 'private', closed)
+  } else {
+    const no = sourceRefusal(ctx, locale, d.sourceChatId, { used: [...new Set([...(m.used ?? m.files), ...draft.files.map((f) => f.path)])], outside: false })
+    if (no) throw no
+  }
   const title = oneLine(body.title, SKILL_DRAFT_TITLE_MAX) || draft.title
   const me = ctx.files.principal(auth.user.id)
   const names = [...listSkills(ctx.files, me).map((s) => s.name), ...packSkillNames()]
   const folder = `skills/${d.material.pack}`
+  // a team without skills/<pack>/ yet (its pack never installed, or removed): no folder there is taken (the check of a
+  // path under a missing folder throws, which would read as taken for every name)
+  const packThere = (() => { try { return authorizePath(ctx.files.fx, ctx.files.rules(), me, folder, 'read', { mustExist: false }).exists } catch { return true } })()
   const exists = (name: string) => {
+    if (!packThere) return false
     try { return authorizePath(ctx.files.fx, ctx.files.rules(), me, `${folder}/${name}`, 'read', { mustExist: false }).exists } catch { return true }
   }
   const name = freeSkillName(slugBase(title), (n) => names.some((x) => sameSkillName(x, n)) || exists(n))
   const rel = `${folder}/${name}/SKILL.md`
-  const text = skillFileOf(draft, { name, title, locale: d.material.locale })
+  const text = skillFileOf(draft, { name, title, locale: d.material.locale, form: isFormMaterial(m) })
   // the server never saves a skill file its own reader rejects (as approving a suggestion)
   const check = checkSkill(text, rel)
   if (!check.ok || check.badInputs) throw new HttpError('validation', undefined, { fields: { body: check.ok ? 'inputs' : check.problem } })
@@ -665,7 +810,7 @@ export function saveSkillDraft(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo,
     throw err
   }
   ctx.db.query('UPDATE onboarding_skill_drafts SET saved_path = ? WHERE chat_id = ?').run(rel, d.chatId)
-  audit(ctx.db, { actor: auth.user.id, action: 'onboarding.skill_share', target: rel, detail: { draftChatId: d.chatId, sourceChatId: d.sourceChatId, inputs: draft.inputs.length, files: draft.files.length, recurring: draft.recurring } })
+  audit(ctx.db, { actor: auth.user.id, action: 'onboarding.skill_share', target: rel, detail: { draftChatId: d.chatId, ...(isFormMaterial(m) ? { sourcePath: m.path } : { sourceChatId: d.sourceChatId }), inputs: draft.inputs.length, files: draft.files.length, recurring: draft.recurring } })
   return { path: rel, name, title }
 }
 

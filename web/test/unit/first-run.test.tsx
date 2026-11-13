@@ -131,6 +131,17 @@ describe('on screen', () => {
     }
   })
 
+  test('an invite while every seat of the plan is taken: says so with the sign-in button, no form (QA TC-489)', async () => {
+    routes = { [`GET /api/invites/${TOKEN}`]: () => json(200, { teamName: 'Acme', role: 'member', expiresAt: '2026-11-15T00:00:00.000Z', valid: true, inviterName: null, full: true }) }
+    const m = await mount(<MemoryRouter initialEntries={[`/invite/${TOKEN}`]}><Routes><Route path="/invite/:token" element={<AcceptInvite />} />{where}</Routes></MemoryRouter>)
+    try {
+      await m.until(() => m.find('invalid-signin'), 'the sign-in button')
+      expect(m.get('invite-full').textContent).toBe(ko('invite.full'))
+      expect(m.html()).not.toContain(ko('invite.invalid'))
+      expect(m.find('join-form')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
   test('a team link that no longer works: the same sign-in button under its own reason', async () => {
     Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: `#t=${TOKEN}` } })
     routes = { 'POST /api/team-link/info': () => json(200, { teamName: 'Acme', valid: false, problem: 'used_up', expiresAt: '2026-11-18T00:00:00.000Z', skillName: null }) }

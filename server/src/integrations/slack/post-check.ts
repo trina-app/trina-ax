@@ -6,7 +6,7 @@
 // read, the chat's read scope when it describes the answer, "not all known" otherwise). Memories do not count, as in
 // 대화방에 보내기: they are the asker's own notes, and the asker sees the very text that is posted (one answer, not a
 // whole conversation as when a chat is shared). A team connection or a shared Google Drive counts as not team-wide whoever
-// its rules let use it (the room AI's rule, rooms/ai.ts decide: what it returned is outside content). With nobody else on
+// its rules let use it (what it returned is outside content). With nobody else on
 // the team the channel still has people: the asker's own material and an answer not all known still count. The asker is
 // told the places as they may look at them themselves (placeOf), never what is in them and never who cannot see them.
 // Never posted, whatever the asker says (as 대화방에 보내기 refuses them): a confidential conversation (safe operations

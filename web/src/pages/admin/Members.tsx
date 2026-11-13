@@ -46,7 +46,7 @@ import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
-import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
+import { TeamLinkDialog, joinsText } from '../../components/onboarding/TeamLinkPanel'
 import { LocalLinkNote } from '../../components/LocalLinkNote'
 import { HandoverDialog } from '../../components/handover/HandoverDialog'
 import { absoluteUrl, LEAD_DAYS, LeadFlag, LeadMessage, useLeadOffered } from '../../components/handover/LeadInvite'
@@ -268,7 +268,8 @@ export default function Members() {
   const link = teamLink.data?.link
   const linkDetails = link && (
     <>
-      {link.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {t('teamLink.uses', { used: link.uses, max: link.maxUses })} ·{' '}
+      {/* which groups everyone who joins is put in, in words (QA TC-458) */}
+      {joinsText(t, link.groupIds, groups.data ?? [])} · {t('teamLink.uses', { used: link.uses, max: link.maxUses })} ·{' '}
       {Date.parse(link.expiresAt) < Date.now() ? t('members.expired') : t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}
     </>
   )
@@ -457,7 +458,7 @@ export default function Members() {
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted" data-testid={i.leadFor ? 'invite-lead' : undefined}>
-                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : i.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
+                        {i.leadFor ? t('handover.inviteRow', { leadFor: i.leadFor }) : joinsText(t, i.groupIds, groups.data ?? [])} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
                       </span>
                       {/* a lead link is the owner's to revoke (the server refuses anyone else) */}
                       {!i.usedAt && !expired && (!i.leadFor || isOwner(me)) && (

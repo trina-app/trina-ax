@@ -77,8 +77,6 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
     case 'queue.position':
-      // a question to the AI in a room waits in the same queue (store/rooms.ts keeps the room's own)
-      useRooms.getState().handleEvent(ev)
       useChats.getState().handleEvent(ev)
       return
     case 'chat.updated':
@@ -115,8 +113,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
       return
     case 'room.updated':
-      // the room's AI waits on me now (Room.aiWaits): told like a card
-      roomUpdated(ev, meta)
+      // a room I am out of: nothing of it is told any more
+      roomUpdated(ev)
       useRooms.getState().handleEvent(ev)
       return
     case 'room.message.updated':
@@ -124,9 +122,6 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'room.thread':
     // a reaction never rings (nor counts anywhere)
     case 'room.reactions':
-    case 'room.ai':
-    case 'room.ai.run':
-    case 'room.ai.step':
       // the team chat rooms (store/rooms.ts): only the room's members get these
       useRooms.getState().handleEvent(ev)
       return

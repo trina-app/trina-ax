@@ -26,8 +26,7 @@ export interface LiveArtifact {
   version: number | null
 }
 
-/** An open card of a turn. `chatId`: the chat it shows in; none for a room's card read again (GET
- * /api/rooms/:id/ai/requests): a room finds its cards by their turn (components/rooms/RoomAiStatus.tsx). */
+/** An open card of a turn. `chatId`: the chat it shows in. */
 export interface OpenRequest { turnId: string; chatId?: string; messageId: string; request: TurnRequest }
 /** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
  * goes sealed (lib/connectCard.ts): the store never holds one. */
@@ -151,8 +150,7 @@ const rememberClosed = (id: string) => {
 /**
  * This chat's open cards after a listTurnRequests answer: the server's list, plus cards that arrived over the socket
  * while the request was on its way (not in `before`); cards closed meanwhile stay closed; other chats untouched.
- * `scope` is the chat's id, or which cards the list speaks for (a room's: those of my questions there, store/rooms.ts
- * loadAi with listRoomAiRequests).
+ * `scope` is the chat's id, or which cards the list speaks for.
  */
 export function mergeOpenRequests(current: Record<string, OpenRequest>, scope: string | ((r: OpenRequest) => boolean), open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
   const ours = typeof scope === 'string' ? (r: OpenRequest) => r.chatId === scope : scope

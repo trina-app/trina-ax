@@ -6,7 +6,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { SIDE_CHAT_QUICK, threadRefToken, uuidv7 } from '@mycel/shared/api'
 import { sideRoomOf } from '../../server/src/chat/side-room'
 import { quotesOnBranch, readRooms } from '../../server/src/chat/read-rooms'
-import { allowedSections, sideRoomSection, ROOM_PROMPT_SECTIONS, SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
+import { allowedSections, sideRoomSection, SHARED_PROMPT_SECTIONS } from '../../server/src/chat/prompt'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 
 setDefaultTimeout(60_000)
@@ -74,10 +74,9 @@ test('the instructions name the room and its id, say the chat is private and tha
   expect(ko).not.toContain('Send to thread')
   expect(text).not.toContain('<x>')
   expect(sideRoomSection({ id: 'r', kind: 'dm', name: null })).toContain('a direct message room')
-  // never in a room session's or a shared project chat's instructions
-  expect(ROOM_PROMPT_SECTIONS.sideRoom).toBe(false)
+  // never in a shared project chat's instructions
   expect(SHARED_PROMPT_SECTIONS.sideRoom).toBe(false)
-  expect(allowedSections([{ id: 'sideRoom', text }], 'room')).toEqual([])
+  expect(allowedSections([{ id: 'sideRoom', text }], 'shared')).toEqual([])
   expect(allowedSections([{ id: 'sideRoom', text }], null)).toHaveLength(1)
 })
 

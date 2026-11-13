@@ -1,6 +1,11 @@
 // ⌘/Ctrl+K: one place to find the team's own things, like Claude's search. Type tabs (all, chats, projects, files,
 // skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions (the
 // inbox among them, with its unread count).
+// "Needs attention" shows the AI chats with the sidebar's session markers and their words ("?" your turn, the ring, the
+// dot for a new answer; lib/sessionMarkers.ts markedChats), from the sidebar's own chat list, then scheduled tasks to
+// confirm and broken connections. History rows (the list and search results) say when the chat was last active and its
+// project, grey on the right; opened on a project's page or in a chat of a project, History lists that project's chats
+// first (docs/DECISIONS.md "Getting back to earlier work, part A").
 // Chats are searched on the server by title and content (GET /api/chats?q=). Projects, skills, scheduled tasks and MCP
 // connections come from the lists the app already reads and are matched here by name (a scheduled task also by its
 // instruction, and then the row shows the matching part of it, so the match is not hidden). Files: file names are
@@ -21,7 +26,9 @@
 // made until they press its button. Both lists load in the background when no screen has read them yet.
 // A phone has one more type, 대화 (QA TC-256): my rooms, the team's people and the rooms' messages, nothing else. The 대화
 // tab's 🔍 opens search on it (store/ui.ts searchScope; components/PhoneTopBar.tsx); with no text it lists my rooms. A
-// computer's types stay as they were.
+// computer's types stay as they were, except with the new navigation (lib/navRail.ts): its 대화 panel's 🔍 opens the same
+// 대화 type, so a computer has it too, and ⌘K finds 프로젝트 (all projects), 사용량 (Usage, no longer in the account menu)
+// and the files by "팀 폴더" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "⌘K aliases").
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
 // it opens its message in the room, as a message found does.
@@ -30,19 +37,21 @@
 // shown or opened: a fast Enter opens the top row shown at that moment. The highlighted row is kept by its key, so
 // results arriving above it do not move it.
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, searchWords } from '@mycel/shared'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
-import { listTime } from '../lib/format'
+import { formatRelative, listTime } from '../lib/format'
+import { markedChats, type Marker, type MarkerKind } from '../lib/sessionMarkers'
 import { pinnedFirst, plainLine, shownInLists } from '../lib/rooms'
 import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
+import { useNavRail } from '../lib/navRail'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
@@ -60,6 +69,9 @@ import { PeoplePicker } from './rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from './rooms/RoomIcon'
 import { useAvatarOf, usePeopleList } from '../store/people'
 import { useRooms } from '../store/rooms'
+import { useChats } from '../store/chats'
+import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
+import { SessionMarker } from './chat/ChatState'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -100,6 +112,10 @@ interface Row {
   /** dim second part: where it is (project, folder) or why it needs attention */
   sub?: string
   attention?: boolean
+  /** an AI chat in "Needs attention": the sidebar's session marker, its words in `sub` (lib/sessionMarkers.ts) */
+  marker?: Marker
+  /** grey, on the right: a History row's last activity and project ("2 hours ago · Launch plan") */
+  meta?: string
   /** highlight the typed text in the title */
   match?: boolean
   /** highlight the typed text in the second part too (the part of an instruction that matched) */
@@ -225,6 +241,34 @@ function useList<T>(load: () => Promise<T>): T | null | 'error' {
   return v
 }
 const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
+
+/** The project search was opened in (QA TC-421): a project's page (its files too) or a chat in a project; null anywhere
+ * else; undefined while a chat that is in none of this window's lists is read. Where it was opened: opening a result
+ * closes search. */
+function useHereProject(): string | null | undefined {
+  const { pathname } = useLocation()
+  const [at] = useState(pathname)
+  const page = matchPath('/projects/:projectId/*', at)?.params.projectId
+  const chatId = matchPath('/c/:chatId', at)?.params.chatId
+  const known = useChats((s) => (chatId ? s.chats.find((c) => c.id === chatId) ?? s.others[chatId] : undefined))
+  const [read, setRead] = useState<string | null | undefined>(undefined)
+  const missing = !!chatId && !known && !page
+  useEffect(() => {
+    if (!missing) return
+    let live = true
+    api.call(API.getChat, { params: { id: chatId! } }).then((c) => live && setRead(c.projectId), () => live && setRead(null))
+    return () => {
+      live = false
+    }
+  }, [missing, chatId])
+  if (page) return page
+  if (!chatId) return null
+  return known ? known.projectId : read
+}
+
+const NO_CHATS: Chat[] = []
+/** A "Needs attention" row's words in the colours of the sidebar's hover peek: your turn amber, a new answer accent */
+const MARKER_TEXT: Record<MarkerKind, string> = { ask: 'text-warn', new: 'text-accent-text', running: 'text-faint' }
 /** What a task's search may match besides its name: a task's own instruction. A template's prompt is the server's own
  *  and never shown, so it is not searched. */
 const scheduleText = (s: Schedule) => (s.templateId ? '' : s.prompt)
@@ -240,6 +284,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const inputRef = useRef<HTMLInputElement>(null)
   const [q, setQ] = useState('')
   const [tab, setTabState] = useState<SearchType>(scope ?? 'all')
+  const navRail = useNavRail()
   // the highlighted row: by its key once arrows or the mouse chose one (results arriving above it do not move it), else
   // the row at `index` (the first; after 메시지 더 보기, where that row was, so the keys go on to the first new message)
   const [sel, setSel] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
@@ -280,6 +325,27 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }, [])
   const people = usePeopleList()
   const roomTitle = useRoomTitle()
+  // "Needs attention": the sidebar's own chat list and markers (one source: the same rows, the same rule, the same view)
+  const listed = useChats((s) => s.chats)
+  const listLoaded = useChats((s) => s.chatsLoaded)
+  const requests = useChats((s) => s.requests)
+  const onScreen = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  // opened in a project: its chats first in History (the project page's own list), then the rest
+  const hereProject = useHereProject()
+  const [projectChats, setProjectChats] = useState<{ id: string; items: Chat[] } | null>(null)
+  useEffect(() => {
+    if (!hereProject) return
+    let live = true
+    api.call(API.listChats, { query: { projectId: hereProject, limit: 30 } }).then(
+      (p) => live && setProjectChats({ id: hereProject, items: p.items }),
+      () => live && setProjectChats({ id: hereProject, items: [] }),
+    )
+    return () => {
+      live = false
+    }
+  }, [hereProject])
+  // null while that is not known yet (History waits for it rather than reordering under the pointer)
+  const projectFirst = hereProject === undefined ? null : hereProject ? (projectChats?.id === hereProject ? projectChats.items : null) : NO_CHATS
 
   const query = norm(q.trim())
   const words = useMemo(() => searchWords(query), [query])
@@ -398,9 +464,20 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }
 
   const projectName = useMemo(() => new Map((ok(projects) ?? []).map((p) => [p.id, p.name])), [projects])
-  const chatRow = (c: Chat, attention?: string): Row => ({
+  const chatRow = (c: Chat): Row => ({
     key: `chat:${c.id}`, kind: 'chat', icon: MessageSquare, title: c.title || t('chat.untitled'), href: `/c/${c.id}`, chat: c,
-    sub: attention ?? (c.projectId ? projectName.get(c.projectId) : undefined), attention: !!attention, match: true,
+    sub: c.projectId ? projectName.get(c.projectId) : undefined, match: true,
+  })
+  /** A History row (the list and search results): when it was last active and its project, grey on the right (QA TC-420) */
+  const historyRow = (c: Chat): Row => ({
+    ...chatRow(c), sub: undefined,
+    meta: [formatRelative(c.updatedAt, locale), c.projectId ? projectName.get(c.projectId) : undefined].filter(Boolean).join(' · '),
+  })
+  /** A "Needs attention" chat: the sidebar's marker and its words (the AI's question itself when this window has its card,
+   * never for a confidential chat), as the sidebar's row and hover peek say them (QA TC-419) */
+  const markedRow = (c: Chat, marker: Marker): Row => ({
+    ...chatRow(c), attention: true, marker,
+    sub: reasonText(marker.reason, t, marker.reason === 'card' && !c.confidential ? cardQuestion(requests, c.id) : undefined),
   })
   const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: p.folderPath, href: `/projects/${p.id}`, match: true })
   const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: skillTitle(s), sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
@@ -449,7 +526,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
-    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
+    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: navRail ? t('files.root') : undefined })
+    // the new navigation: the old sidebar's 프로젝트 row and the account menu's Usage are found here too
+    if (navRail)
+      list.push(
+        { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
+        { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
+      )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0
     list.push({
@@ -464,7 +547,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin])
+  }, [mcp, unread, locale, admin, navRail])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -479,7 +562,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!query) {
       if (tab === 'all') {
         const attention: Row[] = [
-          ...chats.filter((c) => c.runState !== 'idle').map((c) => chatRow(c, t(c.runState === 'running' ? 'search.attn.running' : 'search.attn.queued'))),
+          ...markedChats(listLoaded ? listed : chats, { here: onScreen, cards: cardChats(requests) }).map((x) => markedRow(x.chat, x.marker)),
           ...allSchedules.filter((s) => s.needsReview).map((s) => scheduleRow(s, t('search.attn.review'))),
           ...allMcp.filter((i) => i.status !== 'connected').map((i) => mcpRow(i, t(i.status === 'needs_auth' ? 'search.attn.signIn' : 'search.attn.error'))),
         ].slice(0, 5)
@@ -496,7 +579,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
           .map((x) => x.row)
         push('recents', t('search.recents'), mixed)
         push('actions', t('search.actions'), actions.filter((a) => !a.typed))
-      } else if (tab === 'chats') push('chats', typeLabel('chats'), chats.map((c) => chatRow(c)))
+      } else if (tab === 'chats') {
+        // opened in a project: its chats first (once they are here), then the rest of my list
+        if (projectFirst) {
+          const first = new Set(projectFirst.map((c) => c.id))
+          push('chats', typeLabel('chats'), [...projectFirst, ...chats.filter((c) => !first.has(c.id))].map(historyRow))
+        }
+      }
       else if (tab === 'projects') push('projects', typeLabel('projects'), allProjects.map(projectRow))
       else if (tab === 'skills') push('skills', typeLabel('skills'), allSkills.map(skillRow))
       else if (tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.map((s) => scheduleRow(s)))
@@ -515,7 +604,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const few = tab === 'all' ? 4 : 50
     // a name jump first, matched here in the lists the app has (they may load a moment after the text)
     if (tab === 'all') push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
-    if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(foundNow ?? [], words).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
+    if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(foundNow ?? [], words).slice(0, tab === 'all' ? 5 : 30).map(historyRow))
     if (tab === 'all' && hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
@@ -530,7 +619,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle])
+  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -594,9 +683,9 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!row || row.scrollWidth <= row.clientWidth) return
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
-  const types: readonly SearchType[] = phone ? PHONE_SEARCH_TYPES : SEARCH_TABS
+  const types: readonly SearchType[] = phone || navRail ? PHONE_SEARCH_TYPES : SEARCH_TABS
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
-  const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
+  const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
   // the first match of every word, marked
@@ -696,7 +785,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             </div>
           ) : (
           <div ref={tabRow} role="tablist" aria-label={t('search.types')} className="scroll-thin edge-fade flex gap-1 overflow-x-auto px-4 pb-3">
-            {SEARCH_TABS.map((x) => (
+            {types.map((x) => (
               <button
                 key={x}
                 type="button"
@@ -779,13 +868,27 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                     ) : (
                       <span className="relative shrink-0 text-muted">
                         <Icon size={16} aria-hidden />
-                        {r.attention && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" data-testid="search-attention-dot" />}
+                        {r.attention && !r.marker && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" data-testid="search-attention-dot" />}
                       </span>
                     )}
-                    <span className="min-w-0 flex-1 truncate">
-                      {r.match ? mark(r.title) : r.title}
-                      {r.sub && <span className={clsx('ml-2 text-xs', r.attention ? 'text-accent-text' : 'text-faint')}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
-                    </span>
+                    {r.meta ? (
+                      // a History row: when and where, grey on the right; on a phone under the title, which keeps the width
+                      <span className="flex min-w-0 flex-1 items-center gap-3 max-md:flex-col max-md:items-stretch max-md:gap-0 max-md:py-1.5">
+                        <span className="min-w-0 truncate md:flex-1" data-testid="search-row-name">{r.match ? mark(r.title) : r.title}</span>
+                        <span className="min-w-0 shrink-0 truncate text-xs text-faint tabular-nums md:max-w-[45%]" data-testid="search-row-meta">{r.meta}</span>
+                      </span>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate" data-testid="search-row-name">
+                        {r.match ? mark(r.title) : r.title}
+                        {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
+                      </span>
+                    )}
+                    {/* the sidebar's own marker; its words are the row's second part already */}
+                    {r.marker && (
+                      <span aria-hidden className="flex shrink-0 items-center" data-testid="search-row-marker" data-marker={r.marker.kind}>
+                        <SessionMarker marker={r.marker} label={r.sub ?? ''} />
+                      </span>
+                    )}
                     {r.chat && (on || phone) && (
                       <Tooltip label={t('search.rowActions')}>
                         <span

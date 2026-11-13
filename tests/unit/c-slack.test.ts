@@ -14,6 +14,7 @@ import { questionText, refusal, say as sayText } from '../../server/src/integrat
 import { isWebAddress, plainOf, richBlocks, richText, slackAnswer } from '../../server/src/integrations/slack/rich-text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
 import { roomsOf } from '../../server/src/rooms/service'
+import { SLACK } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { waitFor } from '../lib/wait'
@@ -35,7 +36,7 @@ async function call(user: string, method: string, path: string, body?: unknown) 
   return { status: r.status, json: j, text }
 }
 const seal = async (s: string, purpose: 'slack.token' | 'integration.secret' = 'slack.token') => sealSecret(await credentialsOf(h.ctx).sealer.publicKey(), s, purpose)
-/** the four values of Admin › Slack's last step: the two tokens and the app's client id and secret */
+/** the four values of Admin › Connected apps › Slack's last step: the two tokens and the app's client id and secret */
 const tokens = async (bot = fake.botToken, app = fake.appToken, o: { purpose?: 'slack.token' | 'integration.secret'; clientId?: string; clientSecret?: string } = {}) =>
   ({ botToken: await seal(bot, o.purpose), appToken: await seal(app), clientId: o.clientId ?? fake.clientId, clientSecret: await seal(o.clientSecret ?? fake.clientSecret) })
 const blocksOf = (c: { args: Record<string, string> }) => JSON.stringify(JSON.parse(c.args.blocks ?? '[]'))
@@ -92,7 +93,14 @@ beforeAll(async () => {
 afterAll(async () => { await h?.close(); fake?.close() })
 
 describe('setup (the owner)', () => {
-  test('nothing runs until the owner saves the tokens and turns it on; admins and members cannot', async () => {
+  test('who may call each Slack route: admins manage it, the own app\'s tokens are the owner\'s alone (the security matrix reads these)', () => {
+    expect(Object.fromEntries(Object.entries(SLACK).map(([k, e]) => [k, e.auth]))).toEqual({
+      slackAdmin: 'admin', saveSlackTokens: 'owner', setSlackEnabled: 'admin', removeSlack: 'admin', startSlackInstall: 'admin',
+      mySlack: 'user', unlinkSlack: 'user', previewSlackLink: 'user', confirmSlackLink: 'user', startSlackSignIn: 'user', cancelSlackLink: 'user',
+    })
+  })
+
+  test('nothing runs until the owner saves the tokens and turns it on; admins see it but cannot save tokens; members nothing', async () => {
     const first = await call('dana', 'GET', '/api/admin/slack')
     expect(first.status).toBe(200)
     expect(first.json).toMatchObject({ enabled: false, tokens: false, state: 'off', workspace: null, linked: 0 })
@@ -100,9 +108,15 @@ describe('setup (the owner)', () => {
     expect(first.json.createUrl).toStartWith('https://api.slack.com/apps?new_app=1&manifest_json=')
     expect(fake.calls).toEqual([])
     const body = await tokens()
+    // the team's own app's tokens: the owner's alone (docs/DECISIONS.md "Admins manage Slack"); an admin sees the state
     for (const who of ['carol', 'alice']) expect((await call(who, 'PUT', '/api/admin/slack/tokens', body)).status).toBe(403)
-    expect((await call('carol', 'GET', '/api/admin/slack')).status).toBe(403)
+    const asAdmin = await call('carol', 'GET', '/api/admin/slack')
+    expect(asAdmin.status).toBe(200)
+    expect(asAdmin.json).toMatchObject({ tokens: false, state: 'off' })
+    expect((await call('alice', 'GET', '/api/admin/slack')).status).toBe(403)
     expect((await call('alice', 'POST', '/api/admin/slack/enabled', { enabled: true })).status).toBe(403)
+    expect((await call('alice', 'DELETE', '/api/admin/slack')).status).toBe(403)
+    expect((await call('carol', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.error.params.reason).toBe('no_tokens')
     // turning it on without tokens is refused
     expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.error.params.reason).toBe('no_tokens')
   })
@@ -1123,11 +1137,24 @@ describe('secrets and accounts', () => {
     h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'alice'").run()
   })
 
-  test('turning it off closes the connection; removing it drops the tokens and every link', async () => {
-    await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: false })
+  test('an admin turns it off (audited as them), but cannot replace or remove the team\'s own app; the owner removes it', async () => {
+    const before = h.ctx.db.query('SELECT secret_enc, client_id FROM slack_config').get()
+    const off = await call('carol', 'POST', '/api/admin/slack/enabled', { enabled: false })
+    expect(off.status).toBe(200)
+    expect(off.json).toMatchObject({ enabled: false, tokens: true, mode: 'own' })
+    expect(off.text).not.toContain(fake.botToken)
+    expect(h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'slack.disabled' ORDER BY id DESC LIMIT 1").get()).toEqual({ actor_id: 'carol' })
     await waitFor(() => fake.sockets() === 0)
     expect(fake.sockets()).toBe(0)
     expect((await call('alice', 'GET', '/api/slack/me')).json.available).toBe(false)
+    // the team's own app: the owner's alone; refused on the server, nothing changed
+    const refused = await call('carol', 'DELETE', '/api/admin/slack')
+    expect(refused.status).toBe(403)
+    expect(refused.json.error.params.reason).toBe('owner_only')
+    expect((await call('carol', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(403)
+    expect(h.ctx.db.query('SELECT secret_enc, client_id FROM slack_config').get()).toEqual(before)
+    expect((h.ctx.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n).toBeGreaterThan(0)
+    expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.removed'").get()).toEqual({ n: 0 })
     const gone = await call('dana', 'DELETE', '/api/admin/slack')
     expect(gone.json).toMatchObject({ enabled: false, tokens: false, workspace: null, linked: 0 })
     for (const t of ['slack_config', 'slack_links', 'slack_link_tokens', 'slack_threads']) expect(h.ctx.db.query(`SELECT count(*) n FROM ${t}`).get()).toEqual({ n: 0 })

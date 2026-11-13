@@ -1,7 +1,7 @@
 // The Slack connector with the hosting service's official app (docs/SLACK.md "The official app") against a fake broker
 // (tests/lib/fake-slack-broker.ts: signatures, PKCE-bound handoffs, the sealed bot token, the long poll) and the fake
 // Slack (tests/lib/fake-slack.ts, the Web API the team server calls itself). "Add to Slack" is offered only while the
-// hosting service serves this server, to the owner only; only the owner's own browser finishes it; Slack must confirm
+// hosting service serves this server, to the owner and admins only; only the browser of the one who pressed it finishes it; Slack must confirm
 // the token is of the install's workspace and bot; envelopes from the long poll go through the same workspace and app
 // checks as one from our own socket; "Sign in with Slack" through the broker; removed in Slack, a lost token fetched
 // again, the broker down or not serving, Remove taking the app off the workspace; the bot token nowhere in logs, rows
@@ -78,7 +78,7 @@ beforeAll(async () => {
 afterAll(async () => { await h?.close(); fake?.close(); broker?.close() })
 
 describe('Add to Slack (the owner)', () => {
-  test('offered only while the hosting service serves this server, to the owner only', async () => {
+  test('offered only while the hosting service serves this server, to the owner and admins only', async () => {
     broker.serving = false
     expect(await admin()).toMatchObject({ mode: 'own', official: false, tokens: false })
     const refused = await call('dana', 'POST', '/api/admin/slack/official/install', { origin: h.url })
@@ -87,10 +87,12 @@ describe('Add to Slack (the owner)', () => {
     broker.serving = true
     await slackOf(h.ctx).checkBroker()
     expect(await admin()).toMatchObject({ mode: 'own', official: true, tokens: false, state: 'off' })
-    for (const who of ['carol', 'alice']) expect((await call(who, 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(403)
+    expect((await call('alice', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(403)
     // a server with its own app saved keeps it: "Add to Slack" is refused until it is removed
     h.ctx.db.query("INSERT INTO slack_config (id, enabled, secret_enc, key_version, mode) VALUES (1, 0, 'sealed', 1, 'own')").run()
     expect((await call('dana', 'POST', '/api/admin/slack/official/install', { origin: h.url })).json.error.params.reason).toBe('own_app_saved')
+    // an admin cannot replace the team's own app with it either
+    expect((await call('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).json.error.params.reason).toBe('own_app_saved')
     h.ctx.db.query('DELETE FROM slack_config').run()
   })
 
@@ -115,7 +117,7 @@ describe('Add to Slack (the owner)', () => {
     expect(resume.pathname).toBe('/slack/signin-return')
     expect(resume.searchParams.get('to')).toBe('install')
     const callback = `/api/integrations/slack/official/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`
-    expect(await open('dana', callback)).toBe('/admin/slack?slack=installed')
+    expect(await open('dana', callback)).toBe('/admin/connectors/slack?slack=installed')
     // the same return again: used
     expect(outcome(await open('dana', callback))).toBe('install_expired')
     // Slack itself was asked whose token it is
@@ -307,7 +309,7 @@ describe('removed, restored and removed by the owner', () => {
     expect((h.ctx.db.query('SELECT count(*) n FROM slack_install_flows').get() as { n: number }).n).toBe(0)
   })
 
-  test('the hosting service down or not serving: Admin › Slack says so, and it comes back by itself', async () => {
+  test('the hosting service down or not serving: the Slack page says so, and it comes back by itself', async () => {
     broker.serving = 'down'
     await waitFor(async () => (await admin()).lastError === 'broker_unreachable')
     expect((await admin()).state).toBe('error')
@@ -333,6 +335,69 @@ describe('removed, restored and removed by the owner', () => {
     expect(cfg()).toBeNull()
     expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.removed'").all().at(-1)).toEqual({ detail: '{"via":"official","slack":"unavailable"}' })
     broker.serving = true
+  })
+
+  test('an admin adds it, turns it off and on, and removes it, each audited as them; a member cannot; demoted meanwhile: not added', async () => {
+    await waitFor(async () => (await admin()).official === true)
+    const actorOf = (action: string) => (h.ctx.db.query('SELECT actor_id FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1').get(action) as { actor_id: string } | null)?.actor_id
+    // a member: refused at every step
+    for (const [m, p, b] of [['POST', '/api/admin/slack/official/install', { origin: h.url }], ['POST', '/api/admin/slack/enabled', { enabled: false }], ['DELETE', '/api/admin/slack', undefined], ['GET', '/api/admin/slack', undefined]] as const)
+      expect((await call('alice', m, p, b)).status).toBe(403)
+    // carol (an admin) presses Add to Slack and comes back signed in as herself
+    expect((await call('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    expect(outcome(await open('carol', broker.slackReturn('install')))).toBe('installed')
+    expect(cfg()).toMatchObject({ mode: 'official', enabled: 1, updated_by: 'carol', team_id: 'T0ACME' })
+    expect(actorOf('slack.installed')).toBe('carol')
+    const seen = await waitFor(async () => { const r = await call('carol', 'GET', '/api/admin/slack'); return r.json.state === 'connected' ? r : null })
+    expect(seen!.json).toMatchObject({ mode: 'official', tokens: true, enabled: true })
+    expect(seen!.text).not.toContain(fake.botToken)
+    // Turn off, Turn on (Reconnect is Add to Slack again, above)
+    expect((await call('carol', 'POST', '/api/admin/slack/enabled', { enabled: false })).json.enabled).toBe(false)
+    expect(actorOf('slack.disabled')).toBe('carol')
+    expect((await call('carol', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    expect(actorOf('slack.enabled')).toBe('carol')
+    // the own app's tokens stay the owner's, also while the official app is added
+    const seal = async (x: string) => sealSecret(await credentialsOf(h.ctx).sealer.publicKey(), x, 'slack.token')
+    expect((await call('carol', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken), clientId: fake.clientId, clientSecret: await seal(fake.clientSecret) })).status).toBe(403)
+    // Remove: taken off the workspace there, forgotten here
+    const removed = await call('carol', 'DELETE', '/api/admin/slack')
+    expect(removed.status).toBe(200)
+    expect(cfg()).toBeNull()
+    expect(actorOf('slack.removed')).toBe('carol')
+    // an admin made a member before the browser came back: not added
+    expect((await call('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+    try { expect(outcome(await open('carol', broker.slackReturn('install')))).toBe('install_failed') } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
+    expect(cfg()?.secret_enc ?? null).toBeNull()
+    // demoted while the install waits for Slack's check: taken off there, not kept here
+    const uninstalls = broker.of('uninstall').length
+    fake.failNext['auth.test'] = { hang: true }
+    expect((await call('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    expect(outcome(await open('carol', broker.slackReturn('install')))).toBe('install_pending')
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+    try { await waitFor(() => broker.of('uninstall').length > uninstalls, { timeoutMs: 8000 }) } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
+    expect(cfg()?.secret_enc ?? null).toBeNull()
+  })
+
+  test('an admin\'s Remove of the official app never deletes an own app the owner saved while the hosting service was asked', async () => {
+    broker.nextInstall = {}
+    expect(outcome(await add())).toBe('installed')
+    const svc = slackOf(h.ctx) as unknown as { broker: { uninstall(): Promise<string> } }
+    const uninstall = svc.broker.uninstall
+    // the owner's own app lands while the hosting service takes the official one off the workspace
+    svc.broker.uninstall = async function (this: unknown) {
+      const r = await uninstall.call(svc.broker)
+      h.ctx.db.query("UPDATE slack_config SET mode = 'own', install_id = NULL, secret_enc = 'sealed-own', key_version = 1, enabled = 0").run()
+      return r
+    }
+    try {
+      const r = await call('carol', 'DELETE', '/api/admin/slack')
+      expect(r.status).toBe(409)
+      expect(r.json.error.params.reason).toBe('own_app_saved')
+      expect(cfg()).toMatchObject({ mode: 'own', secret_enc: 'sealed-own' })
+    } finally { svc.broker.uninstall = uninstall }
+    h.ctx.db.query('DELETE FROM slack_config').run()
+    slackOf(h.ctx).refresh()
   })
 
   test('the bot token, the handoffs and the verifiers are in no log line, row or answer', async () => {

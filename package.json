@@ -56,6 +56,8 @@
     "demo": "bun scripts/demo/start.ts",
     "check:docs": "bun scripts/check-onboarding-docs.ts && bun run check:tooltips && bun run changelog:check",
     "check:tooltips": "bun web/scripts/check-icon-tooltips.ts",
+    "features:check": "bun scripts/features/cli.ts",
+    "features:build": "bun scripts/features/cli.ts --write",
     "docs:build": "bun scripts/docs/build.ts",
     "docs:api": "bun scripts/docs/api-reference.ts",
     "docs:serve": "bun scripts/docs/serve.ts",

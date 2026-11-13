@@ -378,7 +378,7 @@ test('TC-269 (ADM-19): Team settings › General: the logo in phone words; the u
 // - TC-270: computer or server setup is not offered as phone forms.
 test('TC-270 steps 2, 4, 5: Slack › 토큰 바꾸기, Connectors › add by address, an engine\'s server login: a status row and "Set this up on a computer" instead of computer forms', async ({ page }) => {
   // Slack › Replace tokens
-  await page.goto('/admin/slack')
+  await page.goto('/admin/connectors/slack')
   await expect(page.getByTestId('slack-status')).toBeVisible()
   await page.getByTestId('slack-replace').click()
   await expect(page.getByTestId('slack-on-computer')).toContainText(t['admin.onComputer'])

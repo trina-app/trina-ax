@@ -20,6 +20,7 @@ import { useEngines } from './store/engines'
 import { resetInbox } from './store/inbox'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
+import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useSession } from './store/session'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
@@ -124,6 +125,7 @@ function dropPersonStores() {
   resetInbox()
   useJobs.getState().reset()
   useSessionMarkers.getState().reset()
+  useRailMemory.getState().reset()
 }
 
 // Another person signing in over a signed-in one in this window (a password reset link on a shared computer,

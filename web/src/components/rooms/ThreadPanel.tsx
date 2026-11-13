@@ -21,7 +21,6 @@ import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { findMessage, placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
-import { RoomAiStatus } from './RoomAiStatus'
 import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -52,7 +51,6 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const list = useStickToBottom()
   const { scroller, content, stick } = list
   const last = replies.at(-1)
-  const aiKey = useRooms((s) => (s.ai[roomId]?.runs ?? []).filter((r) => r.threadRootId === rootId).map((r) => `${r.state}${r.steps.length}`).join(','))
 
   useEffect(() => {
     stick.current = true
@@ -63,7 +61,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   useLayoutEffect(() => {
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [last?.id, replies.length, pending.length, aiKey, root?.id])
+  }, [last?.id, replies.length, pending.length, root?.id])
 
   const tryRead = useCallback(() => {
     const el = scroller.current
@@ -156,8 +154,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
                 </div>
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} threadRootId={rootId} dayBefore={root?.createdAt ?? null} highlight={highlight} />
-              <RoomAiStatus roomId={roomId} threadRootId={rootId} />
+              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} dayBefore={root?.createdAt ?? null} highlight={highlight} />
             </ImageGroup>
           )}
         </div>

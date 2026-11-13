@@ -14,6 +14,7 @@ import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
+import { useHandover } from '../../src/store/handover'
 import { forgetStepsSeen, LANDING_STATE, markStepsSeen, stepsSeen } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -37,6 +38,8 @@ let calls: { key: string; body: any }[] = []
  * skill */
 let asked: unknown = { scope: 'none', items: [] }
 let ranTeamSkill = false
+/** GET /api/admin/handover (docs/DECISIONS.md "W6"): null answers 404 (no handover to show) */
+let handover: unknown = null
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/ai-access': () => json(200, access),
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
@@ -51,6 +54,8 @@ const routes: Record<string, (body: any) => Response> = {
   // "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one kept skill and the team's files
   'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', summary: '회사 소개로 정사각형 카드 5장을 만들어요', source: { kind: 'team' } }], teamFolder: { path: 'groups/Acme', files: 4, more: false, without: ['브랜드', 'skills'] }, landing: null, ranTeamSkill, hasProfile: false }),
   'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
+  'GET /api/admin/handover': () => handover ? json(200, handover) : json(404, { error: { code: 'not_found', message: 'none' } }),
+  'POST /api/admin/handover/dismiss': () => json(200, { ok: true }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
@@ -78,6 +83,8 @@ afterEach(() => {
   calls = []
   asked = { scope: 'none', items: [] }
   ranTeamSkill = false
+  handover = null
+  useHandover.getState().reset()
   localStorage.clear()
   useChats.getState().reset()
   useAiAccess.getState().reset()
@@ -285,6 +292,36 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
     m = await open()
     try {
       await m.until(() => where(m) === '/welcome', 'the steps again')
+    } finally { await m.unmount() }
+  })
+
+  test('not while the lead link\'s card waits on Home (QA TC-477): the card shows at once; once it is closed, the next landing resumes', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    progress = unfinished()
+    const card = { inviteId: '01900000-0000-7000-8000-0000000000c1', leadFor: '김팀장', user: { id: 'dana', name: '다나', username: 'dana' }, joinedAt: '2026-11-13T00:00:00.000Z', dismissed: false }
+    handover = { flag: true, recovery: null, openLead: null, card, connections: [] }
+    let m = await open()
+    try {
+      await m.until(() => m.find('handover-card'), 'the lead card')
+      await m.settle(40)
+      expect(where(m)).toBe('/')
+      // not marked: the steps were not on screen
+      expect(stepsSeen('olga')).toBe(false)
+      // ✕ on the card: it goes, the owner stays on Home (decided when the page opened)
+      await act(async () => { m.get('handover-card-close').click() })
+      await m.until(() => !m.find('handover-card'), 'the card closed')
+      await m.settle(40)
+      expect(where(m)).toBe('/')
+      expect(called('POST /api/admin/handover/dismiss')).toHaveLength(1)
+    } finally { await m.unmount() }
+    // closed (✕): a new tab session lands on the steps again
+    handover = { flag: true, recovery: null, openLead: null, card: { ...card, dismissed: true }, connections: [] }
+    useHandover.getState().reset()
+    useWelcome.getState().reset()
+    m = await open()
+    try {
+      await m.until(() => where(m) === '/welcome', 'the steps')
     } finally { await m.unmount() }
   })
 

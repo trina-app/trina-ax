@@ -35,6 +35,9 @@ import { useWelcome } from '../../src/store/welcome'
 import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
 import { FakeElement, FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { BEN, CY, room } from './rooms-fixtures'
+import { OTHER as OTHER_KEY } from '../../src/lib/historyGroups'
+import { dateBucket } from '../../src/lib/format'
+import { useProjects } from '../../src/store/projects'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
 const aiName = PRODUCT_NAMED_AFTER_AI ? ko('rooms.aiName') : PRODUCT.shortName
@@ -88,6 +91,8 @@ beforeEach(() => {
   calls.length = 0
   routes = {}
   localStorage.clear()
+  // the projects this window saw (one list for every sidebar): none from the test before
+  useProjects.getState().reset()
   useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
   useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
   useRooms.setState({ rooms: [room({ name: 'acme-design', unreadCount: 2 }), room({ kind: 'dm', name: null, unreadCount: 0 })], loaded: true, failed: null })
@@ -1108,6 +1113,9 @@ describe('a chat row\'s "…"', () => {
       expect(sent).toEqual([{ projectId: P }])
       expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
+      // the row is under its project's header at once (docs/DECISIONS.md "Trina history by project")
+      expect(m.get('history-group-name').textContent).toBe('Acme launch')
+      expect(m.get('history-group-rows').querySelectorAll('a').map((a) => a.textContent)).toEqual(['채팅 1'])
     } finally {
       await m.unmount()
     }
@@ -1179,6 +1187,268 @@ describe('pinned chats', () => {
       await m.until(() => (pinned(m).length === 0 ? true : null), 'no pinned row')
       expect(links(m.get('recents-list') as never).at(-1)).toBe('채팅 1')
       expect(sent).toEqual(['pin', 'unpin'])
+    } finally {
+      await m.unmount()
+    }
+  })
+})
+
+describe('Trina history by project (docs/DECISIONS.md "Trina history by project")', () => {
+  const pid = (n: number) => `01900000-0000-7000-8000-0000000004${String(n).padStart(2, '0')}`
+  const project = (n: number, o: Record<string, unknown> = {}) => ({ id: pid(n), name: `Acme ${n}`, folderPath: `projects/acme-${n}`, instructions: '', createdBy: null, createdAt: '2026-11-01T00:00:00.000Z', canEdit: true, ...o })
+  // chats 10–13 in Acme 1 (the newest activity), one each in Acme 2–6 (older and older), one in Acme 7 (no longer
+  // mine to see: not in the project list), two in no project (the oldest)
+  const history = () => [
+    chat(13, { projectId: pid(1) }), chat(12, { projectId: pid(1) }), chat(11, { projectId: pid(1) }), chat(10, { projectId: pid(1) }),
+    chat(9, { projectId: pid(2) }), chat(8, { projectId: pid(3) }), chat(7, { projectId: pid(4) }), chat(6, { projectId: pid(5) }), chat(5, { projectId: pid(6) }),
+    chat(4, { projectId: pid(7) }), chat(2), chat(1),
+  ]
+  const listed = () => [1, 2, 3, 4, 5, 6].map((n) => project(n))
+  const groups = (m: Awaited<ReturnType<typeof render>>) => m.get('recents-list').querySelectorAll('[data-testid="history-group"]')
+  const heads = (m: Awaited<ReturnType<typeof render>>) => groups(m).map((g) => g.querySelector('h3')?.textContent)
+  // the rows: the links in the group's list (not its header's)
+  const rowsOf = (g: FakeElement) => g.querySelector('[data-testid="history-group-rows"]')!.querySelectorAll('a').map((a) => a.textContent?.replace(/\?$/, ''))
+  const groupNamed = (m: Awaited<ReturnType<typeof render>>, name: string) => groups(m).find((g) => g.querySelector('h3')?.textContent === name)!
+  const ready = (m: Awaited<ReturnType<typeof render>>) => m.until(() => m.find('history-groups'), 'the groups')
+  // the fixtures' chats are all of 2026-11-01: one date group, whichever it is today
+  const dateLabel = ko(({ today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' } as const)[dateBucket('2026-11-01T00:00:00.000Z')])
+  beforeEach(() => {
+    useProjects.getState().reset()
+    routes = { 'GET /api/projects': () => json({ items: listed() }) }
+    useChats.setState({ chats: history() })
+  })
+
+  test('a computer: the latest five projects and the other chats last, three rows each; "N more" opens the rest in place; a project I no longer see is never named', async () => {
+    const m = await render()
+    try {
+      await ready(m)
+      expect(heads(m)).toEqual(['Acme 1', 'Acme 2', 'Acme 3', 'Acme 4', 'Acme 5', ko('history.other')])
+      // the name opens the project's page
+      expect(groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-name"]')!.getAttribute('href')).toBe(`/projects/${pid(1)}`)
+      expect(rowsOf(groupNamed(m, 'Acme 1'))).toEqual(['채팅 13', '채팅 12', '채팅 11'])
+      const more = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-more"]')!
+      expect(more.textContent).toBe(ko('history.group.more', { n: 1 }))
+      await m.click(more)
+      expect(rowsOf(groupNamed(m, 'Acme 1'))).toEqual(['채팅 13', '채팅 12', '채팅 11', '채팅 10'])
+      expect(groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-more"]')).toBeNull()
+      // Acme 7's chat is with the other chats, and its name is nowhere
+      expect(rowsOf(groupNamed(m, ko('history.other')))).toEqual(['채팅 4', '채팅 2', '채팅 1'])
+      expect(m.html()).not.toContain('Acme 7')
+      // Acme 6 is behind "모두 보기"
+      expect(m.html()).not.toContain('Acme 6')
+      expect(m.get('ai-chats-all').textContent).toBe(ko('rooms.showAll'))
+      expect(m.find('ai-chats-latest')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('one read of the project list for every sidebar: a second sidebar or the drawer opening again reads nothing new, a window back to the front within a minute neither', async () => {
+    const reads = () => calls.filter((c) => c.startsWith('GET /api/projects')).length
+    let m = await render()
+    try {
+      await ready(m)
+      expect(reads()).toBe(1)
+      const again = await render()
+      await ready(again)
+      await again.unmount()
+      window.dispatchEvent(new FakeEvent('focus') as never)
+      await m.settle(30)
+      expect(reads()).toBe(1)
+    } finally {
+      await m.unmount()
+    }
+    m = await render()
+    try {
+      await ready(m)
+      expect(reads()).toBe(1)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a project list that does not come: the plain list after a moment, the groups once it is in', async () => {
+    let answer: (r: Response) => void = () => {}
+    routes = { 'GET /api/projects': () => new Promise<Response>((r) => { answer = r }) as never }
+    const m = await render()
+    try {
+      // a moment: the spinner, then the five latest without headers (no name guessed)
+      expect(m.find('ai-chats-latest')).toBeNull()
+      await m.until(() => m.find('ai-chats-latest'), 'the plain list', 3000)
+      expect(m.find('history-groups')).toBeNull()
+      expect(m.html()).not.toContain('Acme 1')
+      await act(async () => answer(json({ items: listed() })))
+      await ready(m)
+      expect(heads(m)[0]).toBe('Acme 1')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('no chat in a project I see: no headers, the five latest as before (and no read of the projects without any project chat)', async () => {
+    useChats.setState({ chats: [chat(4, { projectId: pid(7) }), chat(3), chat(2), chat(1)] })
+    let m = await render()
+    try {
+      await m.until(() => m.find('ai-chats-latest'), 'the plain list')
+      expect(m.find('history-groups')).toBeNull()
+      expect(m.get('recents-list').querySelector('h3')).toBeNull()
+      expect(m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent)).toEqual(['채팅 4', '채팅 3', '채팅 2', '채팅 1'])
+    } finally {
+      await m.unmount()
+    }
+    calls.length = 0
+    useChats.setState({ chats: [chat(2), chat(1)] })
+    m = await render()
+    try {
+      await m.settle(30)
+      expect(calls.filter((c) => c.startsWith('GET /api/projects'))).toEqual([])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the hidden projects\' chats that need me are counted on "모두 보기"; a group\'s "N more" carries the mark of the rows it holds back', async () => {
+    useChats.setState({ chats: history().map((c) => (c.title === '채팅 5' ? { ...c, waiting: true } : c.title === '채팅 10' ? { ...c, unseen: true } : c)) })
+    const m = await render()
+    try {
+      await ready(m)
+      expect(m.get('ai-chats-needs').textContent).toBe(ko('sidebar.needsYou', { n: 1 }))
+      expect(m.get('ai-chats-needs').className).toContain('text-warn')
+      const mark = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-more-mark"]')!.querySelector('[role="img"]')!
+      expect(mark.getAttribute('data-testid')).toBe('marker-new')
+      expect(mark.getAttribute('aria-label')).toBe(ko('marker.new'))
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('▾ folds a group; a folded group shows the strongest mark of its chats on its header; remembered per person in this browser', async () => {
+    useChats.setState({ chats: history().map((c) => (c.title === '채팅 12' ? { ...c, runState: 'running' as const } : c.title === '채팅 10' ? { ...c, waiting: true } : c)) })
+    let m = await render()
+    try {
+      await ready(m)
+      const fold = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-fold"]')!
+      expect(fold.getAttribute('aria-expanded')).toBe('true')
+      expect(fold.getAttribute('aria-label')).toBe(ko('history.group.chats', { name: 'Acme 1' }))
+      // open: no mark on the header (the rows carry theirs)
+      expect(groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-mark"]')).toBeNull()
+      await m.click(fold)
+      expect(fold.getAttribute('aria-expanded')).toBe('false')
+      expect(rowsOf(groupNamed(m, 'Acme 1'))).toEqual([])
+      expect(groupNamed(m, 'Acme 1').getAttribute('data-folded')).toBe('')
+      // "?" (the waiting chat, held back behind "N more" too) before the ring of the running one
+      const mark = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-mark"]')!.querySelector('[role="img"]')!
+      expect(mark.getAttribute('data-testid')).toBe('marker-ask')
+      expect(mark.getAttribute('aria-label')).toBe(ko('marker.card'))
+      expect(JSON.parse(localStorage.getItem('mycel.sidebar.historyFolded.mina')!)).toEqual([pid(1)])
+      // the other chats fold too
+      await m.click(groupNamed(m, ko('history.other')).querySelector('[data-testid="history-group-fold"]')!)
+      expect(rowsOf(groupNamed(m, ko('history.other')))).toEqual([])
+    } finally {
+      await m.unmount()
+    }
+    m = await render()
+    try {
+      await ready(m)
+      expect(groupNamed(m, 'Acme 1').getAttribute('data-folded')).toBe('')
+      expect(groupNamed(m, ko('history.other')).getAttribute('data-folded')).toBe('')
+      expect(groupNamed(m, 'Acme 2').getAttribute('data-folded')).toBeNull()
+      // unfolded again: its three rows and "N more" (not opened)
+      await m.click(groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-fold"]')!)
+      expect(rowsOf(groupNamed(m, 'Acme 1'))).toEqual(['채팅 13', '채팅 12', '채팅 11'])
+      expect(JSON.parse(localStorage.getItem('mycel.sidebar.historyFolded.mina')!)).toEqual([OTHER_KEY])
+    } finally {
+      await m.unmount()
+    }
+    // another person in this browser: their own groups, none folded
+    const other = me('member')
+    useSession.setState({ status: { kind: 'signed-in', me: { ...other, user: { ...other.user, id: 'ben' } } } } as never)
+    m = await render()
+    try {
+      await ready(m)
+      expect(groups(m).filter((g) => g.getAttribute('data-folded') !== null)).toEqual([])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('+ on a project\'s header opens its page ready for a new chat; none on the other chats, on a project in the trash or on one I only manage', async () => {
+    routes = { 'GET /api/projects': () => json({ items: [project(1), project(2, { inTrash: true }), project(3, { member: false }), ...[4, 5, 6].map((n) => project(n))] }) }
+    let path = ''
+    let state: unknown = null
+    const Here = () => { const l = useLocation(); path = l.pathname; state = l.state; return null }
+    const m = await mount(<MemoryRouter initialEntries={['/']}><Sidebar /><Here /></MemoryRouter>)
+    try {
+      await ready(m)
+      const plus = groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-new"]')!
+      expect(plus.getAttribute('aria-label')).toBe(ko('history.group.newChat', { name: 'Acme 1', ai: aiName }))
+      expect(groupNamed(m, 'Acme 2').querySelector('[data-testid="history-group-new"]')).toBeNull()
+      expect(groupNamed(m, 'Acme 3').querySelector('[data-testid="history-group-new"]')).toBeNull()
+      expect(groupNamed(m, ko('history.other')).querySelector('[data-testid="history-group-new"]')).toBeNull()
+      await m.click(plus)
+      expect(path).toBe(`/projects/${pid(1)}`)
+      expect(state).toEqual({ newChat: true })
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('"모두 보기": every project and every row, by project; Date one choice away; the phone drawer the same', async () => {
+    let m = await render()
+    try {
+      await ready(m)
+      await m.click('ai-chats-all')
+      await ready(m)
+      expect(heads(m)).toEqual(['Acme 1', 'Acme 2', 'Acme 3', 'Acme 4', 'Acme 5', 'Acme 6', ko('history.other')])
+      expect(rowsOf(groupNamed(m, 'Acme 1'))).toEqual(['채팅 13', '채팅 12', '채팅 11', '채팅 10'])
+      expect(m.find('history-group-more')).toBeNull()
+      // grouping by date is the old way, one choice away (and it says so beside the title)
+      await m.click('recents-filter')
+      await m.click('recents-view-group')
+      await m.click('recents-group-date')
+      expect(m.find('history-groups')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('h3').map((h) => h.textContent)).toEqual([dateLabel])
+      expect(m.get('recents-filter-label').textContent).toContain(ko('sidebar.group.date'))
+      expect(JSON.parse(localStorage.getItem('mycel.sidebar.historyView')!)).toEqual({ group: 'date' })
+    } finally {
+      await m.unmount()
+    }
+    localStorage.clear()
+    wide = false
+    m = await render()
+    try {
+      await ready(m)
+      expect(heads(m)).toEqual(['Acme 1', 'Acme 2', 'Acme 3', 'Acme 4', 'Acme 5', 'Acme 6', ko('history.other')])
+      expect(rowsOf(groupNamed(m, 'Acme 1')).length).toBe(4)
+      // on a phone + always shows (no hover there)
+      expect(groupNamed(m, 'Acme 1').querySelector('[data-testid="history-group-new"]')!.className).toContain('max-md:opacity-100')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a view remembered before: its filters stay, its grouping by date (the old default) does not', async () => {
+    localStorage.setItem('mycel.sidebar.recentsView', JSON.stringify({ status: 'all', activity: 'all', group: 'date', sort: 'title' }))
+    const m = await render()
+    try {
+      await ready(m)
+      // a sort that is not the default opens the whole history, by project
+      expect(heads(m)[0]).toBe('Acme 1')
+      expect(m.get('recents-filter-label').textContent).toContain(ko('sidebar.sort.title'))
+      expect(m.get('recents-filter-label').textContent).not.toContain(ko('sidebar.group.date'))
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a person with no project chats sees the plain list on a phone too, by date as before', async () => {
+    wide = false
+    useChats.setState({ chats: [chat(2), chat(1)] })
+    const m = await render()
+    try {
+      await m.settle(30)
+      expect(m.find('history-groups')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('h3').map((h) => h.textContent)).toEqual([dateLabel])
     } finally {
       await m.unmount()
     }

@@ -192,6 +192,8 @@ export const MISC_SPECS: Record<string, Spec> = {
   getProfileDraft: { build: (c, w) => { danaDrafts(w); return c.get(`/api/onboarding/profile/draft/${DANA_PROFILE_DRAFT}`) }, scope: 'own-owner', check: ownDraftCheck('profile draft', 200) },
   // a team skill from one of the caller's chats: alice's chat is not the owner's or an admin's to draft, read or save
   startSkillDraft: { build: (c, w) => c.post('/api/onboarding/skill-draft', { chatId: w.ids.chatA }), scope: 'nobody' },
+  // a team skill from a form (owners and admins): a file no skill can fill, so no chat starts (400 for the path)
+  startFormSkillDraft: { build: (c) => c.post('/api/onboarding/skill-draft/from-form', { path: 'shared/glossary.md' }), scope: 'byLevel', check: bodyCheck('body.path', 'a form skill draft') },
   // the owner's own skill draft (no answer yet): only she reads it; her save is refused as not ready (409), nothing saved
   getSkillDraft: { build: (c, w) => { danaDrafts(w); return c.get(`/api/onboarding/skill-draft/${DANA_SKILL_DRAFT}`) }, scope: 'own-owner', check: ownDraftCheck('skill draft', 200) },
   saveSkillDraft: { build: (c, w) => { danaDrafts(w); return c.post(`/api/onboarding/skill-draft/${DANA_SKILL_DRAFT}/save`, { title: 'x' }) }, scope: 'own-owner', check: ownDraftCheck('skill draft save', 409) },
@@ -220,7 +222,6 @@ export const MISC_SPECS: Record<string, Spec> = {
   trialCredit: { build: (c) => c.get('/api/admin/trial-credit'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the trial credit shows a key') } },
 
   // ---- rooms: the open cards of my own questions in a room I am in (the DM: alice and erin only)
-  listRoomAiRequests: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai/requests`), scope: 'room-dm' },
   // search: each person's own rooms; the DM's message is found by its two people and by nobody else (the matrix's
   // canary check catches it for everyone else)
   searchRoomMessages: { build: (c) => c.get(`/api/room-messages?q=${encodeURIComponent(C.dmMsg)}`), scope: 'self',

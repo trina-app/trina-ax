@@ -6,10 +6,10 @@
 // change with `notify`, never for the chat on screen, after the wait and only while it still holds; rooms by the
 // server's own notice mark and the room's "?", one per room. The desktop app's notification click opens the chat.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { uuidv7, type Chat, type Me, type Room, type ServerEvent, type TurnRequest } from '@mycel/shared/api'
+import { uuidv7, type Chat, type Me, type ServerEvent, type TurnRequest } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
-import { attentionCount, iconBadge, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
+import { attentionCount, iconBadge, markedChats, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
 import { useChats } from '../../src/store/chats'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
@@ -65,6 +65,30 @@ describe('one marker per row', () => {
   })
 })
 
+describe("⌘K's Needs attention (QA TC-419)", () => {
+  test('every chat whose row shows a marker, with that marker: "?" first, then a new answer, then the ring; the latest first in each', () => {
+    const waits = ask({ title: 'waits', updatedAt: iso(5) })
+    const failed = chat({ title: 'failed', unseen: true, lastOutcome: 'error', updatedAt: iso(30) })
+    const fresh = chat({ title: 'new', unseen: true, updatedAt: iso(40) })
+    const older = chat({ title: 'older new', unseen: true, updatedAt: iso(20) })
+    const running = chat({ title: 'running', runState: 'running', updatedAt: iso(50) })
+    const queued = chat({ title: 'queued', runState: 'queued', updatedAt: iso(45) })
+    const idle = chat({ title: 'idle', updatedAt: iso(60) })
+    const got = markedChats([idle, running, older, waits, queued, fresh, failed])
+    expect(got.map((x) => [x.chat.title, x.marker.kind, x.marker.reason])).toEqual([
+      ['failed', 'ask', 'error'], ['waits', 'ask', 'card'], ['new', 'new', 'new'], ['older new', 'new', 'new'], ['running', 'running', 'running'], ['queued', 'running', 'queued'],
+    ])
+    // each is the row's own marker (markerOf), the one the sidebar shows
+    for (const x of got) expect(x.marker).toEqual(markerOf(x.chat)!)
+  })
+
+  test('the same view as the sidebar: the chat on screen shows no dot; a card open in this window is "?"', () => {
+    const fresh = chat({ unseen: true }), other = chat({ runState: 'running' })
+    expect(markedChats([fresh, other], { here: fresh.id }).map((x) => x.chat.id)).toEqual([other.id])
+    expect(markedChats([fresh, other], { cards: new Set([other.id]) }).map((x) => [x.chat.id, x.marker.kind])).toEqual([[other.id, 'ask'], [fresh.id, 'new']])
+  })
+})
+
 describe('the one count n', () => {
   test('chats showing ? or a dot and rooms that want me, each once; running chats do not count; amber with a ?', () => {
     const shown = chat({ unseen: true })
@@ -75,8 +99,8 @@ describe('the one count n', () => {
     // the chat on screen here is seen
     expect(attentionCount(chats, rooms, { here: shown.id })).toMatchObject({ n: 5, chats: 3 })
     expect(attentionCount([chat({ unseen: true })], [])).toEqual({ n: 1, ask: false, chats: 1, chatAsk: false, unread: false })
-    // a room whose AI waits on me is a "?" (amber), counted once even with unread messages and a mention; not the ☰ part
-    expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true, aiWaits: true })])).toEqual({ n: 1, ask: true, chats: 0, chatAsk: false, unread: false })
+    // a room counts once even with unread messages and a mention; never a "?", not the ☰ part
+    expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true })])).toEqual({ n: 1, ask: false, chats: 0, chatAsk: false, unread: false })
     expect(attentionCount([], [])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: false })
   })
 
@@ -114,8 +138,6 @@ describe('the one count n', () => {
     // the room's own level: 모든 메시지 for a team room, 끄기 for a DM (mentions included)
     expect(roomWantsMe(room({ kind: 'team', unreadCount: 2, notify: { own: 'all', byDefault: 'mentions', level: 'all' } }))).toBe(true)
     expect(roomWantsMe(room({ kind: 'dm', unreadCount: 2, mentioned: true, notify: { own: 'off', byDefault: 'all', level: 'off' } }))).toBe(false)
-    // its AI waiting on me always counts
-    expect(roomWantsMe(room({ kind: 'team', aiWaits: true, notify: { own: 'off', byDefault: 'mentions', level: 'off' } }))).toBe(true)
     expect(roomWantsMe(room({ kind: 'dm' }))).toBe(false)
   })
 
@@ -148,15 +170,10 @@ describe('the markers on screen', () => {
     expect(n).toMatch(/class="[^"]*\bsize-2\b[^"]*\bbg-accent\b/)
   })
 
-  test('a room\'s one badge: ? over @ over the count', async () => {
+  test('a room\'s one badge: @ over the count', async () => {
     const live = useLocaleStore.getState().locale
     useLocaleStore.setState({ locale: 'ko' })
     try {
-      const waits = await html(<UnreadBadge room={room({ kind: 'dm', unreadCount: 3, mentioned: true, aiWaits: true })} testId="b" />)
-      expect(waits).toContain('data-ai-waits=""')
-      expect(waits).toContain('>?<')
-      expect(waits).toContain('트리나가 내 답을 기다려요')
-      expect(waits).not.toContain('>@<')
       expect(await html(<UnreadBadge room={room({ unreadCount: 3, mentioned: true })} testId="b" />)).toContain('>@<')
       expect(await html(<UnreadBadge room={room({ unreadCount: 3 })} testId="b" />)).toContain('>3<')
       expect(await html(<UnreadBadge room={room({ unreadCount: 0 })} testId="b" />)).toBe('<div></div>')
@@ -597,18 +614,5 @@ describe('this window: /seen, notifications and toasts', () => {
       expect(notified).toEqual([{ title: 'Zoe', body: '새 메시지가 왔어요', tag: `room-${other.id}`, open: `/rooms/${other.id}`, read: at(other.id) }])
     })
 
-    test('the room\'s AI waits on me (room.updated with aiWaits): told like a card, toast on a phone; not while I look at it', async () => {
-      narrow = true
-      const team = room({ kind: 'team', name: 'acme-design' })
-      const open = room({ kind: 'team', name: 'open-room' })
-      useRooms.setState({ rooms: [team, open], openRoomId: open.id })
-      const upd = (r: Room): ServerEvent => ({ type: 'room.updated', seq: ++seq, at: Date.now(), data: { roomId: r.id, change: 'updated', room: r } })
-      dispatch(upd({ ...team, aiWaits: true }))
-      dispatch(upd({ ...open, aiWaits: true }))
-      await wait(80)
-      expect(notified).toEqual([{ title: 'acme-design', body: '트리나가 내 답을 기다려요', tag: `room-${team.id}`, open: `/rooms/${team.id}` }])
-      expect(useUi.getState().toasts.map((x) => x.text)).toEqual(['acme-design'])
-      expect(currentCount()).toMatchObject({ n: 2, ask: true, chats: 0 })
-    })
   })
 })

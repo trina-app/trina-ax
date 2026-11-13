@@ -82,10 +82,15 @@ put_changed() {
 OS=$(. /etc/os-release; echo "$ID $VERSION_ID")
 case "$OS" in
   "debian 13") ;;
-  # Ubuntu restricts user namespaces with AppArmor: srt's apply-seccomp needs a profile like apparmor-bwrap.in (spike S6)
-  "ubuntu 24.04") die "Ubuntu 24.04 needs an AppArmor profile for srt's apply-seccomp; not done yet (design spike S6)" ;;
+  # Not AppArmor: srt's apply-seccomp inherits the installer's <ID>-bwrap profile (VM check 2026-11-12). systemd 255 sends
+  # polkit no unit and no verb for StartTransientUnit, so devenv.rules.in cannot limit the server account to its
+  # trina-dev-<16>.scope units, and a wider rule would let it start a .service as root. Follow-up: runs as instances of a
+  # root-installed template unit (StartUnit sends unit and verb on 255).
+  "ubuntu 24.04") die "Ubuntu 24.04 is not supported yet: its systemd 255 gives polkit no unit name for a transient scope, so the server account cannot be limited to its run scopes" ;;
   *) die "this script is for Debian 13 (found $OS)" ;;
 esac
+# 1 where AppArmor restricts unprivileged user namespaces (install-linux.sh reads the same file)
+RESTRICT_USERNS=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; *) die "unknown machine $(uname -m)" ;; esac
 DISTRO=$(pk_distro) || die "$OS is not in the list of packages"
 PLATFORM=$(pk_platform) || die "unknown machine $(uname -m)"
@@ -184,6 +189,15 @@ if [ "$IMAGE_MODE" = 1 ]; then
   say "image mode done: srt $SRT_VERSION, node $NODE_VERSION, run-wrap. The dev environment is not turned on"
   exit 0
 fi
+
+# ---- where AppArmor restricts user namespaces: bwrap must work as the server account ----
+# srt runs /usr/bin/bwrap, which install-linux.sh step 4 gives the <ID>-bwrap profile; srt's apply-seccomp inherits it.
+# This script adds no profile (a second profile on one path cancels the first). The srt probe below checks the rest.
+if [ "$RESTRICT_USERNS" = 1 ]; then
+  runuser -u "$SRV_USER" -- bwrap --unshare-user --ro-bind / / true >/dev/null 2>&1 \
+    || die "bwrap cannot make a user namespace as $SRV_USER: AppArmor needs a profile for /usr/bin/bwrap (install-linux.sh writes /etc/apparmor.d/$ID-bwrap)"
+fi
+
 install -d -o root -g root -m 755 /etc/polkit-1/rules.d
 T=$(mktemp); sed "s/@SRV_USER@/$SRV_USER/g" "$HERE/devenv.rules.in" > "$T"
 put_changed "$T" 644 "$RULE" && systemctl try-restart polkit.service || true
@@ -214,6 +228,20 @@ runuser -u "$SRV_USER" -- systemd-run --scope --quiet --no-ask-password --unit="
   || die "the server account cannot start a scope: check $RULE and polkitd"
 if runuser -u "$SRV_USER" -- systemd-run --quiet --no-ask-password --unit="trina-dev-$PROBE.service" -- /bin/true 2>/dev/null; then
   die "the server account can start a .service: the polkit rule is too wide"
+fi
+# where AppArmor restricts user namespaces: one command through srt as the server account, with no_new_privs as in the
+# server unit (NoNewPrivileges=yes). It fails when apply-seccomp cannot make its nested user namespace.
+if [ "$RESTRICT_USERNS" = 1 ]; then
+  PD=$(mktemp -d); chmod 755 "$PD"; install -d -o "$SRV_USER" -g "$SRV_USER" -m 700 "$PD/tmp"
+  printf '%s\n' '{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":[],"allowWrite":[],"denyWrite":[]}}' > "$PD/settings.json"
+  chmod 644 "$PD/settings.json"
+  if ! OUT=$(cd "$PD/tmp" && setpriv --no-new-privs runuser -u "$SRV_USER" -- env -i PATH=/usr/bin:/bin HOME="$PD/tmp" TMPDIR="$PD/tmp" \
+      "$OPT/node/bin/node" "$SRT_DIR/cli.js" -s "$PD/settings.json" -c 'echo srt-ok' 2>&1) || ! grep -qx srt-ok <<< "$OUT"; then
+    rm -rf "$PD"
+    die "a command in srt failed as $SRV_USER (AppArmor: check aa-status for $ID-bwrap): ${OUT//$'\n'/ | }"
+  fi
+  rm -rf "$PD"
+  say "a command in srt ran as $SRV_USER (user namespaces restricted by AppArmor)"
 fi
 
 if [ "$DROPIN_CHANGED" = 1 ]; then

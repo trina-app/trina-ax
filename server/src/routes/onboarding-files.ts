@@ -2,11 +2,13 @@
 // ONBOARDING_FILES (shared/src/api/onboarding-files.ts): the AI's picks among the files of a folder an owner or admin
 // picked on their computer (a no-tools turn of theirs, onboarding/file-rank.ts), and 팀 파일 recorded done when the
 // step's upload run lands its first file (onboarding/team-files.ts). Owners and admins only (`auth: 'admin'`): the
-// step is the owner's, and the file screen offers the same steps to admins once the setup is over.
+// step is the owner's, and the file screen offers the same steps to admins once the setup is over. The same module
+// serves the setup's folder plan after the upload (onboarding/files-organize.ts).
 import { API } from '@mycel/shared/api'
 import { getChatRuntime } from '../chat/runtime'
 import { rankTeamFiles, sweepFileRanks } from '../onboarding/file-rank'
 import { recordTeamFilesLanded } from '../onboarding/team-files'
+import { applyOrganize, organizeStatus, startOrganize } from '../onboarding/files-organize'
 import type { RouteModule } from './module'
 
 export const onboardingFilesRoutes: RouteModule = {
@@ -20,5 +22,10 @@ export const onboardingFilesRoutes: RouteModule = {
     setInterval(sweep, 5 * 60_000).unref?.()
     kit.handle(API.rankTeamFiles, ({ c, body, auth }) => rankTeamFiles(ctx, getChatRuntime(ctx), auth.user, body.entries, c.get('locale'), { signal: c.req.raw.signal }))
     kit.handle(API.teamFilesLanded, ({ body, auth }) => ({ recorded: recordTeamFilesLanded(ctx, auth.user, body.path) }))
+    // the setup's folder plan for the files the run landed in shared/ (docs/DECISIONS.md "Setup 팀 파일: the AI proposes
+    // folders"): a job the page polls, then the approved plan applied as the caller
+    kit.handle(API.startOrganize, ({ c, body, auth }) => { const j = startOrganize(ctx, getChatRuntime(ctx), auth.user, body.paths, c.get('locale')); return { id: j.id, total: j.total } })
+    kit.handle(API.organizeStatus, ({ params, auth }) => organizeStatus(auth.user.id, params.id))
+    kit.handle(API.applyOrganize, ({ body, auth }) => applyOrganize(ctx, auth.user, body.id, body.moves))
   },
 }
