@@ -1,9 +1,9 @@
-// 대화's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1).
+// 대화's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1).
 // Its header: 🔍 (search on its 대화 type: rooms, people and messages, as the phone's 대화 tab) and
 // ⊕ "새 대화" (the people picker; the only place that word starts something, §2.0). Then the owner's setup row while it
 // shows, 멘션·스레드 (Activity's conversation rows, `/activity?in=chats`) with how many are unread, and every room of mine
-// by kind with no cap (panels/RoomsByKind.tsx, phase P3: 고정 · 팀 대화방 · 그룹 대화 · 1:1 대화). The 멘션·스레드 row is
-// here from the first phase because 활동 does not count conversation rows (rail/railBadges.ts).
+// by kind with no cap (panels/RoomsByKind.tsx: 고정 · 팀 대화방 · 그룹 대화 · 1:1 대화). The 멘션·스레드 row is
+// here because 활동 does not count conversation rows (rail/railBadges.ts).
 import clsx from 'clsx'
 import { AtSign, Plus, Search } from 'lucide-react'
 import { useState } from 'react'

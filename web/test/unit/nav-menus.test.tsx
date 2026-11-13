@@ -1,4 +1,4 @@
-// What the rail and the Trina panel keep from the old sidebar's suite, rendered and pressed (the layout itself is
+// The rail and the Trina panel, rendered and pressed (the layout itself is
 // test/unit/rail-badges.test.tsx and the e2e suites):
 // - the team menu on top of the rail (docs/DECISIONS.md "The team menu"): for owners and admins a button that opens the
 //   team, its address, "팀원 초대" and 관리자, by mouse and by keyboard; a member's is not a button; 팀원 초대 opens the
@@ -51,7 +51,7 @@ const sessionBefore = useSession.getState().status
 const roomsBefore = useRooms.getState()
 const chatsBefore = { chats: useChats.getState().chats, chatsLoaded: useChats.getState().chatsLoaded, chatsCursor: useChats.getState().chatsCursor, requests: useChats.getState().requests }
 const inboxBefore = useInbox.getState().unread
-// the setup row (onboarding/SetupRow.tsx, in the sidebar and the drawer) reads these: put them back as they were
+// the setup row (onboarding/SetupRow.tsx, on top of every list panel) reads these: put them back as they were
 const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
 const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
 beforeAll(() => {
@@ -78,7 +78,7 @@ beforeEach(() => {
   calls.length = 0
   routes = {}
   localStorage.clear()
-  // the projects this window saw (one list for every sidebar): none from the test before
+  // the projects this window saw (one list for every panel): none from the test before
   useProjects.getState().reset()
   useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
   useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
@@ -372,7 +372,7 @@ describe('a chat row\'s "…"', () => {
       await act(async () => { item.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
       expect(m.find('chat-row-move')).toBeNull()
       expect(document.activeElement).toBe(more as never)
-      // not on to the page's own Esc (Layout: the phone's drawer, the side panel)
+      // not on to the page's own Esc (Layout: the side panel)
       expect(closed).toEqual([])
     } finally {
       window.removeEventListener('keydown', onKey as never)

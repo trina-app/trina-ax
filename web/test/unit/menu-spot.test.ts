@@ -1,5 +1,5 @@
 // Where a computer's "…" menu goes (components/rooms/MenuButton.tsx menuSpot): under its button with their right edges in
-// line, above it near the window's bottom, and never off a side of the window. A sidebar row's notification menu (wider
+// line, above it near the window's bottom, and never off a side of the window. A list panel row's notification menu (wider
 // than the room left of its "…" in English) slides right instead of losing the first words of each item.
 import { expect, test } from 'bun:test'
 import { MENU_EDGE, menuSpot } from '../../src/components/rooms/MenuButton'
@@ -13,7 +13,7 @@ test('room to spare: under the button, right edges in line, 4px apart', () => {
 })
 
 test('a menu wider than the room left of its button slides right, 8px from the window\'s left', () => {
-  // a sidebar row's "…" at 268px and a 300px "Notify me about" menu: it would start at -32px
+  // a list panel row's "…" at 268px and a 300px "Notify me about" menu: it would start at -32px
   expect(menuSpot(at(268, 300), { width: 300, height: 200 }, view).x).toBe(MENU_EDGE)
   // the same at a narrow window (900px wide)
   expect(menuSpot(at(268, 300), { width: 300, height: 200 }, { width: 900, height: 700 }).x).toBe(MENU_EDGE)

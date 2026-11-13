@@ -1,8 +1,8 @@
-// 파일's "최근 파일" with the new navigation on a computer (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3;
+// 파일's "최근 파일" on a computer (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1;
 // /files?view=recent, from the list beside the rail: components/panels/FilesPanel.tsx): the files I can read that changed
 // last, newest first (GET /api/files/recent, the attach picker's list), each with the folder it is in and when it
 // changed. A row opens the file as a file link does (/files/view: its folder with the preview beside it). On a phone
-// (phase P5: a row of the 파일 tab's places) the phone's bar, ‹ back to 파일.
+// (a row of the 파일 tab's places) the phone's bar, ‹ back to 파일.
 import { File as FileIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'

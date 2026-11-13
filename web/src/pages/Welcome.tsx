@@ -4,10 +4,10 @@
 // 소개 saves the profile only: its "저장하고 계속" puts the website's pictures and 회사 소개.md into the team's brand
 // folder (POST /api/onboarding/welcome/brand, no AI), and nothing starts by itself: no deck, no chat, no skill (one line
 // under the button says what goes where). 회사 소개 needs AI, so without it the AI step opens in its place, never in
-// front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the sidebar's setup row
+// front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the setup row
 // says "AI 연결하기"). 도구 연결 (components/onboarding/ToolsStep.tsx) is on every team; a phone walks past it and records
 // it as put off. Every step can be put off; the progress is kept on the server (store/welcome.ts), so the steps resume
-// where they stopped, on any device, from the setup row in the sidebar (components/onboarding/SetupRow.tsx) or a
+// where they stopped, on any device, from the setup row at the top of the lists (components/onboarding/SetupRow.tsx) or a
 // landing (W4). The end screen shows once, with one press to make a first result with a skill the team has.
 //
 // Leaving the first step sets up every team once (a group named after the team with its folders, POST

@@ -3,8 +3,8 @@
 // list: places that list projects still ask the server.
 //
 // `listed`: the projects the latest plain read of the list (GET /api/projects, no `manage`) returned, so the ones the
-// person sees now (docs/DECISIONS.md "Trina history by project"). One read for every sidebar in this window (the
-// computer's column and the phone's drawer, which mounts again each time ☰ opens): `readProjectList` keeps one request
+// person sees now (docs/DECISIONS.md "Trina history by project"). One read for every list in this window (the
+// 트리나 panel, the phone's 트리나 tab, which mounts again each time it opens): `readProjectList` keeps one request
 // in flight and, when asked with `minAgeMs` (a window coming back to the front), skips a read that recent.
 import { create } from 'zustand'
 import type { Project } from '@mycel/shared/api'

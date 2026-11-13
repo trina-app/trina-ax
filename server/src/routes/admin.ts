@@ -422,7 +422,7 @@ export const adminRoutes: RouteModule = {
       return next
     })
 
-    // ---------------- the team logo: the sidebar header; tab and app icons stay the product's (admin/team-icon.ts, /team-icon) ----------------
+    // ---------------- the team logo: the top of the rail; tab and app icons stay the product's (admin/team-icon.ts, /team-icon) ----------------
     kit.handle(API.putTeamIcon, async ({ c, query, body, auth }) => {
       const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
       const icon = await saveTeamIcon(ctx.config.dataDir, body, query.type, c.get('locale'))

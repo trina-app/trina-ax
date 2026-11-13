@@ -49,8 +49,8 @@ export interface Plan { back: number; replace?: Item; push: Item[] }
  * the screen on show is left out of the stack saved for the tab it leaves (a chat just deleted). */
 export interface SwitchOptions { root?: boolean; drop?: boolean }
 
-/** An entry's tab as this build knows it: an entry kept from a build with other tabs (프로젝트, before the new
- * navigation; a reload or a web view restored after the update) takes its first entry's tab now. */
+/** An entry's tab as this build knows it: an entry saved under a tab that is gone (a reload or a web view restored
+ * after an update) takes its first entry's tab now. */
 export function knownTab(sc: Partial<Pick<Scr, 'tab' | 'root' | 'trail'>>): Tab | null {
   const tab = sc.tab ?? null
   if (tab === null || isTabNow(tab)) return tab

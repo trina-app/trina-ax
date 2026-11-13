@@ -4945,7 +4945,7 @@ export const ko = {
   "viewer.inGroup": "{room}에서",
   "viewer.inDm": "{name} 님과의 1:1 대화에서",
   "viewer.gone": "메시지가 삭제되어 이 파일은 더 이상 볼 수 없어요.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "팀원 초대",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "채팅에서 AI가 내 앱과 서비스를 쓸 수 있게 해요.",

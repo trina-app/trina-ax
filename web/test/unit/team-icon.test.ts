@@ -1,6 +1,6 @@
 // The tab icon and the team logo (shared/src/team-icon.ts, src/lib/team-icon.ts): the product's icon files and links
 // of the app shell, which signing in leaves alone whatever logo the team has (since 2026-11-07 the logo shows only in
-// the computer's sidebar header; docs/DECISIONS.md), and the checks before uploading a team logo.
+// the top of the computer's rail; docs/DECISIONS.md), and the checks before uploading a team logo.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'

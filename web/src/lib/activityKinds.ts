@@ -1,4 +1,4 @@
-// The chips of the computer's 활동 list with the new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3;
+// The chips of the computer's 활동 list (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1;
 // panels/ActivityPanel.tsx): 전체 · 트리나 · 요청. 활동 holds only the notices that are not conversations (mentions and
 // thread replies are in 대화's 멘션·스레드), so the chips sort what is left:
 // - 트리나: what the AI did for me on its own: a scheduled task's run, a project's job.

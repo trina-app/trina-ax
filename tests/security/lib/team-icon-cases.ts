@@ -9,7 +9,7 @@ import { leaks } from './matrix'
 
 // The team logo (Admin › Team settings; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). Setting and
 // removing it is for admins; what an upload must be (type, first bytes, size, pixels) is tested in
-// tests/unit/a-team-icon.test.ts. Reading it is public (the sidebar header's image): GET /team-icon is served by the web
+// tests/unit/a-team-icon.test.ts. Reading it is public (the image at the top of the rail): GET /team-icon is served by the web
 // catch-all (RAW GET '*'), so an allowed upload also checks here that a signed-out visitor gets exactly the image, with
 // the image-only headers, and nothing else; and that the addresses browsers take the tab and app icons from never
 // serve it or link to it (they stay the product's). That part needs a web build (`bun run build:web`): without one the

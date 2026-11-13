@@ -78,11 +78,11 @@ describe("⌘K's Needs attention (QA TC-419)", () => {
     expect(got.map((x) => [x.chat.title, x.marker.kind, x.marker.reason])).toEqual([
       ['failed', 'ask', 'error'], ['waits', 'ask', 'card'], ['new', 'new', 'new'], ['older new', 'new', 'new'], ['running', 'running', 'running'], ['queued', 'running', 'queued'],
     ])
-    // each is the row's own marker (markerOf), the one the sidebar shows
+    // each is the row's own marker (markerOf), the one the Trina list shows
     for (const x of got) expect(x.marker).toEqual(markerOf(x.chat)!)
   })
 
-  test('the same view as the sidebar: the chat on screen shows no dot; a card open in this window is "?"', () => {
+  test('the same view as the Trina list: the chat on screen shows no dot; a card open in this window is "?"', () => {
     const fresh = chat({ unseen: true }), other = chat({ runState: 'running' })
     expect(markedChats([fresh, other], { here: fresh.id }).map((x) => x.chat.id)).toEqual([other.id])
     expect(markedChats([fresh, other], { cards: new Set([other.id]) }).map((x) => [x.chat.id, x.marker.kind])).toEqual([[other.id, 'ask'], [fresh.id, 'new']])
@@ -99,13 +99,13 @@ describe('the one count n', () => {
     // the chat on screen here is seen
     expect(attentionCount(chats, rooms, { here: shown.id })).toMatchObject({ n: 5, chats: 3 })
     expect(attentionCount([chat({ unseen: true })], [])).toEqual({ n: 1, ask: false, chats: 1, chatAsk: false, unread: false })
-    // a room whose AI waits on me is a "?" (amber), counted once even with unread messages and a mention; not the ☰ part
+    // a room whose AI waits on me is a "?" (amber), counted once even with unread messages and a mention; not the AI chats' part
     expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true, aiWaits: true })])).toEqual({ n: 1, ask: true, chats: 0, chatAsk: false, unread: false })
     expect(attentionCount([], [])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: false })
   })
 
   test('unread rooms n does not count: a plain team-room message is n 0 with the dot; a room turned off or hidden never lights it', () => {
-    // a channel message without a mention, the room at its default (mentions only): unread in the sidebar, not in n
+    // a channel message without a mention, the room at its default (mentions only): unread in the 대화 list, not in n
     const plain = room({ kind: 'team', unreadCount: 2 })
     expect(attentionCount([], [plain])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: true })
     expect(iconBadge(attentionCount([], [plain]))).toBe('dot')
@@ -405,7 +405,7 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(notified).toEqual([])
     await wait(80)
     expect(notified).toEqual([{ title: '주간 보고 초안', body: '새 답', tag: `chat-${c.id}`, open: `/c/${c.id}` }])
-    // a computer: the sidebar shows, no toast
+    // a computer: the rail shows, no toast
     expect(useUi.getState().toasts).toEqual([])
     openCb!(`/c/${c.id}`)
     expect(went).toEqual([`/c/${c.id}`])
@@ -414,7 +414,7 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(went).toEqual([`/c/${c.id}`])
   })
 
-  test('a card that opened: told with the question; on a phone with the drawer closed also a toast with [열기]', async () => {
+  test('a card that opened: told with the question; on a phone also a toast with [열기]', async () => {
     narrow = true
     const c = chat({ runState: 'running', title: '경쟁사 분석' })
     useChats.setState({ chats: [c] })

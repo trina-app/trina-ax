@@ -1,9 +1,9 @@
-// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1). On
+// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). On
 // top "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0) and 검색 (⌘K),
 // then the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them
-// the Trina list in its own order with the server's heads (panels/TrinaList.tsx, phase P2: 고정 · 폴더 · 프로젝트 · 모든
-// 프로젝트 · 기타 기록; no five-latest cap, no "모두 보기"), and at its end the quiet rows that were sidebar rows: 예약 작업,
-// 팀 스킬 and 삭제한 기록 (before: the account menu's). The header's filter button (status, last activity, group by, sort)
+// the Trina list in its own order with the server's heads (panels/TrinaList.tsx: 고정 · 폴더 · 프로젝트 · 모든
+// 프로젝트 · 기타 기록), and at its end the quiet rows 예약 작업,
+// 팀 스킬 and 삭제한 기록. The header's filter button (status, last activity, group by, sort)
 // shows the whole history filtered instead (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"), with
 // one line that says what is filtered and a way back.
 import { BookMarked, CalendarClock, Search, Trash2, X } from 'lucide-react'
@@ -36,7 +36,7 @@ export function TrinaPanel() {
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
-      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} always />}
+      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />}
       top={
         <>
           <button type="button" className={`${panelRow} font-medium`} onClick={() => navigate('/')} data-testid="new-chat">

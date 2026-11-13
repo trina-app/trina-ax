@@ -9,7 +9,7 @@ import { hideThreadRef, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, skillLabel, t
 import { hasSecret, maskSecrets } from '@mycel/shared'
 import { HIDDEN } from '../integrations/connections/hide'
 
-/** Placeholder length in graphemes (the sidebar shows about this much). */
+/** Placeholder length in graphemes (a row of the Trina list shows about this much). */
 export const PLACEHOLDER_MAX = 40
 /** The AI's title: 2–60 characters. */
 export const AI_TITLE_MIN = 2

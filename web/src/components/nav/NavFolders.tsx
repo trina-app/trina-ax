@@ -1,4 +1,4 @@
-// My list folders on screen (docs/DECISIONS.md "List folders on screen", the navigation plan's phase P4b). The
+// My list folders on screen (docs/DECISIONS.md "List folders on screen"). The
 // parts both lists use, the Trina list (panels/TrinaList.tsx, chat folders)
 // and 대화's (panels/RoomsByKind.tsx, room folders), on a computer's panel and in the phone's lists alike:
 //   - "새 폴더" (NewFolderRow, or the + on the folders' label): a name, then the folder is last in its list;
@@ -142,7 +142,7 @@ export function FolderMenu({ folder, count, className, buttonClassName }: { fold
 /**
  * A row's folder items for its "⋯" (`items`, put among the row's own), the folder picker they open (`picker`, drawn in
  * the row), and the words under the menu when the row cannot go in a folder (`footer`, a project's chat). `blocked`:
- * why it cannot (a project chat); `on`: nothing at all when off (the old navigation); `more`: the row's "⋯", where the keyboard goes back from the picker.
+ * why it cannot (a project chat); `on`: nothing at all when off (a side chat, a hidden room); `more`: the row's "⋯", where the keyboard goes back from the picker.
  */
 export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: string; folderId?: string | null; blocked?: boolean; more: RefObject<HTMLButtonElement | null> }): { items: MenuItem[]; footer?: ReactNode; picker: ReactNode } {
   const t = useT()

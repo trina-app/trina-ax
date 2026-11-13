@@ -4945,7 +4945,7 @@ export const id: Record<MessageKey, string> = {
   "viewer.inGroup": "di {room}",
   "viewer.inDm": "di pesan langsung dengan {name}",
   "viewer.gone": "File ini tidak tersedia lagi: pesannya sudah dihapus.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Undang orang",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Biarkan AI menggunakan aplikasi dan layanan Anda di chat.",

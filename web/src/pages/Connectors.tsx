@@ -1,5 +1,5 @@
-// Settings › Connectors (/settings/connectors, a section of the Settings dialog for everyone; it was an item of the main
-// sidebar and of the phone's drawer until 2026-11-12, docs/DECISIONS.md "Connectors in Settings"): what the AI may use
+// Settings › Connectors (/settings/connectors, a section of the Settings dialog for everyone; it was a page of its own
+// until 2026-11-12, docs/DECISIONS.md "Connectors in Settings"): what the AI may use
 // with the person's own accounts, kept simple like Claude's Settings › Connectors. On top the section's title, one line,
 // a search box and, for owners and admins, "Add custom connector" (any MCP server or API by its address). Then what an
 // admin asked the person to connect

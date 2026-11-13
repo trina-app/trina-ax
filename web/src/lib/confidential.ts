@@ -9,7 +9,7 @@ import { isDesktop } from './desktop'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
 
-/** chats that are not in the sidebar list, asked once per page load */
+/** chats that are not in my history list, asked once per page load */
 const asked = new Map<string, boolean>()
 
 /** true / false, or null while a chat outside the loaded list is being asked for (callers show nothing meanwhile). */

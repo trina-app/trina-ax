@@ -4945,7 +4945,7 @@ export const en: Record<MessageKey, string> = {
   "viewer.inGroup": "in {room}",
   "viewer.inDm": "in your direct messages with {name}",
   "viewer.gone": "This file is no longer available: its message was deleted.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invite people",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Let the AI use your apps and services in your chats.",

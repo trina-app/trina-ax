@@ -203,9 +203,8 @@ export const AppConfigFile = z.object({
    * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
   roomAiMentions: z.boolean().optional(),
   /** obsolete: the switch of the new navigation (docs/DECISIONS.md "navRail: the new navigation behind one server
-   * switch"), retired once the old sidebar and tabs were removed: the rail and the phone tabs 트리나 · 대화 · 파일 · 나
-   * are the only navigation. Accepted with any value and ignored, so a file written for an older version still loads;
-   * the start logs it once (OBSOLETE_KEYS). */
+   * switch"), retired: the rail and the phone tabs 트리나 · 대화 · 파일 · 나 are the only navigation. Accepted with any
+   * value and ignored, so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
   navRail: z.unknown().optional(),
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
    * (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's instructions). Absent: on; the team

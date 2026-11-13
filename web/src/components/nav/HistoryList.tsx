@@ -24,8 +24,8 @@ import { ChatItem, type ChatPeek } from './ChatItem'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
-/** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
- * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": a spinner or a "?" row
+/** How the Trina history is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
+ * every chat in the list (deleted ones are under the 트리나 panel's 삭제한 기록); "Waiting": a spinner or a "?" row
  * (an answer runs or waits its turn, a card waits for the person, an answer failed or paused and was not seen; not a new
  * answer: docs/DECISIONS.md "Session markers"). */
 const VIEW = {
@@ -216,19 +216,19 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
   )
 }
 
-/** Filter and sort beside "Recents", like Claude's: a square button (a dot when something is not at its default) that
+/** Filter and sort in the Trina list's header, like Claude's: a square button (a dot when something is not at its default) that
  * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
- * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
- * place with a way back. A phone (below 768px, the drawer): bottom sheets instead (RecentsSheet). */
-export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
+ * menus sit in <body> (the list scrolls and would clip them); on a narrow screen a submenu takes the menu's
+ * place with a way back. A phone (below 768px): bottom sheets instead (RecentsSheet). */
+export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
   return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
 }
 
-/** The phone's drawer: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
+/** A phone: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
-function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
+function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
   const [sub, setSub] = useState<ViewKey | null>(null)
   const [ask, setAsk] = useState(0)
@@ -279,7 +279,7 @@ function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange
   )
 }
 
-function RecentsDropdown({ view, onChange, changed, always }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; always?: boolean }) {
+function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
@@ -362,7 +362,7 @@ function RecentsDropdown({ view, onChange, changed, always }: { view: RecentsVie
           aria-expanded={open}
           aria-label={t('sidebar.filter')}
           onClick={() => (open ? close(false) : openMenu())}
-          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed || always ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink', open && 'bg-hover text-ink')}
           data-testid="recents-filter"
         >
           <ListFilter size={15} aria-hidden />

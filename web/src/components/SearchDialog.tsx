@@ -1,8 +1,8 @@
 // ⌘/Ctrl+K: one place to find the team's own things, like Claude's search. Type tabs (all, chats, projects, files,
 // skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions (the
 // inbox among them, with its unread count).
-// "Needs attention" shows the AI chats with the sidebar's session markers and their words ("?" your turn, the ring, the
-// dot for a new answer; lib/sessionMarkers.ts markedChats), from the sidebar's own chat list, then scheduled tasks to
+// "Needs attention" shows the AI chats with the 트리나 list's session markers and their words ("?" your turn, the ring, the
+// dot for a new answer; lib/sessionMarkers.ts markedChats), from the 트리나 list's own chats, then scheduled tasks to
 // confirm and broken connections. History rows (the list and search results) say when the chat was last active and its
 // project, grey on the right; opened on a project's page or in a chat of a project, History lists that project's chats
 // first (docs/DECISIONS.md "Getting back to earlier work, part A").
@@ -88,7 +88,7 @@ export default function SearchDialog() {
   )
 }
 
-/** "트리나에게 묻기": the mark that asks the AI (rooms/AiFace.tsx), as on the sidebar's row */
+/** "트리나에게 묻기": the mark that asks the AI (rooms/AiFace.tsx), as on the 트리나 panel's row */
 const AskAi = () => <AiMark place="nav" />
 
 export const SEARCH_TABS = ['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'] as const
@@ -111,7 +111,7 @@ interface Row {
   /** dim second part: where it is (project, folder) or why it needs attention */
   sub?: string
   attention?: boolean
-  /** an AI chat in "Needs attention": the sidebar's session marker, its words in `sub` (lib/sessionMarkers.ts) */
+  /** an AI chat in "Needs attention": the 트리나 list's session marker, its words in `sub` (lib/sessionMarkers.ts) */
   marker?: Marker
   /** grey, on the right: a History row's last activity and project ("2 hours ago · Launch plan") */
   meta?: string
@@ -266,7 +266,7 @@ function useHereProject(): string | null | undefined {
 }
 
 const NO_CHATS: Chat[] = []
-/** A "Needs attention" row's words in the colours of the sidebar's hover peek: your turn amber, a new answer accent */
+/** A "Needs attention" row's words in the colours of the 트리나 list's hover peek: your turn amber, a new answer accent */
 const MARKER_TEXT: Record<MarkerKind, string> = { ask: 'text-warn', new: 'text-accent-text', running: 'text-faint' }
 /** What a task's search may match besides its name: a task's own instruction. A template's prompt is the server's own
  *  and never shown, so it is not searched. */
@@ -323,7 +323,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }, [])
   const people = usePeopleList()
   const roomTitle = useRoomTitle()
-  // "Needs attention": the sidebar's own chat list and markers (one source: the same rows, the same rule, the same view)
+  // "Needs attention": the 트리나 list's own chats and markers (one source: the same rows, the same rule, the same view)
   const listed = useChats((s) => s.chats)
   const listLoaded = useChats((s) => s.chatsLoaded)
   const requests = useChats((s) => s.requests)
@@ -471,8 +471,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     ...chatRow(c), sub: undefined,
     meta: [formatRelative(c.updatedAt, locale), c.projectId ? projectName.get(c.projectId) : undefined].filter(Boolean).join(' · '),
   })
-  /** A "Needs attention" chat: the sidebar's marker and its words (the AI's question itself when this window has its card,
-   * never for a confidential chat), as the sidebar's row and hover peek say them (QA TC-419) */
+  /** A "Needs attention" chat: the 트리나 list's marker and its words (the AI's question itself when this window has its card,
+   * never for a confidential chat), as that list's row and hover peek say them (QA TC-419) */
   const markedRow = (c: Chat, marker: Marker): Row => ({
     ...chatRow(c), attention: true, marker,
     sub: reasonText(marker.reason, t, marker.reason === 'card' && !c.confidential ? cardQuestion(requests, c.id) : undefined),
@@ -520,7 +520,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
-    // Settings › Connectors for everyone (it has no sidebar item): owners and admins who may add their own go straight to
+    // Settings › Connectors for everyone (it has no item in the rail or its panels): owners and admins who may add their own go straight to
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
@@ -880,7 +880,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                         {r.sub && <span className={clsx('ml-2 text-xs', r.marker ? clsx('font-medium', MARKER_TEXT[r.marker.kind]) : r.attention ? 'text-accent-text' : 'text-faint')} data-testid={r.marker ? 'search-marker-reason' : undefined}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
                       </span>
                     )}
-                    {/* the sidebar's own marker; its words are the row's second part already */}
+                    {/* the 트리나 list's own marker; its words are the row's second part already */}
                     {r.marker && (
                       <span aria-hidden className="flex shrink-0 items-center" data-testid="search-row-marker" data-marker={r.marker.kind}>
                         <SessionMarker marker={r.marker} label={r.sub ?? ''} />

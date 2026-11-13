@@ -1,5 +1,5 @@
-// Rename and delete a chat: the same steps from the chat's menu in the sidebar and from its name at the top of the chat.
-// Pin and unpin ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned chats"): the sidebar row's menu.
+// Rename and delete a chat: the same steps from the chat's menu in the Trina list and from its name at the top of the chat.
+// Pin and unpin ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned chats"): the Trina list row's menu.
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -40,7 +40,7 @@ export function useChatActions() {
 
   /** true once the chat is in the trash (false: cancelled, or the delete failed) */
   const remove = async (chat: Chat): Promise<boolean> => {
-    // the trash by the name the sidebar gives it (a rename there follows here)
+    // the trash by the name of its row in the 트리나 panel (a rename there follows here)
     if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return false
     try {
       await api.call(API.deleteChat, { params: { id: chat.id } })
