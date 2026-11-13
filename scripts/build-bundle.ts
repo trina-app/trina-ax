@@ -200,7 +200,7 @@ export const LINUX_ROOT_COPIES = ['native/mycel-safeops', 'bin/pandoc'] as const
 /** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
 export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
 /** scripts/dev-env/srt files the server kit carries (root/dev-env-srt/): the install files of the image's stage */
-export const LINUX_DEV_ENV_SRT_FILES = ['install-srt.sh', 'uninstall-srt.sh', 'package.json', 'package-lock.json', 'run-wrap', 'srt-full.mjs', 'devenv.rules.in', 'devenv.slice.in', 'README.md'] as const
+export const LINUX_DEV_ENV_SRT_FILES = ['install-srt.sh', 'uninstall-srt.sh', 'package.json', 'package-lock.json', 'run-wrap', 'srt-full.mjs', 'devenv.rules.in', 'devenv.slice.in', 'devenv-run.service.in', 'README.md'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
 export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/account.sh', 'mycel-account'],

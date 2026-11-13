@@ -1,5 +1,6 @@
 #!/bin/bash
-# Dev environment on srt: the systemd and polkit checks on a fresh Debian 13 VM (docs/research/srt-dev-env.md 10.3).
+# Dev environment on srt: the systemd and polkit checks on a fresh Debian 13 or Ubuntu 24.04 VM
+# (docs/research/srt-dev-env.md 10.3).
 # Run as root on a THROWAWAY VM only: it makes a server account and a stand-in team server unit, then runs
 # install-srt.sh for real.
 #   1. a server account and <base> as install-linux.sh makes them, a Starter plan file, /etc/default/<ID> with a canary;
@@ -44,6 +45,11 @@ HELPER_SRC=$REPO/native/bin/linux-$GOARCH/mycel-sandbox
 if [ -f "$HELPER_SRC" ]; then install -o root -g root -m 755 "$HELPER_SRC" "$BASE/root/mycel-sandbox"
 elif [ "$MODE" = preview ]; then echo "no $HELPER_SRC (native/build.sh)" >&2; exit 1; fi
 printf 'MYCEL_TOKEN=CANARY-7f3a-etcdefault\n' > "/etc/default/$ID"; chown "root:$ID" "/etc/default/$ID"; chmod 640 "/etc/default/$ID"
+# where AppArmor restricts user namespaces (Ubuntu 24.04): the bwrap profile, as install-linux.sh step 4 writes it
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+  sed "s/@ID@/$ID/g" "$REPO/scripts/linux/apparmor-bwrap.in" > "/etc/apparmor.d/$ID-bwrap"
+  apparmor_parser -r "/etc/apparmor.d/$ID-bwrap"
+fi
 
 # ---- 2. the stand-in server unit ----
 DRIVER=srt-vm.ts; RESULTS=$BASE/data/vm-results.json; WAIT=240

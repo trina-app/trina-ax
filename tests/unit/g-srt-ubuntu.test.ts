@@ -1,7 +1,8 @@
-// The dev environment on srt and Ubuntu 24.04 (VM check 2026-11-12, docs/DECISIONS.md "Dev environment on srt: Ubuntu
-// 24.04 stays off"). AppArmor needs no profile of its own: srt's apply-seccomp inherits the installer's <ID>-bwrap. The
-// stop is polkit: systemd 255 sends no unit name for a transient scope. This file runs the OS rules of install-srt.sh
-// and install-linux.sh for real in bash, and checks the bwrap check and the srt probe of install-srt.sh.
+// The dev environment on srt and Ubuntu 24.04 (docs/DECISIONS.md "Dev environment on srt: runs as template units").
+// AppArmor needs no profile of its own: srt's apply-seccomp inherits the installer's <ID>-bwrap. Runs are instances of a
+// root-installed template, so polkit gets the unit name on systemd 255 and Ubuntu 24.04 is on. This file runs the OS
+// rules of install-srt.sh and install-linux.sh for real in bash, and checks the bwrap check and the srt probe of
+// install-srt.sh.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,15 +19,12 @@ function bash(script: string, env: Record<string, string> = {}) {
 }
 
 describe('install-srt.sh and Ubuntu 24.04', () => {
-  test('the OS rule: Debian 13 only; Ubuntu 24.04 stops with the polkit reason, not AppArmor', () => {
+  test('the OS rule: Debian 13 and Ubuntu 24.04', () => {
     const rule = /^case "\$OS" in\n[\s\S]*?^esac$/m.exec(INSTALL)![0]
     const run = (os: string) => bash(`die() { echo "STOP: $*"; exit 1; }\nOS="${os}"\n${rule}\necho ok`)
     expect(run('debian 13').out).toBe('ok')
-    const u = run('ubuntu 24.04').out
-    expect(u).toStartWith('STOP: Ubuntu 24.04 is not supported yet')
-    expect(u).toContain('systemd 255 gives polkit no unit name for a transient scope')
-    expect(u).not.toMatch(/AppArmor/i)
-    for (const os of ['debian 12', 'ubuntu 22.04', 'fedora 41']) expect(run(os).out).toBe('STOP: this script is for Debian 13 (found ' + os + ')')
+    expect(run('ubuntu 24.04').out).toBe('ok')
+    for (const os of ['debian 12', 'ubuntu 22.04', 'ubuntu 26.04', 'fedora 41']) expect(run(os).out).toBe('STOP: this script is for Debian 13 or Ubuntu 24.04 (found ' + os + ')')
     expect(INSTALL).not.toContain('not done yet')
   })
 
@@ -51,7 +49,7 @@ describe('install-srt.sh and Ubuntu 24.04', () => {
   test('the srt probe: one command as the server account with no_new_privs, as the server unit runs it', () => {
     expect(read('scripts/linux/systemd/server.service.in')).toContain('\nNoNewPrivileges=yes')
     const a = INSTALL.indexOf('# where AppArmor restricts user namespaces: one command through srt'), b = INSTALL.indexOf('if [ "$DROPIN_CHANGED" = 1 ]; then')
-    expect(a).toBeGreaterThan(INSTALL.indexOf('the server account can start a .service: the polkit rule is too wide'))
+    expect(a).toBeGreaterThan(INSTALL.indexOf('the server account can start a transient .service: the polkit rule is too wide'))
     const probe = INSTALL.slice(a, b)
     expect(probe).toContain('if [ "$RESTRICT_USERNS" = 1 ]; then')
     expect(probe).toContain('setpriv --no-new-privs runuser -u "$SRV_USER" -- env -i')
@@ -65,15 +63,12 @@ describe('install-linux.sh: the dev environment rule', () => {
   const block = LINUX.slice(LINUX.indexOf('DEVENV_ON=0 DEVENV_WHY=""'), LINUX.indexOf('MACH=$(uname -m)'))
   const run = (v: Record<string, string>) => bash(`given() { return 1; }\ndie() { echo "STOP: $*"; exit 1; }\n${block}\necho "on=$DEVENV_ON why=$DEVENV_WHY"`,
     { HOSTED: '0', DEV_ENV: '', MINIMAL: '0', SYSTEMD: '1', ...v })
-  test('on by default on Debian 13 only', () => {
+  test('on by default on Debian 13 and Ubuntu 24.04', () => {
     expect(run({ OSID: 'debian', OSVER: '13' }).out).toBe('on=1 why=')
-    expect(run({ OSID: 'debian', OSVER: '12' }).out).toBe('on=0 why=off: install-srt.sh supports Debian 13 only (this is debian 12)')
-  })
-  test('Ubuntu 24.04: off with the polkit reason; --dev-env stops with it', () => {
-    const u = run({ OSID: 'ubuntu', OSVER: '24.04' }).out
-    expect(u).toStartWith('on=0 why=off: not on Ubuntu 24.04 yet (its systemd 255 gives polkit no unit name for a transient scope')
-    expect(u).not.toMatch(/AppArmor|spike/i)
-    expect(run({ OSID: 'ubuntu', OSVER: '24.04', DEV_ENV: '1' }).out).toStartWith('STOP: --dev-env: the dev environment is not on Ubuntu 24.04 yet')
+    expect(run({ OSID: 'ubuntu', OSVER: '24.04' }).out).toBe('on=1 why=')
+    expect(run({ OSID: 'ubuntu', OSVER: '24.04', DEV_ENV: '1' }).out).toBe('on=1 why=')
+    expect(run({ OSID: 'debian', OSVER: '12' }).out).toBe('on=0 why=off: install-srt.sh supports Debian 13 and Ubuntu 24.04 only (this is debian 12)')
+    expect(run({ OSID: 'debian', OSVER: '12', DEV_ENV: '1' }).out).toStartWith('STOP: --dev-env: the dev environment is install-srt.sh supports Debian 13 and Ubuntu 24.04 only')
   })
   test('the other reasons still come first', () => {
     expect(run({ OSID: 'ubuntu', OSVER: '24.04', DEV_ENV: '0' }).out).toBe('on=0 why=off (--no-dev-env)')

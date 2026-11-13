@@ -1,7 +1,7 @@
 // Dev environment on srt: the preview on a real VM (docs/DECISIONS.md "Dev environment on srt: preview", design spike
 // S2 and attack A26). It runs INSIDE the stand-in team server unit as the server account (NoNewPrivileges, no
 // capabilities, ProtectSystem=strict, PrivateTmp), after install-srt.sh: scripts/dev-env/srt/vm-check.sh REPO preview.
-// A test server (tests/lib/b-harness.ts) with the real runner (systemd scopes, polkit, srt), the real box_shell tool,
+// A test server (tests/lib/b-harness.ts) with the real runner (run units, polkit, srt), the real box_shell tool,
 // the real mycel-sandbox port-forward (MYCEL_SANDBOX_HELPER) and the real gateway listener on 127.0.0.1:8098.
 //   P1 (S2): a dev server that alice's AI starts with box_shell background=true opens through the gateway (curl with
 //       the link's Host, the cookie, then /), and the forwarder is in the run's network namespace with no capabilities;
@@ -10,7 +10,9 @@
 //   P3: the sandbox cannot open the preview socket or list the folder it is in;
 //   P4: the run stops: the link answers 403, the forwarder and its socket are gone;
 //   P5: a dev server with a second background port, started 3 times;
-//   P6: a run writes a file in the person's own folder (users/<id>); the Files API lists it and the server reads it.
+//   P6: a run writes a file in the person's own folder (users/<id>); the Files API lists it and the server reads it;
+//   P7 (A23): a job writes past the disk floor; the tracker stops it with "disk" and its unit ends. The free space comes
+//       from a stand-in statfs (a 2 GiB disk minus the job's real file), so the VM's own disk never fills.
 // Results: <base>/data/preview-results.json and one "preview <id> ..." line per check.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -28,7 +30,8 @@ process.env.MYCEL_DEV_PREVIEW_LISTEN = GW
 const { startHarness } = await import('../lib/b-harness')
 const { parsePlan } = await import('../../server/src/devenv/srt/plan')
 const { setSrtSystem } = await import('../../server/src/devenv/srt/runner')
-const { systemdSystem } = await import('../../server/src/devenv/srt/system')
+const { cgroupDir, systemdSystem } = await import('../../server/src/devenv/srt/system')
+const { chatWork, runIdOfUnit } = await import('../../server/src/devenv/srt/config')
 const { newConsent, saveTeamSetting, teamSetting } = await import('../../server/src/devenv/setting')
 const { boxShellTool } = await import('../../server/src/devenv/tool')
 
@@ -43,7 +46,7 @@ const say = (id: string, pass: boolean | null, what: string, data: Record<string
 process.on('uncaughtException', (e) => { say('CRASH', false, 'the driver failed', { error: String(e?.stack ?? e).slice(0, 1500) }); process.exit(1) })
 
 const h = await startHarness({ name: 'srt-preview' })
-const sys = systemdSystem(ID)
+const sys = systemdSystem(ID, BASE)
 setSrtSystem(sys, { base: BASE, id: ID, plan })
 saveTeamSetting(h.ctx.db, {
   ...teamSetting(h.ctx.db), enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] }, network: 'open',
@@ -60,7 +63,7 @@ const shell = async (user: string, chatId: string, input: Record<string, unknown
   text(await boxShellTool({ ctx: h.ctx, project: null, userId: user, turnId: `turn-${++turn}`, chatId, signal: new AbortController().signal, confirm: async () => null, redact: (s) => s, queueStep: (s) => steps.push(s) }).call(input as never))
 type Row = { id: string; unit: string; state: string; end_reason: string | null }
 const rowOf = (user: string) => h.ctx.db.query("SELECT id, unit, state, end_reason FROM dev_env_runs WHERE user_id = ? AND kind = 'server' ORDER BY started_at DESC LIMIT 1").get(user) as Row
-const runIdOf = (unit: string) => unit.slice('trina-dev-'.length, -'.scope'.length)
+const runIdOf = runIdOfUnit
 const sh = async (argv: string[]) => {
   const p = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe', env: { PATH: '/usr/bin:/bin', LANG: 'C' } })
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -105,7 +108,7 @@ let forwarderA = 0
   const pids = await forwarders()
   const f = pids[0]
   forwarderA = f ?? 0
-  const runNet = (() => { try { const ps = fs.readFileSync(`/sys/fs/cgroup/${ID}.slice/${ID}-devenv.slice/trina-dev-${runIdOf(a.unit)}.scope/cgroup.procs`, 'utf8').split('\n').filter(Boolean); return new Set(ps.map((p) => { try { return fs.readlinkSync(`/proc/${p}/ns/net`) } catch { return '' } })) } catch { return new Set<string>() } })()
+  const runNet = (() => { try { const ps = fs.readFileSync(`${cgroupDir(ID, runIdOf(a.unit))}/cgroup.procs`, 'utf8').split('\n').filter(Boolean); return new Set(ps.map((p) => { try { return fs.readlinkSync(`/proc/${p}/ns/net`) } catch { return '' } })) } catch { return new Set<string>() } })()
   const fNet = f ? fs.readlinkSync(`/proc/${f}/ns/net`) : ''
   const own = fs.readlinkSync('/proc/self/ns/net')
   const info = f ? { pid: f, CapEff: procLine(f, 'CapEff'), CapPrm: procLine(f, 'CapPrm'), NoNewPrivs: procLine(f, 'NoNewPrivs'), Uid: procLine(f, 'Uid'), net: fNet, runNets: [...runNet], own } : {}
@@ -187,6 +190,26 @@ for (let i = 1; i <= 3; i++) {
   const bytes = dl.status === 200 ? new Uint8Array(await dl.arrayBuffer()) : new Uint8Array()
   const png = bytes.length > 8 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
   say('P6', /Exit code 0/.test(t) && !!st && st.uid === process.getuid!() && listed && png, 'a run writes users/alice/.../chart.png; Files lists it, owned by the server account, and the server reads it', { tool: t.slice(0, 300), uid: st?.uid, serverUid: process.getuid!(), mode: st ? (st.mode & 0o777).toString(8) : null, listed, download: dl.status, bytes: bytes.length, tree: JSON.stringify(tree).slice(0, 300) })
+}
+
+// ---- P7 (A23): a job writes up to the disk floor; the tracker stops it with "disk" ----
+{
+  const { configureStorageGuard } = await import('../../server/src/system/storage')
+  const { pollRuns } = await import('../../server/src/devenv/srt/runner')
+  const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+  const file = path.join(chatWork(BASE, chat), 'a23.bin')
+  const TOTAL = 2 * 1024 ** 3
+  const size = () => { try { return fs.statSync(file).size } catch { return 0 } }
+  // the reserve of a 2 GiB disk is 512 MiB: past about 1.5 GiB written, writes are refused and runs stop
+  configureStorageGuard({ root: h.team, enforce: () => true, statfs: () => { const free = Math.max(0, TOTAL - size()); return { type: 0, bsize: 4096, blocks: TOTAL / 4096, bfree: Math.floor(free / 4096), bavail: Math.floor(free / 4096), files: 1e6, ffree: 1e6 } as unknown as fs.StatsFs } })
+  const t = await shell('alice', chat, { command: 'for i in $(seq 1 40); do dd if=/dev/zero of=a23.bin bs=1M count=$((i*64)) conv=notrunc status=none; sleep 1; done; sleep 300', job: true, log_name: 'a23' })
+  const row = () => h.ctx.db.query("SELECT id, unit, state, end_reason FROM dev_env_runs WHERE user_id = 'alice' AND name = 'a23' ORDER BY started_at DESC LIMIT 1").get() as Row | null
+  let r = row()
+  for (let i = 0; i < 90 && r?.state !== 'ended'; i++) { await Bun.sleep(1000); await pollRuns(h.ctx); r = row() }
+  const u = r ? await sys.unit(runIdOf(r.unit)) : null
+  say('P7', r?.state === 'ended' && r.end_reason === 'disk' && u?.state !== 'active', 'A23: a job past the disk floor stops with "disk"; its unit ends', { row: r, unit: u, writtenMiB: Math.round(size() / 2 ** 20), tool: t.slice(0, 200) })
+  configureStorageGuard(null)
+  try { fs.rmSync(file, { force: true }) } catch {}
 }
 
 say('END', null, 'done', { serverPid: process.pid })

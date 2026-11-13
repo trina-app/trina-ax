@@ -10,6 +10,7 @@ import { audit } from '../admin/audit'
 import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
+import { runIdOfUnit } from '../devenv/srt/config'
 import { devEnvFlag, mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
@@ -116,7 +117,7 @@ export const devEnvRoutes: RouteModule = {
       const why = previewPortProblem(body.port)
       if (why) fail('validation', `Port ${body.port}: ${why}.`, { params: { reason: 'dev_env_preview_port' } })
       if (!previewSupported()) fail('conflict', 'Preview is not available on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
-      const runId = row!.unit.slice('trina-dev-'.length, -'.scope'.length)
+      const runId = runIdOfUnit(row!.unit)
       const r = issuePreview(ctx, { rowId: row!.id, runId, port: body.port, userId: auth.user.id, projectId: row!.project_id, appHost: c.req.header('host') ?? null })
       if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'Preview is not set up on this server (no preview origin). Ask the AI to test the dev server with curl in one command.', { params: { reason: `dev_env_preview_${r.error}` } })
       return r as { url: string; expiresAt: string }

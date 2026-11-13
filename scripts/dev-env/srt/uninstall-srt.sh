@@ -1,6 +1,6 @@
 #!/bin/bash
-# Removes what install-srt.sh added: the server drop-in (restarts the server), the polkit rule, the devenv slice,
-# run-wrap, srt and node in /opt/trina. Running jobs and dev servers stop. The packages stay. <base>/devenv (homes,
+# Removes what install-srt.sh added: the server drop-in (restarts the server), the polkit rule, the devenv slice, the
+# run template trina-dev@.service, run-wrap, srt and node in /opt/trina. Running jobs and dev servers stop. The packages stay. <base>/devenv (homes,
 # caches, logs of the runs) stays unless --purge is given.
 #   scripts/dev-env/srt/uninstall-srt.sh [--id mycel] [--purge]
 set -euo pipefail
@@ -16,7 +16,15 @@ done
 BASE=/var/lib/$ID
 DROPIN=/etc/systemd/system/$ID-server.service.d/dev-env.conf
 if grep -qs MYCEL_DEV_ENV_RUNNER=srt "$DROPIN"; then rm -f "$DROPIN"; fi
-for u in $(systemctl list-units --all --plain --no-legend 'trina-dev-*.scope' | awk '{print $1}'); do systemctl stop "$u" || true; done
+# the runs: instances of the template, and scopes of an older install
+for u in $(systemctl list-units --all --plain --no-legend 'trina-dev@*.service' 'trina-dev-*.scope' | awk '{print $1}'); do
+  systemctl stop "$u" || true; systemctl reset-failed "$u" 2>/dev/null || true
+done
+TEMPLATE=/etc/systemd/system/trina-dev@.service
+# the template of this install only (one dev environment per machine)
+if grep -qsx "# install=$ID" "$TEMPLATE"; then rm -f "$TEMPLATE"; fi
+# runtime limits of runs that never started (a run removes its own when it ends)
+rm -rf /run/systemd/system.control/trina-dev@*.service.d /etc/systemd/system.control/trina-dev@*.service.d
 rm -f "/etc/polkit-1/rules.d/60-$ID-devenv.rules" "/etc/systemd/system/$ID-devenv.slice"
 rm -rf /opt/trina/devenv /opt/trina/srt /opt/trina/node /opt/trina/node-v*
 rmdir /opt/trina 2>/dev/null || true

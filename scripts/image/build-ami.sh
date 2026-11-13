@@ -276,7 +276,7 @@ mkdir -p "$STAGE/system" "$STAGE/dev-env-srt/system"
 cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/system/"
 cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/dev-env-srt/system/"
 # the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
-SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md)
+SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in devenv-run.service.in README.md)
 mkdir -p "$STAGE/dev-env-srt"
 for f in "${SRT_FILES[@]}"; do
   [[ -f "$REPO/scripts/dev-env/srt/$f" ]] || die "missing scripts/dev-env/srt/$f"
