@@ -181,11 +181,11 @@ function WelcomeSteps() {
     const named = phoneNow() ? phoneScreen(where.current.search) : null
     try {
       const w = useWelcome.getState()
-      let p = await w.load(true)
+      let p = await w.loadRecent()
       // the first visit starts the progress, with the setup link's website (the profile step on any device)
       const site = setupSite()
       if (!p || (site && !p.site)) p = await w.update(site ? { site } : {})
-      await useAiAccess.getState().load(true)
+      await useAiAccess.getState().loadRecent()
       // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
       if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
       const here = !window.matchMedia?.(PHONE_QUERY).matches

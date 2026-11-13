@@ -17,6 +17,8 @@ interface State {
   sending: boolean
   failed: boolean
   load: (force?: boolean) => Promise<void>
+  /** as welcome's loadRecent: an answer a few seconds old (or on its way) is shared instead of asked again */
+  loadRecent: () => Promise<void>
   ask: () => Promise<void>
   /** a press of [Tell an admin] went through: every not-ready card of this person reads "Told" */
   markNotReadyTold: () => void
@@ -27,6 +29,8 @@ interface State {
 /** bumped on sign-out: an answer that arrives after it belongs to the previous person and is dropped */
 let generation = 0
 /** the read on its way: the banner and the welcome card mount together and each asked (two at start); one is shared */
+let readAt = 0
+const RECENT_MS = 3000
 let reading: { generation: number; force: boolean; read: Promise<void> } | null = null
 
 /** GET /api/me/ai-access into the store (an answer for the previous person is dropped). */
@@ -35,6 +39,7 @@ async function readAccess(get: () => State, set: (s: Partial<State>) => void): P
   try {
     const r = await api.call(API.getAiAccess)
     if (g !== generation) return
+    readAt = Date.now()
     // a press that went through while this answer was on its way stays "Told"
     set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
   } catch {
@@ -56,7 +61,12 @@ export const useAiAccess = create<State>((set, get) => ({
     entry.read.then(done, done)
     return entry.read
   },
-  reset() { generation++; reading = null; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
+  loadRecent() {
+    if (reading && reading.generation === generation) return reading.read
+    if (get().loaded && Date.now() - readAt < RECENT_MS) return Promise.resolve()
+    return get().load(true)
+  },
+  reset() { generation++; reading = null; readAt = 0; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, notReadyTold: false, sending: false, failed: false }) },
   markNotReadyTold() { set({ notReadyTold: true }) },
   async ask() {
     if (get().sending || get().requested) return
