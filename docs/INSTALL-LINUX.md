@@ -259,7 +259,9 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   account start, stop, reset-failed and set-property of these units only. This works on Ubuntu 24.04 too: its systemd
   255 gives polkit the unit name for such a unit (not for a transient scope, which the runner used before). AppArmor
   needs no profile of its own: srt's `apply-seccomp` inherits the installer's `<id>-bwrap` profile, and the sysctl
-  `kernel.apparmor_restrict_unprivileged_userns` stays on. One dev environment per machine. `systemctl list-units
+  `kernel.apparmor_restrict_unprivileged_userns` stays on. One dev environment per machine. An Ubuntu 24.04 server
+  installed before this change: `sudo ./install-linux.sh update --from <kit>` (or `repair`) turns it on;
+  `mycel-ctl update` alone does not. `systemctl list-units
   'trina-dev@*'` lists the runs while they run.
 - **Removed: the box runner** (`docs/DECISIONS.md` "Dev environment: box runner removed, srt only"). The dev
   environment runs only in srt (`scripts/dev-env/srt/install-srt.sh`). Up to v0.5.0-beta.1 every kit had

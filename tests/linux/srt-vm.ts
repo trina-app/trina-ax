@@ -173,7 +173,8 @@ check('S1a', 'self test: the server account can start a run unit', selfTest === 
   // a run unit's limits may change (cgroup values only); the slice ceiling stays
   const ok = await sh(['systemctl', 'set-property', '--runtime', '--no-ask-password', `trina-dev@${id16}.service`, 'MemoryMax=64M'])
   check('A25b', 'allowed: set-property of cgroup values of a run unit (the devenv slice is the ceiling)', ok.code === 0, `code=${ok.code} ${ok.out.slice(0, 160)}`)
-  // root removes its runtime drop-in when a run of it ends; this one never runs (vm-check.sh removes it)
+  // root removes its runtime drop-in when a run of it ends; this one never runs, so it stays until a reboot (a
+  // throwaway VM; uninstall-srt.sh removes such leftovers)
 }
 // S5: memory of a real build (npm install and a Next.js build) on the Starter limits
 {

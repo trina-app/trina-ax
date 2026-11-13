@@ -24982,6 +24982,13 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   drop-in came first and a server could be "on but cannot run"). The template names one install (`# install=<ID>`): one
   dev environment per machine. `install-linux.sh` turns the dev environment on for Ubuntu 24.04 too.
   `uninstall-srt.sh` stops the run units and removes the template and leftover drop-ins.
+- **Existing servers.** An existing Debian 13 server gets the template when `mycel-ctl update` or
+  `install-linux.sh update` runs the new `install-srt.sh` (srt is on there). Runs still going at that moment are
+  stopped by root and their rows end `lost`. An existing Ubuntu 24.04 server has no srt drop-in, so `mycel-ctl update`
+  does not turn it on: `sudo ./install-linux.sh update --from <kit>` (or `repair`) does, because its `devEnv` is null
+  there, or `sudo bash <base>/root/dev-env-srt/install-srt.sh --id <id>`. A bundle rolled back to an older version after
+  the new rule is in place calls `systemd-run --scope` again, which the new rule refuses: the dev environment is off
+  until the newer version is back.
 - **An older install in between.** A new server bundle can start before `mycel-ctl update` runs the new
   `install-srt.sh`. While `/etc/systemd/system/trina-dev@.service` is missing, the runner starts scopes as before (the
   old rule still allows them). A failed self check is tried again after one minute, not ten. Remove the scope path
@@ -24994,8 +25001,12 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   past the disk floor ends with `disk`). Debian 13 (systemd 257): `checks` 0 failed. Ubuntu 24.04 on c6i.xlarge with
   two kits built on the VM: install (dev environment on, a run unit as `axserver` writes its exit code, a transient
   root `.service` refused), update to the second kit (the same), `uninstall --purge` (no template, rule, slice file,
-  drop-in, base or accounts left; `/opt/trina` keeps chrome-headless-shell and python by design).
+  drop-in, base or accounts left; `/opt/trina` keeps chrome-headless-shell and python by design). Debian 13 upgrade:
+  dev's `install-srt.sh` (scope runner), a live run scope of the server account, then this `install-srt.sh`: it stopped
+  the old scope, swapped the rule (a new scope is refused), passed its run check, left the drop-in unchanged and did not
+  restart the server; a second run changed nothing.
 - **Seen, not changed here.** On Ubuntu the list's devenv group has no chromium (Ubuntu ships it as a snap), so A24 and
-  S4 test nothing there. On Debian 13, chromium in srt stops at its process singleton (`socket()`: EPERM, srt's seccomp
-  refuses AF_UNIX), so S4 gives no page; the scope runner had the same srt filter.
+  S4 test nothing there. On Debian 13, chromium in a run unit stops at its process singleton (`socket()`: EPERM; srt's
+  seccomp refuses AF_UNIX), so S4 gives no page. This was not compared with the scope runner (no older S4 log has the
+  output); a follow-up checks it. A24 (no denied file opens) passes either way.
 
