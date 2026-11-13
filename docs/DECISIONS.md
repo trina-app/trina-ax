@@ -11728,8 +11728,9 @@ and of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the projects in 트�
   A phone entry saved under the older 프로젝트 tab (its first screen the team folder) takes that screen's tab.
 - **프로젝트's list** (panel and phone tab): "+ 새 프로젝트" on top (no setup row here: it stays on 트리나's panel), then
   two sections, **팀 프로젝트** (others see it too) and **내 프로젝트** (only I see it: a personal project, or a team project
-  nobody else sees by its rules; the manager's review: a just-me project belongs under 내 프로젝트). The owner and admins
-  also find, under 팀 프로젝트, the team projects they only manage (as the Projects page lists them). One word for "only
+  nobody else sees by its rules; the manager's review: a just-me project belongs under 내 프로젝트). On a phone the owner
+  and admins also find, under 팀 프로젝트, the team projects they only manage (the phone's list had them); a computer's
+  panel leaves those out (they are not the person's own; the Projects page beside it lists them). One word for "only
   me" in rows, **나만**; the page says **나만 봐요**. One plain row per project: its name and one grey
   line, who sees it ("멤버 4명" / "나만") · when my latest chat there was active · how many chats of my list it holds ("대화
   5개", "대화 없음"). Most recently active first, then the ones without a chat of mine, newest first. **No chats in the

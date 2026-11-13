@@ -56,9 +56,10 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
-  // the owner and admins also find the team projects they manage without being members (as on the Projects page,
-  // GET /api/projects?manage=1: their name and members only), under 팀 프로젝트
-  const admin = isAdmin(useMe())
+  // a phone (no Projects page beside it): the owner and admins also find the team projects they manage without being
+  // members (GET /api/projects?manage=1: their name and members only), under 팀 프로젝트, as the phone's list had them. A
+  // computer's panel leaves them out: they are not the person's own, and the Projects page (/projects) lists them
+  const admin = isAdmin(useMe()) && phone
   const [managed, setManaged] = useState<Project[]>([])
   useEffect(() => {
     if (!admin) return setManaged([])
