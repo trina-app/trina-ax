@@ -5204,7 +5204,7 @@ export const en: Record<MessageKey, string> = {
   "projects.members.onlyMe": "Only me",
   "projects.members.add": "Add people",
   "projects.shareConfirmOne": "{name} can see and edit this project's files and instructions. Your chats so far stay yours. It can't go back to only you.",
-  "projects.shareConfirmMany": "{n} people can see and edit this project's files and instructions. Your chats so far stay yours. It can't go back to only you.",
+  "projects.shareConfirmMany": "{n, plural, one {# person} other {# people}} can see and edit this project's files and instructions. Your chats so far stay yours. It can't go back to only you.",
   "projects.shareConfirmTitle": "Share this project?",
   "projects.shareAdminsOnly": "In this team only the owner and admins share projects with others.",
   "projects.shareMoveBody": "Its files move into the team's Projects folder, for the people you choose.",

@@ -5160,7 +5160,7 @@ export const es: Record<MessageKey, string> = {
   "projects.members.onlyMe": "Solo yo",
   "projects.members.add": "Añadir personas",
   "projects.shareConfirmOne": "{name} podrá ver y editar los archivos y las instrucciones de este proyecto. Tus chats hasta ahora siguen siendo solo tuyos. No podrá volver a ser solo tuyo.",
-  "projects.shareConfirmMany": "{n} personas podrán ver y editar los archivos y las instrucciones de este proyecto. Tus chats hasta ahora siguen siendo solo tuyos. No podrá volver a ser solo tuyo.",
+  "projects.shareConfirmMany": "{n, plural, one {# persona podrá} other {# personas podrán}} ver y editar los archivos y las instrucciones de este proyecto. Tus chats hasta ahora siguen siendo solo tuyos. No podrá volver a ser solo tuyo.",
   "projects.shareConfirmTitle": "¿Compartir este proyecto?",
   "projects.shareAdminsOnly": "En este equipo solo el propietario y los administradores comparten proyectos con otras personas.",
   "projects.shareMoveBody": "Sus archivos se mueven a la carpeta Proyectos del equipo, para las personas que elijas.",
