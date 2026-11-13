@@ -50,7 +50,9 @@ type Scope =
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
   /** the request carries intentionally-wrong credentials, or re-logs-in and swaps the client's cookie: a 2xx is not
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
-  skipPositive?: boolean }
+  skipPositive?: boolean
+  /** a GET of a made-up id: an allowed caller passes the permission check and meets a 404 */
+  allowNotFound?: boolean }
 
 /** An admin-reauth case is sent with a wrong password: the owner and an admin pass the role gate and are refused for the
  * password (403 with a body.password field), a member is refused for the role (403 without it, before the password is
@@ -163,8 +165,9 @@ export const SPECS: Record<string, Spec> = {
   inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel',
     check: (r, w, who) => {
       if (r.status !== 200 || r.json?.teamName !== 'Sec Team' || r.json?.valid !== true) throw new Error(`${who}: the invite's info answered ${r.status} ${r.text.slice(0, 160)}`)
-      const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName'].includes(k))
+      const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName', 'full'].includes(k))
       if (extra.length) throw new Error(`${who}: the invite's info carries ${extra.join(', ')}`)
+      if (typeof r.json.full !== 'boolean') throw new Error(`${who}: the invite's info has no full flag`)
       inviterOnlyByName(r, w, who, "the invite's info")
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
@@ -712,6 +715,7 @@ export function allCases(): Case[] {
         check: spec.check ? (r, w) => spec.check!(r, w, who) : undefined,
         todo: spec.todo?.[who],
         skipPositive: spec.skipPositive,
+        allowNotFound: spec.allowNotFound,
       })
     }
   }

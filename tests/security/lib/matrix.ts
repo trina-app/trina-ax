@@ -20,6 +20,8 @@ export interface Case {
   todo?: string
   /** excluded from the positive-allow pass (reauth / re-login requests, covered by the deny matrix instead) */
   skipPositive?: boolean
+  /** a GET of a made-up id: an allowed caller passes the permission check and meets a 404 (nothing there) */
+  allowNotFound?: boolean
 }
 
 /** Which canaries each person may legitimately see somewhere (design tab 2 folder rules, tab 1 own-only data). */

@@ -112,12 +112,12 @@ export const MISC_SPECS: Record<string, Spec> = {
     } },
   devEnvActivity: { build: (c, w) => devEnvOn(() => c.get(`/api/projects/${w.ids.projFalcon}/dev-env/activity`)), scope: 'falcon-read' },
   // stop every run of the project's chats: people who may use the dev environment and see the project, and admins. The
-  // team setting is off here, so nobody may use it: alice and bob see the project and are refused (403), the others do
-  // not see it (404; on projects/falcon the owner and admins are not members, docs/DECISIONS.md "Project contents only
-  // for members")
+  // team setting is on by default (everyone in scope "writers"), so alice and bob, who see the project, may stop its runs
+  // (200, nothing runs); the others do not see it (404; on projects/falcon the owner and admins are not members,
+  // docs/DECISIONS.md "Project contents only for members")
   devEnvStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/stop`)), scope: 'falcon-read',
     check: (r, _w, who) => {
-      if ((who === 'memberIn' || who === 'memberOut') && r.status !== 403) throw new Error(`${who}: stopping the runs of a project with the dev environment off answered ${r.status}, not 403`)
+      if ((who === 'memberIn' || who === 'memberOut') && r.status !== 200) throw new Error(`${who}: stopping the runs of a project they see answered ${r.status}, not 200`)
     } },
   // a run of this project nobody has (who started a run, who may use it, admins: tests/unit/dev-env-queue.test.ts)
   devEnvRunStop: { build: (c, w) => devEnvOn(() => c.post(`/api/projects/${w.ids.projFalcon}/dev-env/runs/${NO_RUN}/stop`)), scope: 'nobody' },

@@ -62,7 +62,7 @@ describe('permission matrix: every route x every persona', () => {
     const problems = judge(k, r)
     if (k.exp === 'allow' && !isGet(k) && !k.skipPositive && (r.status === 401 || r.status === 403)) problems.push(`legit ${k.who} refused by the permission check: ${r.status} ${r.text.slice(0, 160)}`)
     // for an allowed write, a non-permission failure (404/409 from an earlier write, reauth) is not a matrix problem
-    if (k.exp === 'allow' && !isGet(k)) { const i = problems.indexOf(problems.find((p) => p.startsWith('expected allow')) ?? ''); if (i >= 0) problems.splice(i, 1) }
+    if (k.exp === 'allow' && (!isGet(k) || (k.allowNotFound && r.status === 404))) { const i = problems.indexOf(problems.find((p) => p.startsWith('expected allow')) ?? ''); if (i >= 0) problems.splice(i, 1) }
     try { await k.check?.(r, W) } catch (e) { problems.push((e as Error).message) }
     if (k.todo) { expect(problems, `this case should be failing (documents finding: ${k.todo})`).not.toEqual([]); return }
     expect(problems, problems.join(' | ')).toEqual([])
