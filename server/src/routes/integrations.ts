@@ -13,7 +13,7 @@ import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
 import { say, type TextKey } from '../integrations/connections/text'
-import { CALLBACK_PATH, CLIENT_METADATA_PATH, clientMetadata } from '../integrations/connections/oauth'
+import { CALLBACK_PATH, CLIENT_METADATA_PATH, clientMetadata, documentOriginAt, documentOrigins } from '../integrations/connections/oauth'
 
 export const INTEGRATION_CALLBACK = CALLBACK_PATH
 const CLOSE = 'window.close()'
@@ -68,9 +68,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   // tunnel's) the service asked at, so https behind a tunnel; a host that is neither gets 404, never a document naming
   // whatever Host header came in
   kit.raw('GET', CLIENT_METADATA_PATH, (c) => {
-    const host = (c.req.header('host') ?? new URL(c.req.url).host).toLowerCase()
-    const known = [...ctx.config.publicOrigins, ...(ctx.config.tunnel ? [`https://${ctx.config.tunnel.host}`] : [])]
-    const origin = known.find((o) => { try { return new URL(o).host.toLowerCase() === host } catch { return false } })
+    const origin = documentOriginAt(documentOrigins(ctx.config), c.req.header('host') ?? new URL(c.req.url).host)
     c.header('Cache-Control', 'private, max-age=300')
     if (!origin) return c.text('not found', 404)
     return c.json(clientMetadata(origin))

@@ -481,8 +481,9 @@ idle minutes; a 404 for it starts a new one.
   localhost, an IP address or a local name): the service has to fetch the document. Without one, a clear refusal stops
   the sign-in (an unclear 400 lets it go on); with one, a refusal of the document stops it too. It stops with
   `oauth_approved_apps_only` ("This service lets only apps it has approved sign in…"), shown on the connection and the
-  chat card; nobody on the team can fix it. A refused try is kept as a failed flow, so it counts toward the 20 sign-in
-  tries an hour.
+  chat card; nobody on the team can fix it. Such a refusal is kept as a failed flow, so it counts toward the 20 sign-in
+  tries an hour (a service that is down or busy does not count). The document is offered only from an address it is
+  served at (`documentOrigins`: the configured public addresses and the tunnel's), never from a server without one.
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team

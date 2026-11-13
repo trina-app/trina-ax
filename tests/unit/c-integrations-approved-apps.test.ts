@@ -14,7 +14,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, MAX_PERSONAL, personalCounts, personalFull } from '../../server/src/integrations/connections/service'
 import { connectRows } from '../../server/src/chat/connect-service'
 import { getRow } from '../../server/src/integrations/connections/store'
-import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
+import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, documentOriginAt, documentOrigins, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
 import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
 
@@ -216,6 +216,35 @@ describe('a service that lets only apps it approved sign in', () => {
     expect(performance.now() - t).toBeLessThan(1000)
   })
 
+  test('only refusals count toward the sign-in tries: a service that is down or busy never locks anyone out', async () => {
+    // an address with no sign-in to find (unreachable metadata), then a busy registration (429): 25 tries each
+    const down = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Down', url: 'https://nowhere.test/mcp', auth: 'oauth' })
+    for (let i = 0; i < 25; i++) expect((await authorize(down.id)).status).toBe(400)
+    fake.strict = { register: 429 }
+    const busy = await strict()
+    for (let i = 0; i < 25; i++) expect((await authorize(busy.id)).status).toBe(400)
+    expect(h.ctx.db.query('SELECT count(*) AS n FROM integration_oauth_flows').get()).toEqual({ n: 0 })
+    // signing in still works
+    fake.strict = {}
+    const ok = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Fine', url: `${fake.base}/mcp-strict?fine=1`, auth: 'oauth' })
+    expect((await authorize(ok.id)).status).toBe(200)
+  })
+
+  test('the document is offered only at an address this server serves it at (a configured public address or the tunnel)', async () => {
+    fake.strict = { refuseRegistered: true, metadata: true }
+    const found = await discover(`${fake.base}/mcp-strict`, fake.net(), `Bearer resource_metadata="${fake.base}/.well-known/oauth-protected-resource/mcp-strict"`)
+    const urlFor = (c: OAuthClient) => authorizationUrl({ ...found, client: c }, 'S'.repeat(43), 'C'.repeat(43))
+    const redirect = `${TEAM}/api/integrations/oauth/callback`
+    // no public address configured (no MYCEL_PUBLIC_ORIGINS): the route would answer 404, so no document is offered
+    await expect(chooseClient(found, TEAM, redirect, fake.net(), urlFor, null, [])).rejects.toMatchObject({ reason: 'oauth_approved_apps_only' })
+    await expect(chooseClient(found, TEAM, redirect, fake.net(), urlFor, null, ['https://other.example.com'])).rejects.toMatchObject({ reason: 'oauth_approved_apps_only' })
+    expect((await chooseClient(found, TEAM, redirect, fake.net(), urlFor, null, [TEAM + '/'])).clientId).toBe(DOC)
+    // the route and the sign-in read the same list
+    expect(documentOrigins({ publicOrigins: [TEAM], tunnel: { host: 'office.example.org' } })).toEqual([TEAM, 'https://office.example.org'])
+    expect(documentOriginAt([TEAM], 'TEAM.example.com')).toBe(TEAM)
+    expect(documentOriginAt([TEAM], 'evil.example.net')).toBeUndefined()
+  })
+
   test('refused sign-ins count toward the 20 sign-in tries an hour', async () => {
     fake.strict = { register: 403 }
     const c = await strict()
@@ -409,7 +438,7 @@ describe('the listed services, from their recorded metadata', () => {
       const urlFor = (c: OAuthClient) => authorizationUrl({ ...found, client: c }, 'S'.repeat(43), 'C'.repeat(43))
       let outcome: string
       try {
-        const c = await chooseClient(found, TEAM, redirect, net, urlFor)
+        const c = await chooseClient(found, TEAM, redirect, net, urlFor, null, [TEAM])
         outcome = c.clientId === DOC ? 'metadata' : 'registered'
       } catch (e: any) { outcome = e?.reason === 'oauth_no_registration' ? 'no_registration' : e?.reason === 'oauth_approved_apps_only' ? 'approved_only' : String(e) }
       expect(outcome).toBe(expectedFor(r))

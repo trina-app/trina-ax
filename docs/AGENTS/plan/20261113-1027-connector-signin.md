@@ -106,5 +106,8 @@ Review changes (PR #734, requested by an independent review):
   app that is refused gets one fresh registration first.
 - The document answers 404 at a host that is not a configured public address; `Cache-Control: private`.
 - `answerForTests` documents that it answers before the name lookup (offline tests only).
+- After the re-review: only a refusal of the app (`oauth_approved_apps_only`) is kept as a failed flow, so a service
+  that is down or busy never locks a person out of signing in; the sign-in offers the document only at an address the
+  route serves it at (one shared helper, `documentOrigins` / `documentOriginAt`).
 
 PR: https://github.com/trina-app/trina-ax/pull/734

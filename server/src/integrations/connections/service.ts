@@ -18,7 +18,7 @@ import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-
 import { secretHider } from './hide'
 import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, manualServer, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -958,8 +958,9 @@ export class Integrations {
       // signed in already: the row stays as it is (the answer says why signing in again failed; a connected row with a
       // reason would read as "the last check failed")
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
-      // a refused try is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds them like any other
-      this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+      // a refusal of the app is a flow too (failed, nothing sealed): FLOWS_PER_HOUR bounds those tries (each opens the
+      // service's sign-in page); a service that is down or busy is not counted, so it never locks anyone out of signing in
+      if (reason === 'oauth_approved_apps_only') this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'failed',NULL,1,'refused',?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), iso(this.now()), iso(this.now()))
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
@@ -982,7 +983,7 @@ export class Integrations {
   private clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
     const old = row.secret_enc ? this.tryOpen(row) : null
     const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
-    return chooseClient(setup, origin, redirectUri, this.net, urlFor, again)
+    return chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
   }
 
   flow(userId: string, session: string, id: string): IntegrationFlow {

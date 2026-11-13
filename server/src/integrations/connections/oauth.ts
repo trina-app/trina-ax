@@ -169,6 +169,17 @@ export function publicOrigin(origin: string): boolean {
   } catch { return false }
 }
 
+/** Where this server serves its metadata document: the configured public addresses and the office tunnel's. The route
+ * (routes/integrations.ts) answers only there, and a sign-in offers the document only from one of them. */
+export function documentOrigins(config: { publicOrigins: readonly string[]; tunnel?: { host: string } | null }): string[] {
+  return [...config.publicOrigins, ...(config.tunnel ? [`https://${config.tunnel.host}`] : [])]
+}
+/** The address among `origins` with this host (any letter case), the one the document names when asked at that host */
+export function documentOriginAt(origins: readonly string[], host: string): string | undefined {
+  const h = host.toLowerCase()
+  return origins.find((o) => { try { return new URL(o).host.toLowerCase() === h } catch { return false } })
+}
+
 /** The client metadata document for `origin` (draft-ietf-oauth-client-id-metadata-document section 3): its client ID is
  * its own address; a public client (no secret) that signs in with the authorization code and refreshes. */
 export function clientMetadata(origin: string) {
@@ -231,11 +242,14 @@ const FALLBACK = new Set(['oauth_approved_apps_only', 'oauth_no_registration'])
  * opened once first (preflight); a stored app the page refuses is followed by one fresh registration. When the service
  * refuses the registered app (the registration with a 400 or 403, the sign-in page clearly, or no registration at all)
  * and it takes a client metadata document, that document's address is the client instead, when `origin` is one a
- * service can fetch from (publicOrigin). Without a document, only a clear refusal stops the sign-in: a plain 400 lets
+ * service can fetch from (publicOrigin) and this server serves the document at (`servedAt`: documentOrigins). Without a
+ * document, only a clear refusal stops the sign-in: a plain 400 lets
  * it go on. Throws NetError: `oauth_approved_apps_only` when the service refused every client it was offered, or the
  * registration's own reason (`oauth_no_registration`, `oauth_busy`, `oauth_unsupported`). */
-export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null): Promise<OAuthClient> {
-  const metadata = !!setup.metadataClients && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
+export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
+  const at = documentOriginAt(servedAt, new URL(origin).host)
+  const served = !!at && new URL(at).origin === new URL(origin).origin
+  const metadata = !!setup.metadataClients && served && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
   let refusedBy: OAuthClient | null = null
   for (const stored of again ? [true, false] : [false]) {
     let c: OAuthClient
