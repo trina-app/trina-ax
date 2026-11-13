@@ -33,9 +33,6 @@ const ALLOW = new Map<string, string>([
 /** hand-built rows other batches are moving onto ListRow now (they do not use the tokens, so the check above cannot see
  * them): listed so they are not forgotten; each batch removes its own */
 const PENDING = new Map<string, string>([
-  ['pages/Projects.tsx', 'batch 2: the project page file lists'],
-  ['pages/Skills.tsx', 'batch 2: share-review rows'],
-  ['components/AvailableSkills.tsx', 'batch 2: skill rows'],
   ['components/integrations/ConnectorsView.tsx', 'batch 3: one ConnectionRow'],
   ['components/integrations/AppConnectorCard.tsx', 'batch 3: one ConnectionRow'],
   ['components/integrations/AiAppConnect.tsx', 'batch 3: one ConnectionRow'],

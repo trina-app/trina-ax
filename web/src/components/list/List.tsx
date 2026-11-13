@@ -12,9 +12,10 @@
 // name's look from `rowName` here.
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
-import { useId, type FocusEvent, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react'
+import { useId, type FocusEvent, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { useFolds } from '../panels/folds'
+import { MenuButton, useRowMenu, type MenuItem } from '../rooms/MenuButton'
 
 /** A row's name: unread or selected semibold in ink; otherwise the read look (a computer: muted 400; a phone: ink 500) */
 export const rowName = ({ unread = false, selected = false }: { unread?: boolean; selected?: boolean } = {}) =>
@@ -32,7 +33,20 @@ export function ListIcon({ children, className, face }: { children: ReactNode; c
 
 type RowLink = { [data: `data-${string}`]: string | undefined }
 /** the row's <li>: a ref, its hover, its menu's right-click and long press, data-* (a chat's row) */
-type RowLi = Omit<HTMLAttributes<HTMLLIElement>, 'className' | 'children'> & RowLink & { ref?: Ref<HTMLLIElement> }
+type RowLi = Omit<HTMLAttributes<HTMLLIElement>, 'children'> & RowLink & { ref?: Ref<HTMLLIElement> }
+
+/** A row's "···" (`rowMenu`): the shared menu (rooms/MenuButton.tsx) at the row's right, shown on hover or keyboard focus
+ * on a computer and always on a phone; a right-click on the row and a long press on a touch screen open it too */
+export interface RowMenu {
+  items: MenuItem[]
+  /** the button's name ("<title> 메뉴") */
+  label: string
+  tip?: string
+  /** a phone's sheet's title (the row's name) */
+  sheetTitle?: string
+  testId?: string
+  buttonRef?: RefObject<HTMLButtonElement | null>
+}
 
 /** A row's trailing tag (a chat's project, a task's last run): 13px and faint at the row's right, every row's at the
  * same edge; it keeps its words up to 40% of the row and the name is cut first */
@@ -56,9 +70,13 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * clear of it. `menuSpace`: the same clearance for a row with no menu in a list whose rows have one (a task's runs among
  * chats), so every tag ends at the same edge. `li`: the <li>'s ref, handlers and data-*; `rowClass`: more classes
  * for the link (a chat's long press, its open menu's fill). `choice`: the row is the <label> of a checkbox in `end` (the
- * member picker): a click anywhere on it ticks it.
+ * member picker): a click anywhere on it ticks it. `rowMenu`: the row's own "···" with right-click and long press
+ * (RowMenu). `actions`: buttons beside the row's click area, outside its link (a skill's 실행): the row's words end
+ * before them. `rowRef`: the link's or button's element; `rowTitle`: its tooltip. `strong`: the name in ink at medium weight whether read or not
+ * (a list of things to pick from, not of things to read: skills). `li`: the <li>'s ref, handlers, className, data-* and
+ * aria-*.
  */
-export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -74,6 +92,12 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
   menu?: ReactNode
   menuSpace?: boolean
   choice?: boolean
+  rowMenu?: RowMenu
+  actions?: ReactNode
+  rowRef?: Ref<HTMLElement>
+  /** the whole row's tooltip (a skill's description) */
+  rowTitle?: string
+  strong?: boolean
   unread?: boolean
   selected?: boolean
   wrap?: boolean
@@ -99,7 +123,8 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',
     // the "···" (28px on a computer, 44px on a phone) at the row's right: the words end before it
-    (menu || menuSpace) && 'pr-9 max-md:pr-11',
+    (menu || menuSpace || rowMenu) && 'pr-9 max-md:pr-11',
+    actions && 'min-w-0 flex-1',
     rowClass,
   )
   const body = (
@@ -107,7 +132,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {icon && <ListIcon face={face} className={meta ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       {lead && <span className="-mr-1 flex shrink-0 items-center gap-1 self-center">{lead}</span>}
       <span className="min-w-0 flex-1">
-        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', rowName({ unread, selected }))} title={nameTitle} data-testid={nameTestId}>
+        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? 'text-row font-medium text-ink' : rowName({ unread, selected }))} title={nameTitle} data-testid={nameTestId}>
           {name}
         </span>
         {meta && (
@@ -120,29 +145,61 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {end}
     </>
   )
-  const { ref: liRef, ...liRest } = li ?? {}
+  const { ref: liRef, className: liClass, ...liRest } = li ?? {}
+  // the row's menu: a right-click and a long press open it (its handlers on the <li>), and the finger lifting after a
+  // long press opens nothing (guard)
+  const rm = useRowMenu()
+  const click = rowMenu
+    ? (e: MouseEvent<HTMLElement>) => {
+        rm.guard(e)
+        if (!e.defaultPrevented) onClick?.(e)
+      }
+    : onClick
   const events = { onFocus, onBlur, onKeyDown }
+  const box = choice ? (
+    <label ref={rowRef as Ref<HTMLLabelElement>} title={rowTitle} className={cls} data-testid={testId} {...link}>
+      {body}
+    </label>
+  ) : to ? (
+    <Link ref={rowRef as Ref<HTMLAnchorElement>} title={rowTitle} to={to} state={state} onClick={click} aria-current={selected ? 'page' : undefined} className={cls} data-testid={testId} {...events} {...link}>
+      {body}
+    </Link>
+  ) : onClick || rowMenu ? (
+    <button ref={rowRef as Ref<HTMLButtonElement>} title={rowTitle} type="button" onClick={click} disabled={disabled} className={cls} data-testid={testId} {...events} {...link}>
+      {body}
+    </button>
+  ) : (
+    // neither: a row that opens nothing (a scheduled run that did not start has no chat), no hover
+    <div ref={rowRef as Ref<HTMLDivElement>} title={rowTitle} className={cls} data-testid={testId} {...link}>
+      {body}
+    </div>
+  )
   return (
-    <li ref={liRef} className={clsx((menu || end) && 'group', (menu || menuSpace) && 'relative') || undefined} {...liRest}>
-      {choice ? (
-        <label className={cls} data-testid={testId} {...link}>
-          {body}
-        </label>
-      ) : to ? (
-        <Link to={to} state={state} onClick={onClick} aria-current={selected ? 'page' : undefined} className={cls} data-testid={testId} {...events} {...link}>
-          {body}
-        </Link>
-      ) : onClick ? (
-        <button type="button" onClick={onClick} disabled={disabled} className={cls} data-testid={testId} {...events} {...link}>
-          {body}
-        </button>
-      ) : (
-        // neither: a row that opens nothing (a scheduled run that did not start has no chat), no hover
-        <div className={cls} data-testid={testId} {...link}>
-          {body}
-        </div>
-      )}
+    <li
+      ref={liRef}
+      className={clsx((menu || end || rowMenu || actions) && 'group', (menu || menuSpace || rowMenu) && 'relative', actions && 'flex items-center gap-1', liClass) || undefined}
+      // a caller's own pointer or context-menu handlers on the <li> take the place of the row menu's: give one or the other
+      {...(rowMenu ? rm.row : {})}
+      {...liRest}
+    >
+      {box}
+      {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
       {menu}
+      {rowMenu && (
+        // 28 px on a computer (WCAG 2.2 target size: it sits on the row), 44 px on a phone
+        <MenuButton
+          label={rowMenu.label}
+          tip={rowMenu.tip}
+          items={rowMenu.items}
+          sheetTitle={rowMenu.sheetTitle}
+          buttonRef={rowMenu.buttonRef}
+          className="absolute inset-y-0 right-1 flex items-center max-md:right-0"
+          buttonClassName="touch-hit hover:bg-surface max-md:size-11 pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
+          openSignal={rm.openSignal}
+          openRequest={rm.openRequest}
+          testId={rowMenu.testId}
+        />
+      )}
     </li>
   )
 }

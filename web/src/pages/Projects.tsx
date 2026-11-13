@@ -507,36 +507,38 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
+  const name = c.title || t('chat.untitled')
+  // the lists' row (components/list/List.tsx): pin and shared icon, the title, who wrote and when at its end, its "…"
+  // (right-click and long press too)
   return (
-    <div className="group relative">
-    <Link ref={row} to={`/c/${c.id}`} state={{ [RAIL_STATE_KEY]: 'projects' }} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-        {c.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{c.title || t('chat.untitled')}</span>
-      </span>
-      <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
-        {c.shared && (
+    <ListRow
+      to={`/c/${c.id}`}
+      state={{ [RAIL_STATE_KEY]: 'projects' }}
+      rowRef={row}
+      lead={
+        (c.pinnedAt || c.shared) && (
           <>
-            <ChatFaces shared={c.shared} focusFrom={row} />
-            <span aria-hidden>·</span>
+            {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
+            {c.shared && <SharedIcon className="text-faint" />}
           </>
-        )}
-        <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
-      </span>
-    </Link>
-    <MenuButton
-      label={t('rooms.menu.rowLabel', { name: c.title || t('chat.untitled') })}
-      tip={t('rooms.menu.label')}
-      items={items}
-      sheetTitle={c.title || t('chat.untitled')}
-      // centred by flex, not a transform: a transform here would hold the phone's fixed bottom sheet inside this box
-      className="absolute inset-y-0 right-0 flex items-center"
-      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
-      buttonRef={more}
-      testId="project-chat-menu"
+        )
+      }
+      name={name}
+      end={
+        <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 self-center text-meta text-faint">
+          {c.shared && (
+            <>
+              <ChatFaces shared={c.shared} focusFrom={row} />
+              <span aria-hidden>·</span>
+            </>
+          )}
+          <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
+        </span>
+      }
+      rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'project-chat-menu' }}
+      testId="project-chat"
+      link={{ 'data-shared': c.shared ? 'true' : undefined }}
     />
-    </div>
   )
 }
 
@@ -1092,10 +1094,8 @@ function ProjectPage() {
             <ul className="divide-y divide-line">
               {/* the runs of one scheduled task started here: one row that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
-                <li>
-                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
-                </li>
-              ))}
+                <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+              ), { menuSpace: true })}
             </ul>
           </section>
         </div>

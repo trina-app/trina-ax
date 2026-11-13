@@ -26192,6 +26192,11 @@ so its time ended 24 px further right.
 - **People lists**: the room's members and the new-chat / invite picker are ListRows with the face box (`face`, 28 px
   on a computer, 32 px on a phone); the picker's rows are the labels of their ticks (`choice`). They lose the hairlines
   between rows, as the other lists have none.
+- **ListRow grew what the remaining rows needed** (backward compatible): `actions` (buttons beside the click area,
+  outside its link: a skill's 실행 and "…"), `rowMenu` (a "···" from rooms/MenuButton.tsx with the right-click and long
+  press of `useRowMenu`, which moved there from RoomMenu.tsx and is re-exported), `rowRef`, `strong` (a list of things
+  to pick, not to read: a skill's name at medium weight in ink, as the "/" menu's) and the `<li>`'s className, data-*
+  and aria-*. The project page's chats, the skills list and Skills' share-review rows are ListRows now.
 - **The guard**: a file that uses the row tokens (`rowName`, `h-row`, `min-h-row`, `size-list-icon/glyph`) must be one
   of the shared pieces in its ALLOW list (with the reason); a stale entry fails, so the list only shrinks. The rows
   other batches are moving now (the project page, Skills, connections, Engines) are listed as pending there.

@@ -63,6 +63,37 @@ export function menuSpot(at: { top: number; right: number; bottom: number }, siz
   return { x, y }
 }
 
+/** A row's ways to its menu: a right-click (or the keyboard's menu key) on the row, and on a touch screen a long press
+ * (a sheet on a phone). Spread `row` on the row's <li>; `guard` on its link's click (the finger lifting after a long press
+ * opens no room); `openSignal` / `openRequest` go to the row's RoomMenu. */
+export function useRowMenu() {
+  const [openSignal, setPress] = useState(0)
+  const [openRequest, setRequest] = useState(0)
+  const pressedAt = useRef(0)
+  const longPress = useLongPress(() => {
+    pressedAt.current = Date.now()
+    setPress((n) => n + 1)
+  })
+  return {
+    openSignal,
+    openRequest,
+    row: {
+      ...longPress,
+      onContextMenu: (e: MouseEvent) => {
+        longPress.onContextMenu(e)
+        // a finger's long press opened it already (and kept the phone's own menu away); Shift keeps the browser's own
+        // menu (open in a new tab, copy the address)
+        if (e.defaultPrevented || e.shiftKey) return
+        e.preventDefault()
+        setRequest((n) => n + 1)
+      },
+    },
+    guard: (e: MouseEvent) => {
+      if (Date.now() - pressedAt.current < 800) e.preventDefault()
+    },
+  }
+}
+
 /** A long press with a finger (not a mouse): `onLong` after `ms` without moving; scrolling or lifting cancels it. The
  * phone's own long-press menu (text selection, Android's context menu) stays away while it is used. */
 export function useLongPress(onLong: () => void, ms = 500) {

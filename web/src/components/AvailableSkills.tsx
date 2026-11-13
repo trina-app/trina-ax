@@ -41,7 +41,7 @@ import { ContributeSheet } from './skills/ContributeSheet'
 import { MoveSkillDialog } from './skills/MoveSkillDialog'
 import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
-import { ListHeading, ListIcon } from './list/List'
+import { ListHeading, ListRow } from './list/List'
 import { MenuButton } from './rooms/MenuButton'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
@@ -301,43 +301,44 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
   // its row opens the project, where the "/" menu has it
   const use = () => (s.shadowedBy ? navigateTo(skillFileLink(s.path)) : s.project ? navigateTo(`/projects/${s.project.id}`) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
-    // the app's row (components/list/List.tsx: its icon, name, second line and heights), with its ▶ and "…" beside the
-    // button rather than in it, so it keeps its own markup as a room's row does
-    <li className={clsx('flex items-center gap-1', s.shadowedBy && 'opacity-70')} data-testid="skill-row" data-path={s.path} data-shadowed={s.shadowedBy ? s.shadowedBy.tier : undefined}>
-      <button
-        type="button"
-        className={clsx(
-          'flex min-h-row-min min-w-0 flex-1 gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
-          shadow || line ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
-        )}
-        title={s.description || shown}
-        onClick={use}
-        data-testid="skill-use"
-      >
-        <ListIcon className={shadow || line ? 'mt-0.5 max-md:mt-0' : undefined}>
-          <ScrollText />
-        </ListIcon>
-        <span className="min-w-0 flex-1">
-          {/* the "/" menu's look for a skill's name (medium, in ink), not a read row's: a name people type */}
-          <span className="flex min-w-0 items-baseline gap-1.5 text-row font-medium">
-            <span className="truncate" data-testid="skill-name">{shown}</span>
-            {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
-            {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
-            {where && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro font-normal text-muted" title={t('skills.sameNameTip', { where })} data-testid="skill-same-name">{t('skills.sameName', { where })}</span>}
-          </span>
-          {shadow && <span className="block truncate text-meta text-faint" data-testid="skill-shadow-note">{shadow}</span>}
-          {line && <span className="block truncate text-meta text-faint">{line}</span>}
+    // the lists' row (components/list/List.tsx): the icon, the name (at medium weight, as the "/" menu's: `strong`) and its
+    // line, the uses at its end; 실행 and "…" beside it, outside its button
+    <ListRow
+      onClick={use}
+      strong
+      icon={<ScrollText aria-hidden />}
+      rowTitle={s.description || shown}
+      name={
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate" data-testid="skill-name">{shown}</span>
+          {title && <span className="shrink-0 font-mono text-meta font-normal text-faint" data-testid="skill-command">{command}</span>}
+          {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}
+          {where && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro font-normal text-muted" title={t('skills.sameNameTip', { where })} data-testid="skill-same-name">{t('skills.sameName', { where })}</span>}
         </span>
-        {!!s.uses && <span className="shrink-0 self-center text-meta text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
-        {!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
-      </button>
-      {!!s.inputs?.length && !s.shadowedBy && !s.project && (
-        <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
-          <Play size={16} aria-hidden />
-        </IconButton>
-      )}
-      <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} onMove={() => onMove(s)} />
-    </li>
+      }
+      meta={
+        (shadow || line) && (
+          <>
+            {shadow && <span className="block truncate" data-testid="skill-shadow-note">{shadow}</span>}
+            {line && <span className="block truncate">{line}</span>}
+          </>
+        )
+      }
+      tag={s.uses ? <span title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span> : undefined}
+      end={!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
+      testId="skill-use"
+      li={{ className: clsx(s.shadowedBy && 'opacity-70'), 'data-testid': 'skill-row', 'data-path': s.path, 'data-shadowed': s.shadowedBy ? s.shadowedBy.tier : undefined }}
+      actions={
+        <>
+          {!!s.inputs?.length && !s.shadowedBy && !s.project && (
+            <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
+              <Play size={16} aria-hidden />
+            </IconButton>
+          )}
+          <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} onMove={() => onMove(s)} />
+        </>
+      }
+    />
   )
 }
 
