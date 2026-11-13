@@ -234,6 +234,12 @@ export class AppWindow {
     })
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
+    // a (re)loaded toolbar page knows nothing yet: tell it the edge again, also when the width has not changed since a
+    // message it may have missed while loading (else its edge could stay hidden until the width changes)
+    this.chrome.webContents.on('did-finish-load', () => {
+      this.paneWidthTold = ''
+      this.sendPaneWidth()
+    })
     void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {

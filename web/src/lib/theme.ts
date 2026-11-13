@@ -2,6 +2,7 @@
 // screens and the first paint, in localStorage.
 import { useSyncExternalStore } from 'react'
 import type { Theme } from '@mycel/shared/api'
+import { getDesktopBridge } from '@mycel/shared'
 
 /** The saved choice; web/public/theme-boot.js reads it too, for the first paint. */
 export const THEME_KEY = 'mycel.theme'
@@ -36,6 +37,12 @@ export function applyTheme(t: Theme) {
   // index.html has one per system scheme; the chosen look wins over the system's, so both get its colour
   const color = themeColor(dark)
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', color)
+  // the desktop app's own screens (the browser pane's toolbar) follow the chosen look (older desktop apps lack setTheme)
+  try {
+    getDesktopBridge()?.setTheme?.(t)
+  } catch {
+    /* not in the desktop app */
+  }
   // the phone app colours its status bar text by the page's look (lib/mobile.ts, appearance-v1)
   window.dispatchEvent?.(new Event('mycel:theme'))
 }

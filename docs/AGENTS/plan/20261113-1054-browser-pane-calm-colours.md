@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 10:54
 - Branch: `fix/browser-pane-calm-colours`
-- Status: in progress
+- Status: done
 - Where: desktop/ (pane toolbar), web/src/lib/theme.ts, shared/src/desktop-bridge.ts. Why: the desktop app's own
   screens live in desktop/; the page tells the app its look through the bridge (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a visual fix with no new feature or setting
@@ -47,4 +47,9 @@ pane-look / pane-resize / quiet.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The orange bar and page wash in the owner's screenshot came from desktop builds before 0.5.0; on dev
+the pane followed the computer's look instead of the app's, Stop was a solid ink pill and the site card had a 2 px
+accent border. The resize edge was already on dev; hardened so the toolbar page is told the edge again after it loads.
+e2e `pane-resize` fails on dev too (21c8cc883: 2 of 4 tests in 3 of 3 runs; 1 in 6 on an older dev): the first-run
+browser-owner clear closes a pane opened right after sign-in. Not changed here; its own QA row. Sites in the in-app
+browser now follow the app's theme (prefers-color-scheme), see docs/DECISIONS.md.
