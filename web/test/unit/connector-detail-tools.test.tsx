@@ -92,6 +92,8 @@ test('the one next step fits the reader and the reason; a reason the page does n
   // an admin reading a team connection in Settings: it is managed in Admin
   expect(line('refused', 'bearer', { manage: false, elsewhere: true })).toBe(say('key', 'inAdmin'))
   expect(line('key_unsafe', 'bearer', {})).toBe('Server words.')
+  expect(line('oauth_no_registration', 'oauth', {})).toBe('Server words.')
+  expect(line('oauth_failed', 'oauth', {})).toBe(say('key', 'signIn'))
   expect(line(null, 'bearer', {})).toBe('Server words.')
 })
 

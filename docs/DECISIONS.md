@@ -25375,9 +25375,10 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   to opens that connection's page. No permission or API change.
 - **One error line, in the reader's words.** The API now also sends the check's reason code (`Integration.lastErrorReason`,
   optional: older servers omit it; `store.ts view`). The page groups the codes (`ConnectionPage.tsx REASON_KIND`: the
-  address, the key or sign-in, too slow, the service's own error) and writes one line from its own five-language
-  strings: what happened and one next step for this reader. Whoever manages it here: "Try Check again in ⋯", "Check its
-  address in Edit, in ⋯", "Enter the key again in Edit, in ⋯" or "Sign in again" (the phone app: "Fix it on a computer"
+  address, the key or sign-in, too slow, the service's own error; the codes that need another way to connect,
+  oauth_unsupported and oauth_no_registration, keep the server's words) and writes one line from its own five-language
+  strings: what happened and one next step for this reader. Whoever manages it here: "Open ⋯ › Check again", "Open ⋯ ›
+  Edit and check its address", "Open ⋯ › Edit and enter the key again" or "Sign in again" (the phone app: "Fix it on a computer"
   for an address or key); an admin reading a team connection in Settings: "Manage it in Admin › Connected apps"; anyone
   else: "Ask an admin to look at it" ("It may work again later" when it was only slow). A code the page does not know,
   or no code (an older server), shows the server's own words alone, which carry their own next step; nothing is
