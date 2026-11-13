@@ -150,6 +150,8 @@ function RecentMenu() {
       muted
       items={[{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }]}
       testId="trina-recent-menu"
+      // a touch screen wider than a phone (touch-hit is phones' only): 44 px to tap, as the panel's other controls
+      buttonClassName="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
     />
   )
 }
