@@ -306,8 +306,9 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
             // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts
             // --kb-inset), never higher than what is in sight, its rows scrolling
             'max-md:inset-x-0 max-md:bottom-[var(--kb-inset,0px)] max-md:max-h-[calc(var(--app-h,100dvh)-var(--safe-top))] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
-            // its words start at the left wherever it sits (a table's right-aligned cell); an item that is off: greyed, no hover
-            'text-left [&_[role^=menuitem]:disabled]:cursor-not-allowed [&_[role^=menuitem]:disabled]:bg-transparent [&_[role^=menuitem]:disabled]:opacity-40',
+            // its words start at the left wherever it sits (a table's right-aligned cell); an item that is off: greyed, no
+            // hover, its hint (why it is off) kept readable
+            'text-left [&_[role^=menuitem]:disabled]:cursor-not-allowed [&_[role^=menuitem]:disabled]:bg-transparent [&_[role^=menuitem]:disabled_svg]:opacity-40 [&_[role^=menuitem]:disabled_[data-menu-label]]:opacity-40',
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(false))}</div>}
@@ -335,8 +336,9 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
             >
               {it.icon}
               <span className="min-w-0 flex-1">
-                {it.label}
-                {it.hint && <span className="ml-1.5 text-muted">{it.hint}</span>}
+                <span data-menu-label>{it.label}</span>
+                {/* (an item that is off: why, on a line of its own) */}
+                {it.hint && <span className={it.disabled ? 'block text-xs text-muted' : 'ml-1.5 text-muted'}>{it.hint}</span>}
               </span>
               {it.checked !== undefined && <Check size={16} aria-hidden className={clsx('shrink-0 text-accent-text', !it.checked && 'invisible')} />}
             </button>

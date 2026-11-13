@@ -140,6 +140,9 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [access, project.folderPath, removed, t])
+  // a group's people who left the project (docs/DECISIONS.md "Leaving a project"): "Marketing · except Kim" on its row;
+  // adding them by name takes the exception away
+  const notes = useMemo(() => new Map((access?.participants ?? []).filter((x) => x.except?.length).map((x) => [participantKey(x), t('projects.except', { names: x.except!.map((u) => u.name).join(', ') })])), [access, t])
   const editable = !!access?.editable
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
@@ -200,7 +203,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
         {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} />
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} />
             {/* the count after the change; with nothing changed the list of people below says it already */}
             {(changed || !people || !people.people.length) && <AccessSummary count={count} />}
           </div>

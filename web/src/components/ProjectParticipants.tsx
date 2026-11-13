@@ -90,9 +90,9 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * can be added (and the ones already in, marked 추가됨), typing narrows it, and the results take the list's place (on a phone's sheet too) until one is added,
  * Esc, or focus leaves the picker (the search is cleared then). After × or 되돌리기 the keyboard stays on the row.
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
- * list them.
+ * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -102,6 +102,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   current?: readonly ProjectParticipant[]
   /** group id → the people in the project it holds */
   groupPeople?: ReadonlyMap<string, readonly ProjectPerson[]>
+  /** key → words at the end of the row's second line */
+  notes?: ReadonlyMap<string, string>
   testId?: string
 }) {
   const t = useT()
@@ -167,7 +169,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.whoMe') && t('projects.youTag')
     const count = n ?? x.members?.length
     const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
-    return [kind, you, tag].filter(Boolean).join(' · ')
+    return [kind, you, tag, notes?.get(participantKey(x))].filter(Boolean).join(' · ')
   }
 
   return (

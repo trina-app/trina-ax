@@ -380,7 +380,7 @@ export class MockServer {
    * members"): the owner and admins read it only as members. `others`: settings the members screen does not set (POST
    * /__test/project-rules: a person or group who only reads, on the folder itself or on a folder inside it); `hidden`:
    * how many settings inside it the caller may not read (ProjectAccess.otherRulesHidden, for someone who is not a member) */
-  projectMembers = new Map<string, { creator: string; participants: { subjectType: 'group' | 'user'; subjectId: string }[]; version: number; others?: { path: string; subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }[]; hidden?: number }>()
+  projectMembers = new Map<string, { creator: string; participants: { subjectType: 'group' | 'user'; subjectId: string }[]; version: number; left?: string[]; others?: { path: string; subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: string | null; access: 'none' | 'read' | 'write' }[]; hidden?: number }>()
   /** a team project's folder in the trash with it (DELETE /api/projects/:id the first time): its files, by project id;
    * null once purged (POST /__test/project-purge: restoring it is refused, 409 project_folder_purged) */
   trashedProjects = new Map<string, [string, FileNode][] | null>()
@@ -799,6 +799,8 @@ export class MockServer {
     // DECISIONS.md "Project contents only for members"); someone with another setting there reads
     const pm = path.startsWith('projects/') ? this.projectMembers.get(path.split('/').slice(0, 2).join('/')) : undefined
     if (pm) {
+      // a person who left while a group holds them: their own "no access" (server/src/chat/project-leave.ts)
+      if (pm.left?.includes(user.id)) return 'none'
       if (pm.creator === user.id || pm.participants.some((x) => (x.subjectType === 'user' ? x.subjectId === user.id : user.groupIds.includes(x.subjectId)))) return 'write'
       const folder = path.split('/').slice(0, 2).join('/')
       const other = (pm.others ?? []).filter((r) => (path === r.path || path.startsWith(r.path + '/')) && r.path.startsWith(folder) && this.ruleNames(r, user)).sort((a, b) => b.path.length - a.path.length)[0]
@@ -825,7 +827,7 @@ export class MockServer {
       this.projectRowIds.set(path, id)
       const rule = (subjectType: Folder['rules'][number]['subjectType'], subjectId: string | null, access: Folder['rules'][number]['access'], n: number) =>
         ({ id: `${id.slice(0, -4)}${String(n).padStart(4, '0')}`, folderId: id, subjectType, subjectId, access, updatedBy: null, updatedAt: now() })
-      const list = [['user', pm.creator, 'write'] as const, ...pm.participants.map((x) => [x.subjectType, x.subjectId, 'write'] as const), ['everyone', null, 'none'] as const, ...(pm.others ?? []).filter((r) => r.path === path).map((r) => [r.subjectType, r.subjectId, r.access] as const)]
+      const list = [...(pm.creator ? [['user', pm.creator, 'write'] as const] : []), ...(pm.left ?? []).map((id) => ['user', id, 'none'] as const), ...pm.participants.map((x) => [x.subjectType, x.subjectId, 'write'] as const), ['everyone', null, 'none'] as const, ...(pm.others ?? []).filter((r) => r.path === path).map((r) => [r.subjectType, r.subjectId, r.access] as const)]
       return { id, path, exists: true, createdAt: now(), rules: list.map(([t, sid, a], i) => rule(t, sid, a, i)) }
     })
   }
@@ -875,7 +877,8 @@ export class MockServer {
     // participant write, everyone else none, and its other settings (projectMembers; the file screens read it there)
     const own = new Set(this.folders.map((f) => f.path))
     const projectRules = [...this.projectMembers].filter(([path]) => !own.has(path)).flatMap(([path, pm]) => [
-      { path, subject_type: 'user' as const, subject_id: pm.creator, access: 'write' as const },
+      ...(pm.creator ? [{ path, subject_type: 'user' as const, subject_id: pm.creator, access: 'write' as const }] : []),
+      ...(pm.left ?? []).map((id) => ({ path, subject_type: 'user' as const, subject_id: id, access: 'none' as const })),
       ...pm.participants.map((x) => ({ path, subject_type: x.subjectType, subject_id: x.subjectId, access: 'write' as const })),
       { path, subject_type: 'everyone' as const, subject_id: null, access: 'none' as const },
       ...(pm.others ?? []).map((r) => ({ path: r.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })),
@@ -2627,6 +2630,22 @@ export class MockServer {
       return this.sharedProjectOut(p, c.user)
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
+    // like server/src/chat/project-leave.ts: a member leaves; through a group, an exception of their own; the creator
+    // too (the project forgets its creator); never the last one; their private chats there become their own chats
+    leaveProject: (c) => {
+      const p = this.projectFor(c, false)
+      const loc = c.user.locale as Locale
+      if (p.folderPath.startsWith('users/')) fail('conflict', 409, CHAT_TEXT.projectLeavePersonal[loc] ?? CHAT_TEXT.projectLeavePersonal.ko, undefined, { reason: 'project_personal' })
+      const pm = this.projectMembers.get(p.folderPath) ?? fail('conflict', 409, CHAT_TEXT.projectLeaveNotHere[loc] ?? CHAT_TEXT.projectLeaveNotHere.ko, undefined, { reason: 'project_not_leavable' })
+      if (!this.sharedAudience(p).some((u) => u.id !== c.user.id)) fail('conflict', 409, CHAT_TEXT.projectLeaveLast[loc] ?? CHAT_TEXT.projectLeaveLast.ko, undefined, { reason: 'project_last_member' })
+      pm!.participants = pm!.participants.filter((x) => !(x.subjectType === 'user' && x.subjectId === c.user.id))
+      if (pm!.creator === c.user.id) { pm!.creator = ''; p.createdBy = null }
+      if (this.access(p.folderPath, c.user) !== 'none') pm!.left = [...(pm!.left ?? []), c.user.id]
+      pm!.version++
+      const mine = this.chats.filter((x) => x.projectId === p.id && !this.sharedChats.has(x.id) && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
+      for (const x of mine) x.projectId = null
+      return { movedChats: mine.length }
+    },
     // like server/src/routes/chats.ts getProjectPeople: its members and whoever manages it; the groups for the latter
     getProjectPeople: (c) => {
       const p = this.projectFor(c, true)
@@ -2681,6 +2700,8 @@ export class MockServer {
       const removing = this.removedRules(pm, p, c.body.removeRules)
       const before = new Set(this.sharedAudience(p).map((u) => u.id))
       pm.participants = (c.body.participants as { subjectType: 'group' | 'user'; subjectId: string }[]).filter((x) => !(x.subjectType === 'user' && x.subjectId === pm.creator))
+      // a leaver named again comes back; one no group of it holds any more is no exception (dropSpareExceptions)
+      if (pm.left) pm.left = pm.left.filter((id) => !pm.participants.some((x) => x.subjectType === 'user' && x.subjectId === id) && pm.participants.some((x) => x.subjectType === 'group' && this.users.find((u) => u.id === id)?.groupIds.includes(x.subjectId)))
       if (removing.length) pm.others = (pm.others ?? []).filter((r) => !removing.includes(r))
       pm.version++
       // an owner or admin who starts to see it: its members are told (a stored notice; chat/project-joins.ts)
@@ -5687,9 +5708,14 @@ export class MockServer {
     const pm = this.projectMembers.get(p.folderPath)
     const userName = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
     const subjectName = (r: { subjectType: string; subjectId: string | null }) => r.subjectType === 'user' ? userName(r.subjectId ?? '') : r.subjectType === 'group' ? this.groups.find((g) => g.id === r.subjectId)?.name ?? null : null
+    // a group's people who left it: on the group's row (server/src/chat/project-access.ts projectAccess `except`)
+    const except = (groupId: string) => (pm?.left ?? []).filter((id) => this.users.find((u) => u.id === id)?.groupIds.includes(groupId)).map((id) => ({ id, name: userName(id) }))
     const participants = pm ? [
-      { subjectType: 'user' as const, subjectId: pm.creator, name: userName(pm.creator), creator: true },
-      ...pm.participants.map((x) => ({ ...x, name: x.subjectType === 'user' ? userName(x.subjectId) : this.groups.find((g) => g.id === x.subjectId)?.name ?? '' })),
+      ...(pm.creator ? [{ subjectType: 'user' as const, subjectId: pm.creator, name: userName(pm.creator), creator: true }] : []),
+      ...pm.participants.map((x) => {
+        const ex = x.subjectType === 'group' ? except(x.subjectId) : []
+        return { ...x, name: x.subjectType === 'user' ? userName(x.subjectId) : this.groups.find((g) => g.id === x.subjectId)?.name ?? '', ...(ex.length ? { except: ex } : {}) }
+      }),
     ] : []
     const reads = this.projectSees(p, viewer)
     const others = pm?.others ?? []
@@ -5729,7 +5755,9 @@ export class MockServer {
     // the owner or an admin who manages it without reading it (or one in the trash): its name, creator and member count,
     // nothing of its contents (routes/chats.ts projectOut)
     if (viewer && !this.projectSees(p, viewer)) return { ...p, instructions: '', canEdit: false, member: false, canManage, shareChats, audience: this.sharedAudience(p).length, ...members }
-    return { ...p, canManage, shareChats, audience: this.sharedAudience(p).length,
+    // a member may leave it, the last one not (server/src/chat/project-leave.ts leaveState)
+    const leave = !personal && pm && !p.inTrash && viewer ? { leave: this.sharedAudience(p).some((u) => u.id !== viewer.id) ? 'yes' as const : 'last' as const } : {}
+    return { ...p, canManage, shareChats, audience: this.sharedAudience(p).length, ...leave,
       sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length,
       ...(viewer && shareChats ? { chatUploads: this.sharedMayUpload(p, viewer) } : {}), ...members,
       // only for someone who may read its rules anyway (server/src/chat/project-access.ts membersView)

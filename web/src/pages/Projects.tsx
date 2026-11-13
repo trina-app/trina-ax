@@ -84,6 +84,7 @@ import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
+import { leaveItems, useLeaveProject } from '../components/LeaveProject'
 import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
@@ -267,6 +268,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
   const { copy } = useCopy()
   const remove = useDeleteProject()
   const renameProject = useRenameProject()
+  const leaveProject = useLeaveProject()
   // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there; a "…" not on
   // screen (none should be) gives the keyboard to its row's link instead of losing it
   const more = useRef<HTMLButtonElement>(null)
@@ -301,6 +303,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     ...(mayManage(p) ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
     ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
+    ...leaveItems(t, p, select(async () => { if (await leaveProject(p)) onDeleted('gone') }), 'project-card-leave'),
     // the trash shows at once: the card says so, or (not kept there for me) goes
     ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
   ]
@@ -839,6 +842,12 @@ function ProjectPage() {
   // in the trash with its folder, the owner and admins stay on its page (it says so); deleted for good, or no longer
   // mine to see (its creator after the trash): back to the list
   const remove = useDeleteProject()
+  const leaveProject = useLeaveProject()
+  const leaveIt = async () => {
+    if (!p || !(await leaveProject(p))) return
+    useProjectPage.getState().drop(p.id)
+    navigate('/projects')
+  }
   const del = async () => {
     if (!p) return
     let left = false
@@ -931,10 +940,12 @@ function ProjectPage() {
             ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
-      : p.canEdit
+      : p.canEdit || p.leave
         ? [
-            { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
-            ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
+            ...(p.canEdit ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' }] : []),
+            // a member leaves it (components/LeaveProject.tsx); delete stays last
+            ...leaveItems(t, p, () => void leaveIt(), 'project-leave'),
+            ...(p.canEdit && mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
   return (
