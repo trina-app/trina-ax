@@ -27,7 +27,7 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await expect(card).toBeVisible()
   await page.getByTestId('team-link-skill').selectOption('skills/광고-문구.md')
   await page.getByTestId('team-link-create').click()
-  const url = (await page.getByTestId('team-link-url').innerText()).trim()
+  const url = ((await page.getByTestId('team-link-url').textContent()) ?? '').trim()
   expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/join#t=tl[0-9a-f]+$/)
   await expect(page.getByTestId('team-link-uses')).toHaveText('0/20명')
   await audit(page, 'members, the open team link')

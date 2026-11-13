@@ -125,7 +125,8 @@ describe('"Joins: …" (Admin › Members\' rows and the panel; QA TC-458)', () 
 describe('the panel (Admin › Members, the wizard)', () => {
   test('an open link: the address, copy link, copy message, uses x/y, the expiry, change and turn off', () => {
     const html = view(LINK)
-    expect(html).toContain(`data-testid="team-link-url">${URL_.replace(/&/g, '&amp;')}<`)
+    // the address on one line, cut in the middle: two spans that read as the whole address
+    expect(/data-testid="team-link-url">(.*?)<\/span><\/span>/.exec(html)?.[1]?.replace(/<[^>]*>/g, '')).toBe(URL_.replace(/&/g, '&amp;'))
     expect(html).toContain('Copy link')
     expect(html).toContain('Copy message')
     // a skill without a title: its folder name as words, never the raw 'ad-copy' (also when the title only repeats it)
@@ -188,10 +189,10 @@ describe('folded (the invite step): the message, one copy button, the rest under
     expect(toggle).toContain('aria-controls=')
     expect(html).toContain(translate('en', 'teamLink.manage'))
     expect(/<div[^>]*data-testid="team-link-manage-panel"[^>]*>/.exec(html)?.[0]).toContain('hidden=""')
-    for (const hidden of ['team-link-url', 'team-link-copy-link', 'team-link-qr', 'team-link-facts', 'team-link-uses', 'team-link-replace', 'team-link-revoke'])
+    for (const hidden of ['team-link-facts', 'team-link-uses', 'team-link-replace', 'team-link-revoke'])
       expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
-    // the link is only in the message, never as its own line
-    expect(html.split(URL_.replace(/&/g, '&amp;')).length - 1).toBe(1)
+    // the link and its Copy button show at once, above the message (one line, cut in the middle)
+    for (const shown of ['team-link-url', 'team-link-copy-link', 'team-link-qr']) expect({ shown, there: html.includes(`data-testid="${shown}"`) }).toEqual({ shown, there: true })
   })
   test('a link held back by its limit still says so, outside the fold', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, limitedUntil: '2026-11-04T10:00:00.000Z' } }, null, true)
@@ -486,15 +487,14 @@ describe('on screen', () => {
     const made: unknown[] = []
     const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
     try {
-      expect(m.find('team-link-url')).toBeNull()
+      expect(m.get('team-link-url').textContent).toBe(URL_)
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('false')
       await m.click('team-link-manage')
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('true')
       const panel = m.get('team-link-manage-panel')
       expect(panel.hasAttribute('hidden')).toBe(false)
       expect(m.get('team-link-manage').getAttribute('aria-controls')).toBe(panel.id)
-      expect(m.get('team-link-url').textContent).toBe(URL_)
-      for (const there of ['team-link-copy-link', 'team-link-qr', 'team-link-uses', 'team-link-expires', 'team-link-replace']) expect({ there, ok: !!m.find(there) }).toEqual({ there, ok: true })
+      for (const there of ['team-link-uses', 'team-link-expires', 'team-link-replace']) expect({ there, ok: !!m.find(there) }).toEqual({ there, ok: true })
       expect(m.find('team-link-revoke')).toBeNull()
       // a change asked for shows its settings open, with the skill the link had
       await m.click('team-link-replace')
@@ -544,8 +544,8 @@ describe('on screen', () => {
     await m.until(() => m.find('team-link-message'), 'the link')
     expect(JSON.parse(calls.find((c) => c.key === 'POST /api/admin/team-link')!.body!)).toEqual({ groupIds: [], expiresInDays: 14 })
     expect(m.get('team-link-message').textContent).toContain(URL_)
-    // the link itself is folded; no "링크 끄기" in this step
-    expect(m.find('team-link-url')).toBeNull()
+    // the link shows in one line; no "링크 끄기" in this step
+    expect(m.find('team-link-url')).not.toBeNull()
     expect(m.find('team-link-revoke')).toBeNull()
     // later → the soft dialog; 초대하기 goes back, 나중에 skips
     await m.click('invite-step-skip')
