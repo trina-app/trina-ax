@@ -165,16 +165,18 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
   for (const path of ['/skills', '/projects']) {
     await page.setViewportSize({ width: 1800, height: 900 })
     await page.goto(path)
-    const main = (await page.locator('#main').boundingBox())!
     const column = page.locator(path === '/skills' ? '[data-testid="skills-header"]' : '[data-sticky-header] > div').first()
     await expect(column).toBeVisible()
+    const main = (await page.locator('#main').boundingBox())!
     const c = (await column.boundingBox())!
     expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
     expect(c.width).toBeLessThan(main.width - 200)
     await page.setViewportSize({ width: 390, height: 760 })
     // a phone's Projects is the 프로젝트 tab's list from edge to edge under the phone's bar, without the page header
+    // (measured once the page has laid out at the new width: read right after the resize, a loaded machine got a
+    // transient state, 46 px)
     const phoneColumn = path === '/skills' ? column : page.getByTestId('phone-projects-list')
-    expect(Math.round((await phoneColumn.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
+    await expect.poll(async () => Math.round((await phoneColumn.boundingBox())?.width ?? 0)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
 })
 

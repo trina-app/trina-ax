@@ -1,0 +1,1 @@
+- Tests: the wide-window column check measures the phone width once the page has laid out (it failed on a loaded machine).
