@@ -137,8 +137,6 @@ export function RoomsList({ id, hidden: folded, onNavigate, caps = SIDEBAR_ROOM_
   const opened = all && below.length > 0
   const entry = all ? below.length > 0 : more > 0
   const hidden = all ? null : hiddenUnread(rooms.filter((r) => !capped.includes(r)))
-  // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
-  const hiddenAsk = !all && rooms.some((r) => r.aiWaits && !capped.includes(r))
   const rows: ReactNode[] = (opened ? top : capped).map((r) => <RoomRow key={r.id} room={r} onNavigate={onNavigate} />)
   if (opened)
     for (const { section, rooms: of } of roomSections(below, titleOf, locale)) {
@@ -159,15 +157,14 @@ export function RoomsList({ id, hidden: folded, onNavigate, caps = SIDEBAR_ROOM_
         <li>
           <button type="button" aria-expanded={all} onClick={() => ((focusAll.current = all && more === 0), showAll(!all))} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
             <span className="truncate">{all ? t('common.less') : t('sidebar.showMore', { n: more })}</span>
-            {(hidden || hiddenAsk) && (
-              <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hiddenAsk ? 'bg-warn font-bold text-canvas' : hidden!.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={!hiddenAsk && hidden?.muted ? '' : undefined} data-ai-waits={hiddenAsk ? '' : undefined}>
+            {hidden && (
+              <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hidden.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={hidden.muted ? '' : undefined}>
                 <span aria-hidden>
-                  {hiddenAsk && (hidden ? '? ' : '?')}
-                  {hidden?.mentioned && '@ '}
-                  {hidden && t('sidebar.moreUnread', { n: badgeText(hidden.n) })}
+                  {hidden.mentioned && '@ '}
+                  {t('sidebar.moreUnread', { n: badgeText(hidden.n) })}
                 </span>
                 <span className="sr-only">
-                  {[hiddenAsk && t('rooms.aiWaits'), hidden && t('rooms.unread', { n: hidden.n }), hidden?.mentioned && t('rooms.mentionedYou')].filter(Boolean).join(', ')}
+                  {[t('rooms.unread', { n: hidden.n }), hidden.mentioned && t('rooms.mentionedYou')].filter(Boolean).join(', ')}
                 </span>
               </span>
             )}
@@ -187,19 +184,11 @@ export function RoomsList({ id, hidden: folded, onNavigate, caps = SIDEBAR_ROOM_
   )
 }
 
-/** A room's one badge: "?" in amber while its AI waits on me (a card of my own question; docs/DECISIONS.md "Session
- * markers"), else the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab does
- * not count). The same pill, only its mark and colour differ. */
+/** A room's one badge: the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
+ * does not count). */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
   const n = roomUnread(room)
-  if (room.aiWaits)
-    return (
-      <span className={clsx('shrink-0 rounded-full bg-warn px-1.5 text-micro font-bold text-canvas', className)} data-testid={testId} data-ai-waits="">
-        <span aria-hidden>?</span>
-        <span className="sr-only">{[t('rooms.aiWaits'), n > 0 && t('rooms.unread', { n })].filter(Boolean).join(', ')}</span>
-      </span>
-    )
   if (n <= 0) return null
   return (
     <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>

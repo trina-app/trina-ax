@@ -14,7 +14,7 @@ import { roomUnread, type Room } from '@mycel/shared/api'
 
 export type RailMark = { kind: 'ask' } | { kind: 'dot' } | { kind: 'count'; n: number } | null
 
-type CountedRoom = Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden' | 'aiWaits'>>
+type CountedRoom = Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>
 
 /** 트리나's mark: `chats` = AI chats that need me, `chatAsk` = one of them is a "?" (attentionCount) */
 export function aiMark(a: { chats: number; chatAsk: boolean }): RailMark {
@@ -27,10 +27,8 @@ export function unreadRooms(rooms: readonly CountedRoom[]): number {
   return rooms.filter((r) => !r.muted && !r.hidden && roomUnread(r) > 0).length
 }
 
-/** 대화's mark: "?" while a shown room's AI waits on me, else the count of unread conversations, else a dot for unread
- * mention/thread notices (`roomNotices`) */
+/** 대화's mark: the count of unread conversations, else a dot for unread mention/thread notices (`roomNotices`) */
 export function chatsMark(rooms: readonly CountedRoom[], roomNotices: number): RailMark {
-  if (rooms.some((r) => r.aiWaits && !r.hidden)) return { kind: 'ask' }
   const n = unreadRooms(rooms)
   if (n > 0) return { kind: 'count', n }
   return roomNotices > 0 ? { kind: 'dot' } : null

@@ -98,9 +98,6 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
-    /** "@트리나 …" in a room asks the AI there (AppConfig.roomAiMentions; off by default since the side chat). Absent =
-     * off: the room's box offers no AI in its "@" list and points to the side chat. */
-    roomAiMentions: z.literal(true).optional(),
     /** the new navigation is on for this server (AppConfig.navRail; docs/AGENTS/plan/20261112-1839-nav-rail.md): the
      * web shows the icon rail on computers and the new phone tabs. Absent = off: today's sidebar and tabs. */
     navRail: z.literal(true).optional(),

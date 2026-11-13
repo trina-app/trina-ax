@@ -66,7 +66,6 @@ export const C = {
   dmMsg: 'SEC-DM-MSG-5b1',
   dmFileName: 'SEC-DM-FILE-8d2',
   // the AI's answer to alice in that DM, from her own folder: a private preview for alice only
-  dmAiPreview: 'SEC-DM-AIPREVIEW-3e7',
   // a group chat of alice, erin and frank (docs/DECISIONS.md "그룹 대화와 방 이름"): its message and its name are theirs
   groupMsg: 'SEC-GROUP-MSG-6c4',
   groupName: 'SEC-GROUP-NAME-2f9',
@@ -107,8 +106,6 @@ export interface World {
     teamCredential: string; aliceOwnCredential: string
     /** the DM of alice and erin, alice's message in it, a second one of hers to delete, and an image she sent */
     dmRoom: string; dmMsg: string; dmMsgDel: string; dmFile: string
-    /** alice's question to the AI in the DM (its turn) and the private preview it gave her */
-    dmAiTurn: string; dmAiPreview: string
     /** a group chat alice made with erin and frank (alice is its manager), and a second one only for leaving */
     groupRoom: string; groupLeaveRoom: string
     /** Team plan's shared chat, its trashed file and an old version of its plan.md */
@@ -297,11 +294,6 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const dmMsgDel = (await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: 'to delete', clientMessageId: cm() })).id
   const dmFile = (await alice.ok('POST', `/api/rooms/${dmRoom}/files`, undefined, { form: pngForm({}, `${C.dmFileName}.png`) })).id
   await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: '', fileIds: [dmFile], clientMessageId: cm() })
-  // the AI in the DM (docs/DECISIONS.md "대화방의 트리나"): alice's question reads her own folder, so the answer is a
-  // private preview that only she may see, post or stop
-  const dmAsk = await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: `@트리나 my todo\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: C.dmAiPreview })}`, clientMessageId: cm() })
-  const dmAiRun = await sockets.alice.next('room.ai.run', (f) => f.data.run.questionId === dmAsk.id && f.data.run.state === 'done', 30_000)
-  const dmAiPreview = (await alice.ok('GET', `/api/rooms/${dmRoom}/messages`)).items.find((m: any) => m.authorKind === 'ai' && m.replyTo?.id === dmAsk.id).id
 
   // ---------------- a group chat of alice (its manager), erin and frank ----------------
   const groupRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'], name: C.groupName })).id
@@ -320,7 +312,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview, groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion,
+      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion,
     },
   }
 }

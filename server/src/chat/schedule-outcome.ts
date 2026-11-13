@@ -13,7 +13,7 @@ export type { ScheduleRunOutcome }
  * call of one changed nothing; a connection's call that only reads is told by the turn from its arguments. */
 const LOOKUP_TOOLS: ReadonlySet<string> = new Set([
   ...READ_ONLY_TOOLS, ...REMOVED_READ_ONLY_TOOLS, 'WebSearch', 'web_search',
-  'rooms', 'room_read', 'room_file', 'room_thread', 'project_chats', 'project_chat', 'schedule_list', 'find_tools',
+  'rooms', 'room_read', 'room_file', 'schedule_list', 'find_tools',
   'read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests',
 ])
 export const isLookUpTool = (tool: string | undefined | null): boolean => !!tool && LOOKUP_TOOLS.has(tool)

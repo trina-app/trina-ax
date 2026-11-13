@@ -145,8 +145,8 @@ export function mayNotUse(db: Database, rules: RuleSet, people: readonly (Princi
   return people.filter((p) => !p || !atLeast(rules.access(p, segs), 'read') || (group !== undefined && (!group || !p.groups.includes(group.id)))).map((p) => p?.id ?? '')
 }
 
-/** May every one of `people` use this team path (mayNotUse is empty)? Kept per path for the caller's life: a room's
- * members (rooms/ai.ts) and the people who see a shared project chat (chat/turn.ts) both go by it. */
+/** May every one of `people` use this team path (mayNotUse is empty)? Kept per path for the caller's life: the people
+ * who see a shared project chat (chat/turn.ts) go by it. */
 export function everyoneMayUse(db: Database, rules: RuleSet, people: readonly (Principal | null)[]): (rel: string) => boolean {
   const seen = new Map<string, boolean>()
   return (rel) => {

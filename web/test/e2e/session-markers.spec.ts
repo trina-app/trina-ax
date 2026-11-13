@@ -134,7 +134,7 @@ test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the c
   await expect(row(done)).toHaveCount(0)
 })
 
-test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and a waiting AI once each, not plain team unread', async ({ page }) => {
+test('rooms: "@" over the count; the one count holds DMs and mentions once each, not plain team unread', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const now = new Date().toISOString()
@@ -144,7 +144,7 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   const rooms = [
     { ...base, id: uuidv7(), kind: 'dm', name: null, groupId: null, peers: [peer], unreadCount: 3 },
     { ...base, id: uuidv7(), kind: 'team', name: '마케팅팀', groupId: uuidv7(), peers: [peer], unreadCount: 12 },
-    { ...base, id: uuidv7(), kind: 'team', name: '영업팀', groupId: uuidv7(), peers: [peer], unreadCount: 2, mentioned: true, aiWaits: true },
+    { ...base, id: uuidv7(), kind: 'team', name: '영업팀', groupId: uuidv7(), peers: [peer], unreadCount: 2, mentioned: true },
     { ...base, id: uuidv7(), kind: 'all', name: null, groupId: null, peers: [peer], unreadCount: 1, mentioned: true },
   ]
   expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
@@ -152,22 +152,17 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   const badge = (name: string) => list.getByTestId('sidebar-room').filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
   await expect(badge('마케팅팀')).toHaveText(/^12/)
-  await expect(badge('영업팀')).toHaveAttribute('data-ai-waits', '')
-  await expect(badge('영업팀')).toContainText('?')
-  await expect(badge('영업팀')).not.toContainText('@')
+  await expect(badge('영업팀')).toContainText('@')
   await expect(badge('전체')).toContainText('@')
-  // the one count: the DM, the waiting AI, the mention (each room once); the team room's 12 only make it bold
+  // the one count: the DM and the two mentions (each room once); the team room's 12 only make it bold
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
-  // the phone: 영업팀's @트리나 waits on me, so the 대화 tab's pill is an amber "?" (its own count, every unread message of
-  // rooms not muted, 18, is said with it and comes back when the wait ends); the ☰ dot is for the AI chats in the drawer
-  // only, and none wants me
+  // the phone: the 대화 tab's pill counts every unread message of rooms not muted (18); the ☰ dot is for the AI chats in
+  // the drawer only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(page.getByTestId('tab-chats-unread')).toHaveAttribute('data-ai-waits', '')
-  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('?')
-  await expect(page.getByTestId('tab-chats-unread')).toContainText('18')
+  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('18')
   await expect(page.getByTestId('menu-open')).toBeVisible()
   await expect(page.getByTestId('menu-dot')).toHaveCount(0)
 })

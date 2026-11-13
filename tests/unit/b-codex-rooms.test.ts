@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, roomRefToken, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
+import { API, roomRefToken, uuidv7, type RoomMessage } from '@mycel/shared/api'
 import { ask as askChat, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomFilesOf } from '../../server/src/rooms/files'
 
@@ -50,11 +50,6 @@ const enabledTools = (argvJson: string): string[] => {
   const entry = argv.find((a) => a.startsWith('mcp_servers.team.enabled_tools='))
   if (!entry) throw new Error('no enabled_tools')
   return JSON.parse(entry.slice('mcp_servers.team.enabled_tools='.length)) as string[]
-}
-const done = async (user: string, q: RoomMessage): Promise<RoomAiRun> => (await ws[user]!.next('room.ai.run', (f) => f.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(f.data.run.state), 40_000)).data.run
-const answerTo = async (user: string, roomId: string, q: RoomMessage) => {
-  const all = [...(await h.api(user).call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items, ...(q.threadRootId ? (await h.api(user).call(API.listRoomThread, { params: { id: roomId, messageId: q.threadRootId }, query: {} })).items : [])]
-  return all.find((m) => m.authorKind === 'ai' && m.replyTo?.id === q.id)
 }
 
 describe("a person's own Codex chat", () => {
@@ -98,34 +93,3 @@ describe("a person's own Codex chat", () => {
   })
 })
 
-describe("a room's session on Codex", () => {
-  test('room_file and save_room_file are enabled; the asking message\'s file, the asker\'s own words and the thread reach Codex', async () => {
-    const db = h.ctx.db
-    const before = (db.query('SELECT prefs FROM users WHERE id = ?').get('alice') as { prefs: string | null }).prefs
-    // alice's own default engine is Codex: her room session runs on it
-    db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ ...JSON.parse(before ?? '{}'), engine: 'codex' }), 'alice')
-    try {
-      const roomId = await groupChat('alice', ['erin', 'carol'], 'codex 세션방')
-      const root = await send('erin', roomId, '이번 주 배포 일정 스레드예요')
-      await send('alice', roomId, '금요일 배포는 제가 맡을게요', { threadRootId: root.id })
-      const doc = await upload('alice', roomId, 'plan.md', new TextEncoder().encode('# Plan\n배포: 금요일 오후 3시\n'))
-      const q = await send('alice', roomId, `@트리나 ㄱㄱ\n${fake({ echo: 'args' }, { say: ' | ' }, { echo: 'message' }, { say: ' | ' }, { tool: 'room_file', args: { file: doc.id }, sayResult: true })}`, { fileIds: [doc.id], threadRootId: root.id })
-      const run = await done('alice', q)
-      expect(run.state).toBe('done')
-      const session = db.query("SELECT c.engine FROM chats c JOIN turns t ON t.chat_id = c.id WHERE t.id = ?").get(run.turnId) as { engine: string }
-      expect(session.engine).toBe('codex')
-      const a = (await answerTo('alice', roomId, q))!
-      const [argv] = a.body.split(' | ') as [string]
-      const enabled = enabledTools(argv)
-      for (const t of ['room_file', 'save_room_file', 'room_thread', 'project_chats', 'project_chat']) expect(enabled).toContain(t)
-      // the personal chats' tools that read any of the person's rooms stay out of a room
-      for (const t of ['rooms', 'room_read']) expect(enabled).not.toContain(t)
-      // the file listed with the question, the thread's first message, the asker's own earlier words, the file's text
-      expect(a.body).toContain('<attachments>')
-      expect(a.body).toContain(`file_id=${doc.id}`)
-      expect(a.body).toContain('이번 주 배포 일정 스레드예요')
-      expect(a.body).toContain('금요일 배포는 제가 맡을게요')
-      expect(a.body).toContain('배포: 금요일 오후 3시')
-    } finally { db.query('UPDATE users SET prefs = ? WHERE id = ?').run(before, 'alice') }
-  })
-})

@@ -51,7 +51,7 @@ function scopeOf(c: Candidate): Scope | null {
     const v = JSON.parse(raw) as { sources?: unknown; outside?: unknown; unknown?: unknown }
     if (!Array.isArray(v.sources)) return null
     const sources = v.sources as ReadSource[]
-    // a source this build does not know, and (for the AI, as RoomAi.decide counts them) a connection or a shared
+    // a source this build does not know, and (for the old room AI's answers) a connection or a shared
     // Drive: not something to judge a later member by
     const closed = !!v.outside || !!v.unknown || sources.some((s) => !s || typeof s !== 'object' || !KNOWN.has((s as { type?: string }).type ?? '')
       || (c.author_kind === 'ai' && (s.type === 'integration' || s.type === 'drive_share')))
@@ -86,7 +86,7 @@ export function openHistory(ctx: AppContext, roomId: string, userId: string, o: 
   return true
 }
 
-/** How long wouldSeeFrom may walk a room's old answers, once per owner or admin per save (like rooms/ai.ts
+/** How long wouldSeeFrom may walk a room's old answers, once per owner or admin per save (like the old room AI's
  * DECIDE_HISTORY_MS for the walks at a turn's end): past it the answer is no, so the wider-audience card shows. */
 export const WOULD_SEE_MS = 100
 
@@ -115,7 +115,7 @@ export function wouldSeeFrom(ctx: AppContext, roomId: string, userId: string, fr
 }
 
 /** A walk that ran out of the time its caller had (`deadline`): nothing was written, the member keeps waiting (they see
- * the room from their join on, and an answer decided meanwhile counts them as not known: rooms/ai.ts decide). */
+ * the room from their join on, and an answer decided meanwhile counts them as not known). */
 export class HistoryOutOfTime extends Error {}
 
 /** The walk: every candidate in seq order, the ones hidden from the member (with the seq that decides who sees them).

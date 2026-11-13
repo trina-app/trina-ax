@@ -215,7 +215,7 @@ describe('a row\'s 알림 설정 and its sheet', () => {
 })
 
 describe('hidden rooms count nowhere', () => {
-  const hiddenDm = room({ kind: 'dm', name: null, peers: [CY], unreadCount: 4, mentioned: true, hidden: true, aiWaits: true, notify: { own: null, byDefault: 'all', level: 'all' } })
+  const hiddenDm = room({ kind: 'dm', name: null, peers: [CY], unreadCount: 4, mentioned: true, hidden: true, notify: { own: null, byDefault: 'all', level: 'all' } })
   const shown = room({ kind: 'dm', name: null, peers: [BEN], unreadCount: 2, notify: { own: null, byDefault: 'all', level: 'all' } })
 
   test('the 대화 tab, the one count n, a room that wants me, the sound', () => {

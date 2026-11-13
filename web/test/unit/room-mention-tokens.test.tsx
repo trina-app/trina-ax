@@ -70,7 +70,7 @@ async function focus(box: FakeElement) {
 const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!
 
 async function open() {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: {} } as unknown as Me } })
   const r = room()
   sent = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -168,11 +168,10 @@ test('a name picked from the list is a token at once; what is sent mentions exac
     expect(box.selectionStart).toBe(11)
     expect(tokens(m)).toEqual(['person:@Minjaelee'])
     expect(layerText(m)).toBe(box.value)
-    await typeText(box, '민재님 좀 ')
-    await pick(m, box, '트리')
-    await typeText(box, '봐 줘')
+    await typeText(box, '민재님 좀 @트리나 봐 줘')
     expect(box.value).toBe('@Minjaelee 민재님 좀 @트리나 봐 줘')
-    expect(tokens(m)).toEqual(['person:@Minjaelee', 'ai:@트리나'])
+    // "@트리나" is text (docs/DECISIONS.md "Room @트리나 code removed")
+    expect(tokens(m)).toEqual(['person:@Minjaelee'])
     // the layer draws the same text as the box
     expect(layerText(m)).toBe(box.value)
     const body = await send(m)
@@ -268,13 +267,13 @@ test('a letter of a token replaced through a selection makes it plain text, and 
   }
 }, DOM_TEST_MS)
 
-test('a pasted "@name" is text, not a mention; "@트리나" pasted calls the AI as the server will, and stands out', async () => {
+test('a pasted "@name" is text, not a mention; so is "@트리나"', async () => {
   const { m, box } = await open()
   try {
     await pick(m, box, 'Cy')
     await edit(box, box.value.length, box.value.length, '@Minjaelee @Cy Park @트리나 요약', 'insertFromPaste')
     expect(box.value).toBe('@Cy Park @Minjaelee @Cy Park @트리나 요약')
-    expect(tokens(m)).toEqual(['person:@Cy Park', 'ai:@트리나'])
+    expect(tokens(m)).toEqual(['person:@Cy Park'])
     const body = await send(m)
     expect(body.mentions).toEqual([CY.id])
   } finally {
@@ -341,14 +340,14 @@ test('a Korean IME writing next to a token: no caret moves, no deletion of the t
   }
 }, DOM_TEST_MS)
 
-test("a Japanese IME taking back its own kana is the IME's, even where it spells an AI name", async () => {
+test("a Japanese IME taking back its own kana is the IME's; \"@トリナ\" is no token", async () => {
   const { m, box } = await open()
   try {
     await typeText(box, '@')
     await composition(box, 'compositionstart')
     await edit(box, 1, 1, 'トリナ', 'insertCompositionText')
-    expect(tokens(m)).toEqual(['ai:@トリナ'])
-    // Backspace inside the IME: ナ goes, not the whole "@トリナ"
+    expect(tokens(m)).toEqual([])
+    // Backspace inside the IME: ナ goes
     await edit(box, 3, 4, '', 'insertCompositionText', 4)
     await composition(box, 'compositionend')
     expect(box.value).toBe('@トリ')
@@ -393,7 +392,7 @@ test('a reply typed in a room\'s box counts as a draft: the page does not reload
 }, DOM_TEST_MS)
 
 test('the edit form: the mentions a message has stand out as on the message, and stay mentions while whole', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: {} } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '@Cy Park 확인 부탁해요 @Ben', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []
@@ -424,7 +423,7 @@ test('the edit form: the mentions a message has stand out as on the message, and
 }, DOM_TEST_MS)
 
 test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its mentions through an edit', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: {} } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '안녕\r\n@Cy Park 확인', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []
