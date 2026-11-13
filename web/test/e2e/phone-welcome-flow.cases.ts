@@ -146,7 +146,8 @@ export function welcomeFlowCases() {
     })
     await newOwner(page)
     await toInvite(page)
-    await expect(page.getByTestId('invite-step')).toContainText('메시지를 카카오톡이나 슬랙으로 보내세요')
+    // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
     const share = page.getByTestId('team-link-share')
     await expect(share).toHaveText('메시지 보내기')
     await tall(page, 'team-link-share')
@@ -165,7 +166,8 @@ export function welcomeFlowCases() {
     await newOwner(page)
     await toInvite(page)
     await expect(page.getByTestId('team-link-share')).toHaveCount(0)
-    await expect(page.getByTestId('invite-step')).toContainText('메시지를 복사해')
+    // one intro for both since the short invite dialog (ebd5788f4); the share or copy button says the rest
+    await expect(page.getByTestId('invite-step')).toContainText('초대할 사람에게 이 링크를 보내세요.')
     const copy = page.getByTestId('team-link-copy-message')
     await expect(copy).toHaveText('메시지 복사')
     await copy.click()

@@ -91,7 +91,9 @@ test('a link to this team app moves inside the app, without a reload; the keyboa
   await link.focus()
   expect(await link.evaluate((e) => [e.matches(':focus-visible'), getComputedStyle(e).outlineStyle])).toEqual([true, 'solid'])
   await page.evaluate(() => ((window as unknown as { stayed: boolean }).stayed = true))
-  await link.click()
+  // opened from the keyboard: the focused message shows its hover bar, which with the Linux runner's fonts lies over this
+  // link at the end of the first line and takes the click (a layout point for the redesign; the route is what is tested)
+  await page.keyboard.press('Enter')
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${id(1)}$`))
   await expect(page.getByTestId('room-thread')).toBeVisible()
   // the thread's messages have their links too

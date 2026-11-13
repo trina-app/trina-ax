@@ -116,6 +116,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const again = page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith(`/api/projects/${id}`))
       await dialog.getByTestId('project-save').click()
       expect((await again).postDataJSON()).not.toHaveProperty('shareChats')
+      // closed first: on a phone the dialog's history entry is backed off as it closes, which would undo the goto below
+      await expect(dialog).toHaveCount(0)
 
       // a personal project has no such setting
       const mine = ((await (await post(page, '/api/projects', { name: 'Mine', scope: 'personal', instructions: '' })).json()) as { id: string }).id
