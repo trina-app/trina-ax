@@ -118,7 +118,9 @@ async function publicIps(env: Record<string, string | undefined> = process.env):
 
 // ---------------- state of this server process ----------------
 
-interface Active { runId: string; space: Space; kind: 'command' | 'job' | 'server'; command: string; startedAt: string; pid: number; stopReason: EndReason | null; rowId?: string }
+interface Active { runId: string; space: Space; kind: 'command' | 'job' | 'server'; command: string; startedAt: string; pid: number; stopReason: EndReason | null; rowId?: string
+  /** a command: the access hash it started with (accessHash's format); the tracker stops it when that changes */
+  access?: string }
 /** runs started by this process (the tracker also finds runs from before a restart through the rows) */
 const active = new Map<string, Active>()
 /** one command at a time per root folder (the change window of track.ts would mix two commands) */
@@ -429,6 +431,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
         limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err,
       })
       a.pid = sp.pid
+      a.access = accessHashFrom(ctx, o.space.userId, sp.hash)
       const stop = (why: EndReason) => { if (!a.stopReason) { a.stopReason = why; void c.system.stop(runId, sp.pid) } }
       const t = setTimeout(() => stop('timeout'), o.timeoutMs)
       const onAbort = () => stop('stopped')
@@ -443,7 +446,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       if (u.state === 'failed') await c.system.forget(runId)
       const code = readExit(exitFile)
       const so = readHead(out, OUT_READ), se = readHead(err, OUT_READ)
-      const signal = a.stopReason === 'timeout' ? 'timeout' : a.stopReason ? 'stopped' : oom ? 'oom' : ''
+      const signal = a.stopReason === 'timeout' ? 'timeout' : a.stopReason === 'setting' ? 'setting' : a.stopReason ? 'stopped' : oom ? 'oom' : ''
       return { ok: true as const, value: { ev: 'exit' as const, code: code ?? ended.code ?? 137, signal, stdout: so.text, stderr: se.text, truncated: so.cut || se.cut, ms: Date.now() - started } }
     } catch (e) {
       return { ok: false as const, message: (e as Error).message.slice(0, 300) }
@@ -660,6 +663,16 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
   // the access of a run depends on the person and on its starting folder (only that folder is writable)
   const hashes = new Map<string, string>()
   const nets = new Map<string, NetSnapshot>()
+  // a foreground command too: its person may lose the folder (taken out of the project) or the dev environment while
+  // it runs, and it has the folder open for writing until it ends
+  for (const a of [...active.values()]) {
+    if (a.kind !== 'command' || !a.access || a.stopReason) continue
+    if (filter?.chatId && a.space.chatId !== filter.chatId) continue
+    if (filter?.userId && a.space.userId !== filter.userId) continue
+    const key = `${a.space.userId}\0${a.space.root}`
+    if (!hashes.has(key)) hashes.set(key, accessHash(ctx, a.space))
+    if (hashes.get(key) !== a.access) { a.stopReason = 'setting'; await c.system.stop(a.runId, a.pid) }
+  }
   for (const r of openRuns(ctx.db, 'running')) {
     if (filter?.chatId && r.chat_id !== filter.chatId) continue
     if (filter?.userId && r.user_id !== filter.userId) continue
