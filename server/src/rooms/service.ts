@@ -784,7 +784,7 @@ export class Rooms {
     const root = this.rootFor(roomId, rootId, me)
     // never past the newest reply I can see: the room's counter (and the thread's other people's previews) are not mine
     // to learn
-    const newest = (this.db.query("SELECT MAX(seq) s FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND (visibility = 'room' OR visible_to = ?)").get(roomId, root.id, userId) as { s: number | null }).s
+    const newest = (this.db.query("SELECT MAX(seq) s FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND visibility = 'room'").get(roomId, root.id) as { s: number | null }).s
     const to = Math.min(seq, newest ?? root.seq)
     const moved = this.db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(to, root.id, userId, to).changes > 0
     this.markThreadNoticesRead(userId, roomId, root.id, to)

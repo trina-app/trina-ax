@@ -453,10 +453,10 @@ export function threadsUnread(db: Database, roomId: string, viewer: MemberRow): 
   const rows = db.query(`SELECT f.root_id, MAX(m.seq) newest, MAX(${MENTIONS_SQL}) men
     FROM room_thread_follows f CROSS JOIN room_messages root ON root.id = f.root_id CROSS JOIN room_messages m ON m.thread_root_id = f.root_id AND m.seq > f.last_read_seq
     WHERE f.user_id = ? AND f.room_id = ? AND root.room_id = ? AND root.seq > ? AND m.room_id = ? AND m.also_in_room = 0
-      AND m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR m.visible_to = ?) AND (m.author_id IS NULL OR m.author_id <> ?)
+      AND m.deleted_at IS NULL AND m.event IS NULL AND m.visibility = 'room' AND (m.author_id IS NULL OR m.author_id <> ?)
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = root.room_id AND h.user_id = f.user_id AND h.message_id IN (root.id, m.id))
     GROUP BY f.root_id ORDER BY newest DESC LIMIT ${THREADS_LOOKED_AT}`)
-    .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, seesFrom(viewer), roomId, viewer.user_id, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
+    .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, seesFrom(viewer), roomId, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
   return { n: Math.min(MAX_UNREAD, rows.length), next: rows[0]?.root_id ?? null, mentioned: rows.some((r) => !!r.men) }
 }
 
