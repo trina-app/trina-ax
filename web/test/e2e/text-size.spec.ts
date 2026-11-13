@@ -8,7 +8,7 @@ import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer, tabBar } from './nav'
+import { isNewNav, newChatButton, oldNav, openDrawer, tabBar } from './nav'
 
 const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
 /** the PATCH that saves the size to the account */
@@ -18,7 +18,7 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   await reset(page)
   await signIn(page)
   expect(await rootSize(page)).toBe('16px')
-  const sidebarText = await page.getByTestId('new-chat').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  const sidebarText = await (await newChatButton(page)).evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
 
   await page.goto('/settings/profile')
   const slider = page.getByRole('slider', { name: ko['settings.textSize'] })
@@ -35,8 +35,8 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   // the page around it follows (rem sizes), not only Settings; the message box under the dialog measured itself again,
   // so its placeholder is not cut
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('new-chat')).toBeVisible()
-  expect(await page.getByTestId('new-chat').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(sidebarText * 1.4, 1)
+  await expect(await newChatButton(page)).toBeVisible()
+  expect(await (await newChatButton(page)).evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(sidebarText * 1.4, 1)
   expect(await page.getByTestId('composer-input').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
 
   await page.reload()
@@ -136,15 +136,17 @@ test.describe('on a 390px phone', () => {
       expect(await sideways(page), path).toEqual([])
     }
     // the phone's tabs keep their names whole
-    for (const tab of ['tab-ai', 'tab-chats', 'tab-projects', 'tab-me']) {
-      const fits = await page.getByTestId(tab).evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
-      expect(fits, tab).toBe(true)
+    for (const tab of await tabBar(page).getByRole('link').all()) {
+      const fits = await tab.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
+      expect(fits, await tab.getAttribute('data-testid') ?? '').toBe(true)
     }
-    // the drawer
+    // the drawer (today's phone; the new tabs have none)
     await page.goto('/')
-    await openDrawer(page)
-    await expect(page.getByRole('dialog', { name: ko['sidebar.label'] })).toBeVisible()
-    expect(await sideways(page), 'drawer').toEqual([])
+    if (!(await isNewNav(page))) {
+      await openDrawer(page)
+      await expect(page.getByRole('dialog', { name: ko['sidebar.label'] })).toBeVisible()
+      expect(await sideways(page), 'drawer').toEqual([])
+    }
   })
 })
 
@@ -157,6 +159,8 @@ test.describe('the tab labels on a 360px phone at 140 %', () => {
     test(`${locale}: four labels, each on one line inside its tab`, async ({ page }) => {
       const t = DICTS[locale]
       await reset(page, { teamLocale: locale, usersFollowTeam: true })
+      // today's four tabs with 프로젝트 (the new tabs' labels are phase P5's own test)
+      await oldNav(page)
       await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
       await signIn(page)
       await page.goto('/projects')

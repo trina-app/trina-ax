@@ -14,7 +14,7 @@ import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer, openStatusDialog, tabBar } from './nav'
+import { myStatusRow, openStatusDialog, tabBar } from './nav'
 import { ROOM_ID, routeRoom, type MockMessage, type MockRoom } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -305,8 +305,7 @@ test('the emoji sheet: its search with the keyboard up stays in sight, and so do
 
 async function openStatus(page: Page) {
   await page.goto('/')
-  await openDrawer(page)
-  await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+  await (await myStatusRow(page)).click()
   await expect(page.getByTestId('status-dialog')).toBeVisible()
 }
 

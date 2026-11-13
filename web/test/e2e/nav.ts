@@ -70,11 +70,29 @@ export type PhoneTab = 'ai' | 'chats' | 'files' | 'me'
 export async function openTab(page: Page, tab: PhoneTab) {
   const neu = await isNewNav(page)
   if (tab === 'files' && !neu) {
-    await page.getByTestId('tab-projects').click()
+    await page.getByTestId('tab-projects').last().click()
     await page.getByTestId('projects-team-folder-row').click()
     return
   }
   await page.getByTestId(`tab-${tab}`).click()
+}
+
+/** The tab that holds a place on a phone (to check it is the lit one): 프로젝트 and the team folder are today's 프로젝트
+ * tab; in the new tabs projects are in the 트리나 tab and files are the 파일 tab. */
+export async function tabButton(page: Page, which: PhoneTab | 'projects'): Promise<Locator> {
+  const neu = await isNewNav(page)
+  const id = which === 'projects' ? (neu ? 'ai' : 'projects') : which === 'files' && !neu ? 'projects' : which
+  // the 나 list draws its own bar over the page's: the last one is the one on show
+  return page.getByTestId(`tab-${id}`).last()
+}
+
+/** The projects list on a phone: today's 프로젝트 tab; the new 트리나 tab's "모든 프로젝트". */
+export async function openProjectsTab(page: Page) {
+  if (await isNewNav(page)) {
+    await openTab(page, 'ai')
+    await page.getByTestId('trina-all-projects').click()
+  } else await page.getByTestId('tab-projects').last().click()
+  await expect(page).toHaveURL(/\/projects$/)
 }
 
 /** The tab bar itself (to check it shows or hides). */
@@ -401,3 +419,9 @@ export async function phoneAiMark(page: Page): Promise<Locator> {
 /** The pinned chats of the AI's history (`showChats` first): today's sidebar section above the five latest, the 트리나
  * panel's 고정 section. */
 export const pinnedChats = (page: Page) => page.getByTestId('ai-chats-pinned').or(page.getByTestId('trina-pinned'))
+
+/** A phone tab's button as a plain locator, by today's ids (트리나 · 대화 · 나 keep theirs in the new tabs). */
+export const tabButtonNow = (page: Page, tab: 'ai' | 'chats' | 'me') => page.getByTestId(`tab-${tab}`).last()
+
+/** The navigation's top item on a computer (to check it stays put): the sidebar's "트리나에게 묻기", or the rail. */
+export const navTop = (page: Page) => page.getByTestId('rail').or(page.getByTestId('new-chat')).first()

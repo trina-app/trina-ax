@@ -10,7 +10,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer } from './nav'
+import { chatList } from './nav'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -150,8 +150,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await project(page)
       const chatId = await privateChat(page, 'mine-source 경쟁사 메모 정리해 줘')
       await page.goto('/')
-      if (vp.phone) await openDrawer(page)
-      const list = page.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list')
+      const list = await chatList(page)
       const row = list.getByRole('listitem').filter({ hasText: '경쟁사 메모' })
       await row.hover()
       await row.getByRole('button', { name: '기록 메뉴', exact: true }).click()

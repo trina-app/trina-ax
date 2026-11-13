@@ -5,7 +5,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer } from './nav'
+import { chatList } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -222,8 +222,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
     /** the history's row of the chat with this title (the drawer on a phone), its "…" opened */
     async function rowMenu(page: Page, title: string): Promise<{ row: Locator; menu: Locator }> {
-      if (vp.phone && !(await page.locator('[data-drawer]').isVisible())) await openDrawer(page)
-      const list = page.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list')
+      const list = await chatList(page)
       const row = list.getByRole('listitem').filter({ hasText: title })
       await row.hover()
       await row.getByRole('button', { name: t['chat.menu'], exact: true }).click()

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn, watchConsole } from './helpers'
-import { signOut } from './nav'
+import { newChatButton, signOut } from './nav'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
@@ -85,7 +85,7 @@ test.describe('first-run setup in an English browser', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
+  await expect(await newChatButton(page)).toContainText(askAi('en'))
   })
 })
 
@@ -219,7 +219,7 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await page.getByTestId('locale-en').click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
+  await expect(await newChatButton(page)).toContainText(askAi('en'))
   await page.getByTestId('locale-id').click()
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
@@ -245,7 +245,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
+  await expect(await newChatButton(page)).toContainText(askAi('en'))
 })
 
 test('personal setting: team default, an own language, back to the team default; an admin change reaches followers', async ({ page }) => {

@@ -11,7 +11,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer, openTab, tabBar } from './nav'
+import { openDrawer, openProjectsTab, openTab, tabBar, tabButton } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -210,8 +210,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await call(page, 'POST', '/__test/file', { path: 'marketing/sub/notes.md', text: '# Notes' })
 
     // 1. Projects (the 프로젝트 tab, QA TC-255): "+" in the bar, no intro paragraph or orange button in the page
-    await page.getByTestId('tab-projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
+    await openProjectsTab(page)
     const bar = page.getByTestId('phone-page-bar')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['projects.title'])
     const plus = bar.getByTestId('project-new')
@@ -266,7 +265,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await expect(page.getByRole('link', { name: t['projects.open'], exact: true })).toHaveCount(0)
     await filesRow.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files$`))
-    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
     await expect(bar.getByTestId('topbar-title')).toHaveText(t['files.title'])
     await expect(bar.getByTestId('topbar-back-label')).toHaveText('Launch')
     const files = page.getByTestId('project-file')
@@ -277,7 +276,7 @@ test.describe('TC-254: project screens on a phone', () => {
     await files.filter({ hasText: 'sub' }).click()
     await expect(page).toHaveURL(new RegExp(`/projects/${id}/files\\?dir=sub$`))
     await expect(bar.getByTestId('topbar-title')).toHaveText('sub')
-    await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
+    await expect(await tabButton(page, 'projects')).toHaveAttribute('aria-current', 'page')
     // a file opens in the file sheet over it; Back closes the sheet, not the screen
     await files.filter({ hasText: 'notes.md' }).click()
     await expect(page.getByTestId('file-panel')).toBeVisible()

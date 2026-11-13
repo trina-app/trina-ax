@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openTab } from './nav'
+import { openProjectsTab, openTab, tabButton } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
@@ -62,7 +62,7 @@ test('nav-v1: no Back at a tab\'s root, the start tab from another tab\'s root, 
   const before = await loads(page)
   await page.evaluate(START_TAB_SCRIPT)
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(await tabButton(page, 'ai')).toHaveAttribute('aria-current', 'page')
   // …then leaves the app (nothing under the start tab's root)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
   expect(await loads(page)).toBe(before)
@@ -94,8 +94,7 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
   // the team folder (프로젝트 › 팀 폴더, QA TC-255): a step above the 프로젝트 tab's root
-  await page.getByTestId('tab-projects').click()
-  await expect(page).toHaveURL(/\/projects$/)
+  await openProjectsTab(page)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
   await page.getByTestId('projects-team-folder-row').click()
   await expect(page).toHaveURL(/\/files$/)

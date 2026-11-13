@@ -10,7 +10,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { allRoomsLink, isNewNav, showRooms, navRoomLinks, navRoomRow, navRoomsList, roomRowLink, roomRowMenu } from './nav'
+import { allRoomsLink, isNewNav, navRoomLinks, navRoomRow, navRoomsList, roomRowLink, roomRowMenu, showRooms, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -310,7 +310,7 @@ test.describe('phone', () => {
     const state = await start(page)
     await page.goto('/rooms')
     // 2 + 1 unread in the rooms shown; the hidden DM's 2 are not counted
-    await expect(page.getByTestId('tab-chats-unread')).toContainText('3')
+    await expect(tabMark(page, 'chats')).toContainText('3')
     const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
     // no "⋯" on a touch screen: the long press is the way
     await expect(page.getByTestId('rooms-row-menu').first()).toBeHidden()

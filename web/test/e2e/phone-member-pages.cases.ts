@@ -17,7 +17,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openTab } from './nav'
+import { openProjectsTab, openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const en = DICTS.en
@@ -95,8 +95,7 @@ export function memberPageCases() {
     const { qa, launch } = await twoProjects(page)
     await page.goto('/')
     // 1. Projects: the 프로젝트 tab since QA TC-255 (it was Trina ☰ › Projects)
-    await page.getByTestId('tab-projects').click()
-    await expect(page).toHaveURL(/\/projects$/)
+    await openProjectsTab(page)
     const rows = page.getByTestId('project-row')
     await expect(rows).toHaveCount(2)
     await shot(page, 'projects')

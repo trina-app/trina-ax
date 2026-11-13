@@ -1,7 +1,7 @@
 import { CHAT_ERROR_MESSAGES, CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { openNewChat } from './nav'
+import { chatList, openNewChat } from './nav'
 import { DICTS } from '../../src/i18n'
 
 async function ask(page: Page, text: string) {
@@ -37,8 +37,8 @@ test('streaming answer: markdown, math, code, table, steps; external images are 
   // a result with a javascript: address is shown as text, not as a link
   await expect(a.getByTestId('search-sources').getByRole('link')).toHaveCount(1)
   await expect(a.getByTestId('search-sources')).toContainText('Poisoned result')
-  // the chat shows up in the sidebar, titled by the server
-  await expect(page.getByRole('navigation').getByRole('link', { name: 'Hello there, search the web' })).toBeVisible()
+  // the chat shows up in the sidebar (the 트리나 panel), titled by the server
+  await expect((await chatList(page)).getByRole('link', { name: 'Hello there, search the web' })).toBeVisible()
   expect(external).toEqual([])
   expect(realErrors(errors)).toEqual([])
 })

@@ -11,6 +11,7 @@
 // phone-chats-tab.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { activityCount, oldNav, tabButtonNow, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -36,8 +37,9 @@ const INBOX: Item[] = [
 ]
 const HIT = { id: TEAM_MESSAGE, roomId: TEAM, threadRootId: null, authorKind: 'user', author: MINJUN, askedBy: null, markdown: false, snippet: '@Olga 견적서 확인 부탁해요', createdAt: ago(5) }
 
-async function start(page: Page) {
+async function start(page: Page, old = false) {
   await reset(page)
+  if (old) await oldNav(page)
   await routeRooms(page, ROOMS)
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   // GET /api/notifications: every unread row, and the conversation rows' part of it (the server's roomUnreadCount)
@@ -74,7 +76,8 @@ async function startBusy(page: Page, slow = 0) {
 const palette = (page: Page) => page.getByTestId('search-palette')
 const historyLength = (page: Page) => page.evaluate(() => history.length)
 /** a tab of the bar on top (나 is the Settings dialog, which has its own bar over the page's) */
-const tab = (page: Page, name: 'chats' | 'me') => page.getByTestId(`tab-${name}`).last()
+/** a phone tab (the 나 list draws its own bar over the page's: the last one is the one on show) */
+const tab = (page: Page, name: 'chats' | 'me') => tabButtonNow(page, name)
 /** Back as the phone does it (the iOS edge swipe, Android's Back): the history's own back */
 const back = (page: Page) => page.goBack({ waitUntil: 'commit' })
 
@@ -138,9 +141,9 @@ export function chatsTabCases() {
     test('step 2: mentions and thread replies from 대화, each unread counted once across the tabs', async ({ page }) => {
       await start(page)
       // 대화: the rooms' own count (2 + a thread + 1); 나: only the scheduled task's result, not the mention or reply again
-      await expect(page.getByTestId('tab-chats-unread')).toContainText('4')
-      await expect(page.getByTestId('tab-me-unread')).toContainText('1')
-      await expect(page.getByTestId('tab-me-unread')).not.toContainText('3')
+      await expect(tabMark(page, 'chats')).toContainText('4')
+      await expect(tabMark(page, 'me')).toContainText('1')
+      await expect(tabMark(page, 'me')).not.toContainText('3')
       // 나's 활동 row says what the 나 tab says
       await tab(page, 'me').click()
       await expect(page.getByTestId('settings-inbox-unread')).toContainText('1')
@@ -224,7 +227,7 @@ export function chatsTabCases() {
     test('35 newer notices of the app and one mention: 멘션·스레드 shows the mention at once, never "nothing here"', async ({ page }) => {
       const asked = await startBusy(page)
       // 나 counts the app's 35, 대화's row has its dot
-      await expect(tab(page, 'me').getByTestId('tab-me-unread')).toContainText('35')
+      await expect(tabMark(page, 'me')).toContainText('35')
       await tab(page, 'chats').click()
       await expect(page.getByTestId('rooms-activity-unread')).toBeVisible()
       await page.getByTestId('rooms-activity').click()
@@ -273,9 +276,10 @@ export function chatsTabCases() {
   test.describe('a computer', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
 
+    // today's sidebar (the new navigation has the 멘션·스레드 row on computers too: chats-panel.spec.ts, rail.spec.ts)
     test('as it was: no 멘션·스레드 row, no 대화 type in search, the sidebar\'s Activity counts everything', async ({ page }) => {
-      await start(page)
-      await expect(page.getByTestId('inbox-unread')).toContainText('3')
+      await start(page, true)
+      await expect(await activityCount(page)).toContainText('3')
       await page.goto('/rooms')
       await expect(page.getByTestId('rooms-row')).toHaveCount(2)
       await expect(page.getByTestId('rooms-activity')).toBeHidden()

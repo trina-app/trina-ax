@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { openDrawer, openStatusDialog } from './nav'
+import { myStatusRow, openStatusDialog } from './nav'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -289,8 +289,7 @@ test.describe('screens for review', () => {
       await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
       await page.goto('/')
-      await openDrawer(page)
-      await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+      await (await myStatusRow(page)).click()
       await page.getByTestId('status-emoji-button').click()
       await expect(page.getByTestId('status-emoji-grid')).toBeVisible()
       await shot(page, '390-light-status-picker.png')

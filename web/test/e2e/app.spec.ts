@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { isNewNav, openDrawer, openTab } from './nav'
+import { isNewNav, openDrawer, openTab, openTrinaRow } from './nav'
 import { PRODUCT } from '@mycel/shared'
 
 test('a dropped WebSocket shows "reconnecting", resumes, and the answer continues', async ({ page }) => {
@@ -32,7 +32,7 @@ test('a new server version offers a reload', async ({ page }) => {
 test('projects: create a team project, open a chat in it', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.getByRole('link', { name: '프로젝트' }).click()
+  await openTrinaRow(page, 'projects')
   await page.getByTestId('project-new').click()
   await page.getByTestId('project-name').fill('Launch')
   // no folder to choose: a team project is a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/")
