@@ -5,3 +5,5 @@
   room and the Admin lists show names at the same size as the **Chats** tab; before they were a step smaller.
 - Hints, times and second lines are one size everywhere (no longer larger on phones only), and a few leftover odd
   sizes (Admin › Activity log's search, a form's answers in a chat) use the usual ones.
+- On a phone, a project's message box says **"Ask Trina"** on one line, and in every message box the text starts
+  right after the **+**; answering the AI's question shows a shorter hint there too.

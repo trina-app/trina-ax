@@ -769,7 +769,7 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.askHere', { name: aiName(t) })} autoFocus={newChat} />
+              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t(phone ? 'projects.askHereShort' : 'projects.askHere', { name: aiName(t) })} autoFocus={newChat} />
             )}
           </div>
           {(!outside || hasMembers) && (

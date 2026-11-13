@@ -247,7 +247,9 @@ export default function Composer({
   // a non-empty draft (or an upload: useComposerFiles) means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
 
-  const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const hint = transcribing ? voice.transcribingText : answering ? t(phone ? 'composer.answerPlaceholderShort' : 'composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
   // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
@@ -318,8 +320,6 @@ export default function Composer({
   }
   // phones and tablets: "from this device", else "from this computer"
   const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
-  // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
-  const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone's card: the text on top, the tools in one row under it, inside the box
   const stacked = phone && !!card
 
@@ -516,7 +516,7 @@ export default function Composer({
   // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
   // tools under it; elsewhere the buttons share the line
   // (the card's text starts where its + does: 12 px in)
-  const fieldPad = clsx(stacked ? 'px-3 pb-1' : ['pb-2', phone ? 'pl-1' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  const fieldPad = clsx(stacked ? 'px-3 pb-1' : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
   // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
   // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
   // own padding and the edge: 3.25rem), at least one line
@@ -646,7 +646,7 @@ export default function Composer({
                 centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. A
                 phone: 4 px on the right, so the box keeps its width with the 4 px between the mic and send (VoiceMic) */}
             <div className={clsx('flex', stacked ? 'flex-col' : ['items-end gap-1 pr-2 pb-1 max-md:pr-1', phone && 'pl-1.5'])}>
-              {phone && !stacked && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
+              {phone && !stacked && <div className="-mr-1.5 flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
