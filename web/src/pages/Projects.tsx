@@ -67,7 +67,7 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { ListRow } from '../components/list/List'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { privateAskOf } from '../components/chat/privateAsk'
+import { forgetPrivateAsk, usePrivateAsk } from '../components/chat/privateAsk'
 import { mayShareChat, openShareChat } from '../components/chat/ShareChat'
 import { ChatFaces, PrivateIcon, SharedIcon } from '../components/chat/SharedChat'
 import { whoSeesProject } from '../components/projectWho'
@@ -668,8 +668,9 @@ function ProjectPage() {
   const location = useLocation()
   const newChat = !!(location.state as { newChat?: boolean } | null)?.newChat
   // "Continue in a chat only you see" from a shared chat (components/chat/privateAsk.ts): the box starts "Only me" with
-  // the question in it, once per visit (location.key)
-  const privateAsk = privateAskOf(location.state)
+  // the question in it (each ask starts the box again)
+  const privateAsk = usePrivateAsk(projectId)
+  useEffect(() => () => forgetPrivateAsk(projectId), [projectId])
   // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
   // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
   const mine = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
@@ -1010,8 +1011,8 @@ function ProjectPage() {
                 project={p}
                 onMembers={() => setMembers(true)}
                 placeholder={t(phone ? 'projects.askHereShort' : 'projects.askHere', { name: aiName(t) })}
-                autoFocus={newChat || privateAsk !== null}
-                {...(privateAsk !== null ? { initialText: privateAsk, startPrivate: true, resetKey: keyNumber(location.key) } : {})}
+                autoFocus={newChat || !!privateAsk}
+                {...(privateAsk ? { initialText: privateAsk.text, startPrivate: true, resetKey: privateAsk.n } : {})}
               />
             )}
           </div>
@@ -1507,9 +1508,6 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
   )
 }
 
-/** A location key as a number for a box's resetKey (each "Continue in a chat only you see" starts the box again). */
-const keyNumber = (key: string) => [...key].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) | 0, 0)
-
 /** Per person and project, whether the private chats line was closed (this browser only: a convenience). */
 const noticeKey = (me: string, project: string) => `mycel.privateChatsNotice.${me}.${project}`
 const noticeClosed = (k: string) => { try { return localStorage.getItem(k) === '1' } catch { return false } }
@@ -1539,16 +1537,17 @@ function PrivateChatsNotice({ project, chats }: { project: Project; chats: Chat[
             {' · '}
             <button type="button" className="touch-hit text-accent-text hover:underline" onClick={() => setOpen(true)} data-testid="private-chats-choose">{t('projects.privateChatsChoose')}</button>
           </span>
-          <button
-            type="button"
-            className="touch-hit ml-auto shrink-0 rounded p-1 hover:bg-hover hover:text-ink"
-            aria-label={t('projects.privateChatsDismiss')}
-            title={t('projects.privateChatsDismiss')}
-            onClick={() => { try { localStorage.setItem(key, '1') } catch { /* this browser keeps nothing: it shows again */ } setClosed(true) }}
-            data-testid="private-chats-dismiss"
-          >
-            <X size={14} aria-hidden />
-          </button>
+          <Tooltip label={t('projects.privateChatsDismiss')}>
+            <button
+              type="button"
+              className="touch-hit ml-auto shrink-0 rounded p-1 hover:bg-hover hover:text-ink"
+              aria-label={t('projects.privateChatsDismiss')}
+              onClick={() => { try { localStorage.setItem(key, '1') } catch { /* this browser keeps nothing: it shows again */ } setClosed(true) }}
+              data-testid="private-chats-dismiss"
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </Tooltip>
         </p>
       )}
       {open && (

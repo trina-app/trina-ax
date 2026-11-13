@@ -5517,7 +5517,6 @@ export class MockServer {
   // while they may restore it; deleting the project moves its shared chats to their creators' trash as chats of theirs
   // (unshared, without project; one whose creator cannot see the project goes for good), and the others hear they are
   // gone. POST /__test/revoke tells whoever stops seeing a shared chat (chat.updated 'deleted' with no chat).
-  sharedProjects = new Set<string>()
   sharedChats = new Map<string, { by: { id: string; name: string }; projectId: string; runner: string | null; waiting: boolean }>()
   /** who made each chat made here: a chat of one person is theirs alone, like chatFor (the handlers above have no owners) */
   chatOwners = new Map<string, string>()
@@ -5719,7 +5718,8 @@ export class MockServer {
   }
   sharedProjectOut(p: Project, viewer?: User): Project {
     const personal = p.folderPath.startsWith('users/')
-    const shareChats = !personal && this.sharedProjects.has(p.id)
+    // every team project shares its new chats (docs/DECISIONS.md "Team project chats shared by default")
+    const shareChats = !personal
     // who changes its members (server/src/chat/project-access.ts membersView): a team project made here (projectMembers),
     // in place, by its creator (while active) or an admin
     const pm = this.projectMembers.get(p.folderPath)
@@ -5799,7 +5799,6 @@ export class MockServer {
     const baseReset = this.reset.bind(this)
     this.reset = (o) => {
       for (const release of this.sharedHolds.values()) release()
-      this.sharedProjects = new Set()
       this.sharedChats = new Map()
       this.chatOwners = new Map()
       this.sharedDeletedBy = new Map()
@@ -5852,10 +5851,8 @@ export class MockServer {
       const { shareChats, ...rest } = c.body as { shareChats?: boolean }
       if (shareChats !== undefined) {
         if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', { 'body.shareChats': 'project_personal' }, { reason: 'project_personal' })
-        if (shareChats && this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedProjectSafeOps.ko, { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
-        if (p.inTrash) fail('conflict', 409, '폴더가 휴지통에 있는 프로젝트예요.', { 'body.shareChats': 'project_in_trash' }, { reason: 'project_in_trash' })
-        if (shareChats) this.sharedProjects.add(p.id)
-        else this.sharedProjects.delete(p.id)
+        // the switch is gone: off is refused, on is what it is already
+        if (!shareChats) fail('conflict', 409, "팀 프로젝트의 새 채팅은 언제나 멤버와 공유돼요. 나만 볼 채팅은 시작할 때 '나만 보기'를 켜 주세요.", { 'body.shareChats': 'share_chats_always' }, { reason: 'share_chats_always' })
       }
       return this.sharedProjectOut(base({ ...c, body: rest }) as Project, c.user)
     })
@@ -5931,7 +5928,8 @@ export class MockServer {
       const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
       // a new chat is told to my windows, as the server does (routes/chats.ts createChat: publishChat 'created'), so the
       // 트리나 list reads its groups again and shows the chat while its first answer runs
-      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) {
+      // a team project's new chat is shared unless it starts "Only me" (`private`)
+      if (!p || (c.body as { private?: boolean }).private || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) {
         this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
         return out
       }
@@ -6126,7 +6124,6 @@ export class MockServer {
       if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
       if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')
       if (p.inTrash) no('project_in_trash', '이 프로젝트의 폴더가 휴지통에 있어요.')
-      if (!this.sharedProjects.has(p.id)) no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
       if (chat.runState !== 'idle') no('chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
       const others = this.sharedAudience(p).filter((u) => u.id !== c.user.id)
       const msgs = this.messages.filter((m) => m.chatId === chat.id)
