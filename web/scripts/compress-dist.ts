@@ -27,7 +27,11 @@ export function compressTargets(dist: string): string[] {
       const rel = path.relative(dist, file).split(path.sep).join('/')
       if (e.isDirectory()) {
         if (!NOT_COMPRESSED_DIRS.includes(rel)) walk(file)
-      } else if (e.isFile() && COMPRESSIBLE.test(e.name) && fs.statSync(file).size >= COPY_MIN_BYTES) out.push(rel)
+      } else if (e.isFile() && COMPRESSIBLE.test(e.name)) {
+        if (fs.statSync(file).size >= COPY_MIN_BYTES) out.push(rel)
+        // a file too small for copies now: an older run's copies would be of another version
+        else for (const ext of ['br', 'gz']) fs.rmSync(`${file}.${ext}`, { force: true })
+      }
     }
   }
   walk(dist)

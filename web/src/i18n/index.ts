@@ -180,6 +180,8 @@ interface LocaleState {
 
 /** the latest language asked for: a load that ends after a later choice does not switch to its language */
 let wanted: Locale | null = null
+/** Has anything chosen the screen's language yet (setLocale)? main.tsx's start language yields to any choice. */
+export const localeChosen = () => wanted !== null
 
 export const useLocaleStore = create<LocaleState>((set) => ({
   locale: storedLocale() ?? DEFAULT_LOCALE,
@@ -189,7 +191,12 @@ export const useLocaleStore = create<LocaleState>((set) => ({
       // shown once its words are here; until then (a moment, or never when offline) the screen keeps its language
       loadLocale(locale).then(
         () => { if (wanted === locale) useLocaleStore.getState().setLocale(locale) },
-        () => { /* not loaded: the language on screen stays */ },
+        (e: unknown) => {
+          // not loaded: the language on screen stays; a tab of an older build (its file is gone after an update)
+          // reloads once, as for any other part of the page (lib/chunk-reload.ts; already loaded with the app, and
+          // imported here only when needed so the dictionaries' module stays free of the stores)
+          if (wanted === locale) void import('../lib/chunk-reload').then((m) => m.reloadForChunkError(e), () => {})
+        },
       )
       return
     }

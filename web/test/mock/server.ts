@@ -5081,7 +5081,9 @@ export class MockServer {
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
     if (!p.startsWith('/api/')) {
-      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      // /sw.js is rewritten below, so it is asked for as plain text (the build's compressed copy is the same file)
+      const plain = p === '/sw.js' ? new Request(req, { headers: withoutHeader(req.headers, 'accept-encoding') }) : req
+      const res = serveWeb(plain, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
       return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
     }
     this.log.push(`${req.method} ${p}`)
@@ -6192,6 +6194,12 @@ function pageHeaders(res: Response): Response {
  * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
  * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
 const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
+function withoutHeader(headers: Headers, name: string): Headers {
+  const h = new Headers(headers)
+  h.delete(name)
+  return h
+}
+
 async function withoutWorkerBadge(res: Response): Promise<Response> {
   const h = new Headers(res.headers)
   h.delete('content-length')

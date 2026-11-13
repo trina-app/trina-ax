@@ -102,7 +102,8 @@ export const useSession = create<SessionState>((set, get) => ({
     const p = readMe(get, set)
     if (get().status.kind === 'loading') {
       booting = p
-      void p.finally(() => { if (booting === p) booting = null })
+      const done = () => { if (booting === p) booting = null }
+      p.then(done, done)
     }
     return p
   },

@@ -7,7 +7,7 @@ import { followVisualViewport } from './lib/viewport'
 import { holdPageZoom } from './lib/pageZoom'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
-import { loadLocale, recentLocale, useLocaleStore, t } from './i18n'
+import { loadLocale, localeChosen, localeLoaded, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
 import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { useAiAccess } from './store/aiAccess'
@@ -53,15 +53,22 @@ guardFileDrops(window)
 // what the old navigation remembered (its lists open or showing all): nothing reads it now
 try { for (const k of ['mycel.sidebar.recents', 'mycel.sidebar.recentsAll', 'mycel.sidebar.rooms', 'mycel.sidebar.roomsAll']) localStorage.removeItem(k) } catch { /* storage blocked */ }
 
-// First load (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"): who is signed in (GET /api/me) is
-// asked at once, while the screen's language loads; the page draws once its words are here. The language the last
-// person here used (the one the account is likely to have) loads alongside, so the signed-in screen does not wait for
-// it. A language that cannot load (offline, a tab of an older build) does not stop the page: it draws with English.
+// First load (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand"): who is signed in
+// (GET /api/me) is asked at once, while the screen's language loads; the page draws once its words are here. With no
+// language picked on this browser, the loading screen is in the one the last person here used (the recovery rule of
+// i18n/recovery-locale.ts: shown only until the server says which language this screen has), so a returning person
+// downloads one dictionary, not English and theirs. A language that cannot load (offline, a tab of an older build) does
+// not stop the page: it draws in English, unless the session has picked another language meanwhile.
 void useSession.getState().load()
-const startLocale = useLocaleStore.getState().locale
-const recent = recentLocale()
-if (recent && recent !== startLocale) void loadLocale(recent).catch(() => {})
+const startLocale = storedLocale() ?? recentLocale() ?? useLocaleStore.getState().locale
 void loadLocale(startLocale)
+  .catch(() => {})
+  .then(() => {
+    // nothing chose the screen's language meanwhile (the session does once the server answers): this one
+    if (!localeChosen() && localeLoaded(startLocale)) useLocaleStore.getState().setLocale(startLocale)
+    // the language on screen, whatever set it, has its words before the first draw
+    return loadLocale(useLocaleStore.getState().locale)
+  })
   .catch(() => {
     useLocaleStore.getState().setLocale('en')
     return loadLocale('en')

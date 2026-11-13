@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { useEffect, useState, type ComponentProps } from 'react'
 import type * as MarkdownModule from './Markdown'
 import type * as RichCopyModule from '../lib/richCopy'
+import { LinkedText } from './rooms/MessageText'
 
 interface Loaded { md: typeof MarkdownModule; copy: typeof RichCopyModule }
 
@@ -34,7 +35,8 @@ export function forgetMarkdownForTest() { loaded = null; loading = null }
 function useLoaded(): Loaded | null {
   const [, setReady] = useState(!!loaded)
   useEffect(() => {
-    if (loaded) return
+    // loaded between this draw and its effect (another component's load ended): draw again now
+    if (loaded) { setReady(true); return }
     let live = true
     loadMarkdown().then(() => { if (live) setReady(true) }, () => { /* stays plain text */ })
     return () => { live = false }
@@ -42,18 +44,25 @@ function useLoaded(): Loaded | null {
   return loaded
 }
 
-const plain = 'whitespace-pre-wrap break-words'
+// the same plain text Markdown.tsx shows when it cannot format a text (its size and line height, links in a person's
+// message), so nothing jumps but the formatting when the code is here
+const SIZES = { answer: 'text-reading leading-7', small: 'text-xs leading-5' } as const
 
 export function Markdown(props: ComponentProps<typeof MarkdownModule.Markdown>) {
   const m = useLoaded()
   if (m) return <m.md.Markdown {...props} />
-  return <div className={clsx(plain, props.className)} data-testid="md-plain">{props.text}</div>
+  return <div className={clsx('whitespace-pre-wrap break-words', SIZES[props.size ?? 'answer'], props.className)} data-testid="md-plain">{props.text}</div>
 }
 
 export function PersonMarkdown(props: ComponentProps<typeof MarkdownModule.PersonMarkdown>) {
   const m = useLoaded()
   if (m) return <m.md.PersonMarkdown {...props} />
-  return <div className={clsx(plain, props.className)} data-testid="md-plain">{props.text}{props.after}</div>
+  return (
+    <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', props.className)} data-testid="md-plain">
+      <LinkedText text={props.text} />
+      {props.after}
+    </div>
+  )
 }
 
 export function CodeBlock(props: ComponentProps<typeof MarkdownModule.CodeBlock>) {

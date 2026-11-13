@@ -45,6 +45,12 @@ describe('compress-dist', () => {
     expect(fs.existsSync(path.join(DIST, 'assets', 'photo-abc123.png.br'))).toBe(false)
     expect(fs.existsSync(path.join(DIST, 'licenses', 'manifest.json.br'))).toBe(false)
   })
+  test('a file that became too small loses its old copies', async () => {
+    const f = path.join(DIST, 'assets', 'tiny-abc123.js')
+    write(f + '.br', 'stale')
+    await compressDist(DIST)
+    expect(fs.existsSync(f + '.br')).toBe(false)
+  })
   test('the server and the build name the same files', () => {
     expect(COMPRESSIBLE.test('a.js') && COMPRESSIBLE.test('a.css') && COMPRESSIBLE.test('a.svg') && COMPRESSIBLE.test('a.webmanifest')).toBe(true)
     expect(COMPRESSIBLE.test('a.png') || COMPRESSIBLE.test('a.woff2') || COMPRESSIBLE.test('a.js.br')).toBe(false)
@@ -110,6 +116,20 @@ describe('serving', () => {
     const r = get('/licenses/manifest.json', { 'accept-encoding': 'gzip' })
     expect(r.headers.get('content-encoding')).toBeNull()
     expect((await body(r)).toString()).toBe(fs.readFileSync(path.join(DIST, 'licenses', 'manifest.json'), 'utf8'))
+  })
+  test('a copy older than its file (the file changed after the build) is not sent; copies are no files of their own', async () => {
+    const f = path.join(DIST, 'assets', 'index-abc123.js')
+    const old = new Date(Date.now() - 3600_000)
+    fs.utimesSync(f + '.br', old, old)
+    fs.utimesSync(f + '.gz', old, old)
+    const r = get('/assets/index-abc123.js', { 'accept-encoding': 'br, gzip' })
+    expect(r.headers.get('content-encoding')).toBeNull()
+    expect((await body(r)).toString()).toBe(JS)
+    expect(get('/assets/index-abc123.js.br').status).toBe(404)
+    expect(get('/index.html.gz').status).toBe(404)
+    const now = new Date()
+    fs.utimesSync(f + '.br', now, now)
+    fs.utimesSync(f + '.gz', now, now)
   })
   test('an image is sent as it is, with no Vary', () => {
     const r = get('/assets/photo-abc123.png', { 'accept-encoding': 'br, gzip' })

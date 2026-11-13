@@ -328,13 +328,14 @@ export function isNoticeIndex(dist: string, urlPath: string): boolean {
 // ---------------- compressed copies and revalidation (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand") ----------------
 /**
  * The files the web build keeps a compressed copy of, next to the file (web/scripts/compress-dist.ts writes `<file>.br`
- * and `<file>.gz` for these, once per build). The same list in both places: tests/unit/d-web.test.ts compares them.
+ * and `<file>.gz` for these, once per build, and imports this list; tests/unit/d-web-compress.test.ts).
  */
 export const COMPRESSIBLE = /\.(?:js|mjs|cjs|css|html|svg|json|webmanifest|map|txt|md|xml|wasm|ttf|otf|ico)$/i
 /** files the build never compresses: the notice folder (scripts/release-notices.ts writes it again in a bundle) */
 export const NOT_COMPRESSED_DIRS = ['licenses']
 
 type Encoding = 'br' | 'gzip'
+const COPY_STALE_MS = 60_000
 /** What the browser takes, best first: Brotli, then gzip (Chrome sends `br` only over https; on a LAN address it is
  * gzip). A coding with q=0 is refused, `*` stands for any coding not named. */
 export function acceptedEncodings(header: string | null): Encoding[] {
@@ -370,7 +371,10 @@ function staticResponse(req: Request, file: string, rel: string): Response {
     for (const e of acceptedEncodings(req.headers.get('accept-encoding'))) {
       const copy = `${file}.${e === 'br' ? 'br' : 'gz'}`
       try {
-        if (fs.statSync(copy).isFile()) { served = copy; enc = e; break }
+        // a copy older than its file by more than a minute is of an earlier version (the file was changed by hand
+        // after the build): the file goes out as it is. A bundle copies both in any order, seconds apart at most
+        const c = fs.statSync(copy)
+        if (c.isFile() && c.mtimeMs + COPY_STALE_MS >= st.mtimeMs) { served = copy; enc = e; break }
       } catch { /* no copy of this coding: a build without compress-dist (bun run build:app), or a small file */ }
     }
   }
@@ -406,9 +410,11 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
     return new Response(`${PRODUCT.displayName}: web app missing (${root})`, { status: 500 })
   }
 
-  const file = p === '/' || p === '/index.html' ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
+  // the compressed copies are sent in place of their file, never as files of their own
+  const copyOfFile = /\.(?:br|gz)$/i.test(p) && COMPRESSIBLE.test(p.replace(/\.(?:br|gz)$/i, ''))
+  const file = p === '/' || p === '/index.html' || copyOfFile ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
   if (file) {
-    const res = staticResponse(req, file, path.relative(root, file).split(path.sep).join('/'))
+    const res = staticResponse(req, file, path.relative(fs.realpathSync(root), file).split(path.sep).join('/'))
     const h = res.headers
     if (p.startsWith('/assets/')) h.set('cache-control', 'public, max-age=31536000, immutable')
     else if (p.startsWith('/vendor/')) {
