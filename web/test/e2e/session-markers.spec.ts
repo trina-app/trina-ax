@@ -6,10 +6,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { drawerButton, openDrawer, openNewChat } from './nav'
+import { chatFilterClear, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
 
-/** the row in the sidebar on screen (the wide one, or the phone's drawer) */
-const rowOf = (page: Page, id: string, inDrawer = false) => (inDrawer ? page.locator('[data-drawer]') : page).getByTestId('recents-list').locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).first()
+/** the chat's row in the AI's history on screen (the sidebar or the 트리나 panel; on a phone the drawer or the 트리나 tab) */
+const rowOf = (page: Page, id: string) => navChatRow(page, { id })
 const idOf = (page: Page) => new URL(page.url()).pathname.split('/')[2]!
 
 /** send from Home (a new chat) and leave it for Home again before the answer ends; its chat id */
@@ -81,22 +81,21 @@ test('"?" for a card and for a failed answer; the filter shows them and the runn
   await openNewChat(page)
   await expect(rowOf(page, failed).getByRole('img', { name: '멈췄어요: 오류' })).toBeVisible({ timeout: 20_000 })
   await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('recents-list').getByTestId('chat-marker')).toHaveCount(3)
+  await expect(navChatList(page).getByTestId('chat-marker')).toHaveCount(3)
   // the title counts chats (3), each once
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
   await expect(page).toHaveTitle(/^[^(]/)
   // "답변 중이거나 내 답을 기다림"
-  await page.getByTestId('recents-head').hover()
-  await page.getByTestId('recents-filter').click()
+  await openChatFilter(page)
   await page.getByTestId('recents-view-status').click()
   await page.getByTestId('recents-status-waiting').click()
   await page.keyboard.press('Escape')
   await expect(rowOf(page, asked)).toHaveCount(1)
   await expect(rowOf(page, failed)).toHaveCount(1)
   await expect(rowOf(page, done)).toHaveCount(0)
-  await page.getByTestId('recents-filter-clear').click()
+  await chatFilterClear(page).click()
   // the failed one opened: its "?" goes (a card's would stay)
   await rowOf(page, failed).getByRole('link').click()
   await expect(rowOf(page, failed).getByTestId('chat-marker')).toHaveCount(0)
@@ -149,8 +148,8 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
     { ...base, id: uuidv7(), kind: 'all', name: null, groupId: null, peers: [peer], unreadCount: 1, mentioned: true },
   ]
   expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
-  const list = page.getByTestId('sidebar-rooms-list')
-  const badge = (name: string) => list.getByTestId('sidebar-room').filter({ hasText: name }).getByTestId('room-unread')
+  await showRooms(page)
+  const badge = (name: string) => navRoomLinks(page).filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
   await expect(badge('마케팅팀')).toHaveText(/^12/)
   await expect(badge('영업팀')).toHaveAttribute('data-ai-waits', '')
@@ -166,11 +165,10 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   // only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(page.getByTestId('tab-chats-unread')).toHaveAttribute('data-ai-waits', '')
-  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('?')
-  await expect(page.getByTestId('tab-chats-unread')).toContainText('18')
-  await expect(drawerButton(page)).toBeVisible()
-  await expect(page.getByTestId('menu-dot')).toHaveCount(0)
+  await expect(tabMark(page, 'chats')).toHaveAttribute('data-ai-waits', '')
+  await expect(tabMark(page, 'chats').locator('[aria-hidden]')).toHaveText('?')
+  await expect(tabMark(page, 'chats')).toContainText('18')
+  await expect(await phoneAiMark(page)).toHaveCount(0)
 })
 
 test.describe('a phone (390 px)', () => {
@@ -188,13 +186,13 @@ test.describe('a phone (390 px)', () => {
     // the answer ends while the chat is not on screen: after the wait, one toast with [열기]; the ☰ dot lights (accent)
     const toast = page.getByTestId('toast').filter({ hasText: '새 답' })
     await expect(toast).toBeVisible({ timeout: 25_000 })
-    await expect(page.getByTestId('menu-dot')).toBeVisible()
-    await expect(page.getByTestId('menu-dot')).not.toHaveAttribute('data-ask', '')
+    await expect(await phoneAiMark(page)).toBeVisible()
+    await expect(await phoneAiMark(page)).not.toHaveAttribute('data-ask', '')
     // Home lists no chats (the drawer has them: QA TC-253)
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     // the drawer: the dot left of the always-shown "···"
-    await openDrawer(page)
-    const row = rowOf(page, id, true)
+    await showChats(page)
+    const row = rowOf(page, id)
     await expect(row.getByTestId('marker-new')).toBeVisible()
     const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '기록 메뉴' }).boundingBox()]
     expect(m!.x + m!.width).toBeLessThanOrEqual(b!.x + 4)
@@ -204,6 +202,6 @@ test.describe('a phone (390 px)', () => {
     await toast.getByTestId('toast-action').click()
     await expect(page).toHaveURL(new RegExp(`/c/${id}$`))
     await page.getByTestId('chat-back').click()
-    await expect(page.getByTestId('menu-dot')).toHaveCount(0)
+    await expect(await phoneAiMark(page)).toHaveCount(0)
   })
 })

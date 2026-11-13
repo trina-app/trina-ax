@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer } from './nav'
+import { oldNav, openDrawer, openSearch, openTrinaRow } from './nav'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 
 const SORA = { id: 'sora', name: '김소라' }
@@ -157,6 +157,8 @@ export function overlayBackCases() {
   // the drawer's filter and search's type picker are sheets over a sheet once the phone menus (#453) are in
   test('the drawer\'s filter: its row\'s choices (a second sheet) close with one Back, then the drawer; a choice leaves no entry', async ({ page }) => {
     await reset(page)
+    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
+    await oldNav(page)
     await signIn(page)
     await openDrawer(page)
     const drawer = page.locator('[data-drawer]')
@@ -186,8 +188,7 @@ export function overlayBackCases() {
   test('search\'s type picker: one Back closes the picker and search stays; a choice leaves no entry', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await openDrawer(page)
-    await page.locator('[data-drawer]').getByTestId('drawer-search').click()
+    await openSearch(page)
     const search = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })
     await expect(search).toBeVisible()
     const type = search.getByTestId('search-type')
@@ -230,8 +231,7 @@ export function overlayBackCases() {
     await reset(page)
     await signIn(page)
     await expect(page).toHaveURL(/\/$/)
-    await openDrawer(page)
-    await page.locator('[data-drawer]').getByTestId('nav-scheduled').click()
+    await openTrinaRow(page, 'scheduled')
     await expect(page).toHaveURL(/\/scheduled$/)
     await page.getByTestId('new-task-phone').click()
     await page.getByTestId('new-task-chat').click()
@@ -264,6 +264,8 @@ export function overlayBackCases() {
 
   test('search from the drawer (TRINA-20): Back closes search and stays on Trina; the next Back goes where you were with nothing open', async ({ page }) => {
     await reset(page)
+    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
+    await oldNav(page)
     await signIn(page)
     // where you were before Trina: Chats, opened as its own page (so the step back does not depend on how tab taps keep
     // the history)
@@ -287,6 +289,8 @@ export function overlayBackCases() {
 
   test('a page opened from inside the drawer takes its entry: Back from it is Trina with the drawer closed', async ({ page }) => {
     await reset(page)
+    // today's ☰ drawer itself (the new phone tabs have none: phase P5)
+    await oldNav(page)
     await signIn(page)
     const start = await historyLength(page)
     await openDrawer(page)

@@ -7,6 +7,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { oldNav } from './nav'
 import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 
@@ -42,6 +43,7 @@ async function someWork(page: Page) {
 
 test('a computer: groups by project, the other chats last; three rows and "N more"; the name opens the project, + opens its box ready', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const { launch } = await someWork(page)
   await page.reload()
@@ -75,6 +77,7 @@ test('a computer: groups by project, the other chats last; three rows and "N mor
 
 test('▾ folds a group, after a reload too; a folded group keeps the "?" of a chat that waits inside', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const { launch } = await someWork(page)
   // a chat in Acme launch whose AI asks me something
@@ -104,6 +107,7 @@ test('▾ folds a group, after a reload too; a folded group keeps the "?" of a c
 
 test('"모두 보기": every project and every row by project; by date one choice away', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await someWork(page)
   await page.reload()
@@ -122,6 +126,7 @@ test('"모두 보기": every project and every row by project; by date one choic
 
 test('"프로젝트로 옮기기…" moves the row to its project\'s group at once', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await someWork(page)
   await page.reload()
@@ -138,6 +143,7 @@ test('"프로젝트로 옮기기…" moves the row to its project\'s group at on
 
 test('no chat in a project: the five latest as before, no headers', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `채팅 ${n}`)
   await page.reload()
@@ -152,6 +158,7 @@ test.describe('a phone (390 px)', () => {
 
   test('the drawer groups the same, every row; + is there without hover and opens the project', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page)
     const { budget } = await someWork(page)
     await page.reload()

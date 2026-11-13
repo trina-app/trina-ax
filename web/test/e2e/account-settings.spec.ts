@@ -7,12 +7,14 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
-import { accountButton, openAccountMenu, openSettings, openTab, tabBar } from './nav'
+import { accountButton, chatList, isNewNav, navLists, oldNav, openAccountMenu, openSettings, openTab, openUsage, tabBar } from './nav'
 
 const t = DICTS.en
 
-async function start(page: Page) {
+/** `old`: a test of today's sidebar or phone drawer itself (they go with the navigation's phase P7) */
+async function start(page: Page, old = false) {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  if (old) await oldNav(page)
   await signIn(page)
 }
 
@@ -23,7 +25,7 @@ async function audit(page: Page, where: string) {
 }
 
 test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ page }) => {
-  await start(page)
+  await start(page, true)
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   // the column is 280 px, its right border included
   expect(Math.round((await side.locator('..').boundingBox())!.width)).toBe(280)
@@ -37,24 +39,30 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('14px')
 })
 
-test('the account menu opens above the profile line, moves with the keyboard, and the theme is not in it', async ({ page }) => {
+test('the account menu opens above the profile line (beside the rail\'s photo), moves with the keyboard, and the theme is not in it', async ({ page }) => {
   await start(page)
+  const neu = await isNewNav(page)
   const button = accountButton(page)
-  await button.click()
-  const menu = page.getByTestId('account-dropdown')
-  await expect(menu).toBeVisible()
-  expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 1)
+  const menu = await openAccountMenu(page)
+  const m = (await menu.boundingBox())!
+  const b = (await button.boundingBox())!
+  // the sidebar's line at the bottom: the menu above it; the rail's photo: the menu to its right
+  if (neu) expect(m.x).toBeGreaterThanOrEqual(b.x + b.width - 1)
+  else expect(m.y + m.height).toBeLessThanOrEqual(b.y + 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
   // first, as in Slack: set yourself away (docs/DECISIONS.md "접속 상태")
-  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none
-  await expect(menu.getByRole('menuitem')).toHaveText([t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
+  // then my status message (docs/DECISIONS.md "상태 메시지"): "Set your status" while I have none; with the rail, Usage is
+  // in Settings and Deleted history in the 트리나 list
+  await expect(menu.getByRole('menuitem')).toHaveText(neu ? [t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['auth.logout']] : [t['presence.setAway'], t['status.set'], t['sidebar.settings'], t['sidebar.usage'], t['sidebar.trash'], t['auth.logout']])
   await expect(menu.getByRole('menuitem', { name: t['presence.setAway'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['status.set'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(menu.getByRole('menuitem', { name: t['sidebar.usage'] })).toBeFocused()
+  if (!neu) {
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitem', { name: t['sidebar.usage'] })).toBeFocused()
+  }
   await page.keyboard.press('End')
   await expect(page.getByTestId('logout')).toBeFocused()
   await page.keyboard.press('Escape')
@@ -62,8 +70,7 @@ test('the account menu opens above the profile line, moves with the keyboard, an
   await expect(button).toBeFocused()
 
   // the theme is chosen in Settings (one place), not in this menu
-  await button.click()
-  await page.getByTestId('account-settings').click()
+  await openSettings(page)
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const themes = dialog.getByRole('radiogroup', { name: t['settings.theme'] })
   await themes.getByRole('radio', { name: t['settings.theme.dark'] }).click()
@@ -75,8 +82,9 @@ test('the account menu opens above the profile line, moves with the keyboard, an
   await expect(dialog).toHaveCount(0)
   await button.click()
   await audit(page, 'account menu')
+  await page.keyboard.press('Escape')
   // Usage is the person's own usage, in Settings (everyone's is Admin > Usage)
-  await page.getByTestId('account-usage').click()
+  await openUsage(page)
   await expect(page).toHaveURL(/\/settings\/usage$/)
   await expect(page.getByTestId('my-usage')).toBeVisible()
 })
@@ -137,7 +145,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
-  await expect(tabBar(dialog)).toBeVisible()
+  await expect(tabBar(page)).toBeVisible()
   await expect(dialog.getByTestId('settings-close')).toBeHidden()
   await expect(dialog.getByTestId('settings-logout')).toBeVisible()
   await dialog.getByTestId('settings-me').click()
@@ -157,7 +165,7 @@ test('on a phone Settings is the 나 tab: the list first with my photo row on to
   await expect(dialog.getByTestId('settings-group-connections').getByRole('link').first()).toHaveAttribute('href', '/settings/connectors')
   await audit(page, 'settings list at phone width')
   // the tab bar is the way out
-  await openTab(dialog, 'chats')
+  await openTab(page, 'chats')
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/rooms$/)
 })
@@ -176,12 +184,12 @@ for (const scheme of ['light', 'dark'] as const) {
 }
 
 test('Deleted chats: in the account menu on a wide screen; on a phone a row of the drawer, which has no 파일 row or account menu (sign-out is in the 나 tab)', async ({ page }) => {
-  await start(page)
+  await start(page, true)
   await page.setViewportSize({ width: 1360, height: 820 })
   await page.goto('/')
   let side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
   await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
-  await openAccountMenu(side)
+  await side.getByTestId('account-menu').click()
   await side.getByTestId('account-trash').click()
   await expect(page).toHaveURL(/\/trash$/)
   await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
@@ -189,7 +197,7 @@ test('Deleted chats: in the account menu on a wide screen; on a phone a row of t
   await page.goto('/')
   await page.getByRole('button', { name: t['sidebar.open'] }).click()
   side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-  await expect(accountButton(side)).toBeHidden()
+  await expect(side.getByTestId('account-menu')).toBeHidden()
   await expect(side.getByRole('link', { name: t['sidebar.files'] })).toHaveCount(0)
   await side.getByRole('link', { name: t['sidebar.trash'] }).click()
   await expect(page).toHaveURL(/\/trash$/)
@@ -223,7 +231,7 @@ async function someChats(page: Page) {
 }
 
 test('Recents folds away; filter, group and sort like Claude\'s, remembered and reset', async ({ page }) => {
-  await start(page)
+  await start(page, true)
   await someChats(page)
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   const list = side.getByTestId('recents-list')
@@ -298,7 +306,7 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {
-  await start(page)
+  await start(page, true)
   await someChats(page)
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   await side.getByTestId('recents-filter').focus()
@@ -328,8 +336,8 @@ test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← 
 test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after resting on it', async ({ page }) => {
   await start(page)
   await someChats(page)
-  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
-  const row = side.getByRole('listitem').filter({ hasText: 'Weekly notes' })
+  const side = await navLists(page)
+  const row = (await chatList(page)).getByRole('listitem').filter({ hasText: 'Weekly notes' })
   const more = row.getByRole('button', { name: t['chat.menu'] })
   await expect(more).toHaveCSS('opacity', '0')
   await row.hover()
@@ -356,7 +364,7 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
 test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true, locale: 'ko-KR' })
   const page = await context.newPage()
-  await start(page)
+  await start(page, true)
   await someChats(page)
   await page.getByRole('button', { name: DICTS.en['sidebar.open'] }).or(page.getByRole('button', { name: DICTS.ko['sidebar.open'] })).first().click()
   const side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()

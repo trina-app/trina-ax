@@ -12,7 +12,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { folderLabel, PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer } from './nav'
+import { oldNav } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -46,6 +46,7 @@ async function folders(page: Page) {
 
 test('Files: Back is always the folder above; ‹ goes back; the Trash is a step under the team folder', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await folders(page)
   await teamFolder(page)
@@ -91,6 +92,7 @@ test('Files: Back is always the folder above; ‹ goes back; the Trash is a step
 
 test('Files: a folder opened deep (search, a link) still has the folders above it under it', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await folders(page)
   await page.goto('/files?path=groups%2Fleads%2F%ED%9A%8C%EC%82%AC')
@@ -110,6 +112,7 @@ test('Files: a folder opened deep (search, a link) still has the folders above i
 
 test('tabs: a tap adds no entry, Back never walks into another tab, each tab keeps its stack, the tab on show goes to its root', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await folders(page)
   const start = await len(page)
@@ -160,9 +163,10 @@ test('tabs: a tap adds no entry, Back never walks into another tab, each tab kee
 
 test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to the list; pages name where ‹ goes', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   // Connectors is a row of 나's list (Settings › Connectors, QA TC-400), not an item of the drawer
-  await openDrawer(page)
+  await page.getByTestId('menu-open').click()
   await expect(page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['integrations.title'] })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await tab(page, 'tab-me').click()
@@ -189,7 +193,7 @@ test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to th
   await expect(page.getByTestId('topbar-back-label')).toHaveText(t['settings.title'])
   await tab(page, 'tab-ai').click()
   await expect(page).toHaveURL(/\/$/)
-  await openDrawer(page)
+  await page.getByTestId('menu-open').click()
   await page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['skills.title'] }).click()
   await expect(page).toHaveURL(/\/skills$/)
   await expect(page.getByTestId('topbar-back-label')).toHaveText(ai)
@@ -198,6 +202,7 @@ test('나 › 커넥터 stays in the 나 tab, ‹ says so and Back returns to th
 
 test('a chat\'s project link and the chat again: back, never a ping-pong', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const post = (url: string, data: unknown) => page.request.post(url, { headers: H, data })
   const project = ((await (await post('/api/projects', { name: 'Launch', scope: 'team', folderPath: 'launch', instructions: '' })).json()) as { id: string }).id
@@ -231,6 +236,7 @@ test('a chat\'s project link and the chat again: back, never a ping-pong', async
 
 test('Folder permissions opened from a folder\'s "who can open it": ‹ names the folder and Back returns to it', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await teamFolder(page)
   await row(page, 'marketing').click()
@@ -251,6 +257,7 @@ test('Folder permissions opened from a folder\'s "who can open it": ‹ names th
 test('a stack deeper than an entry keeps: a tab tap still goes back to its first entry, and Back never lands in the old one', async ({ page }) => {
   test.setTimeout(120_000)
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const deep = Array.from({ length: 33 }, (_, i) => `n${i + 1}`)
   expect((await page.request.post('/__test/file', { headers: H, data: { path: `${deep.join('/')}/x.txt`, text: 'x' } })).ok()).toBeTruthy()
@@ -279,8 +286,9 @@ test('a stack deeper than an entry keeps: a tab tap still goes back to its first
 
 test('a sheet\'s item that opens a screen already in the stack (예약 작업 ＋ › 채팅으로 설명하기): one step back to it, still in the app', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
-  await openDrawer(page)
+  await page.getByTestId('menu-open').click()
   await page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('link', { name: t['sidebar.scheduled'] }).click()
   await expect(page).toHaveURL(/\/scheduled$/)
   expect(await idx(page)).toBe(1)

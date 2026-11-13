@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { accountButton, openAccountMenu, openDrawer, openStatusDialog } from './nav'
+import { accountButton, myStatusRow, navRoomRow, navRoomRows, openAccountMenu, openStatusDialog, roomRowLink, showRooms } from './nav'
 import { routeRoom, routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -30,7 +30,7 @@ async function status(page: Page, user: string, body: Record<string, unknown> | 
   const r = await page.request.post('/__test/status', { data: { user, status: body, ...(raw ? { raw } : {}) } })
   expect(r.ok()).toBeTruthy()
 }
-const sidebarRow = (page: Page, name: string) => page.getByTestId('sidebar-room-row').filter({ hasText: name })
+const sidebarRow = (page: Page, name: string) => navRoomRow(page, name)
 async function openDialog(page: Page) {
   await openStatusDialog(page)
   await expect(page.getByTestId('status-dialog')).toBeVisible()
@@ -116,18 +116,19 @@ test('someone\'s status that ends goes away by the page\'s own clock; the DM\'s 
   await reset(page)
   await routeRooms(page, ROOMS)
   await signIn(page)
+  await showRooms(page)
   const row = sidebarRow(page, 'Bob')
   await status(page, 'bob', null, { emoji: '📅', text: '회의 중', clear: '30m', starts_at: null, clears_at: new Date(Date.now() + 4000).toISOString(), until_day: null })
   await expect(row.getByTestId('status-emoji')).toHaveText('📅')
   // the row reads "Bob, 상태: 회의 중 · …까지"
-  await expect(row.getByTestId('sidebar-room')).toHaveAccessibleName(/Bob ?, 상태: 회의 중 · .+까지/)
+  await expect(roomRowLink(row)).toHaveAccessibleName(/Bob ?, 상태: 회의 중 · .+까지/)
   // no notice comes: the page hides it when it ends
   await expect(row.getByTestId('status-emoji')).toHaveCount(0, { timeout: 8000 })
 
   // leave with chosen days: the DM's line above the box
   await status(page, 'bob', { emoji: '🏖️', text: '휴가 중', clear: 'dates', to: seoulDay(4) })
   await expect(row.getByTestId('status-emoji')).toHaveText('🏖️')
-  await row.getByTestId('sidebar-room').click()
+  await roomRowLink(row).click()
   const line = page.getByTestId('room-status-line')
   await expect(line).toHaveText(/^🏖️Bob 님: 휴가 중 · \d{1,2}월 \d{1,2}일까지$/)
   // cleared: the line goes
@@ -185,15 +186,13 @@ test.describe('a phone', () => {
   test('the drawer\'s row opens the sheet; my status shows there', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await openDrawer(page)
-    const row = page.locator('[data-drawer]').getByTestId('my-status-row')
+    const row = await myStatusRow(page)
     await expect(row).toHaveText('상태 설정')
     await row.click()
     await page.getByTestId('status-suggestion').filter({ hasText: '집중하는 중' }).click()
     await page.getByTestId('status-save').click()
     await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-    await openDrawer(page)
-    await expect(page.locator('[data-drawer]').getByTestId('my-status-row')).toHaveText(/^🎧집중하는 중 · (오전|오후) \d{1,2}:\d\d까지$/)
+    await expect(await myStatusRow(page)).toHaveText(/^🎧집중하는 중 · (오전|오후) \d{1,2}:\d\d까지$/)
   })
 })
 
@@ -221,7 +220,8 @@ test.describe('screens for review', () => {
 
     // the DM with Bob on leave
     await status(page, 'bob', { emoji: '🏖️', text: 'On leave', clear: 'dates', to: seoulDay(4) })
-    await sidebarRow(page, 'Bob').getByTestId('sidebar-room').click()
+    await showRooms(page)
+    await roomRowLink(sidebarRow(page, 'Bob')).click()
     await expect(page.getByTestId('room-status-line')).toBeVisible()
     await shot(page, 'status-1440-light-dm-line.png')
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
@@ -229,8 +229,8 @@ test.describe('screens for review', () => {
     // the emoji is as large as the name it follows; the DM line is the size of the notes around the box
     const size = async (sel: string) => page.locator(sel).first().evaluate((e) => getComputedStyle(e).fontSize)
     const sizes = {
-      sidebarName: await size('[data-testid="sidebar-room-row"] .truncate'),
-      sidebarEmoji: await size('[data-testid="sidebar-room-row"] [data-testid="status-emoji"]'),
+      sidebarName: await navRoomRows(page).first().locator('.truncate').first().evaluate((e) => getComputedStyle(e).fontSize),
+      sidebarEmoji: await navRoomRows(page).getByTestId('status-emoji').first().evaluate((e) => getComputedStyle(e).fontSize),
       authorName: await size('[data-testid="room-run"] p > span.truncate'),
       authorEmoji: await size('[data-testid="room-run"] [data-testid="status-emoji"]'),
       dmLine: await size('[data-testid="room-status-line"]'),
@@ -272,20 +272,18 @@ test.describe('screens for review', () => {
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
       await signIn(page)
-      await openDrawer(page)
-      await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+      await (await myStatusRow(page)).click()
       await expect(page.getByTestId('status-dialog')).toBeVisible()
       await shot(page, 'status-390-light-dialog.png')
       await page.getByTestId('status-suggestion').filter({ hasText: 'Out sick' }).click()
       await shot(page, 'status-390-light-dialog-filled.png')
       await page.getByTestId('status-save').click()
       await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-      await openDrawer(page)
-      await expect(page.locator('[data-drawer]').getByTestId('my-status-row')).toContainText('Out sick')
+      await expect(await myStatusRow(page)).toContainText('Out sick')
       await shot(page, 'status-390-light-drawer.png')
       await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
       await shot(page, 'status-390-dark-drawer.png')
-      await page.locator('[data-drawer]').getByTestId('my-status-row').click()
+      await (await myStatusRow(page)).click()
       await shot(page, 'status-390-dark-dialog-filled.png')
     })
   })

@@ -9,7 +9,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { accountButton, openAccountMenu } from './nav'
+import { accountButton, navRoomRow, navRoomsList, openAccountMenu, roomRowLink, showRooms } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 test.use({ serviceWorkers: 'block' })
@@ -36,8 +36,9 @@ async function start(page: Page) {
   await reset(page)
   await routeRooms(page, ROOMS)
   await signIn(page)
+  await showRooms(page)
 }
-const sidebarRow = (page: Page, name: string) => page.getByTestId('sidebar-room-row').filter({ hasText: name })
+const sidebarRow = (page: Page, name: string) => navRoomRow(page, name)
 const faceIn = (l: Locator) => l.getByTestId('presence-face')
 
 test('a second member\'s dot: online, away, offline in the sidebar and the DM header; group rows have none', async ({ page }) => {
@@ -50,12 +51,12 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'online')
   await expect(row.getByTestId('presence-dot')).toHaveAttribute('data-presence-dot', 'online')
   // the row reads "Bob, 접속 중"
-  await expect(row.getByTestId('sidebar-room')).toHaveAccessibleName(/Bob ?, 접속 중/)
+  await expect(roomRowLink(row)).toHaveAccessibleName(/Bob ?, 접속 중/)
   // a group chat and a team room show no dot, even with Bob online
   for (const name of ['디자인 리뷰', '개발팀']) await expect(sidebarRow(page, name).getByTestId('presence-dot')).toHaveCount(0)
 
   // the DM's header: the dot on the picture, the words after the name
-  await row.getByTestId('sidebar-room').click()
+  await roomRowLink(row).click()
   await expect(page.getByTestId('room-message')).toHaveCount(1)
   const header = page.getByTestId('room-members-button')
   const headerFace = faceIn(page.getByTestId('room'))
@@ -82,7 +83,7 @@ test('a second member\'s dot: online, away, offline in the sidebar and the DM he
   await expect(faceIn(row)).toHaveAttribute('data-presence', 'offline')
   await expect(headerFace).toHaveAttribute('data-presence', 'offline')
   await expect(page.getByTestId('room').getByTestId('presence-dot')).toHaveCount(0)
-  await expect(page.getByTestId('sidebar-rooms-list').getByTestId('presence-dot')).toHaveCount(0)
+  await expect(navRoomsList(page).getByTestId('presence-dot')).toHaveCount(0)
   // the header still says it, for a screen reader
   await expect(header).toHaveAccessibleName(/Bob ?, 오프라인/)
 })
@@ -92,6 +93,7 @@ test('a reload brings the list back with the new connection (it is a state, sent
   await tell(page, [{ id: 'bob', state: 'online' }, { id: 'sora', state: 'away' }])
   await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
   await page.reload()
+  await showRooms(page)
   await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
   await expect(faceIn(sidebarRow(page, '김소라'))).toHaveAttribute('data-presence', 'away')
   await expect(faceIn(sidebarRow(page, '이민수'))).toHaveAttribute('data-presence', 'offline')
@@ -196,14 +198,15 @@ test('screenshots at 1440: the sidebar with all three states, the DM header, the
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
     await page.goto('/')
+    await showRooms(page)
     await expect(faceIn(sidebarRow(page, 'Bob'))).toHaveAttribute('data-presence', 'online')
     await expect(faceIn(sidebarRow(page, '김소라'))).toHaveAttribute('data-presence', 'away')
     await shot(`after-sidebar-1440-${scheme}`)
     await sidebarRow(page, '김소라').hover()
     await shot(`after-sidebar-hover-1440-${scheme}`)
     if (scheme === 'light') {
-      sizes['sidebar-online'] = await measure(sidebarRow(page, 'Bob'), sidebarRow(page, 'Bob').getByTestId('sidebar-room'))
-      sizes['sidebar-away'] = await measure(sidebarRow(page, '김소라'), sidebarRow(page, '김소라').getByTestId('sidebar-room'))
+      sizes['sidebar-online'] = await measure(sidebarRow(page, 'Bob'), roomRowLink(sidebarRow(page, 'Bob')))
+      sizes['sidebar-away'] = await measure(sidebarRow(page, '김소라'), roomRowLink(sidebarRow(page, '김소라')))
       sizes['account-row'] = await measure(accountButton(page), accountButton(page).locator('span.truncate'))
     }
     await openAccountMenu(page)

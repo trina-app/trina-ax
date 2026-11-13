@@ -5,10 +5,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openDrawer } from './nav'
+import { chatList, oldNav, openDrawer, pinnedChats, showChats } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
+// the first three tests are of today's sidebar and drawer (the five latest, "모두 보기"): pinned to it with oldNav; the 트리나
+// panel's 고정 section has its own (trina-panel.spec.ts) and the title menu's test below runs in both
 const side = (page: Page) => page.getByRole('navigation', { name: t['sidebar.label'] })
 const rows = (list: Locator) => list.locator('li')
 /** the rows' titles, in order (an auto-retrying check: the list loads after the page) */
@@ -21,6 +23,7 @@ async function someChats(page: Page, n: number) {
 
 test('"상단에 고정" moves the row to the top with a pin, above the five latest, after a reload too; "고정 해제" puts it back', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await someChats(page, 8)
   await page.reload()
@@ -58,6 +61,7 @@ test('"상단에 고정" moves the row to the top with a pin, above the five lat
 
 test('a right-click on the row opens the same menu; two pins, the most recent first', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await someChats(page, 6)
   await page.reload()
@@ -78,6 +82,7 @@ test.describe('a phone (390 px)', () => {
 
   test('the drawer: the "···" sheet pins the chat, and its row goes first', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page)
     await someChats(page, 4)
     await page.reload()
@@ -100,20 +105,21 @@ test('the chat\'s own title menu pins and unpins it, the row menu\'s item (QA TC
   const id = ((await (await post(page, '/api/chats', { title: '제목 메뉴로 고정' })).json()) as { id: string }).id
   await someChats(page, 6)
   await page.goto(`/c/${id}`)
-  const s = side(page)
-  const latest = s.getByTestId('ai-chats-latest')
+  const s = await chatList(page)
   await expect(s.getByTestId('chat-pin-icon')).toHaveCount(0)
   await page.getByTestId('chat-menu').click()
   const first = page.getByRole('menuitem').first()
   await expect(first).toHaveText(t['chat.pin'])
   await expect(first.locator('svg.lucide-pin')).toHaveCount(1)
   await first.click()
-  // to the top of the short list with the pin, above the five latest (as from the row's "···")
-  await expect(titles(latest).first()).toHaveText('제목 메뉴로 고정')
-  await expect(rows(latest).first().getByTestId('chat-pin-icon')).toBeVisible()
+  // to the top of the list with the pin, above the five latest (as from the row's "···"), or in the 트리나 panel's 고정
+  const pinned = pinnedChats(page)
+  await expect(titles(pinned).first()).toHaveText('제목 메뉴로 고정')
+  await expect(rows(pinned).first().getByTestId('chat-pin-icon')).toBeVisible()
   // after a reload too; then 고정 해제 from the same menu
   await page.reload()
-  await expect(titles(latest).first()).toHaveText('제목 메뉴로 고정')
+  await showChats(page)
+  await expect(titles(pinned).first()).toHaveText('제목 메뉴로 고정')
   await page.getByTestId('chat-menu').click()
   await expect(page.getByTestId('chat-unpin')).toHaveText(t['chat.unpin'])
   await expect(page.getByTestId('chat-unpin').locator('svg.lucide-pin-off')).toHaveCount(1)

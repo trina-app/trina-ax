@@ -13,6 +13,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { oldNav } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -43,6 +44,7 @@ const fontOf = (page: Page, id: string) => side(page).getByTestId(id).evaluate((
 
 test('in order: the team, one labeled row each, the rooms, then the AI chats', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(3) } }) : r.fallback()))
   await signIn(page)
   const s = side(page)
@@ -89,6 +91,7 @@ test('in order: the team, one labeled row each, the rooms, then the AI chats', a
 
 test('the rows by keyboard: a focus ring on each; the Inbox has its count on the row, in words for a screen reader', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/notifications?*', (r) => r.fulfill({ json: { items: [], nextCursor: null, unreadCount: 3 } }))
   await signIn(page)
   const s = side(page)
@@ -110,6 +113,7 @@ test('the rows by keyboard: a focus ring on each; the Inbox has its count on the
 
 test('a member: no Admin row, and the team on top is its name and logo, not a menu', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page, BOB)
   const s = side(page)
   await expect(s.getByTestId('nav-rows').locator(':scope > *')).toHaveCount(7)
@@ -130,6 +134,7 @@ test('a member: no Admin row, and the team on top is its name and logo, not a me
 
 test('the team menu: the team on top opens it; an admin goes to Admin from it', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await page.request.post('/__test/team-address', { data: { address: 'https://acme.trina.app' } })
   await page.reload()
@@ -178,6 +183,7 @@ test('the team menu: the team on top opens it; an admin goes to Admin from it', 
 
 test('the team menu by keyboard: Enter opens it on its first item, arrows wrap, Esc closes it and gives the keyboard back', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const s = side(page)
   const button = s.getByTestId('team-menu')
@@ -212,6 +218,7 @@ test('the team menu by keyboard: Enter opens it on its first item, arrows wrap, 
 
 test('팀원 초대 in the team menu opens the invite flow; closing it gives the keyboard back to the team button', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const s = side(page)
   await s.getByTestId('team-menu').click()
@@ -236,6 +243,7 @@ test('팀원 초대 in the team menu opens the invite flow; closing it gives the
 
 test('the owner with the welcome steps unfinished: 팀원 초대 opens their own invite step, also when the steps are on screen', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   // the first visit starts the steps (회사 소개 first)
   await page.goto('/welcome')
@@ -258,6 +266,7 @@ test('the owner with the welcome steps unfinished: 팀원 초대 opens their own
 
 test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typing); a member finds neither', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const palette = page.getByTestId('search-palette')
   const box = palette.getByRole('combobox')
@@ -303,6 +312,7 @@ test('⌘K finds 관리자 and 팀원 초대 for an admin (not listed before typ
 test('the phone drawer keeps the AI\'s name on top, with no team menu; Admin is on the 나 tab', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   await page.getByRole('button', { name: '메뉴 열기' }).click()
   const drawer = page.locator('[data-drawer]')
@@ -320,6 +330,7 @@ test('the phone drawer keeps the AI\'s name on top, with no team menu; Admin is 
 
 test('short lists keep their entries: "모든 대화" opens the conversations page, "모두 보기" the whole history and "접기" back', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(2) } }) : r.fallback()))
   await signIn(page)
   await someChats(page, 3)
@@ -342,6 +353,7 @@ test('short lists keep their entries: "모든 대화" opens the conversations pa
 test('a hairline at the top of the scroll only while it is scrolled, the color of the one above the account row; nothing moves', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(60) } }) : r.fallback()))
   await signIn(page)
   await someChats(page, 7)
@@ -364,6 +376,7 @@ test('a hairline at the top of the scroll only while it is scrolled, the color o
 
 test('both groups fold and stay folded after a reload', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(3) } }) : r.fallback()))
   await signIn(page)
   await someChats(page, 2)
@@ -409,6 +422,7 @@ const id = (testId: string, nth = 0): [string, number] => [`[data-testid="${test
 
 test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07; QA TC-149): as large as the rows and bold, in the main text colour, AA in both looks, above "더 보기", with room before 트리나 기록', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
   await signIn(page)
   await someChats(page, 3)
@@ -463,6 +477,7 @@ test.describe('a phone (390 px)', () => {
 
   test('in the drawer 트리나 기록 stands above the date heading under it ("오늘"): as large as the rows and bold, heavier, larger and higher contrast than "오늘", in both looks', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page)
     await someChats(page, 3)
     await page.reload()
@@ -495,6 +510,7 @@ test.describe('screenshots: the section titles', () => {
       await page.setViewportSize(phone ? { width: 390, height: 844 } : { width: 1440, height: 900 })
       await page.emulateMedia({ reducedMotion: 'reduce' })
       await reset(page)
+      await oldNav(page)
       await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
       await signIn(page)
       await someChats(page, 4)
@@ -514,6 +530,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
   test(`60 rooms at ${size.width}: one scroll; 대화 shows strictly the five latest and the room on screen, "더 보기 (N)" the rest with what is unread there, remembered; 트리나 기록 in sight`, async ({ page }) => {
     await page.setViewportSize(size)
     await reset(page)
+    await oldNav(page)
     const list = rooms(60)
     await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: list } }) : r.fallback()))
     await signIn(page)
@@ -602,6 +619,7 @@ test.describe('대화 opened by kind', () => {
   test('the top rows stay put, the rest under 팀 대화방, 그룹 대화 and 1:1 대화; a clicked row below does not move, "접기" stays', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await reset(page)
+    await oldNav(page)
     await routeRooms(page, BY_KIND)
     await signIn(page)
     const s = side(page)
@@ -671,6 +689,7 @@ test.describe('대화 opened by kind', () => {
         await page.setViewportSize(size)
         await page.emulateMedia({ reducedMotion: 'reduce' })
         await reset(page)
+        await oldNav(page)
         await routeRooms(page, BY_KIND)
         await signIn(page)
         await side(page).getByTestId('rooms-more').click()
@@ -692,6 +711,7 @@ test.describe('대화 opened by kind', () => {
 
 test('the "?" and the new-answer dot (session markers) come from the chat list: they survive a reload, with no request per chat', async ({ page }) => {
   await reset(page)
+  await oldNav(page)
   await signIn(page)
   const s = side(page)
   // an answer that finishes while I am on Home (one turn at a time: the question below comes after it)

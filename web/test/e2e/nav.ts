@@ -187,27 +187,36 @@ export async function trinaRowLink(page: Page, row: 'scheduled' | 'skills' | 'tr
   return page.getByTestId(`nav-${row}`)
 }
 
-/** The AI's history list, shown: the sidebar's 트리나 기록 (today; on a phone the ☰ drawer), the 트리나 panel (new, on a
- * computer) or the 트리나 tab's list (new, on a phone). Chat rows inside are `li` with a link to `/c/<id>`. */
-export async function chatList(page: Page): Promise<Locator> {
+/** Show the AI's history list: the sidebar's 트리나 기록 is always there on a computer (today); the 트리나 panel (new);
+ * on a phone the ☰ drawer (today) or the 트리나 tab's list (new). Then `navChatList`, `navChatRow`. */
+export async function showChats(page: Page) {
   const neu = await isNewNav(page)
   if (isPhone(page)) {
-    if (neu) {
-      await openTab(page, 'ai')
-      return page.getByTestId('trina-list')
-    }
-    const drawer = page.locator('[data-drawer]')
-    if (!(await drawer.isVisible())) await openDrawer(page)
-    return drawer.getByTestId('recents-list')
+    if (neu) await openTab(page, 'ai')
+    else if (!(await page.locator('[data-drawer]').isVisible())) await openDrawer(page)
+    return
   }
-  if (neu) return (await showPanel(page, 'trina')).getByTestId('trina-list')
-  return page.getByTestId('recents-list')
+  if (neu) await showPanel(page, 'trina')
 }
 
-/** One chat's row in the AI's history list (shown first). */
+/** The AI's history list (`showChats` first): today's capped "트리나 기록" or its whole "모두 보기"; the 트리나 panel's
+ * list with the new navigation (or its filtered view). Chat rows inside are `li` with a link to `/c/<id>`. */
+export const navChatList = (page: Page) => (isPhone(page) ? page.locator('[data-drawer]') : page).getByTestId('recents-list').or(page.getByTestId('trina-list'))
+
+/** One chat's row there, by its id or its title. */
+export const navChatRow = (page: Page, chat: { id: string } | { title: string | RegExp }) =>
+  'id' in chat ? navChatList(page).locator('li', { has: page.locator(`a[href="/c/${chat.id}"]`) }).first() : navChatList(page).locator('li', { hasText: chat.title }).first()
+
+/** `showChats` and the list, in one step. */
+export async function chatList(page: Page): Promise<Locator> {
+  await showChats(page)
+  return navChatList(page)
+}
+
+/** `showChats` and one chat's row, in one step. */
 export async function chatRow(page: Page, chat: { id: string } | { title: string | RegExp }): Promise<Locator> {
-  const list = await chatList(page)
-  return 'id' in chat ? list.locator('li', { has: page.locator(`a[href="/c/${chat.id}"]`) }).first() : list.locator('li', { hasText: chat.title }).first()
+  await showChats(page)
+  return navChatRow(page, chat)
 }
 
 /** The navigation landmark that holds the lists (the sidebar today; the list panel beside the rail): for "the chat
@@ -217,42 +226,43 @@ export async function navLists(page: Page, place: Place = 'trina'): Promise<Loca
   return page.getByRole('navigation').filter({ has: page.getByTestId('sidebar-scroll') })
 }
 
-/** The rooms list, shown: the sidebar's 대화 section (today, capped at five plus the room on screen; `all` opens its
- * "더 보기"), the 대화 panel (new), or the phone's 대화 tab. Rows inside: `roomRow`. */
-export async function roomsList(page: Page, o: { all?: boolean } = {}): Promise<Locator> {
-  const neu = await isNewNav(page)
-  if (isPhone(page)) {
-    if (!(await page.getByTestId('rooms-page').isVisible())) await openTab(page, 'chats')
-    return page.getByTestId('rooms-page')
+/** Show the rooms list on a computer: the sidebar's 대화 section is always there (today: capped at five plus the room
+ * on screen; `all` opens its "더 보기"); with the new navigation the 대화 panel beside the rail (uncapped). The rows are
+ * then `navRoomRows` and the like. A phone's 대화 list is the 대화 tab's page (`openTab(page, 'chats')`). */
+export async function showRooms(page: Page, o: { all?: boolean } = {}) {
+  if (isPhone(page)) return
+  if (await isNewNav(page)) {
+    await showPanel(page, 'chats')
+    return
   }
-  if (neu) return (await showPanel(page, 'chats')).getByTestId('sidebar-rooms-list')
-  const list = page.getByTestId('sidebar-rooms-list')
   const more = page.getByTestId('rooms-more')
   if (o.all && (await more.isVisible()) && (await more.getAttribute('aria-expanded')) !== 'true') await more.click()
-  return list
 }
 
-/** A room's row in the rooms list (the whole row with its "⋯"; on a phone the 대화 tab's row). */
-export async function roomRow(page: Page, name: string | RegExp, o: { all?: boolean } = {}): Promise<Locator> {
-  const list = await roomsList(page, o)
-  return list.getByTestId(isPhone(page) ? 'rooms-row' : 'sidebar-room-row').filter({ hasText: name })
-}
+/** The computer's rooms list (the sidebar's 대화 section or the 대화 panel; `showRooms` first). */
+export const navRoomsList = (page: Page) => page.getByTestId('sidebar-rooms-list')
+/** Its rows, each with the room's link and its "⋯" (`roomRowLink`, `roomRowMenu`). */
+export const navRoomRows = (page: Page) => page.getByTestId('sidebar-room-row')
+/** One room's row in it, by its name. */
+export const navRoomRow = (page: Page, name: string | RegExp) => navRoomRows(page).filter({ hasText: name })
+/** The links of its rows (one per room, in the list's order). */
+export const navRoomLinks = (page: Page) => page.getByTestId('sidebar-room')
+/** The link of a row (what a click opens; its accessible name has the presence and status words). */
+export const roomRowLink = (row: Locator) => row.getByTestId('sidebar-room')
+/** The "⋯" of a row. */
+export const roomRowMenu = (row: Locator) => row.getByTestId('sidebar-room-menu')
+/** The way to every room under the capped sidebar list ("모든 대화"); the 대화 panel has no cap and none. */
+export const allRoomsLink = (page: Page) => page.getByTestId('rooms-all')
 
-/** The link of a room's row (what a click opens; its accessible name has the presence and status words). */
-export async function roomLink(page: Page, name: string | RegExp, o: { all?: boolean } = {}): Promise<Locator> {
-  const row = await roomRow(page, name, o)
-  return isPhone(page) ? row.getByRole('link').first() : row.getByTestId('sidebar-room')
-}
-
-/** The "⋯" of a room's row. */
-export async function roomRowMenu(page: Page, name: string | RegExp): Promise<Locator> {
-  const row = await roomRow(page, name)
-  return row.getByTestId(isPhone(page) ? 'rooms-row-menu' : 'sidebar-room-menu')
-}
-
-/** Open a room from the rooms list, as a person does. */
+/** Open a room from the rooms list, as a person does (a phone: the 대화 tab's row). */
 export async function openRoom(page: Page, name: string | RegExp) {
-  await (await roomLink(page, name, { all: true })).click()
+  if (isPhone(page)) {
+    if (!(await page.getByTestId('rooms-page').isVisible())) await openTab(page, 'chats')
+    await page.getByTestId('rooms-row').filter({ hasText: name }).first().click()
+  } else {
+    await showRooms(page, { all: true })
+    await roomRowLink(navRoomRow(page, name).first()).click()
+  }
   await expect(page).toHaveURL(/\/rooms\/[^/]+/)
 }
 
@@ -349,3 +359,45 @@ export async function activityCount(page: Page): Promise<Locator> {
   if (isPhone(page)) return page.getByTestId('tab-me-unread')
   return page.getByTestId((await isNewNav(page)) ? 'rail-activity-mark' : 'inbox-unread')
 }
+
+/** My status row on a phone (today: the ☰ drawer's; the new tabs: the 나 tab's), shown. */
+export async function myStatusRow(page: Page): Promise<Locator> {
+  if (await isNewNav(page)) {
+    await openTab(page, 'me')
+    return page.getByTestId('my-status-row')
+  }
+  const drawer = page.locator('[data-drawer]')
+  if (!(await drawer.isVisible())) await openDrawer(page)
+  return drawer.getByTestId('my-status-row')
+}
+
+/** The team's logo on top of the navigation (the sidebar's header, 28 px; the rail's top, 36 px). */
+export const teamLogo = (page: Page) => page.getByTestId('sidebar-logo')
+/** A member's plain team header (no menu): the logo and the name. */
+export const teamHeader = (page: Page) => page.getByTestId('team-header')
+
+/** The AI history's filter (status, last activity, group by, sort): today's 트리나 기록 heading's button (shown on hover),
+ * the 트리나 panel header's button (new), or the phone drawer's. Opens its menu; its items are `recents-view-*` and
+ * `recents-<view>-<choice>`. */
+export async function openChatFilter(page: Page) {
+  await showChats(page)
+  const neu = await isNewNav(page)
+  const scope = isPhone(page) ? (neu ? page : page.locator('[data-drawer]')) : neu ? panel(page, 'trina') : page
+  if (!isPhone(page) && !neu) await page.getByTestId('recents-head').hover()
+  await scope.getByTestId('recents-filter').first().click()
+}
+
+/** The filter's "reset" (shown while a filter is on). */
+export const chatFilterClear = (page: Page) => page.getByTestId('recents-filter-clear')
+
+/** A phone tab's mark (its count or "?"): `tab-<tab>-unread`. */
+export const tabMark = (page: Page, tab: PhoneTab) => page.getByTestId(`tab-${tab}-unread`)
+
+/** The mark for the AI chats on a phone: today the ☰ button's dot; the new tabs put it on the 트리나 tab (phase P5). */
+export async function phoneAiMark(page: Page): Promise<Locator> {
+  return page.getByTestId((await isNewNav(page)) ? 'tab-ai-mark' : 'menu-dot')
+}
+
+/** The pinned chats of the AI's history (`showChats` first): today's sidebar section above the five latest, the 트리나
+ * panel's 고정 section. */
+export const pinnedChats = (page: Page) => page.getByTestId('ai-chats-pinned').or(page.getByTestId('trina-pinned'))

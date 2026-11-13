@@ -17,6 +17,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { oldNav } from './nav'
 import { tabBar } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
@@ -79,6 +80,7 @@ export function projectsTabCases() {
 
   test('the tabs are 트리나 · 대화 · 프로젝트 · 나; Projects in 1 tap, a project\'s chats in 2, a file by 프로젝트 › 팀 폴더', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page)
     const { project, chat } = await launch(page)
     await page.goto('/')
@@ -126,6 +128,7 @@ export function projectsTabCases() {
 
   test('a member with no projects: the tab says what a project is, offers 새 프로젝트, and the 팀 폴더 row is below', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page, BOB)
     await tab(page, 'tab-projects').click()
     await expect(page).toHaveURL(/\/projects$/)
@@ -153,6 +156,7 @@ export function projectsTabCases() {
 
   test('Back (nav-v1): a folder → the team folder → 프로젝트\'s root (no swipe) → Android\'s Back shows 트리나 → nothing under it', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await app(page)
     await signIn(page)
     await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: true })
@@ -184,6 +188,7 @@ export function projectsTabCases() {
 
   test('a notification to a file opens it under 프로젝트, the team folder and the list under it', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await app(page)
     await signIn(page)
     const before = await loads(page)
@@ -205,6 +210,7 @@ export function projectsTabCases() {
 
   test('a chat from a project: Back returns to the project; its ✦ (new chat) and Delete switch to 트리나 at Home', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await app(page)
     await signIn(page)
     const { project, chat } = await launch(page)
@@ -252,6 +258,7 @@ export function projectsTabCases() {
 
   test('트리나\'s tab shows Trina\'s own orange star, the same as the room header\'s ✦', async ({ page }) => {
     await reset(page)
+    await oldNav(page)
     await signIn(page)
     const room = uuidv7()
     const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
