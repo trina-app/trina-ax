@@ -30,6 +30,7 @@ import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, 
 import { formatDateTime, formatSize } from '../lib/format'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
+import { useScreenName } from '../lib/screens'
 import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderName, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
@@ -124,7 +125,10 @@ function Files() {
   // the phone's ‹ at the team folder: 파일's places, the tab's root (lib/screens.ts), which the top folders, a project's
   // folder and my own folder are under (their ‹ says 파일), or what is under it in its stack
   const upFromTeamFolder = useGoBack('/files')
-  const teamFolderBackLabel = useBackLabel('/files', () => null)
+  // (its ‹ names where it goes: 파일's places, or the screen under it in its stack; useBackLabel leaves a ‹ alone when that
+  // is the same pathname, /files, but the places are another screen)
+  const screenName = useScreenName()
+  const teamFolderBackLabel = useBackLabel('/files', () => null) ?? screenName(stackNow()?.below?.p ?? '/files')
   const rootName = t('sidebar.files')
   /** the folder ‹ goes to: the one above, or 파일's places for a place's own folder (phones) */
   const upOf = (p: string) => {
@@ -862,7 +866,7 @@ function Files() {
         // named as its row on the projects list ("팀 폴더")
         <PhonePageBar
           onBack={view === 'trash' ? () => setView('files') : path ? () => upTo(path) : upFromTeamFolder}
-          backLabel={view === 'trash' ? (path ? folderName(path) : rootName) : path ? upName(path) : teamFolderBackLabel}
+          backLabel={view === 'trash' ? (path ? folderName(path) : params.has('team') ? t('files.root') : rootName) : path ? upName(path) : teamFolderBackLabel}
           title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.root')}
           heading
           action={

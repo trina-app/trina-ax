@@ -35,7 +35,7 @@
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
 import { Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
 import { PRODUCT_NAMED_AFTER_AI, type Project } from '@mycel/shared/api'
@@ -87,6 +87,10 @@ function HomePage() {
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   const [project, setProject] = useState<Project | null>(null)
   const location = useLocation()
+  // asked for again while Home is on show (트리나에게 묻기, ⇧⌘O): the same address is a REPLACE, not a PUSH, and Home stays
+  // mounted; a new entry of it (not Back) takes the focus too
+  const firstKey = useRef(location.key).current
+  const again = location.key !== firstKey && navigationType !== 'POP'
   const notes = readNotesHint(location.state)
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone opened on Home while the app opens on another tab (lib/tabs.ts START_TAB): that tab's list instead
@@ -150,7 +154,8 @@ function HomePage() {
         resetKey={preset?.n ?? 0}
         // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first. A
         // touch screen never takes it (Composer: a fine pointer only), so a phone's keyboard does not come up by itself
-        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+        autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0 || again}
+        focusKey={location.key}
         card
         aiLine={!noAi}
         waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}

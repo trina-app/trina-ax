@@ -201,8 +201,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const me = useMe()
   const title = useRoomTitle()(room)
   const m = room.lastMessage
-  // an AI answer (no author) is Markdown: one plain line of it
-  const line = !m ? '' : m.author ? m.excerpt.replace(/\s+/g, ' ').trim() : plainLine(m.excerpt)
+  // a message is Markdown (a person's too: the room shows **굵게** bold): one plain line of it, no marks
+  const line = !m ? '' : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const nameOf = useNameOf()
   const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)

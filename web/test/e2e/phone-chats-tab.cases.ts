@@ -221,6 +221,21 @@ export function chatsTabCases() {
     })
   })
 
+  test.describe('a phone, a message in Markdown', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('the list\'s preview is its plain words: no ** * ` marks (the room shows them bold, slanted, as code)', async ({ page }) => {
+      await reset(page)
+      await routeRooms(page, [{ id: DM, kind: 'dm', name: null, peers: [JIHO], ago: 3, last: '**굵게** *기울임* `코드` 확인해 주세요' }])
+      await signIn(page)
+      await tab(page, 'chats').click()
+      const row = page.getByTestId('rooms-row').filter({ hasText: '지호' })
+      await expect(row).toContainText('굵게 기울임 코드 확인해 주세요')
+      await expect(row).not.toContainText('*')
+      await expect(row).not.toContainText('`')
+    })
+  })
+
   test.describe('a phone, past the first page', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 

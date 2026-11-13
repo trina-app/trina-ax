@@ -159,9 +159,13 @@ test('Back from the Trash: the team folder → the Trash row → Back → the te
   for (const how of ['back', '‹'] as const) {
     await teamFolder(page)
     await expect(title(page)).toHaveText(t['files.root'])
+    // ‹ names where it goes: 파일's places
+    await expect(page.getByTestId('files-back-label')).toHaveText(t['sidebar.files'])
     await page.getByTestId('files-open-trash').click()
     await expect(page).toHaveURL(/\/files\?team=1&view=trash$/)
     await expect(title(page)).toHaveText(t['files.trash'])
+    // opened from the team folder: ‹ says 팀 폴더, where it goes
+    await expect(page.getByTestId('files-back-label')).toHaveText(t['files.root'])
     if (how === 'back') await page.goBack()
     else await back(page).click()
     await expect(page).toHaveURL(/\/files\?team=1$/)

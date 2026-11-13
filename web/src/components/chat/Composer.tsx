@@ -83,6 +83,7 @@ export default function Composer({
   models,
   initialText,
   autoFocus,
+  focusKey,
   placeholder,
   footer,
   who,
@@ -116,6 +117,8 @@ export default function Composer({
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   initialText?: string
   autoFocus?: boolean
+  /** a new value takes the focus again while `autoFocus` is on (Home asked for once more while it is on show) */
+  focusKey?: string
   /** the empty box's hint, when it is not the usual one (a project's page) */
   placeholder?: string
   /** a short note in the row under the box (the chat's "AI can make mistakes"); computers only */
@@ -263,7 +266,7 @@ export default function Composer({
   // a box opened with text in it (a chosen suggestion): the caret after the text, never before it
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) focusAtEnd(taRef.current)
-  }, [autoFocus])
+  }, [autoFocus, focusKey])
 
   const addTeamRef = useRef(addTeamFiles)
   addTeamRef.current = addTeamFiles
