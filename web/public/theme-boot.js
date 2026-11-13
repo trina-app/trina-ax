@@ -14,4 +14,13 @@
   if (dark) root.classList.add('dark')
   else root.classList.remove('dark')
   root.style.colorScheme = dark ? 'dark' : 'light'
+  // the browser bar too (index.html has one per system look; the chosen one wins, as in applyTheme), in the edition's
+  // canvas colours that index.html names until the stylesheet is in
+  var metas = document.querySelectorAll ? document.querySelectorAll('meta[name="theme-color"]') : []
+  var color = null
+  for (var i = 0; i < metas.length; i++) {
+    var media = metas[i].getAttribute('media') || ''
+    if (media.indexOf(dark ? 'dark' : 'light') !== -1) color = metas[i].getAttribute('content')
+  }
+  if (color) for (var j = 0; j < metas.length; j++) metas[j].setAttribute('content', color)
 })()

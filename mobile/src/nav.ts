@@ -17,9 +17,11 @@ export function swipeGate(nav: PageNav | null, native: boolean): { prop: boolean
   return { prop: native || swipe, swipe }
 }
 
-/** The module set no swipe (its answer: how many it set) while a page is on screen (it said where Back goes, so its web
- * view is there): a later iOS without the recognizers it looks for, and the property gates the swipe again. */
-export const nativeGateLost = (set: number, nav: PageNav | null): boolean => set === 0 && nav !== null
+/** The module has never set a swipe (its answer: how many it set) and a page is on screen (it said where Back goes, so
+ * its web view is there): a later iOS without the recognizers it looks for, and the property gates the swipe again. Once
+ * it has set one, a 0 is a web view out of the window for a moment, and the module stays (switching then could leave
+ * WebKit's swipe off with the property on). */
+export const nativeGateLost = (set: number, nav: PageNav | null, setBefore: boolean): boolean => set === 0 && nav !== null && !setBefore
 
 /** Android's Back: back in the page; at a tab's root that is not the start tab, the start tab; else out of the app (the
  * system's own Back). Without the page's word: back while the WebView can, as before. */

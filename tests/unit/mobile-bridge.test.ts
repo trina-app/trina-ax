@@ -118,10 +118,12 @@ test('iOS swipe at a tab\'s root: off through the module, so WebKit keeps the ro
   // without it (Android, a build without the module, or one that found nothing to set): the property, as before
   expect(swipeGate(root, false)).toEqual({ prop: false, swipe: false })
   expect(swipeGate(deeper, false)).toEqual({ prop: true, swipe: true })
-  // the module set nothing while a page is on screen: back to the property; before a page said, no web view yet
-  expect(nativeGateLost(0, root)).toBe(true)
-  expect(nativeGateLost(0, null)).toBe(false)
-  expect(nativeGateLost(2, root)).toBe(false)
+  // the module never set anything while a page is on screen: back to the property; before a page said, no web view yet
+  expect(nativeGateLost(0, root, false)).toBe(true)
+  expect(nativeGateLost(0, null, false)).toBe(false)
+  expect(nativeGateLost(2, root, false)).toBe(false)
+  // it did before: a web view out of the window for a moment, the module stays
+  expect(nativeGateLost(0, root, true)).toBe(false)
 })
 
 test('nav-v1: a tapped notification goes to the page\'s router, or loads the path when nothing in the page takes it', () => {

@@ -425,12 +425,15 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const [pageNav, setPageNav] = useState<PageNav | null>(null)
   // iOS: the swipe goes off through the module and the property stays on, so a swipe back to a tab's root slides over
   // its picture, not a white view (src/nav.ts swipeGate); the property again if the module finds nothing to set
-  const [nativeGate, setNativeGate] = useState(!!edgeSwipe)
+  const [nativeGate, setNativeGate] = useState(!!edgeSwipe), swipeSet = useRef(false)
   const gate = swipeGate(pageNav, nativeGate)
   useEffect(() => {
     if (!edgeSwipe || !nativeGate) return
     let gone = false
-    edgeSwipe.setEnabled(gate.swipe).then(set => { if (!gone && nativeGateLost(set, pageNav)) setNativeGate(false) }, () => { if (!gone) setNativeGate(false) })
+    edgeSwipe.setEnabled(gate.swipe).then(set => {
+      if (set > 0) swipeSet.current = true
+      else if (!gone && nativeGateLost(set, pageNav, swipeSet.current)) setNativeGate(false)
+    }, () => { if (!gone && !swipeSet.current) setNativeGate(false) })
     return () => { gone = true }
   }, [gate.swipe, nativeGate, pageNav])
   const [source, setSource] = useState(address.origin + address.entryPath)

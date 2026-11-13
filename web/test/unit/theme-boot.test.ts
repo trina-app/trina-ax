@@ -29,8 +29,13 @@ function page(saved: string | undefined | 'blocked') {
     setItem() {},
   }
   const window = { localStorage, matchMedia: () => media }
-  const document = { documentElement: element }
-  return { root, window, document, localStorage }
+  // index.html's two browser bar colours
+  const metas = [['light', '#fcfbf8'], ['dark', '#0e0c0b']].map(([look, content]) => {
+    const a: Record<string, string> = { media: `(prefers-color-scheme: ${look})`, content: content! }
+    return { getAttribute: (k: string) => a[k] ?? null, setAttribute: (k: string, v: string) => { a[k] = v } }
+  })
+  const document = { documentElement: element, querySelectorAll: () => metas }
+  return { root, window, document, localStorage, metas }
 }
 
 const saved = (globalThis as Record<string, unknown>)
@@ -49,6 +54,8 @@ for (const choice of ['light', 'dark', 'system', undefined, 'sepia', 'blocked'] 
 
       expect(first.root.classes.has('dark')).toBe(dark)
       expect(first.root.colorScheme).toBe(dark ? 'dark' : 'light')
+      // both browser bar colours are the chosen look's
+      for (const m of first.metas) expect(m.getAttribute('content')).toBe(dark ? '#0e0c0b' : '#fcfbf8')
       expect(first.root.classes.has('dark')).toBe(choice === 'dark' || (choice !== 'light' && phoneDark))
     })
   }

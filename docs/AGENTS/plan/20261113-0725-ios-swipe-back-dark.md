@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 07:25
 - Branch: `fix/ios-swipe-back-dark`
-- Status: in progress
+- Status: done
 - Where: `mobile/` (phone app) and `web/index.html` + `web/public/` (team web app). Why: the flash comes from the
   phone app's WebView and from the page's first paint, both core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a visual fix
@@ -60,4 +60,11 @@ Out: a store build or upload (the owner batches store builds).
 
 ## Result
 
-(filled in at the end)
+- Built as planned. Web: `web/public/theme-boot.js` (also sets the browser bar colour, as applyTheme does) and the
+  `<html>` canvas style in `web/index.html`; `lib/theme.ts` exports `THEME_KEY` and `drawnDark`, which the test compares
+  with the boot script. Phone app: `mobile/modules/edge-swipe` (autolinked from `mobile/modules`, checked with
+  `expo-modules-autolinking resolve`), `src/nav.ts` `swipeGate` / `nativeGateLost`, App.tsx keeps the property on with
+  the module. The fallback to the property happens only if the module has never set a recognizer (review: a later 0
+  could leave WebKit's swipe off with the property on).
+- Not checked on a device: needs the next store build (iPhone, dark mode, open a room from a tab's root, swipe back).
+- PR: see the pull request for this branch.
