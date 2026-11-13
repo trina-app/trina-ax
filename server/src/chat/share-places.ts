@@ -8,7 +8,7 @@ import { getRow } from '../integrations/connections/store'
 import { shareRow } from '../integrations/google-drive/shares'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { groupName, roomRow } from '../rooms/store'
-import { sourceOf, type ReadSource } from './read-scope'
+import { slackPlaceName, sourceOf, type ReadSource } from './read-scope'
 
 /** The place of one source as `userId` (`me`, their principal now) may be told it, or null: not named. */
 export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: Principal | null, s: ReadSource): AnswerSharePlace | null {
@@ -20,6 +20,8 @@ export function sharePlaceOf(db: Database, rules: RuleSet, userId: string, me: P
     case 'user': return s.id === userId ? { kind: 'mine' } : null
     case 'integration': { const name = getRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
     case 'drive_share': { const name = shareRow(db, s.id)?.name; return name ? { kind: 'service', name } : null }
+    // Slack messages the person read themselves (their own Slack token): named as they saw them (a channel's name)
+    case 'slack': return s.userId === userId ? { kind: 'service', name: slackPlaceName(s) } : null
     case 'room': {
       const r = roomRow(db, s.id)
       const team = r?.kind === 'team' ? groupName(db, r) : null

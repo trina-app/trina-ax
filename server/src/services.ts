@@ -175,7 +175,9 @@ export interface TurnTool {
  */
 export interface TurnToolProvider {
   name: string
-  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null }
+  /** `seen`: outside content the prompt itself carries (a Slack thread asked from): put in the chat's read scope and
+   * marked as outside content by the turn once its session starts (chat/turn.ts) */
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null; seen?: import('./chat/read-scope').ReadSource[] }
 }
 
 export interface JobHandle {
@@ -215,6 +217,9 @@ export interface Services {
   turnTools?: TurnTool[]
   /** per-person tools built at the start of each turn (C: external-service connections) */
   turnToolProviders?: TurnToolProvider[]
+  /** called when an account is disabled or deleted (admin/users.ts), after its rows changed: a component ends what it
+   * keeps for that person outside this server (C: the person's Slack user token is revoked at Slack) */
+  accountHooks?: { disabled(userId: string): void }[]
   /** subscription mode: the model proxy once the engine core runs (diagnostics show its state) */
   modelProxy?: { readonly state: 'starting' | 'listening' | 'port_in_use' | 'stopped' } | null
 }
