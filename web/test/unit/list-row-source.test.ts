@@ -30,23 +30,19 @@ const ALLOW = new Map<string, string>([
   ['components/ProjectParticipants.tsx', 'to fix: the participant rows wrap their controls under the name (a row with a second line of buttons)'],
 ])
 
-/** hand-built rows other batches are moving onto ListRow now (they do not use the tokens, so the check above cannot see
- * them): listed so they are not forgotten; each batch removes its own */
-const PENDING = new Map<string, string>([
-  ['components/integrations/ConnectorsView.tsx', 'batch 3: one ConnectionRow'],
-  ['components/integrations/AppConnectorCard.tsx', 'batch 3: one ConnectionRow'],
-  ['components/integrations/AiAppConnect.tsx', 'batch 3: one ConnectionRow'],
-  ['components/integrations/MemberAsks.tsx', 'batch 3: one ConnectionRow'],
-  ['pages/AiApps.tsx', 'batch 3: one ConnectionRow'],
-  ['pages/admin/AiApps.tsx', 'batch 3: one ConnectionRow'],
-  ['pages/admin/Engines.tsx', "batch 3: the phone's engine link as a CompactRow"],
+/** the other single-source rows, for a kind of row ListRow is not (they keep their own box, the list tokens' type): every
+ * list of that kind uses them, so a new list of it builds on them, not on its own markup */
+const SHARED = new Map<string, string>([
+  ['components/integrations/ConnectionRow.tsx', "a connection or app: a 40px logo, name, line and one status or action (docs/DECISIONS.md \"Connection rows: one look\")"],
+  ['components/settings/SettingRow.tsx', 'a setting: name, line and its control (type-scale-source.test.ts locks its sizes)'],
+  ['components/CompactRow.tsx', "Admin's people and groups on a phone"],
 ])
 
 const sources = files(SRC).map((p) => ({ file: rel(p), text: fs.readFileSync(p, 'utf8') }))
 const users = sources.filter((s) => TOKENS.test(s.text)).map((s) => s.file)
 
 describe('list rows: one source', () => {
-  test('only the shared pieces use the row tokens (build a row with ListRow, rowBox or panelRow)', () => {
+  test('only the shared pieces use the row tokens (build a row with ListRow, rowBox or panelRow, or one of SHARED)', () => {
     expect(users.filter((f) => !ALLOW.has(f))).toEqual([])
   })
 
@@ -54,7 +50,7 @@ describe('list rows: one source', () => {
     expect([...ALLOW.keys()].filter((f) => !users.includes(f))).toEqual([])
   })
 
-  test('every pending file is still there (a batch that moves or removes one takes its entry out)', () => {
-    expect([...PENDING.keys()].filter((f) => !sources.some((s) => s.file === f))).toEqual([])
+  test('every shared row is still there (a move or rename takes its entry along)', () => {
+    expect([...SHARED.keys()].filter((f) => !sources.some((s) => s.file === f))).toEqual([])
   })
 })

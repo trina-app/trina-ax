@@ -211,7 +211,7 @@ export async function openAppSettings(): Promise<void> {
   // and that is no failure. Coming back checks the permission again (lib/mobile-push.ts).
   void request({ ...envelope(config), type: 'open-settings' }, config, 600_000).catch(() => {})
 }
-/** The app can show its own "다른 팀에 연결" screen over this team (change-team-v1): the 나 tab's "다른 팀으로 전환…". */
+/** The app can show its own "다른 팀에 연결" screen over this team (change-team-v1): the 나 tab's "다른 팀으로 전환". */
 export const appChangesTeam = () => !!mobileApp()?.capabilities.includes(CHANGE_TEAM_CAPABILITY)
 export async function changeTeamInApp(): Promise<void> {
   const turn = epoch

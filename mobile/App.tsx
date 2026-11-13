@@ -486,7 +486,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       await sheets.run(() => Share.share({ message: text }))
     // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (no iOS menu before the library)
     }, new PhotoPicks(photoPickIO(), undefined, sheets),
-    // change-team-v1: the 나 tab's "다른 팀으로 전환…", the same screen as the signed-out footer's "다른 팀에 연결"
+    // change-team-v1: the 나 tab's "다른 팀으로 전환", the same screen as the signed-out footer's "다른 팀에 연결"
     () => changeTeam())
     void receiver.current.disable()
   }

@@ -6,7 +6,7 @@
 // them it is the team's logo and name, not a button (a menu with no items would be a dead end). Keyboard as in the
 // profile menu: the first item takes focus, arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and
 // a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab. In the desktop
-// app the menu ends with "다른 팀으로 전환…" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
+// app the menu ends with "다른 팀으로 전환" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
 // member's logo is a button too.
 import clsx from 'clsx'
 import { ArrowLeftRight, Shield, UserPlus } from 'lucide-react'
@@ -40,7 +40,7 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
-  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환…" for everyone, so a
+  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환" for everyone, so a
   // member gets the menu too; a plain browser is one team per address
   const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)

@@ -38,8 +38,10 @@
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Link2, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, Users } from 'lucide-react'
-import { foldRuns } from '../components/nav/TaskRunsRow'
+import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { scheduleName } from '../lib/scheduleText'
+import { useSessionMarkers } from '../store/sessionMarkers'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -494,50 +496,91 @@ export function ProjectList() {
   )
 }
 
-/** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
+/** A project page's chat list rows (a chat, a scheduled task's runs folded into one) are the lists' rows
+ * (components/list/List.tsx ListRow) built the same way, so every title starts at one x in one size, weight and colour,
+ * every row has one height, and every time ends at one x (QA TC-990): each keeps the "···" slot at its end whether it
+ * has a menu or not (`rowMenu`, `menuSpace`), so the menu showing on hover moves nothing. What a row is (pinned, shared,
+ * a scheduled task's clock) is a small mark after the title, never before it, so no mark moves a title off the list's
+ * edge; how a chat stands (who wrote in it, how a task's runs went) is before its time. */
+function projectRowName(title: string, marks?: ReactNode) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate" data-testid="project-row-title">{title}</span>
+      {marks}
+    </span>
+  )
+}
+function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
+  const locale = useLocale()
+  return (
+    <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 self-center text-meta text-faint">
+      {children}
+      <time dateTime={at} className="shrink-0 tabular-nums">{formatRelative(at, locale)}</time>
+    </span>
+  )
+}
+
+/** A chat on a project's page: its title and when it last changed. A shared chat has the people icon after the title
  * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
  * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
  * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
  * a phone. */
 export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
-  const locale = useLocale()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "…" after an item (a dialog it opens gives it back there)
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
   const name = c.title || t('chat.untitled')
-  // the lists' row (components/list/List.tsx): pin and shared icon, the title, who wrote and when at its end, its "…"
-  // (right-click and long press too)
   return (
     <ListRow
       to={`/c/${c.id}`}
       state={{ [RAIL_STATE_KEY]: 'projects' }}
       rowRef={row}
-      lead={
-        (c.pinnedAt || c.shared) && (
-          <>
-            {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-            {c.shared && <SharedIcon className="text-faint" />}
-          </>
-        )
-      }
-      name={name}
+      name={projectRowName(
+        name,
+        <>
+          {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
+          {c.shared && <SharedIcon className="text-faint" />}
+        </>,
+      )}
       end={
-        <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 self-center text-meta text-faint">
+        <ProjectRowEnd at={c.updatedAt}>
           {c.shared && (
             <>
               <ChatFaces shared={c.shared} focusFrom={row} />
               <span aria-hidden>·</span>
             </>
           )}
-          <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
-        </span>
+        </ProjectRowEnd>
       }
       rowMenu={{ items, label: t('rooms.menu.rowLabel', { name }), tip: t('rooms.menu.label'), sheetTitle: name, buttonRef: more, testId: 'project-chat-menu' }}
       testId="project-chat"
       link={{ 'data-shared': c.shared ? 'true' : undefined }}
+    />
+  )
+}
+
+/** A scheduled task's runs started in this project as one row of its chat list (components/nav/TaskRunsRow.tsx): the
+ * task's name with its clock after it, how its newest run went and that run's time; it opens the task's page. */
+function ProjectTaskRow({ runs }: { runs: Run[] }) {
+  const t = useT()
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const unread = runsUnread(runs, here)
+  return (
+    <ListRow
+      to={taskRunsPath(runs)}
+      unread={unread}
+      menuSpace
+      name={projectRowName(scheduleName(runs[0]!.schedule, t), <TaskRunsIcon />)}
+      end={
+        <ProjectRowEnd at={runs[0]!.updatedAt}>
+          <TaskRunsMark runs={runs} />
+        </ProjectRowEnd>
+      }
+      testId="task-runs-row"
+      link={taskRunsAttrs(runs, unread)}
     />
   )
 }
@@ -1080,22 +1123,25 @@ function ProjectPage() {
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
             {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
-            <h2 id="pj-chats" className="mb-1 text-title-sm font-semibold">
-              {t('sidebar.aiChats', { name: aiName(t) })}
-            </h2>
+            {/* the heading's line: the name, and at its end, on its baseline, 기존 대화 가져오기 for a member, however many
+                chats it has (QA TC-1001: a task's runs counted too, so it came and went; docs/DECISIONS.md "Making a project") */}
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h2 id="pj-chats" className="min-w-0 truncate text-title-sm font-semibold">
+                {t('sidebar.aiChats', { name: aiName(t) })}
+              </h2>
+              {!outside && !p.inTrash && (
+                <Button size="sm" className="shrink-0" onClick={() => setImporting(true)} data-testid="project-import">
+                  <Import size={14} aria-hidden /> {t('projects.page.import')}
+                </Button>
+              )}
+            </div>
             {!chats && <Skeleton lines={3} />}
             {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t('projects.page.chatsEmpty')}</p>}
-            {/* a new or nearly empty project: my chats outside projects come in from here (docs/DECISIONS.md "Making a project") */}
-            {chats && chats.length < 3 && !outside && !p.inTrash && (
-              <Button size="sm" className="mt-2 mb-1" onClick={() => setImporting(true)} data-testid="project-import">
-                <Import size={14} aria-hidden /> {t('projects.page.import')}
-              </Button>
-            )}
             <ul className="divide-y divide-line">
-              {/* the runs of one scheduled task started here: one row that opens the task (nav/TaskRunsRow.tsx) */}
+              {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
                 <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
-              ), { menuSpace: true })}
+              ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>
         </div>

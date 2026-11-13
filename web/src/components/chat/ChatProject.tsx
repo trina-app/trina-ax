@@ -1,5 +1,5 @@
 // A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
-// Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project…" opens:
+// Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project" opens:
 // it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
 // can see the project). Its first row "+ 새 프로젝트" makes a project named after the chat (NewProjectDialog.tsx: the name
 // only, mine alone) and moves the chat in, with 되돌리기 in the toast (docs/DECISIONS.md "Making a project"). Each

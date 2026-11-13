@@ -16,6 +16,7 @@ import { AI_APPS, aiAppLogo, type AiApp } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, IconButton, Modal } from '../ui'
 import { LogoTile } from './ConnectorsView'
+import { ConnectionRow, connectionLogo } from './ConnectionRow'
 
 export const CONNECTOR_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/site/agents/mcp-connector.md`
 /** The name the app shows for this server (Claude Code: `claude mcp add … <name> <url>`). */
@@ -57,20 +58,16 @@ export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onCo
       {AI_APPS.map((app) => {
         const mine = connectedTo(app, connected)
         return (
-        <li key={app.id} className="flex items-center gap-3 p-2" data-testid={`ai-app-${app.id}`}>
-          <AiAppLogo app={app} className="size-9" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-row font-medium">{appName(app, t)}</span>
-            <span className="mt-0.5 block truncate text-xs text-muted">{t(`aiApps.${app.id}.desc`)}</span>
-          </span>
-          {mine.length > 0 && (
-            <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
-              <Check size={14} className="shrink-0" aria-hidden />
-              <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
-            </span>
-          )}
-          {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0 max-md:h-11" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
-        </li>
+        <ConnectionRow key={app.id} testId={`ai-app-${app.id}`} className="px-2" logo={<AiAppLogo app={app} className={connectionLogo} />} name={appName(app, t)} line={t(`aiApps.${app.id}.desc`)}
+          end={(mine.length > 0 || on) && <>
+            {mine.length > 0 && (
+              <span className="inline-flex max-w-40 items-center gap-1 truncate text-xs text-ok" data-testid={`ai-app-connected-${app.id}`}>
+                <Check size={14} className="shrink-0" aria-hidden />
+                <span className="truncate">{app.name ? t('aiApps.connectedBadge') : t('aiApps.connected', { name: mine.join(', ') })}</span>
+              </span>
+            )}
+            {on && <Button size="sm" variant={mine.length > 0 ? 'ghost' : undefined} className="shrink-0 max-md:h-11" onClick={() => onConnect(app)} aria-label={t('aiApps.connectTitle', { name: appName(app, t) })} data-testid={`ai-app-connect-${app.id}`}>{t('aiApps.connect')}</Button>}
+          </>} />
         )
       })}
     </>

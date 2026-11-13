@@ -11,6 +11,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button } from '../ui'
 import { LogoTile } from './ConnectorsView'
+import { ConnectionRow, connectionLogo } from './ConnectionRow'
 
 const logoOf = (s: RequestableService) => {
   if (isGoogleRequestable(s)) return builtInLogo(s)
@@ -58,17 +59,12 @@ export function MemberAsks({ asks, onAdd }: { asks: ReturnType<typeof useMemberA
           const name = requestableName(r.service)
           const who = r.askers.length > 1 ? t('serviceRequest.admin.more', { name: r.askers[0]!.name, n: r.askers.length - 1 }) : t('serviceRequest.admin.one', { name: r.askers[0]?.name ?? '' })
           return (
-            <li key={r.service} className="flex flex-wrap items-center gap-3 px-2 py-2.5" data-testid="member-ask" data-service={r.service}>
-              <LogoTile src={logoOf(r.service)} className="size-9" />
-              <span className="min-w-0 flex-[1_1_10rem]">
-                <span className="block truncate text-row font-medium">{name}</span>
-                <span className="block truncate text-xs text-muted" title={r.askers.map((a) => a.name).join(', ')}>{who}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end">
+            <ConnectionRow key={r.service} testId="member-ask" data={{ 'data-service': r.service }} className="px-2" logo={<LogoTile src={logoOf(r.service)} className={connectionLogo} />}
+              name={name} line={<span title={r.askers.map((a) => a.name).join(', ')}>{who}</span>}
+              end={<>
                 <Button size="sm" variant="ghost" busy={busy === r.service} onClick={() => void dismiss(r.service)} data-testid="member-ask-dismiss">{t('serviceRequest.admin.dismiss')}</Button>
                 <Button size="sm" variant="primary" onClick={() => onAdd(r.service)} data-testid="member-ask-add">{t('serviceRequest.admin.add')}</Button>
-              </span>
-            </li>
+              </>} />
           )
         })}
       </ul>

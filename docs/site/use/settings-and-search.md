@@ -23,8 +23,8 @@ list.
 
 ### Switching teams
 
-In the desktop app, click your team's logo at the top of the bar on the left and pick **다른 팀으로 전환…** (Switch
-team…): it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **나** tab, under
+In the desktop app, click your team's logo at the top of the bar on the left and pick **다른 팀으로 전환** (Switch
+team): it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **나** tab, under
 your team. In a web browser each team has its own address, so there is nothing to switch.
 
 ## The Settings window

@@ -293,7 +293,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
             // where fit() puts it (menuSpot), at once: no transition (with reduced motion every property has a short
             // one, index.css), which would leave it at 0,0 for a frame and spoil fit()'s measure at 0,0
             'md:top-[var(--menu-y,0px)] md:left-[var(--menu-x,0px)] md:transition-none',
-            // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek…");
+            // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek");
             // a window narrower than that: as wide as the window less its edges, the words wrap
             'md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto',
             // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts

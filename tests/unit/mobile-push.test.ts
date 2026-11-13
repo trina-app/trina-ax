@@ -288,7 +288,7 @@ test('share-text-v1: the phone\'s share sheet with a bounded text, only with the
   expect(shared).toEqual([text])
 })
 
-test('change-team-v1: the 나 tab\'s "다른 팀으로 전환…" opens the app\'s own "다른 팀에 연결" screen, only with the capability, at most once in a few seconds', async () => {
+test('change-team-v1: the 나 tab\'s "다른 팀으로 전환" opens the app\'s own "다른 팀에 연결" screen, only with the capability, at most once in a few seconds', async () => {
   let shown = 0
   const app = (capabilities: readonly string[], changeTeam?: () => void) => {
     const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, undefined, undefined, changeTeam)

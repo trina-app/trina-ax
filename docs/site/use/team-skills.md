@@ -62,7 +62,7 @@ A team project in `projects/<project>/` can have skills of its own in its `skill
 
 - Whoever can write the project's folder can add or change them; the AI asks on a card first, named for the project, and every change is recorded with the project's name.
 - A project skill only adds new names. A name the team, a group or you already use is marked **Same name: the whole team** on the page, and the AI's card offers another name instead of saving one that would never run.
-- To move a skill between the team, a group, a project and your own skills, use **Move…** in the skill's menu: it shows who gains and who loses it at each level, and the whole text before more people get it. You can also ask the AI in a project chat; it only moves a skill where fewer people get it, after a card that lists every file.
+- To move a skill between the team, a group, a project and your own skills, use **Move** in the skill's menu: it shows who gains and who loses it at each level, and the whole text before more people get it. You can also ask the AI in a project chat; it only moves a skill where fewer people get it, after a card that lists every file.
 
 ## Write a skill
 

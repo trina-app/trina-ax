@@ -1,5 +1,5 @@
 // Moving and copying a skill between levels (server/src/skills/move.ts, docs/DECISIONS.md "Project skills"): the AI's
-// move_skill (`keep`: a copy) and the Skills page's 옮기기… (GET / POST /api/skills/move). Write on both places for a
+// move_skill (`keep`: a copy) and the Skills page's 옮기기 (GET / POST /api/skills/move). Write on both places for a
 // move, read on the original for a copy; no skill of that name at the target, a SKILL.md folder for a project, no wider
 // skill of the name for a project (a copy keeps its original, so a same-name project copy is refused: give it a name).
 // The AI may propose any move the Skills page makes (owner, 2026-11-10): its card says who gains and loses it (by name

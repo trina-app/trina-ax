@@ -617,7 +617,7 @@ function skillTools(exec: TurnExec): Tool[] {
 }
 
 // ---------------- move_skill ----------------
-// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기… moves it,
+// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
 // yes on the server's card, which the AI cannot write. The card says who newly gets the skill, who stops getting it and
 // who newly may change it (by name only to the owner, admins and a project's creator for its side: seesWho; counts for
