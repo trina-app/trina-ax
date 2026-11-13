@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 02:06
 - Branch: `feat/slack-read-one-connect`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/integrations/slack/`, `server/src/chat/`, `web/`). Why: the Slack connector is core
   (docs/SLACK.md); the hosting service's part is only written down here (it lives in another repo).
 - Version impact: minor, a new ability (the AI reads Slack) and a migration.
@@ -62,3 +62,14 @@ Out: files in Slack messages; reading Slack from scheduled runs' cards; writing 
 - Tokens: sealed, never in logs, prompts or answers; revoked on every way out.
 - Existing workspaces: the owner adds the user scopes (own app) / the hosting service updates its app (official);
   until then linking works as before and reading is simply not offered.
+
+## Result
+
+Built as planned. Own app: OAuth v2 with the ten user scopes on the existing callback; official app: broker calls
+`signin/read/start` / `signin/read/redeem` (contract in `shared/src/cloud-protocol/slack-broker.ts`; the hosting
+service still has to build them, docs/SLACK.md "The hosting service's part"). Migration 348. An independent review
+found three medium issues, all fixed: a forged `error=invalid_scope` could mark the whole team "missing" (now only from
+the flow's own person's browser), a refused flow could revoke a token still in use (now kept when it is the stored
+one), and the DM button vanished with the "working…" message (that message now stays). Left: a hard-deleted account's
+token row goes by cascade without a revoke at Slack (accounts are normally disabled, which revokes);
+`assistant.search.context` instead of the legacy `search.messages`.

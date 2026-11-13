@@ -25,7 +25,7 @@ export interface FakeSlack {
   /** codes Slack's "Sign in with Slack" gave a browser, and what their id_token says */
   codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string; badIdToken?: boolean }>
   /** codes Slack's OAuth v2 page (user scopes) gave a browser: who allowed it, and what oauth.v2.access answers */
-  oauthCodes: Record<string, { user: string; team?: string; scope?: string; tokenType?: string; noToken?: boolean }>
+  oauthCodes: Record<string, { user: string; team?: string; scope?: string; tokenType?: string; noToken?: boolean; token?: string }>
   /** user tokens Slack gave out (oauth.v2.access): whose, and whether they were revoked (auth.revoke) */
   userTokens: Record<string, { user: string; team: string; scope: string; revoked?: boolean }>
   /** conversations a user token can read: members (Slack user ids; none = a public channel everyone sees), messages */
@@ -228,8 +228,9 @@ export function startFakeSlack(): FakeSlack {
           if (!c) return json({ ok: false, error: 'invalid_code' })
           delete fake.oauthCodes[args.code!]
           const scope = c.scope ?? 'channels:history,groups:history,im:history,mpim:history,channels:read,groups:read,im:read,mpim:read,users:read,search:read'
-          const t = `xoxp-${c.user.toLowerCase()}-${Object.keys(fake.userTokens).length + 1}-` + 'u'.repeat(20)
-          fake.userTokens[t] = { user: c.user, team: c.team ?? fake.team.id, scope }
+          // `token`: the user token that person already has (real Slack gives the same one again)
+          const t = c.token ?? `xoxp-${c.user.toLowerCase()}-${Object.keys(fake.userTokens).length + 1}-` + 'u'.repeat(20)
+          if (!fake.userTokens[t]) fake.userTokens[t] = { user: c.user, team: c.team ?? fake.team.id, scope }
           return json({ ok: true, app_id: fake.appId, team: { id: c.team ?? fake.team.id, name: fake.team.name }, authed_user: { id: c.user, scope, ...(c.noToken ? {} : { access_token: t }), token_type: c.tokenType ?? 'user' } })
         }
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })

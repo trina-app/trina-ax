@@ -248,7 +248,8 @@ describe('one sign-in links and lets the AI read Slack, through the hosting serv
 
   test('Slack refuses the user scopes: linking is not hurt, Admin › Slack asks to update the permissions', async () => {
     await call('bob', 'POST', '/api/slack/signin', { read: true })
-    expect(outcome(await open(null, broker.slackReturn('read', { error: 'missing_scope' })))).toBe('scopes_missing')
+    // (the browser is bob's own: a refusal in anyone else's browser marks nothing team-wide)
+    expect(outcome(await open('bob', broker.slackReturn('read', { error: 'missing_scope' })))).toBe('scopes_missing')
     const a = await admin()
     expect(a.readScopes).toBe('missing')
     expect(a.userScopes).toEqual(userScopes.split(','))

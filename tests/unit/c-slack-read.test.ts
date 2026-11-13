@@ -143,6 +143,15 @@ describe('one Sign in with Slack links and lets the AI read Slack', () => {
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
   })
 
+  test('a refusal in a browser that is not the flow\'s own person\'s marks nothing team-wide', async () => {
+    const p = params((await call('bob', 'POST', '/api/slack/signin', {})).json.authorizationUrl)
+    // no session, or someone else's: the flow goes on at the old sign-in, but Admin › Slack is not told anything
+    const loc = await backTo(null, { state: p.state!, error: 'invalid_scope' })
+    expect(new URL(loc).pathname).toBe('/openid/connect/authorize')
+    expect((await call('dana', 'GET', '/api/admin/slack')).json.readScopes).toBeNull()
+    expect((await call('bob', 'GET', '/api/slack/me')).json.readOffered).toBe(true)
+  })
+
   test('a Slack app without the user scopes yet: the same click goes on at the old sign-in (linking only)', async () => {
     const started = await call('erin', 'POST', '/api/slack/signin', {})
     const p = params(started.json.authorizationUrl)
@@ -239,6 +248,16 @@ describe('the AI\'s Slack tools read as the person', () => {
     expect(kept('alice')).toBeNull()
     // alice allows it again from Settings (the same sign-in, reading only)
     expect(await signIn('alice', 'U0ALICE', { read: true })).toBe('/settings/connectors?slack=read_allowed')
+    expect(kept('alice')).not.toBeNull()
+  })
+
+  test('someone else\'s flow allowed with a Slack account that already reads: refused, and that person\'s token is not revoked', async () => {
+    const aliceToken = tokenOf('U0ALICE')!
+    const p = params((await call('erin', 'POST', '/api/slack/signin', { read: true })).json.authorizationUrl)
+    fake.oauthCodes['code-alice-again'] = { user: 'U0ALICE', token: aliceToken }
+    expect(outcome(await backTo(null, { state: p.state!, code: 'code-alice-again' }))).toBe('read_other_account')
+    await Bun.sleep(100)
+    expect(fake.userTokens[aliceToken]!.revoked).toBeUndefined()
     expect(kept('alice')).not.toBeNull()
   })
 

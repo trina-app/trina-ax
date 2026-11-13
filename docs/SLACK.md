@@ -178,7 +178,12 @@ log line, prompt or chat.
   Slack refuses the page; linking goes on at the old sign-in in the same click (no reading), and Admin › Connected apps
   › Slack shows **Update Slack permissions**: the team's own app: add the User Token Scopes below in *OAuth &
   Permissions*, reinstall the app, then **I updated them**; the official app: **Add to Slack** again to approve them. A
-  grant with fewer scopes than asked: linked, the token revoked, the same prompt.
+  grant with fewer scopes than asked: linked, the token revoked, the same prompt. Slack's refusal only counts for the
+  prompt when it comes back to the browser of the person whose sign-in it was (anyone can type an error into an
+  address).
+- **A refused sign-in never ends someone's reading**: Slack gives the same user token again when the same person allows
+  the same app again, so a token a refused flow got is revoked only when it is not the one kept for that Slack user.
+  The button in Slack and a sign-in from the app do not cancel each other; the buttons are at most 10 an hour.
 - **Ends**: Unlink, a disabled or deleted account, Remove, another workspace saved, or Slack refusing the token (the
   person removed the app's access in Slack): the token is revoked at Slack (`auth.revoke`) and deleted.
 - **Post to channel**: Slack messages from the conversation the answer goes back to need no notice; any other (another

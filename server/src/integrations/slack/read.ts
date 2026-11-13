@@ -86,7 +86,7 @@ async function namesOf(s: SlackConnector, token: string, msgs: Msg[]): Promise<M
       const r = await s.api.call('users.info', token, { user: id }, { noWait: true })
       const u = r.user as { real_name?: unknown; name?: unknown; profile?: { display_name?: unknown; real_name?: unknown } } | undefined
       const pick = [u?.profile?.display_name, u?.real_name, u?.profile?.real_name, u?.name].find((v) => typeof v === 'string' && v.trim()) as string | undefined
-      if (pick) { const name = clean(pick).trim().slice(0, 80); out.set(id, name); s.names.set(id, { name, at: s.now() }) }
+      if (pick) { const name = clean(pick).trim().slice(0, 80); out.set(id, name); if (s.names.size > 5000) s.names.clear(); s.names.set(id, { name, at: s.now() }) }
     } catch { /* the id stays */ }
   }
   return out
@@ -95,12 +95,12 @@ async function namesOf(s: SlackConnector, token: string, msgs: Msg[]): Promise<M
 /** Messages as lines, oldest first: time, who, the text (cut), files by name, and a thread's replies with its ts. At most
  * `maxChars`: the first message and the newest that fit (a line says how many were left out). */
 export function messageLines(msgs: Msg[], names: ReadonlyMap<string, string>, maxChars: number): string {
-  const lines = msgs.filter((m) => typeof m.ts === 'string').map((m) => {
+  const lines = msgs.filter((m) => typeof m.ts === 'string' && TS.test(m.ts)).map((m) => {
     const who = typeof m.user === 'string' ? names.get(m.user) ?? m.user : typeof m.username === 'string' ? clean(m.username) : typeof m.bot_id === 'string' ? 'a bot' : 'someone'
     let body = typeof m.text === 'string' ? slackPlain(m.text, names) : ''
     if (body.length > MESSAGE_CHARS) body = `${body.slice(0, MESSAGE_CHARS)}… (cut)`
     const files = Array.isArray(m.files) ? m.files.map((f) => (f && typeof (f as { name?: unknown }).name === 'string' ? clean((f as { name: string }).name).slice(0, 120) : null)).filter(Boolean) : []
-    const thread = typeof m.reply_count === 'number' && m.reply_count > 0 && m.thread_ts === m.ts ? ` [thread: ${m.reply_count} replies, thread_ts=${m.ts}]` : ''
+    const thread = typeof m.reply_count === 'number' && Number.isSafeInteger(m.reply_count) && m.reply_count > 0 && m.thread_ts === m.ts ? ` [thread: ${m.reply_count} replies, thread_ts=${m.ts}]` : ''
     return `[${timeOf(m.ts as string)}] ${clean(who).replace(/</g, '‹')}: ${body}${files.length ? ` (files: ${files.join(', ').replace(/</g, '‹')})` : ''}${thread} (ts=${m.ts})`
   })
   let size = 0
@@ -242,8 +242,9 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
           const names = await namesOf(s, s.botToken() ?? tk.token, list)
           const lines = list.map((m) => {
             const c = m.channel
-            const where = c?.is_im === true ? 'a direct message' : c?.is_mpim === true ? 'a group direct message' : `#${typeof c?.name === 'string' ? clean(c.name).slice(0, 80) : '?'}`
-            return `${where} (channel=${typeof c?.id === 'string' ? c.id : '?'}) ${messageLines([m], names, MESSAGE_CHARS + 300)}${typeof m.thread_ts === 'string' && m.thread_ts !== m.ts ? ` [in thread_ts=${m.thread_ts}]` : ''}`
+            const where = c?.is_im === true ? 'a direct message' : c?.is_mpim === true ? 'a group direct message' : `#${typeof c?.name === 'string' ? clean(c.name).slice(0, 80).replace(/</g, '‹') : '?'}`
+            const id = typeof c?.id === 'string' && ID.test(c.id) ? c.id : '?'
+            return `${where} (channel=${id}) ${messageLines([m], names, MESSAGE_CHARS + 300)}${typeof m.thread_ts === 'string' && TS.test(m.thread_ts) && m.thread_ts !== m.ts ? ` [in thread_ts=${m.thread_ts}]` : ''}`
           })
           let body = lines.join('\n')
           if (body.length > TOOL_CHARS) body = `${body.slice(0, TOOL_CHARS)}… (cut)`
