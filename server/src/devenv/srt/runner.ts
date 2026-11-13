@@ -671,7 +671,7 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     if (filter?.userId && a.space.userId !== filter.userId) continue
     const key = `${a.space.userId}\0${a.space.root}`
     if (!hashes.has(key)) hashes.set(key, accessHash(ctx, a.space))
-    if (hashes.get(key) !== a.access) { a.stopReason = 'setting'; await c.system.stop(a.runId, a.pid) }
+    if (hashes.get(key) !== a.access) { a.stopReason = 'setting'; try { await c.system.stop(a.runId, a.pid) } catch (e) { ctx.log?.warn?.('devenv: stopping a command failed', { error: (e as Error).message }) } }
   }
   for (const r of openRuns(ctx.db, 'running')) {
     if (filter?.chatId && r.chat_id !== filter.chatId) continue
