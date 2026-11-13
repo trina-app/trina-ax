@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 16:02
 - Branch: `fix/page-list-density`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/list/List.tsx` (ListRow), its tokens in `web/src/index.css`. Why: the row's density is a
   shared list decision, so a page's main list gets it from the shared piece, not from markup of its own
   (docs/REPOSITORY-RULES.md, docs/DECISIONS.md "Lists: every row on ListRow").
@@ -39,3 +39,10 @@ Out: panels, the sidebar, phone tabs and the drawer keep `rowBox` (30 px / 48 px
 ## Risks
 
 Shared component: the default stays the panel density, so every other ListRow is unchanged. No migration, no copy.
+
+## Result
+
+`ListRow scale="page"` (`pageRowBox`, `--spacing-row-page` 48 px) on the project page's chats and folded task and on
+팀 스킬's skills and share reviews; the callers' `-mx-3` are gone. The share reviews on 팀 스킬 came along (same page as
+the skills). e2e `project-schedule-row.spec.ts` checks heights, title x = h2 x, time edges, faces and a pinned row.
+typecheck, check:i18n, web unit 3214/0, affected e2e 129/129 and a11y 31/31 pass.
