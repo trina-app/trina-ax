@@ -157,9 +157,9 @@ describe('the card, and the post', () => {
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
     expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).")
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', '__always', 'no'])
-    // four answers: a list, not buttons (buttons hold three)
-    expect(r.card!.buttons).toBeUndefined()
+    // no "Always allow" on a card that offers the linked files (review of #678): three buttons as before
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
+    expect(r.card!.buttons).toBe(true)
     // the file that [파일도 함께 보내기] attaches, by its path
     expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!

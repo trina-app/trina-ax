@@ -6,9 +6,9 @@
 // those addresses still ask. The team can switch the choice off (Admin > Team settings, `browserAllowAll`): then "all"
 // is refused and a saved "all" goes back to "ask" (teamAllowsAll, the last policy the team server sent, kept here).
 // The person's own "Allow all websites" for the AI's web reads lives on the team server (Me.user.webAllowAll,
-// docs/DECISIONS.md "Allow all websites covers the AI's web reads"): the server can make this browser stricter, never
-// wider, so only a change from on to off is followed (back to "ask"); an on never widens it (personAllowsAll, the last
-// value the team server sent, kept here).
+// docs/DECISIONS.md "Allow all websites covers the AI's web reads", "Always allow on every card"): followed both ways
+// while the team allows "all" (on: this browser opens every public site too; off: back to "ask"); personAllowsAll is the
+// last value the team server sent, kept here.
 // Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export type PermissionDecision = 'once' | 'always' | 'deny'

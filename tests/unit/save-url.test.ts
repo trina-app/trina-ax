@@ -88,12 +88,12 @@ const disk = (free: () => number, total = 500 * 1024 ** 3) => () => ({ bsize: 40
 const normalize = async (b: Uint8Array) => { if (Buffer.from(b).includes('BROKEN')) throw new ToolError('image conversion refused', 'vision_damaged') }
 const OPTS: SaveUrlOptions = { lookup: LOOKUP, testAllow: (ip) => ip === '127.0.0.1', connectTimeoutMs: 3000, idleTimeoutMs: 3000, statfs: disk(() => 200 * 1024 ** 3), normalize }
 
-interface Cards { asked: string[]; answer: boolean; widen: string[]; widenRefusal: string | null; atCard?: () => void }
+interface Cards { asked: string[]; kinds: (string | undefined)[]; answer: boolean; widen: string[]; widenRefusal: string | null; atCard?: () => void }
 function setup(user: Person = 'alice', o: { unattended?: boolean; locale?: 'ko' | 'en' } = {}) {
   const chat = A.chat(user)
   const turnId = A.turn(user, chat)
-  const cards: Cards = { asked: [], answer: true, widen: [], widenRefusal: null }
-  const person: TurnPerson = { locale: o.locale ?? 'en', async confirm(q) { cards.asked.push(q); cards.atCard?.(); return cards.answer }, *turnUrls() {}, unattended: o.unattended }
+  const cards: Cards = { asked: [], kinds: [], answer: true, widen: [], widenRefusal: null }
+  const person: TurnPerson = { locale: o.locale ?? 'en', async confirm(q, _a, _d, e) { cards.asked.push(q); cards.kinds.push(e?.always); cards.atCard?.(); return cards.answer }, *turnUrls() {}, unattended: o.unattended }
   const t: ToolCtx = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles(), person, signal: new AbortController().signal, confirmWidening: async (target) => { cards.widen.push(target); return cards.widenRefusal } }
   const allow = (...urls: string[]) => rememberUrls(A.ctx.db, chat, urls, 'allowed')
   const run = (url: string, save_as?: string, extra: SaveUrlOptions = {}) => saveUrl(A.ctx, { url, ...(save_as !== undefined ? { save_as } : {}) }, t, { ...OPTS, ...extra })
@@ -240,6 +240,8 @@ describe('size: no limit, a card over the line, the disk as the only hard stop',
     s.cards.answer = false
     await expect(s.run(at('/big.png'), 'shared/big/a.png', { askAbove: 100_000 })).rejects.toThrow(/chose not to download/)
     expect(s.cards.asked[0]).toContain('이 파일은 293 KB예요. 서버 디스크 여유는 200.0 GB예요. 받을까요?')
+    // the "big_download" kind for Always allow (docs/DECISIONS.md "Always allow on every card")
+    expect(s.cards.kinds[0]).toBe('big_download')
     expect(has('shared/big/a.png')).toBe(false)
     s.cards.answer = true
     const r = await s.run(at('/big.png'), 'shared/big/a.png', { askAbove: 100_000 })

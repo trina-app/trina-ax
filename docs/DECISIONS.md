@@ -24820,9 +24820,15 @@ default.
   (three answers as buttons) with one line: it will not ask again, even after reading web pages or files.
 - **Connections:** a person's stored Always allow (their own connection's rule, or `integration_user_allow`) and a team
   connection set to send without asking now hold after outside content and after a room read; the card offers Always
-  allow there too. A scheduled run still sends only what its task's card allowed. The cost, accepted by the owner: an
+  allow there too, in a turn the person watches from their own app while the team's switch is on (review of #678: a
+  Slack question or the switch off keeps the earlier rule: outside content asks, no Always allow on the card, a
+  member's own Always allow ignored while the switch is off; an admin's "send without asking" stays). A scheduled run
+  still sends only what its task's card allowed. The cost, accepted by the owner: an
   instruction planted in a web page, a file or a room message can now make the AI send through a connection that sends
   without asking (tests/unit/b-chat-rooms.test.ts "a planted @fake instruction").
+- **Review of #678:** the one card that asks for a room change and a wider save together never offers "Always allow"
+  and is skipped only when both kinds are on; a post_to_room card that also offers the linked files offers no "Always
+  allow" (attaching files is the person's choice each time).
 - **Desktop browser:** the person's "Allow all websites" (Me.user.webAllowAll) turned on now turns the in-app browser to
   "all" too while the team allows it (it only narrowed before), and the browser's own site card offers "Allow all
   websites" on the first site. Office-network addresses still ask.

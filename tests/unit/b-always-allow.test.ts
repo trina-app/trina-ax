@@ -5,15 +5,46 @@
 // that person and kind only, audited once; the next card of that kind is not raised, another kind's is), Settings
 // (listed among the allowances, deleted by its own person only, another person's or a made-up id: 404).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API, CARD_ALWAYS_KINDS } from '@mycel/shared/api'
-import { startHarness, type Harness } from '../lib/b-harness'
+import fs from 'node:fs'
+import path from 'node:path'
+import { API, CARD_ALWAYS_KINDS, type TurnRequest } from '@mycel/shared/api'
+import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { ALWAYS_VALUE, alwaysHere, alwaysOn, dropAlways, keepAlways, listAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 
 setDefaultTimeout(60_000)
 let h: Harness
-beforeAll(async () => { h = await startHarness({ name: 'b-always-allow' }) })
-afterAll(async () => { await h.close() })
+const socks: Record<string, TestSocket> = {}
+beforeAll(async () => {
+  h = await startHarness({ name: 'b-always-allow', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  for (const u of ['alice', 'carol']) { socks[u] = await h.ws(u, { windowId: `win-aa-${u}` }); await socks[u]!.next('hello') }
+})
+afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h.close() })
+
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+const cm = () => 'cm-' + crypto.randomUUID()
+const abs = (rel: string) => path.join(h.team, rel)
+type Ask = TurnRequest & { requestId: string; options?: { label: string; value: string }[] }
+/** one answer in the person's own chat, from their app; each card answered with `answer` */
+async function turn(user: string, content: string, answer: string) {
+  const chatId = (await h.api(user).call(API.createChat, { body: {} })).id
+  const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+  const cards: Ask[] = []
+  const seen = new Set<string>()
+  for (let waited = 0; ; waited += 50) {
+    if (waited > 60_000) throw new Error('the answer did not end')
+    for (const f of socks[user]!.frames) {
+      if (f.type !== 'turn.request' || f.data.turnId !== r.turnId || seen.has(f.data.request.requestId)) continue
+      seen.add(f.data.request.requestId)
+      cards.push(f.data.request as Ask)
+      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: f.data.request.requestId, answer } })
+    }
+    const done = socks[user]!.frames.find((f) => f.type === 'message.done' && f.data.messageId === r.assistantMessage.id)
+    if (done && done.type === 'message.done') return { cards, content: done.data.message.content as string }
+    await Bun.sleep(50)
+  }
+}
+const values = (c: Ask) => c.options?.map((o) => o.value)
 
 const place = (o: Partial<AlwaysPlace> = {}): AlwaysPlace => ({ db: h.ctx.db, userId: 'alice', chatId: 'chat-always', turnId: 'turn-1', locale: 'en', clientKind: 'web', ...o })
 const YES_NO = [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]
@@ -100,5 +131,44 @@ describe('Settings › 트리나에게 허용한 것', () => {
   test('every kind has its plain words in every language of the app', async () => {
     const { DICTS } = await import('../../web/src/i18n')
     for (const [lang, dict] of Object.entries(DICTS)) for (const k of CARD_ALWAYS_KINDS) expect((dict as Record<string, string>)[`allowances.card.${k}`], `${lang} ${k}`).toBeTruthy()
+  })
+})
+
+// review of #678: each kind's card in a real answer: offered on the first card, then no card (TC-579, TC-580)
+describe('in a real answer, once picked: no card', () => {
+  test('move_files: a copy into a folder more people see', async () => {
+    try {
+      for (const n of [1, 2]) { fs.mkdirSync(path.dirname(abs(`users/alice/aa-move-${n}.md`)), { recursive: true }); fs.writeFileSync(abs(`users/alice/aa-move-${n}.md`), 'note\n') }
+      const first = await turn('alice', fake({ tool: 'copy_files', args: { paths: ['users/alice/aa-move-1.md'], to_folder: 'shared' } }, { say: 'done' }), '__always')
+      expect(first.cards.map(values)).toEqual([['allow', '__always', 'deny']])
+      expect(fs.existsSync(abs('shared/aa-move-1.md'))).toBe(true)
+      const next = await turn('alice', fake({ tool: 'copy_files', args: { paths: ['users/alice/aa-move-2.md'], to_folder: 'shared' } }, { say: 'done' }), 'deny')
+      expect(next.cards).toEqual([])
+      expect(fs.existsSync(abs('shared/aa-move-2.md'))).toBe(true)
+    } finally { clear() }
+  })
+
+  test('save_wider: what a group file says, saved where the whole team sees it', async () => {
+    try {
+      const read = { tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' } }
+      const first = await turn('alice', fake(read, { tool: 'write', args: { file_path: 'shared/aa-wider-1.md', content: 'from the brief\n' } }, { say: 'done' }), '__always')
+      expect(first.cards.map(values)).toEqual([['save', '__always', 'skip']])
+      expect(fs.existsSync(abs('shared/aa-wider-1.md'))).toBe(true)
+      const next = await turn('alice', fake(read, { tool: 'write', args: { file_path: 'shared/aa-wider-2.md', content: 'again\n' } }, { say: 'done' }), 'skip')
+      expect(next.cards).toEqual([])
+      expect(fs.existsSync(abs('shared/aa-wider-2.md'))).toBe(true)
+    } finally { clear() }
+  })
+
+  test('skill_save: a team skill saved by an admin', async () => {
+    const skill = (n: number) => ({ tool: 'write', args: { file_path: `skills/aa-skill-${n}/SKILL.md`, content: `---\nname: aa-skill-${n}\ndescription: test skill ${n}\n---\nDo the thing.\n` } })
+    try {
+      const first = await turn('carol', fake(skill(1), { say: 'done' }), '__always')
+      expect(first.cards.map(values)).toEqual([['save', '__always', 'skip']])
+      expect(fs.existsSync(abs('skills/aa-skill-1/SKILL.md'))).toBe(true)
+      const next = await turn('carol', fake(skill(2), { say: 'done' }), 'skip')
+      expect(next.cards).toEqual([])
+      expect(fs.existsSync(abs('skills/aa-skill-2/SKILL.md'))).toBe(true)
+    } finally { clear() }
   })
 })

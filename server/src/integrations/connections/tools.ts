@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { teamAllowsAlways } from '../../chat/always-allow'
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
@@ -380,13 +381,20 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
   // this person's changes at this connection go without asking: the team's rule, or their own choice (never in a
-  // scheduled run or after a room read)
-  // (the owner, 2026-11-13: "항상 허용을 눌렀으면 안해야하는거 아니야?" — also after a room read or outside content)
+  // scheduled run). Since 2026-11-13 (docs/DECISIONS.md "Always allow on every card"; the owner: "항상 허용을 눌렀으면
+  // 안해야하는거 아니야?") also after a room read or outside content, in a turn the person watches from their own app
+  // while the team lets people choose "Always allow" (TeamSettings.roomAlwaysAllow). Elsewhere (a Slack question, the
+  // team's switch off) as before: only in a chat that holds nothing from outside, and a member's own Always allow only
+  // while the team's switch is on; an admin's own "send without asking" for a team connection stays.
+  const live = !!tc.files.person?.allSitesHere?.()
+  const teamOn = teamAllowsAlways(ctx.db)
+  const freely = live && teamOn
   const allowed = !b.scheduled && (
     (row.scope === 'team' && row.write_policy === 'allow')
     || (row.scope === 'personal' && row.owner_user_id === b.userId && row.write_policy === 'allow')
-    || memberAllows(ctx.db, row, b.userId))
-  if (allowed) return false
+    || (teamOn && memberAllows(ctx.db, row, b.userId)))
+  const outside = !b.scheduled && !freely && (roomsSeen || outsideSeen(ctx.db, b.chatId))
+  if (allowed && !outside) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -406,16 +414,19 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  // why it asks, unless the room line says it already (after a room read)
-  const question = `${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  // why it asks, unless the room line says it already (after a room read): only where outside content still asks
+  const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
+  const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
-  // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back)
-  if (person.choose) {
+  // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
+  // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
+  // content still asks (a Slack question)
+  if (person.choose && freely && !allowed) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') return true

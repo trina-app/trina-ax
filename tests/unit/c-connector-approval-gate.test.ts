@@ -41,7 +41,8 @@ interface Card { question: string; options: string[]; note?: string }
 interface Asker { answer: 'yes' | 'always' | 'no'; cards: Card[] }
 const asker = (answer: Asker['answer']): Asker => ({ answer, cards: [] })
 
-function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: string; roomsSeen?: boolean } = {}) {
+/** `live` (default on): the person watches the turn in their own app (TurnPerson.allSitesHere); off: a Slack question */
+function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: string; roomsSeen?: boolean; live?: boolean } = {}) {
   const chat = o.chat ?? A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
@@ -58,6 +59,7 @@ function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: str
         return options.some((x) => x.value === want) ? want : null
       },
       *turnUrls() {},
+      allSitesHere: () => o.live !== false && !o.scheduled,
       ...(o.roomsSeen ? { roomsSeen: true } : {}),
       ...(o.scheduled ? { unattended: true } : {}),
     }
@@ -332,5 +334,45 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     expect((await turn('alice', { person: quiet }).call('api_request', { connection: 'team_askingapi', method: 'POST', path: '/tasks', body: { title: 'y' } })).isError).toBe(false)
     expect(quiet.cards).toEqual([])
     await json('alice', `/api/integrations/${apiAsk.id}/always-allow`, 'DELETE')
+  })
+})
+
+// review of #678: "Always allow" for connections only where it was chosen to work (TC-665, TC-666)
+describe('Always allow on the connector card: the team\'s switch and a watched turn', () => {
+  test('TC-666: a Slack question (not watched in the person\'s app): no Always allow offered; after outside content a stored one asks, as before', async () => {
+    const slack = asker('no')
+    await turn('alice', { person: slack, live: false }).call('team_teamboard__create_task', { title: 'slack' })
+    expect(slack.cards).toHaveLength(1)
+    expect(slack.cards[0]!.options).toEqual(['Send', 'Don’t send'])
+    // the team connection that sends without asking, after outside content in a Slack question: asks with the reason
+    const p = asker('no')
+    const t = turn('alice', { person: p, live: false })
+    outside(t.chat)
+    const n = created()
+    expect((await t.call('team_guestboard__create_task', { title: 'slack outside' })).isError).toBe(true)
+    expect(p.cards[0]!.question).toStartWith(OUTSIDE_LINE)
+    expect(created()).toBe(n)
+  })
+
+  test('TC-665: the team\'s switch off: no Always allow offered, a member\'s own Always allow is ignored; an admin\'s "send without asking" stays', async () => {
+    const { updateTeamSettings } = await import('../../server/src/admin/settings')
+    expect((await turn('alice', { person: asker('always') }).call('team_teamboard__create_task', { title: 'kept' })).isError).toBe(false)
+    expect(A.ctx.db.query('SELECT 1 FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(teamAsk.id, 'alice')).toBeTruthy()
+    updateTeamSettings(A.ctx.db, { roomAlwaysAllow: false })
+    try {
+      const p = asker('no')
+      const n = created()
+      expect((await turn('alice', { person: p }).call('team_teamboard__create_task', { title: 'switch off' })).isError).toBe(true)
+      expect(p.cards).toHaveLength(1)
+      expect(p.cards[0]!.options).toEqual(['Send', 'Don’t send'])
+      expect(created()).toBe(n)
+      // the admin's own rule: a clean chat sends without a card
+      const q = asker('no')
+      expect((await turn('alice', { person: q }).call('team_guestboard__create_task', { title: 'admin rule' })).isError).toBe(false)
+      expect(q.cards).toEqual([])
+    } finally {
+      updateTeamSettings(A.ctx.db, { roomAlwaysAllow: true })
+      await json('alice', `/api/integrations/${teamAsk.id}/always-allow`, 'DELETE')
+    }
   })
 })

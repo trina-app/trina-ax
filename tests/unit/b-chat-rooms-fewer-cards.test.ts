@@ -454,7 +454,7 @@ describe('review fixes (security review of 1af88ea6)', () => {
     // erin may read the folder and no longer the room: the first file takes the wider-audience card (yes); the second, which
     // the grant covered before this fix, takes the room card: the grant is not used and no "always" is offered
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), (c) => (values(c)?.includes('save') ? 'save' : 'allow'))
-    expect(r.cards.map(values)).toEqual([['save', '__always', 'skip'], ['allow', '__always', 'skip']])
+    expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', '__always', 'skip']])
     expect(labels(r.done, 'write').some((l) => l.endsWith(ALWAYS) || l.endsWith(ONCE))).toBe(false)
     expect(audits('room.ai_grant_use').some((a) => a.detail.turnId === r.turnId)).toBe(false)
     expect(exists(`${dir}/2.md`)).toBe(true)

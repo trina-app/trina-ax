@@ -2273,7 +2273,8 @@ export class TurnExec {
       return null
     }
     if (need) {
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} ` })
+      // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
+      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} `, room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -2951,7 +2952,7 @@ export class TurnExec {
   /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `lead`: a room change asked on this same
    * card (what the call writes, the room card's line for an instruction file, and in the person's own chat why changes
    * are asked); its yes then covers that change too. Returns the refusal for the tool and how the card ended, or null. */
-  private async askWidening(need: { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string } = {}): Promise<{ text: string; end: CardEnd } | null> {
+  private async askWidening(need: { segs: string[]; dir: string; narrower: ReadSource[]; viewers: number }, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
@@ -2962,14 +2963,16 @@ export class TurnExec {
     const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
-    const { value: answer, missing } = await this.askAlways('save_wider', {
+    // `room`: this card is the room's card too (confirmRoomChange): no "Always allow" here, so neither choice skips it
+    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => o.room ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('save_wider', req, 'save')
+    const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
-    } as TurnRequest & { options: { label: string; value: string }[] }, 'save')
+    } as TurnRequest & { options: { label: string; value: string }[] })
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
       if (!o.binding) {
         const set = this.widenAllowed.get(need.dir) ?? new Set<string>()

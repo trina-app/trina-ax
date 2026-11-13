@@ -356,6 +356,21 @@ describe('the card and the change', () => {
   })
 })
 
+describe('"Always allow" (docs/DECISIONS.md "Always allow on every card", review of #678)', () => {
+  test('picked on the first card; then three changes in one answer go without a card, past the two-card limit', async () => {
+    const p = await project('alice', 'Always', [user('erin')])
+    try {
+      const first = await turn('alice', `Bob Lee\n${call({ add: [{ name: 'Bob Lee' }] })}`, { projectId: p.id, answer: '__always' })
+      expect(first.cards).toHaveLength(1)
+      expect(members(p.folderPath)).toEqual(['alice', 'bob', 'erin'])
+      const three = await turn('alice', `Erin Yoo, Jun Park, Bob Lee\n${call({ remove: [{ name: 'Erin Yoo' }] })}\n${call({ add: [{ name: 'Jun Park' }] })}\n${call({ remove: [{ name: 'Bob Lee' }] })}`, { projectId: p.id, answer: 'skip' })
+      expect(three.cards).toEqual([])
+      expect(three.content).not.toContain('at most 2 members cards')
+      expect(members(p.folderPath)).toEqual(['alice', 'jun'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+})
+
 describe('the attacks', () => {
   test('a side chat (no quote): ONE card, the room line first; a name and a project the person never wrote are red', async () => {
     const p = await project('alice', 'Sided')

@@ -734,7 +734,7 @@ export class BrowserPane {
   }
 
   /** The person's "Allow all websites" for web reads from the team server (Me.user.webAllowAll): its change from on to
-   * off turns this browser back to 'ask'; on never widens it. */
+   * off turns this browser back to 'ask'; from off to on (the team allowing it) it opens every public site too. */
   setPersonPolicy(on: boolean) {
     if (this.perms.setPersonPolicy(on)) this.host.onSavePermissions(this.perms.toJSON())
   }

@@ -333,6 +333,25 @@ describe('the read card', () => {
     expect(audits('chat.shared_read', chat.id)).toHaveLength(2)
   })
 
+  // docs/DECISIONS.md "Always allow on every card" (review of #678): the runner's own choice; another member who runs a
+  // turn in the same chat is still asked on their own card
+  test('"Always allow": the runner picks it, their next read has no card; another member running a turn is still asked', async () => {
+    try {
+      const chat = await newShared()
+      const started = await send('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
+      const card = await cardOf('alice', started.turnId)
+      await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: '__always' } })
+      expect((await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)).data.message.content).toContain(CANARY)
+      const next = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
+      expect(next.done.content).toContain(CANARY)
+      expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === next.started.turnId)).toBe(false)
+      // bob's turn in the same chat: a file alice cannot read (finance) asks bob, on his own card
+      const bob = await askWithCard('bob', chat.id, fake({ tool: 'read', args: { file_path: 'groups/finance/budget.md' }, sayResult: true }), 'skip')
+      expect((bob.card as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['share', '__always', 'skip'])
+      expect(bob.done.content).not.toContain('CANARY-FIN')
+    } finally { db().query('DELETE FROM card_always_allow').run() }
+  })
+
   test('no: a refusal that names no path, a neutral step, nothing read; a timeout reads the same but says it timed out', async () => {
     const chat = await newShared()
     const r = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'skip')

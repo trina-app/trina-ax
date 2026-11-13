@@ -224,8 +224,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
           { label: tr('postRoomDont', L), value: 'no' },
         ]
         // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
-        // card (no files; those take the card's own button)
-        const reply = await withAlways(exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+        // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
+        const reply = await withAlways(all ? null : exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them

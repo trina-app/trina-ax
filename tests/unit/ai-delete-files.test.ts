@@ -918,6 +918,20 @@ describe('the card, the answer, the audit and the restore', () => {
     expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'refused'])
   })
 
+  // docs/DECISIONS.md "Always allow on every card": once picked, no card and no two-card limit (review of #678)
+  test('"Always allow" for deletes: picked on the first card, then three deletes in one answer go without a card', async () => {
+    for (const n of [0, 1, 2, 3]) put(`users/alice/always-${n}.md`)
+    try {
+      const first = await turn('alice', fake(del('users/alice/always-0.md')), () => '__always')
+      expect(first.cards.map((c) => c.options?.map((o) => o.value))).toEqual([['trash', '__always', 'skip']])
+      expect(has('users/alice/always-0.md')).toBe(false)
+      const r = await turn('alice', fake(del('users/alice/always-1.md'), del('users/alice/always-2.md'), del('users/alice/always-3.md')), () => 'skip')
+      expect(r.cards).toHaveLength(0)
+      expect([has('users/alice/always-1.md'), has('users/alice/always-2.md'), has('users/alice/always-3.md')]).toEqual([false, false, false])
+      expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'trashed'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
   test('one card at a time: a second delete while one waits (or while any other card is open) is refused, not queued; a sub-agent\'s call is refused', async () => {
     put('users/alice/one-at-a-time.md')
     let release!: (v: unknown) => void
