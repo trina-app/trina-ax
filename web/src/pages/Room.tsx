@@ -82,7 +82,7 @@ const NO_PENDING: PendingSend[] = []
 const ROOM_ROW_ID = messageDomId('')
 const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
 
-/** the thread or side chat as a sheet over the room (a narrow computer window with the new navigation) */
+/** the thread or side chat as a sheet over the room (a narrow computer window) */
 const SHEET = 'absolute inset-0 z-20 border-l-0! shadow-xl'
 
 export default function RoomPage() {

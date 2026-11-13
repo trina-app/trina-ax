@@ -1,4 +1,4 @@
-// The "···" of an AI chat's row: the sidebar's history (the phone's drawer) and a project page's chat list show the same
+// The "···" of an AI chat's row: the Trina list (the 트리나 panel, the phone's 트리나 tab) and a project page's chat list show the same
 // items by the same rules. 상단에 고정 / 고정 해제 for anyone who sees the chat, 링크 복사, 이름 바꾸기 for its creator,
 // 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), 삭제 for its creator or an editor of its
 // project (lib/sharedChat.ts sharedRights: the server's own rules).
@@ -25,7 +25,7 @@ export interface ChatMenuOptions {
   onChanged?: (c: Chat) => void
   /** the chat went to the trash */
   onRemoved?: (c: Chat) => void
-  /** more items after 이름 바꾸기 (the new navigation's 폴더로 옮기기 / 폴더에서 빼기, nav/NavFolders.tsx) */
+  /** more items after 이름 바꾸기 (폴더로 옮기기 / 폴더에서 빼기, nav/NavFolders.tsx) */
   extra?: MenuItem[]
 }
 

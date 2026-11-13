@@ -1,7 +1,7 @@
 // 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, folders, projects, other chats"; the
-// navigation plan docs/AGENTS/plan/20261112-1839-nav-rail.md §2.3, phase P2). In this order:
-//   고정 (my pinned chats) · 폴더 · 나만 보여요 (my list folders: made, renamed, ordered and filled with nav/NavFolders.tsx,
-//   phase P4b; a folder's + asks Trina into it) ·
+// navigation plan docs/AGENTS/plan/20261112-1839-nav-rail.md §2.3). In this order:
+//   고정 (my pinned chats) · 폴더 · 나만 보여요 (my list folders: made, renamed, ordered and filled with nav/NavFolders.tsx;
+//   a folder's + asks Trina into it) ·
 //   프로젝트 (the projects with my activity in the last 14 days, at most 8) · 모든 프로젝트 (N) and + 새 프로젝트 ·
 //   기타 기록 (my other chats; "기록" when no project group shows above it, so a person who never uses projects does not
 //   read their whole history as "other").
@@ -169,7 +169,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const otherCursor = otherMore ? otherMore.cursor : groups.other.nextCursor
   const empty = !groups.pinned.length && !groups.folders.some((f) => f.count) && !projectsShown && !otherRows.length
 
-  // the chat on screen stays in sight in its group past the first three, as it did in the old list
+  // the chat on screen stays in sight in its group past the first three
   const onScreen = openChat ? byId.get(openChat) ?? null : null
   const withOpen = (rows: Chat[], belongs: boolean) => (onScreen && belongs && (!onScreen.shared || onScreen.shared.mine) && !onScreen.pinnedAt && !rows.some((c) => c.id === onScreen.id) ? [...rows, onScreen] : rows)
 

@@ -146,7 +146,7 @@ test('the picker lists my rooms like the "#" list (a 1:1 chat as "<name> · 1:1"
   }
 })
 
-test('the rooms are read when the list never was (a phone that never opened the sidebar)', async () => {
+test('the rooms are read when the list never was (a phone that never opened the 대화 tab)', async () => {
   serve()
   const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="short" onClose={() => {}} />)
   try {

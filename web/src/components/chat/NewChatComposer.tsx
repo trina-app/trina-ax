@@ -22,7 +22,7 @@ import { WhoSeesLine } from './WhoSees'
 
 export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
-  /** one of my chat folders the new chat goes in (the new navigation's folder +; docs/DECISIONS.md "List folders on
+  /** one of my chat folders the new chat goes in (a folder's +; docs/DECISIONS.md "List folders on
    * screen"): filed once it is made, before it opens */
   folderId?: string | null
   /** the project, when known: who will see its new chat (whether it is shared, and with how many people) */

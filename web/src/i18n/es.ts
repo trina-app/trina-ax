@@ -3858,7 +3858,6 @@ export const es: Record<MessageKey, string> = {
   "rooms.newChat": "Nueva conversación",
   "rooms.startHint": "Empezar una conversación con un compañero",
   "rooms.search": "Buscar conversaciones",
-  "rooms.showAll": "Ver todas",
   "rooms.listEmpty": "Todavía no hay conversaciones.",
   "rooms.unread": "{n, plural, one {# mensaje sin leer} other {# mensajes sin leer}}",
   "rooms.mentionedYou": "uno de ellos lo menciona a usted",
@@ -4084,12 +4083,9 @@ export const es: Record<MessageKey, string> = {
   "tabs.back": "Atrás",
   "tabs.backTo": "Volver a {page}",
   "sidebar.aiChats": "Historial de {name}",
-  "sidebar.showMore": "Ver más ({n})",
-  "sidebar.allRooms": "Todas las conversaciones",
   "rooms.section.team": "Salas de equipo",
   "rooms.section.group": "Conversaciones de grupo",
   "rooms.section.dm": "Mensajes directos",
-  "sidebar.moreUnread": "{n} sin leer",
   "marker.card": "Esperando su respuesta",
   "marker.error": "Se detuvo: un error",
   "marker.paused": "En pausa por un límite",
@@ -4101,7 +4097,6 @@ export const es: Record<MessageKey, string> = {
   "rooms.aiWaits": "Trina espera su respuesta",
   "rooms.newMessage": "Tiene un mensaje nuevo",
   "tabs.chats": "Chats",
-  "tabs.projects": "Proyectos",
   "tabs.me": "Yo",
   "notifications.roomMessages": "Mensajes de chats directos y de grupo, y menciones de usted",
   "notifications.event.room.dm": "Tiene un mensaje nuevo en un chat directo o de grupo.",
@@ -4902,7 +4897,7 @@ export const es: Record<MessageKey, string> = {
   "viewer.inGroup": "en {room}",
   "viewer.inDm": "en tus mensajes directos con {name}",
   "viewer.gone": "Este archivo ya no está disponible: su mensaje se eliminó.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invitar a personas",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Deja que la IA use tus apps y servicios en tus chats.",

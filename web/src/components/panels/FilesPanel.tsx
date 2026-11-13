@@ -1,10 +1,10 @@
-// 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), like
+// 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
 // Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
 // 최근 파일 (pages/RecentFiles.tsx), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
 // shows them: 전사 공유, 부서, 팀 스킬, then the others), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
 // own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
 // place on screen is marked: the deepest place the open folder is in.
-// The same places are the root of a phone's 파일 tab with the new navigation (PhoneFilesHome below; docs/DECISIONS.md
+// The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
 import clsx from 'clsx'
 import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
@@ -42,7 +42,7 @@ export function FilesPanel() {
   )
 }
 
-/** A phone's 파일 tab at its root (pages/Files.tsx at /files with the new navigation's tabs). */
+/** A phone's 파일 tab at its root (pages/Files.tsx at /files). */
 export function PhoneFilesHome() {
   const t = useT()
   const setSearchOpen = useUi((s) => s.setSearchOpen)

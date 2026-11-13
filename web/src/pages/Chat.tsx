@@ -76,7 +76,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
-  // visible and the list says an answer came since: Chat.unseen; the sidebar's dot and "?" go, in every window and on
+  // visible and the list says an answer came since: Chat.unseen; the history row's dot and "?" go, in every window and on
   // every device)
   useEffect(() => {
     useSessionMarkers.getState().setOnScreen(chatId)

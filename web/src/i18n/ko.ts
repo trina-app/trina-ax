@@ -3901,7 +3901,6 @@ export const ko = {
   "rooms.newChat": "새 대화",
   "rooms.startHint": "동료에게 새 대화 시작하기",
   "rooms.search": "대화 검색",
-  "rooms.showAll": "모두 보기",
   "rooms.listEmpty": "아직 대화방이 없어요.",
   "rooms.unread": "읽지 않은 메시지 {n}개",
   "rooms.mentionedYou": "나를 언급한 메시지가 있어요",
@@ -4127,12 +4126,9 @@ export const ko = {
   "tabs.back": "뒤로",
   "tabs.backTo": "뒤로: {page}",
   "sidebar.aiChats": "{name} 기록",
-  "sidebar.showMore": "더 보기 ({n})",
-  "sidebar.allRooms": "모든 대화",
   "rooms.section.team": "팀 대화방",
   "rooms.section.group": "그룹 대화",
   "rooms.section.dm": "1:1 대화",
-  "sidebar.moreUnread": "안 읽음 {n}",
   "marker.card": "답을 기다려요",
   "marker.error": "멈췄어요: 오류",
   "marker.paused": "한도에서 멈췄어요",
@@ -4144,7 +4140,6 @@ export const ko = {
   "rooms.aiWaits": "트리나가 내 답을 기다려요",
   "rooms.newMessage": "새 메시지가 왔어요",
   "tabs.chats": "대화",
-  "tabs.projects": "프로젝트",
   "tabs.me": "나",
   "notifications.roomMessages": "1:1·그룹 대화 메시지와 나를 언급한 메시지",
   "notifications.event.room.dm": "1:1 대화나 그룹 대화에 새 메시지가 왔어요.",
@@ -4946,7 +4941,7 @@ export const ko = {
   "viewer.inGroup": "{room}에서",
   "viewer.inDm": "{name} 님과의 1:1 대화에서",
   "viewer.gone": "메시지가 삭제되어 이 파일은 더 이상 볼 수 없어요.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "팀원 초대",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "채팅에서 AI가 내 앱과 서비스를 쓸 수 있게 해요.",

@@ -21,7 +21,7 @@ export type IconBadge = number | 'dot'
 export const iconBadge = (a: { n: number; unread: boolean }): IconBadge => (a.n > 0 ? a.n : a.unread ? 'dot' : 0)
 
 /** ⌘K's "Needs attention" (components/SearchDialog.tsx): the chats whose row shows a marker, each with it, by the same
- * rule and view as the sidebar's rows (`here`: the chat on screen in a visible window; `cards`: the chats with a card
+ * rule and view as the history's rows (`here`: the chat on screen in a visible window; `cards`: the chats with a card
  * open in this window). Your turn ("?") first, then a new answer, then the ring; the latest activity first in each. */
 export function markedChats<C extends MarkedChat & Pick<Chat, 'id' | 'updatedAt'>>(chats: readonly C[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { chat: C; marker: Marker }[] {
   const rank: Record<MarkerKind, number> = { ask: 0, new: 1, running: 2 }

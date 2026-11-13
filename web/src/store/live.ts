@@ -34,7 +34,7 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
-/** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
+/** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
@@ -193,7 +193,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.code === 'team_icon_changed') {
-        // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
+        // an admin set or removed the team logo: the rail's logo follows (GET /api/me carries its version); the tab
         // icon stays the product's
         void useSession.getState().refreshMe()
         return

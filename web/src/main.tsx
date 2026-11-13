@@ -36,6 +36,8 @@ followVisualViewport()
 holdPageZoom()
 // a file dropped where nothing takes it is not opened in place of the app
 guardFileDrops(window)
+// what the old navigation remembered (its lists open or showing all): nothing reads it now
+try { for (const k of ['mycel.sidebar.recents', 'mycel.sidebar.recentsAll', 'mycel.sidebar.rooms', 'mycel.sidebar.roomsAll']) localStorage.removeItem(k) } catch { /* storage blocked */ }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

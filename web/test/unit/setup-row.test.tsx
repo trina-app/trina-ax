@@ -229,7 +229,7 @@ describe('the setup row', () => {
 
   // the recheck of onboarding v5: a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting
   // for a computer, as if nothing were left
-  test('with one step left here the row names it ("남은 일: 팀 파일"), no count; a phone\'s Home row and its drawer say the same; a computer counts the steps done', async () => {
+  test('with one step left here the row names it ("남은 일: 팀 파일"), no count; a phone\'s Home row and its 트리나 list say the same; a computer counts the steps done', async () => {
     signIn('owner')
     progress = half({ resultChatId: '01900000-0000-7000-8000-0000000000c1', skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: 'done' } })
     phoneWidth()

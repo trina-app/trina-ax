@@ -10,8 +10,8 @@
 // box says who sees a new chat ("나만 봐요" too: docs/DECISIONS.md "Who sees it, always"; while it will be shared, the
 // line opens the members dialog for whoever may change them), and deleting the project says its shared chats go to their
 // creators' trash. My pinned
-// chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
-// "Pinned chats"). A chat row's "···" has the sidebar row's items by the same rules (components/chat/chatMenuItems.tsx).
+// chats there come first, the most recently pinned first, with the pin before the title, as in the history (docs/DECISIONS.md
+// "Pinned chats"). A chat row's "···" has the history row's items by the same rules (components/chat/chatMenuItems.tsx).
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
 // its members (the members dialog, without leaving the list), 링크 복사 for everyone. Under its name a card says who
@@ -201,7 +201,7 @@ function useRenameProject() {
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
  * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
- * always, 44 px, before the chevron (as the AI chat rows in ☰ have theirs), and a long press opens it too. */
+ * always, 44 px, before the chevron (as the AI chat rows in the 트리나 tab have theirs), and a long press opens it too. */
 function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
@@ -464,7 +464,7 @@ export function ProjectList() {
 
 /** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
  * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
- * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the sidebar row's
+ * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
  * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
  * a phone. */
 export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
@@ -868,7 +868,7 @@ function ProjectPage() {
             </aside>
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
-            {/* the sidebar's name for the AI's history ("트리나 기록"): one name for it on every screen */}
+            {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
             <h2 id="pj-chats" className="mb-1 text-sm text-muted">
               {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>

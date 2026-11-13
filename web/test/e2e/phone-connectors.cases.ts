@@ -14,6 +14,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 import { DICTS, translate, type MessageKey } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 
 const t = DICTS.en
 const tr = (key: MessageKey, params: Record<string, string | number>) => translate('en', key, params)
@@ -58,7 +59,7 @@ async function fakeDrive(page: Page, start: object) {
 async function openConnectors(page: Page) {
   await page.goto('/')
   await expect(page.locator('[data-testid="nav-connectors"]')).toHaveCount(0)
-  await page.getByTestId('tab-me').tap()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-connectors').tap()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(page.getByTestId('connector-discover')).toBeVisible()

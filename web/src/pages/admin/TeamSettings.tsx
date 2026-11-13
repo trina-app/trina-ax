@@ -7,7 +7,7 @@
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"; a saved team key
 // turns it on while no provider is chosen, "Voice input on a team's own server: the key turns it on") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
-// logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
+// logo (the top of the computer's rail; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
 // (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
 // (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
@@ -315,11 +315,11 @@ function DaysRow({ id, title, desc, value, min, max, ownerOnly, onChange }: { id
 }
 
 /**
- * The team logo: shown only inside the page, at the top left of the computer's sidebar next to the team name (the
- * phone's menu keeps the product's mark). The browser tab, bookmarks, the home-screen and installed app's icons stay
+ * The team logo: shown only inside the page, at the top of the computer's rail above the team name and in the
+ * phone's 나 list. The browser tab, bookmarks, the home-screen and installed app's icons stay
  * the product's (docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). Uploaded at once when chosen (PNG,
  * JPEG or WebP; checked here first, the server checks again), removed back to the default mark. A row with the logo
- * now and its buttons; behind "Show previews", the sidebar header with it in the light and the dark look.
+ * now and its buttons; behind "Show previews", the logo beside the team name in the light and the dark look.
  */
 export function TeamIconRow() {
   const t = useT()
@@ -331,7 +331,7 @@ export function TeamIconRow() {
   const [error, setError] = useState<string | null>(null)
   const [previews, setPreviews] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  // a phone: where the logo shows, in a phone's words (the sidebar previews are a computer's)
+  // a phone: where the logo shows, in a phone's words (the previews are a computer's)
   const phone = useMediaQuery('(max-width: 767.98px)')
 
   const upload = async (file: File) => {
@@ -364,7 +364,7 @@ export function TeamIconRow() {
     }
   }
 
-  // what the sidebar header shows (components/Sidebar.tsx): the logo, else the product's mark
+  // what the rail shows (components/TeamMenu.tsx): the logo, else the product's mark
   const logoSrc = version ? teamIconUrl(version) : '/favicon.svg'
   const spinner = <Loader2 size={16} className="shrink-0 animate-spin text-muted" aria-hidden />
   const fileInput = (
@@ -422,7 +422,7 @@ export function TeamIconRow() {
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
             </button>}
             <div hidden={!previews || phone} className="mt-3 grid max-w-md grid-cols-2 gap-3">
-              {/* the sidebar header as it is drawn (the 20 px logo, cropped square, beside the team name) on the sidebar's
+              {/* the logo as it is drawn (20 px, cropped square, beside the team name) on the
                   background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
                 <figure key={scheme} className="m-0 min-w-0" data-testid={`team-icon-preview-${scheme}`}>

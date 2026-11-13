@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { ko } from '../../src/i18n/ko'
 import { reset, signIn } from './helpers'
+import { openNewChat, openPlace } from './nav'
 
 test.use({ serviceWorkers: 'block' })
 
@@ -42,7 +43,7 @@ test('Files opened while the connection is down: it says it loads by itself, and
   // a page not loaded before cannot load now
   await page.route(FILES_CHUNK, (r) => r.abort('internetdisconnected'))
   await page.evaluate(() => { (window as unknown as { beforeReload?: boolean }).beforeReload = true })
-  await page.getByTestId('nav-files').click()
+  await openPlace(page, 'files')
   const alert = page.getByRole('alert').filter({ hasText: ko['update.chunkOffline'] })
   await expect(alert).toBeVisible()
   await expect(page.getByText(ko['update.chunkFailed'])).toHaveCount(0)
@@ -69,10 +70,10 @@ test('Home\'s goal card, read while the connection was down, comes back by itsel
   // the connection drops; Files and back to Home: the goal cannot be read now
   await drop(page, down)
   await page.route('**/api/onboarding/goal', (r) => r.abort('internetdisconnected'))
-  await page.getByTestId('nav-files').click()
+  await openPlace(page, 'files')
   await expect(page.getByTestId('file-row').first()).toBeVisible()
   await page.evaluate(() => { (window as unknown as { beforeReload?: boolean }).beforeReload = true })
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('team-goal')).toHaveCount(0)
   // back: the card comes back, without a reload of the page

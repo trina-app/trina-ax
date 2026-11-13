@@ -103,7 +103,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
 }
 
 /** The hover quick view of a recent chat, like Claude's: after resting on it (or reaching it with the keyboard), a
- * card beside the sidebar with the start of the last answer or its first file, the title and when. Only where there is
+ * card beside the list panel with the start of the last answer or its first file, the title and when. Only where there is
  * a mouse; decorative (aria-hidden: the link already says the title), never in the way (no pointer events), and gone on
  * leave, Esc, a click or a scroll. One read of the last two messages per chat version, kept for the session. */
 export type ChatPeek = ReturnType<typeof useChatPeek>

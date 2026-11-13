@@ -86,7 +86,7 @@ export const LINKS_PER_TOKEN = 10
 const notCounted = (p: string) => !p || /^(skills|\.system)(\/|$)/.test(p)
 
 /** The line that ends an answer cut to fit one room message, in the sender's language: "…(이하 생략) 전체는 내 트리나
- * 기록에서" (the web app's sidebar heading for the AI chats, with the AI's name there: tabs.ts aiName). */
+ * 기록에서" (the web app's name for the AI chats, with the AI's name there: tabs.ts aiName). */
 export function answerCutLine(locale: Locale): string {
   const name = PRODUCT_NAMED_AFTER_AI ? tr('aiOwnName', locale) : PRODUCT.shortName
   return tr('answerShareCut', locale, { history: tr('aiHistory', locale, { name }) })

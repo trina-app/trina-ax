@@ -1,5 +1,5 @@
 // How many Inbox notices I have not read: one count for the whole window, read once and again when the server says the
-// Inbox changed (or after a reconnect, or a change of what I may open). The sidebar's 알림함 row shows it whole. A phone
+// Inbox changed (or after a reconnect, or a change of what I may open). The rail's 활동 shows it whole. A phone
 // counts each unread thing once across its tabs (QA TC-256): the conversation rows (mentions, thread replies) are the 대화
 // tab's, which counts their rooms already, so the 나 tab and the 활동 row on top of its list show only the rest (the app's
 // own notices), and 대화's 멘션·스레드 row a dot for them. Loaded while at least one of them is on screen.
@@ -69,7 +69,7 @@ export function useRoomNoticeUnread(): number {
   return useInbox((s) => s.rooms)
 }
 
-/** The computer's 활동 with the new navigation (rail/Rail.tsx, panels/ActivityPanel.tsx): the unread notices that are not
+/** The computer's 활동 (rail/Rail.tsx, panels/ActivityPanel.tsx): the unread notices that are not
  * conversation rows, the same number as the 활동 list's own unread rows. Conversation rows are 대화's, of any room (a
  * muted room's too: that room's choice is to stay quiet). */
 export function useActivityUnread(): number {

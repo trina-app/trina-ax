@@ -841,7 +841,7 @@ export function StickyHeader({ className, children, testId, bar }: { className?:
   )
 }
 
-/** A page's content column: centred in the space beside the sidebar, like Claude's Customize page (phones: full width). */
+/** A page's content column: centred in the space beside the rail and its list panel, like Claude's Customize page (phones: full width). */
 export const pageColumn = 'mx-auto w-full max-w-5xl'
 
 /** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls; its contents line up

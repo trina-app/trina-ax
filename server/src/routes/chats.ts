@@ -406,7 +406,7 @@ export const chatsRoutes: RouteModule = {
       rt.store.markSeen(chat.id)
       const after = rt.store.chatRow(chat.id)!
       // only a change is told (an answer the mark cannot reach, one dated after the server's clock, is no change: the
-      // windows would ask again and again); a chat in the trash is not in any sidebar (an 'updated' would put it back
+      // windows would ask again and again); a chat in the trash is not in any list (an 'updated' would put it back
       // there). Session markers: docs/DECISIONS.md.
       if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, after)

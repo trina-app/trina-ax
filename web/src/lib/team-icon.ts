@@ -1,5 +1,5 @@
-// The team logo (Admin › Team settings; shared/src/team-icon.ts): the check before uploading. The logo shows only in the
-// computer's sidebar header; the tab and app icons stay the product's (index.html as built).
+// The team logo (Admin › Team settings; shared/src/team-icon.ts): the check before uploading. The logo shows only at the
+// top of the computer's rail and in the phone's 나 list; the tab and app icons stay the product's (index.html as built).
 import { checkTeamIcon, isTeamIconType, TEAM_ICON_MAX_BYTES, type TeamIconProblem, type TeamIconType } from '@mycel/shared'
 
 /**

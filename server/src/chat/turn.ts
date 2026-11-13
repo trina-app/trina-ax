@@ -1509,7 +1509,7 @@ export class TurnExec {
         // called (chat/tools.ts), before the call reaches the service (tools/connection-urls.ts)
         if (!e.name.startsWith(TEAM_TOOL_PREFIX)) recordSent(this.rt.db, this.spec.chatId, e.input)
         if (tool === 'agent') return this.startSubtask(e.id, e.input)
-        // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
+        // naming the chat is not part of the answer: the new title itself shows in the Trina list and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         // a search whose query is not known yet (Codex names it at the end) shows as running, not as "Web search: "

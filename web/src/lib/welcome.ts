@@ -8,9 +8,8 @@ import { GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, WELCOM
 import type { MessageKey, Params } from '../i18n'
 import { aiName } from './tabs'
 
-/** Where the deck's chat of a row from before is listed (docs/DECISIONS.md "W6": decks started on v6.1 or earlier), as
- * the sidebar names that list: the sidebar heading's own message (`sidebar.aiChats` with the AI's name, "트리나 기록",
- * Sidebar.tsx), never words of our own. */
+/** Where the deck's chat of a row from before is listed (docs/DECISIONS.md "W6": decks started on v6.1 or earlier), by
+ * the history's own name (`sidebar.aiChats` with the AI's name, "트리나 기록"), never words of our own. */
 export const historyName = (t: (key: MessageKey, params?: Params) => string): string => t('sidebar.aiChats', { name: aiName(t) })
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
@@ -130,7 +129,7 @@ export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true, comp
 /** A step by its name on the progress bar ("팀 파일"). */
 const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
 
-/** The words of the way back to the steps, one rule for the sidebar's (and the ☰ drawer's) setup row and a phone Home's
+/** The words of the way back to the steps, one rule for the lists' setup row (components/onboarding/SetupRow.tsx) and a phone Home's
  * quiet row, so the two agree: one step left here, it is named ("남은 일: 팀 파일", no count); else "설정 이어서 하기"
  * with "n/5", the steps done. */
 export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p: WelcomeProgress | null, aiReady = true, computer = true): { text: string; count: string | null } {
@@ -174,7 +173,7 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
  */
 export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' {
   if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'
-  // `home`: the new-chat page is on screen (Home, `/`; on a phone with the new navigation's tabs `/new`, `/` being the list)
+  // `home`: the new-chat page is on screen (Home, `/`; on a phone `/new`, `/` being the list)
   const home = o.home ?? o.path === '/'
   if (!o.aiReady) return home ? 'hidden' : 'ai'
   return home && !o.computer ? 'hidden' : 'resume'

@@ -10,6 +10,7 @@
 // phone-welcome-flow.webkit.spec.ts), at 390×844 with touch, from a new owner right after /setup.
 import { expect, test, type Page } from '@playwright/test'
 import { reset } from './helpers'
+import { tabBar } from './nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
 /** Back as the phone does it (the iOS edge swipe, Android's Back): the history's own back */
@@ -50,7 +51,7 @@ export function welcomeFlowCases() {
     await newOwner(page)
     // 1. full screen: no tab bar, no tab top bar; the steps' own bar with ‹, the step and 나중에, each 44 px
     await expect(page.getByTestId('welcome')).toBeVisible()
-    await expect(page.getByTestId('bottom-tabs')).toHaveCount(0)
+    await expect(tabBar(page)).toHaveCount(0)
     await expect(page.getByTestId('phone-topbar')).toHaveCount(0)
     await expect(page.getByTestId('topbar-back')).toHaveCount(0)
     await expect(page.getByTestId('welcome-bar-later')).toHaveText('나중에')
@@ -107,7 +108,7 @@ export function welcomeFlowCases() {
     // from the first step: out to Home, with the tab bar
     await page.getByTestId('welcome-bar-back').click()
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(tabBar(page)).toBeVisible()
     await expect(page.getByTestId('welcome')).toHaveCount(0)
   })
 
@@ -118,7 +119,7 @@ export function welcomeFlowCases() {
     await stepIs(page, 'files')
     await page.getByTestId('welcome-bar-later').click()
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(tabBar(page)).toBeVisible()
     // nothing was recorded by 나중에: 팀 파일 is still open, and Home's row counts the phone's four
     const row = page.getByTestId('welcome-resume-link')
     await expect(row).toContainText('/4')
@@ -132,7 +133,7 @@ export function welcomeFlowCases() {
     await stepIs(page, 'profile')
     await back(page)
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(tabBar(page)).toBeVisible()
   })
 
   test('step 3: the invite opens the phone\'s share sheet (navigator.share) with the message; copy stays one press under it', async ({ page }) => {
@@ -220,7 +221,7 @@ export function welcomeFlowCases() {
     expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.finishedAt).toBeTruthy()
     await page.reload()
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(tabBar(page)).toBeVisible()
     await expect(page.getByTestId('welcome')).toHaveCount(0)
   })
 
@@ -251,7 +252,7 @@ export function welcomeFlowCases() {
     await expect(page.getByTestId('welcome')).toHaveCount(0)
     await back(page)
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByTestId('bottom-tabs')).toBeVisible()
+    await expect(tabBar(page)).toBeVisible()
     await expect(page.getByTestId('welcome')).toHaveCount(0)
     expect(await patches()).toBe(before)
   })

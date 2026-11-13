@@ -4,6 +4,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openTrinaRow } from './nav'
 
 async function task(page: Page, data: Record<string, unknown> = {}) {
   expect((await page.request.post('/__test/schedule', { data })).ok()).toBeTruthy()
@@ -19,7 +20,7 @@ test('the sidebar opens Scheduled tasks; the cards, search, and a task page with
   await task(page)
   await task(page, { title: '월말 정산 알림', repeat: 'monthly', enabled: false })
   await signIn(page)
-  await page.getByTestId('nav-scheduled').click()
+  await openTrinaRow(page, 'scheduled')
   await expect(page).toHaveURL(/\/scheduled$/)
   await expect(page.getByTestId('nav-scheduled')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('예약 작업')

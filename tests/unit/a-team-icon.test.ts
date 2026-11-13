@@ -1,5 +1,5 @@
 // The team logo (Admin › Team settings; shared/src/team-icon.ts, server/src/admin/team-icon.ts, routes/web-static.ts):
-// what an upload must be, who may set it, and that /team-icon serves it (the sidebar header's image) and the default
+// what an upload must be, who may set it, and that /team-icon serves it (the image at the top of the rail) and the default
 // icon after removing it. Since 2026-11-07 it shows only inside the page: index.html's icon links, /favicon.ico, the
 // home-screen addresses and the manifest stay the product's with any logo set (docs/DECISIONS.md).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -160,7 +160,7 @@ describe('a logo set by an admin', () => {
     expect(e!.detail).toMatchObject({ version: v, type: 'image/png', width: 256, height: 256, before: null })
   })
   test('GET /team-icon serves those bytes to anyone, with the image-only headers; long cache only at its version', async () => {
-    const r = await get(`/team-icon?v=${v}`) // no session: public, the image only (the sidebar header's <img>)
+    const r = await get(`/team-icon?v=${v}`) // no session: public, the image only (the <img> at the top of the rail)
     expect(r.status).toBe(200)
     expectIconHeaders(r, 'image/png')
     expect(r.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
@@ -197,7 +197,7 @@ describe('a logo set by an admin', () => {
       expect(html).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
       expect(html).not.toContain('/team-icon')
     }
-    // the open page learns only the version (for the sidebar); no app-icon flag any more
+    // the open page learns only the version (for the rail); no app-icon flag any more
     expect(Object.keys((await member.call('GET', '/api/me')).team)).not.toContain('appIcon')
   })
   test('the manifest of an installed app (PWA) keeps the product\'s icons', async () => {
@@ -239,7 +239,7 @@ describe('any logo: the tab, home-screen and installed app icons stay the produc
     ['a 512 px square', makePng(512, 512), 'image/png'],
     ['a 1024 px square JPEG', makeJpeg(1024, 1024), 'image/jpeg'],
   ] as const) {
-    test(`${name}: served at /team-icon for the sidebar; links, manifest, ICO and home-screen addresses as built`, async () => {
+    test(`${name}: served at /team-icon for the rail; links, manifest, ICO and home-screen addresses as built`, async () => {
       const info = (await (await put(admin, bytes, type)).json()) as { version: string }
       expect(await bytesOf(await get(`/team-icon?v=${info.version}`))).toEqual(bytes)
       const s = await state()

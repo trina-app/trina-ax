@@ -3902,7 +3902,6 @@ export const id: Record<MessageKey, string> = {
   "rooms.newChat": "Obrolan baru",
   "rooms.startHint": "Mulai obrolan dengan rekan kerja",
   "rooms.search": "Cari obrolan",
-  "rooms.showAll": "Tampilkan semua",
   "rooms.listEmpty": "Belum ada ruang obrolan.",
   "rooms.unread": "{n} pesan belum dibaca",
   "rooms.mentionedYou": "salah satunya menyebutmu",
@@ -4128,12 +4127,9 @@ export const id: Record<MessageKey, string> = {
   "tabs.back": "Kembali",
   "tabs.backTo": "Kembali ke {page}",
   "sidebar.aiChats": "Riwayat {name}",
-  "sidebar.showMore": "Lihat lainnya ({n})",
-  "sidebar.allRooms": "Semua percakapan",
   "rooms.section.team": "Ruang tim",
   "rooms.section.group": "Obrolan grup",
   "rooms.section.dm": "Pesan langsung",
-  "sidebar.moreUnread": "{n} belum dibaca",
   "marker.card": "Menunggu jawabanmu",
   "marker.error": "Berhenti: ada kesalahan",
   "marker.paused": "Dijeda di batas",
@@ -4145,7 +4141,6 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiWaits": "Trina menunggu jawabanmu",
   "rooms.newMessage": "Ada pesan baru",
   "tabs.chats": "Obrolan",
-  "tabs.projects": "Proyek",
   "tabs.me": "Saya",
   "notifications.roomMessages": "Pesan di obrolan langsung dan grup, serta saat kamu disebut",
   "notifications.event.room.dm": "Ada pesan baru di obrolan langsung atau grup.",
@@ -4946,7 +4941,7 @@ export const id: Record<MessageKey, string> = {
   "viewer.inGroup": "di {room}",
   "viewer.inDm": "di pesan langsung dengan {name}",
   "viewer.gone": "File ini tidak tersedia lagi: pesannya sudah dihapus.",
-  // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
+  // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Undang orang",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Biarkan AI menggunakan aplikasi dan layanan Anda di chat.",

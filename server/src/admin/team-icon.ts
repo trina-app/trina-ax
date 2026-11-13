@@ -1,5 +1,5 @@
 // The team's logo (Admin › Team settings; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07): shown
-// only inside the page, in the computer's sidebar header; the tab and app icons stay the product's. One file, <data>/team-icon,
+// only inside the page, at the top of the computer's rail; the tab and app icons stay the product's. One file, <data>/team-icon,
 // written atomically; its type and pixel size are read back from its header and its version is the start of its
 // SHA-256, so nothing about it lives anywhere else (a database restored from a backup cannot disagree with it).
 // Validation and the links are shared/src/team-icon.ts; the public /team-icon route is routes/web-static.ts.
@@ -29,7 +29,7 @@ const refuse = (problem: TeamIconProblem, locale: Locale): never =>
   })
 
 /**
- * Realtime notice: the team logo changed. Open windows ask GET /api/me again and their sidebar header shows the new
+ * Realtime notice: the team logo changed. Open windows ask GET /api/me again and the top of their rail shows the new
  * version (or the product's mark again). The message carries nothing.
  */
 export const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const

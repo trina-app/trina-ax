@@ -2,8 +2,8 @@
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): 트리나 (the Trina list first: pinned, folders, projects, other chats, and every
 // project behind 모든 프로젝트; a new chat is /new), 대화 (rooms, DMs and group chats), 파일 (the team folder's places:
 // recent files, team and project folders, 내 파일, the trash) and 나 (Settings, with 활동 and the team's row). The app
-// opens on START_TAB: one line to change. Old entries of the 프로젝트 tab (before the new navigation) take their first
-// screen's tab (screenHistory.ts knownTab): a project → 트리나, the team folder → 파일.
+// opens on START_TAB: one line to change. A saved entry with a tab that is gone takes its first screen's tab
+// (screenHistory.ts knownTab): a project → 트리나, the team folder → 파일.
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
@@ -11,7 +11,7 @@ import type { MessageKey } from '../i18n'
 /** The bar's tabs, in its order. */
 export const PHONE_TABS = ['ai', 'chats', 'files', 'me'] as const
 export type Tab = (typeof PHONE_TABS)[number]
-/** Is this one of the bar's tabs (an entry kept from an older set of tabs, 프로젝트's, is not). */
+/** Is this one of the bar's tabs (an entry saved under a tab that is gone is not). */
 export const isTabNow = (tab: string): tab is Tab => (PHONE_TABS as readonly string[]).includes(tab)
 
 /** Where a phone opens (the sign-in landing and the app opened on `/`). 'chats' would open on the 대화 list. */

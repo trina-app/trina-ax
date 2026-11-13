@@ -252,7 +252,7 @@ function Gate() {
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
-          {/* the new chat on its own page: a phone with the new navigation's tabs, where / is 트리나's list (lib/newChat.ts); a
+          {/* the new chat on its own page: a phone, where / is 트리나's list (lib/newChat.ts); a
               computer's goes to / (pages/Home.tsx) */}
           <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
@@ -307,7 +307,7 @@ function Gate() {
       </RealPath.Provider>
       {settings.open && (
         <Routes>
-          {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
+          {/* scheduled tasks have their own page (/scheduled): old links (banners, notifications, bookmarks) go there */}
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
           <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
@@ -318,7 +318,7 @@ function Gate() {
               pages under it */}
           <Route path="/settings/connectors/mcp/:integrationId" element={<SettingsDialog onClose={settings.close} page="connector" />} />
           <Route path="/settings/connectors/:id" element={<SettingsDialog onClose={settings.close} page="connector" />} />
-          {/* Connectors was a page of the sidebar until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
+          {/* Connectors was a page of its own until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
               to the same place in Settings, with their query */}
           <Route path="/connectors/*" element={<OldConnectors />} />
           {/* an address under Settings that is none of these (/settings/a/b): the list, never an empty dialog-less page */}
