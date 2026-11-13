@@ -6042,8 +6042,14 @@ export class MockServer {
       const marks = (list: Chat[]) => list.filter((x) => x.waiting || x.unseen || x.runState !== 'idle').map((x) => ({ id: x.id, runState: x.runState, ...(x.waiting ? { waiting: x.waiting } : {}), ...(x.unseen ? { unseen: x.unseen } : {}), ...(x.lastOutcome ? { lastOutcome: x.lastOutcome } : {}) }))
       const projects = [...by.entries()].filter(([, l]) => l[0]!.updatedAt >= since).sort((a, b) => b[1][0]!.updatedAt.localeCompare(a[1][0]!.updatedAt)).slice(0, 8)
         .map(([id, l]) => ({ projectId: id, name: sees(id)!.name, lastActivityAt: l[0]!.updatedAt, folded: l[0]!.updatedAt < fold, count: l.length, top: l.slice(0, 3), marked: marks(l) }))
-      const visible = this.projects.filter((p) => !p.inTrash && this.projectSees(p, c.user)).length
-      return { pinned, folders: [], projects, projectsMore: Math.max(0, visible - projects.length), other: { items: other.slice(0, 50), nextCursor: null } }
+      const visible = this.projects.filter((p) => !p.inTrash && this.projectSees(p, c.user))
+      // every project I can see with chats I can open there (the 프로젝트 panel's meta line): mine and its shared chats,
+      // also ones I never wrote in; never another person's private chat (server/src/chat/chat-groups.ts projectActivity)
+      const projectActivity = visible.flatMap((p) => {
+        const l = newest((h.listChats!({ ...c, query: { projectId: p.id, limit: '200' } }) as { items: Chat[] }).items.filter((x) => !x.deletedAt && !(!x.title && x.createdAt === x.updatedAt && x.runState === 'idle')))
+        return l.length ? [{ projectId: p.id, count: l.length, lastActivityAt: l[0]!.updatedAt }] : []
+      })
+      return { pinned, folders: [], projects, projectsMore: Math.max(0, visible.length - projects.length), other: { items: other.slice(0, 50), nextCursor: null }, projectActivity }
     }
     over('createChat', (c, base) => {
       const out = base(c) as { status: number; body: Chat }

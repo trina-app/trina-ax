@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { openRail, reset, signIn } from './helpers'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.ko
 const H = { [CSRF_HEADER]: '1' }
@@ -42,6 +42,31 @@ test('a computer: the rail\'s 프로젝트 opens the list with 팀 and 내 secti
   await expect(page).toHaveURL(new RegExp(`/projects/${team}$`))
   await expect(page.getByTestId('rail-projects')).toHaveAttribute('aria-current', 'page')
   await expect(panel.getByTestId('projects-panel-row').filter({ hasText: 'Acme launch' })).toHaveAttribute('aria-current', 'page')
+})
+
+// QA TC-1089: the mock's GET /api/chats/groups had no projectActivity, so every row said "No chats yet"; the server
+// counts my chats and the project's shared ones (also those of others I never wrote in), never another person's private one
+test('each row counts the chats I can open there: mine and the shared ones, never someone else\'s private one', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page)
+  await signIn(page)
+  const team = await project(page, 'Acme launch', 'team')
+  await project(page, 'Acme quiet', 'team')
+  for (const title of ['Launch email', 'Launch plan']) expect((await page.request.post('/api/chats', { headers: H, data: { title, projectId: team } })).ok()).toBeTruthy()
+  expect((await page.request.post('/api/chats', { headers: H, data: { title: 'Pricing notes', projectId: team, private: true } })).ok()).toBeTruthy()
+  // Bob, who never wrote there: Olga's two shared chats count for him, her private one does not
+  const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin, viewport: { width: 1440, height: 900 } })
+  const bob = await ctx.newPage()
+  try {
+    await signIn(bob, { username: 'bob', password: 'bob password 1' })
+    await bob.goto('/projects')
+    const row = bob.getByTestId('projects-panel-row').filter({ hasText: 'Acme launch' })
+    await expect(row.getByTestId('projects-panel-meta')).toContainText(translate('ko', 'projectsPanel.chats', { n: 2 }))
+  } finally { await ctx.close() }
+  await page.goto('/projects')
+  const panel = page.getByTestId('projects-panel')
+  await expect(panel.getByTestId('projects-panel-row').filter({ hasText: 'Acme launch' }).getByTestId('projects-panel-meta')).toContainText(translate('ko', 'projectsPanel.chats', { n: 3 }))
+  await expect(panel.getByTestId('projects-panel-row').filter({ hasText: 'Acme quiet' }).getByTestId('projects-panel-meta')).toContainText(t['projectsPanel.noChats'])
 })
 
 test('a computer: + 새 프로젝트 makes a project by its name and opens its page', async ({ page }) => {
