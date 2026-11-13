@@ -26357,7 +26357,8 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
 - **The creator may leave** when someone else is in it. The project forgets its creator (`created_by` NULL, as for a
   deleted account): no save puts their rule back, and they have no creator's powers there any more; admins manage it.
 - **What happens** is what an admin's removal does: the rules saved with `replaceRules`, the `folder.rules` audit
-  (`via: 'leave'`, `self`), `afterAccessChange` (sessions, notices, its shared chats out of their lists), their
+  (`via: 'leave'`, `self`), `afterAccessChange` (sessions, notices, its shared chats out of their lists, their own
+  running answers in them stopped: `stopTurnsIn`, #760), their
   scheduled tasks there pause at their next run (`schedule.project_gone`). Their **private chats** in it move out to
   their own chats (no project), so they keep them, an answer running in one stopped first; their shared chats stay for
   the others. One more audit row, `project.leave` (`exception`: a group or other rule would still have let them in,
