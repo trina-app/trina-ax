@@ -117,7 +117,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // Only me: the line says so; the chat made is Olga's alone
       await lock.click()
       await expect(lock).toHaveAttribute('aria-pressed', 'true')
-      await expect(boxLine(page)).toHaveText('나만 보는 채팅이에요 · 내 앱과 메모리를 쓸 수 있어요')
+      await expect(boxLine(page)).toHaveText('이 채팅은 나만 볼 수 있어요 · 내 앱과 메모리를 쓸 수 있어요')
       await audit(page, 'project box, only me')
       await shots(page, 'only-me')
       await page.getByTestId('composer-input').fill('내 메일 요약해 줘')
@@ -151,7 +151,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
       await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'true')
       await expect(page.getByTestId('composer-input')).toHaveValue('팀 일정 정리해 줘')
-      await expect(boxLine(page)).toHaveText('나만 보는 채팅이에요 · 내 앱과 메모리를 쓸 수 있어요')
+      await expect(boxLine(page)).toHaveText('이 채팅은 나만 볼 수 있어요 · 내 앱과 메모리를 쓸 수 있어요')
 
       // safe operations (1A): new chats are only mine for now, and the line says why; no switch
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
@@ -792,7 +792,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       // taking Bob out asks first, by name (QA TC-1067)
       await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 보는 채팅' : `${FOOTER_START} 나만 보는 채팅`)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '이 채팅은 나만 볼 수 있어요.' : `${FOOTER_START} 이 채팅은 나만 볼 수 있어요.`)
       await audit(page, 'shared chat, only me')
 
       // a chat without a project: only me, nothing to open (a phone's new chat is /new)
@@ -800,7 +800,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('composer-input').fill('혼자 볼 메모')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-      await expect(seenLine(page)).toHaveText(vp.phone ? '나만 보는 채팅' : `${FOOTER_START} 나만 보는 채팅`)
+      await expect(seenLine(page)).toHaveText(vp.phone ? '이 채팅은 나만 볼 수 있어요.' : `${FOOTER_START} 이 채팅은 나만 볼 수 있어요.`)
       await expect(seenLine(page).getByRole('button')).toHaveCount(0)
       await shots(page, 'chat-only-me')
 

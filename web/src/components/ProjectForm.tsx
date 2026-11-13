@@ -39,7 +39,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
   // a new team project: who sees it, the members chosen here (me, the owner and admins always do)
   const [participants, setParticipants] = useState<ProjectParticipant[]>([])
   const options = useParticipantOptions()
-  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.whoMe')]] : []), [me, t])
+  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.youTag')]] : []), [me, t])
   const picking = !project && mode === 'team'
   const count = useAccessCount(participants, { enabled: picking })
 

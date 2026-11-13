@@ -1838,7 +1838,7 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
   const deleted = (it: TrashItem) => t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: phone ? new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric' }).format(new Date(it.deletedAt)) : formatShortDateTime(it.deletedAt, locale) })
   const goes = (it: TrashItem) => (
     <span title={t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })} data-testid="trash-purge">
-      {t(phone ? 'files.purgeInShort' : 'files.purgeIn', { when: purgeIn(it.purgeAt, locale) })}
+      {t('files.purgeIn', { when: purgeIn(it.purgeAt, locale) })}
     </span>
   )
   const restoreButton = (it: TrashItem, label: string | undefined, testId: string) => (

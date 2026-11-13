@@ -70,7 +70,8 @@ describe('a new project', () => {
     // me, always (no × to take me out), and the count
     await m.until(() => m.find('participant-user-mia'), 'me in the list', 2000)
     expect(m.get('participant-user-mia').getAttribute('data-state')).toBe('fixed')
-    expect(m.get('participant-user-mia').textContent).toContain(en('projects.whoMe'))
+    // one "You" for me, on my name's line (QA TC-1084)
+    expect(m.get('participant-tags-user-mia').textContent).toBe(en('projects.youTag'))
     expect(m.find('participant-remove-user-mia')).toBeNull()
     // "1 member": nothing about the owner and admins, who see it only as members
     await m.until(() => m.get('project-access-summary').textContent === members(1), 'the line with the count', 2000)

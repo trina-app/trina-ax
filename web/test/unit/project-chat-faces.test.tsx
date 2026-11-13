@@ -86,6 +86,8 @@ test('one person: their face and their name, nothing else; nobody yet: the creat
     expect(stack(link)).toBeNull()
     expect(label(link)).toBeNull()
     expect(page.get('project-chat-by').textContent).toBe('Bob')
+    // a phone keeps the face only (the name cut to "B.." said nothing), for a screen reader still there (QA TC-1081)
+    expect(page.get('project-chat-by').className).toContain('max-md:sr-only')
     // the letter on its tile, decorative; the name is read once
     expect(link.querySelectorAll('[aria-hidden="true"]').map((e) => e.textContent)).toContain('B')
     expect(link.textContent.match(/Bob/g)).toHaveLength(1)

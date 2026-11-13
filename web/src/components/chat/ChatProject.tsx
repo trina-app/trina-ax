@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { useLocale, useT } from '../../i18n'
+import { useLocale, useT, type MessageKey } from '../../i18n'
 import { aiName } from '../../lib/tabs'
 import { useProjects } from '../../store/projects'
 import { toast } from '../../store/ui'
@@ -77,17 +77,21 @@ export function ChatProjectCrumb({ projectId }: { projectId: string | null }) {
   )
 }
 
+/** The words of the chat menu's item and of the dialog it opens, one rule for both (QA TC-1086): "Change project" for a
+ * chat in a project, "Move to project" for one in none */
+export const moveLabel = (chat: Pick<Chat, 'projectId'>): MessageKey => (chat.projectId ? 'chat.project.change' : 'chat.project.add')
+
 /**
  * The choices of the move dialog: no project, then each project the person can see (name and folder). The chat's own
  * project when it is not among them (its folder can no longer be read, or it is in the trash) is a choice of its own,
  * said as such: picking another one moves the chat out of it for good.
  */
-export function ProjectChoices({ projects, selected, current, onSelect }: { projects: readonly Project[]; selected: string | null; current?: string | null; onSelect: (id: string | null) => void }) {
+export function ProjectChoices({ projects, selected, current, onSelect, label }: { projects: readonly Project[]; selected: string | null; current?: string | null; onSelect: (id: string | null) => void; label: string }) {
   const t = useT()
   const row = 'flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm hover:bg-hover'
   const hidden = current && !projects.some((p) => p.id === current) ? current : null
   return (
-    <div role="radiogroup" aria-label={t('chat.project.title')} className="space-y-0.5" data-testid="chat-project-choices">
+    <div role="radiogroup" aria-label={label} className="space-y-0.5" data-testid="chat-project-choices">
       {hidden && (
         <label className={row} data-testid="chat-project-hidden">
           <input type="radio" name="chat-project" checked={selected === hidden} onChange={() => onSelect(hidden)} />
@@ -188,7 +192,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     <Modal
       open
       onClose={onClose}
-      title={t('chat.project.title')}
+      title={t(moveLabel(chat))}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -206,7 +210,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
         <Plus size={16} className="shrink-0 text-muted" aria-hidden /> {t('projects.new')}
       </button>
       {!projects && <Skeleton lines={3} />}
-      {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} />}
+      {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} label={t(moveLabel(chat))} />}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {error}

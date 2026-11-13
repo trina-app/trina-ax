@@ -162,14 +162,19 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     setFocusTo(`participant-remove-${x.subjectType}-${x.subjectId}`)
   }
   const meId = useMe()?.user.id
-  /** the second line: a person's title (and 나 for me), a group's kind (with how many people when that may be read; `n`:
-   * how many of them are in the project, the members dialog's), then the fixed tag */
-  const sub = (x: ParticipantOption, n?: number) => {
+  /** a person's short tags: 나 for me (one word, projects.youTag, everywhere: QA TC-1084) and the fixed tag (나, 만든 사람) */
+  const tags = (x: ParticipantOption) => {
     const tag = fixed.get(participantKey(x))
-    const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.whoMe') && t('projects.youTag')
+    const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.youTag') && t('projects.youTag')
+    return [you, tag].filter(Boolean).join(' · ')
+  }
+  /** the second line: a person's title, a group's kind (with how many people when that may be read; `n`: how many of
+   * them are in the project, the members dialog's), then the tags unless the row puts them on the name's line
+   * (`inline`: a person's row in the list, so my row is as tall as the others) */
+  const sub = (x: ParticipantOption, n?: number, inline = false) => {
     const count = n ?? x.members?.length
     const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
-    return [kind, you, tag, notes?.get(participantKey(x))].filter(Boolean).join(' · ')
+    return [kind, !inline && tags(x), notes?.get(participantKey(x))].filter(Boolean).join(' · ')
   }
 
   return (
@@ -235,7 +240,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
             const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
-            const s = sub(x, inside?.length)
+            const s = sub(x, inside?.length, !inside)
+            const nameTags = inside ? '' : tags(x)
             const open = opened.has(x.subjectId)
             return (
               <li key={k} className="flex min-h-row-min flex-wrap items-center gap-x-2.5 rounded-lg px-3 py-1.5 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
@@ -255,7 +261,10 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   </button>
                 ) : (
                 <span className="min-w-0 flex-1">
-                  <span className={clsx('block truncate', rowName(), out && 'text-faint line-through')}>{x.name}</span>
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    <span className={clsx('truncate', rowName(), out && 'text-faint line-through')}>{x.name}</span>
+                    {nameTags && <span className="shrink-0 text-meta text-faint" data-testid={`participant-tags-${x.subjectType}-${x.subjectId}`}>{nameTags}</span>}
+                  </span>
                   {(s || fresh) && (
                     <span className="block truncate text-meta text-faint">
                       {s}

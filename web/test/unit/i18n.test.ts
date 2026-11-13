@@ -50,7 +50,6 @@ describe('translations', () => {
       expect(placeholders(DICTS[loc]['files.trashNoteDays'])).toEqual(['days'])
       expect(translate(loc, 'files.trashNoteDays', { days: 18 })).toContain('18')
       expect(placeholders(DICTS[loc]['files.purgeIn'])).toEqual(['when'])
-      expect(placeholders(DICTS[loc]['files.purgeInShort'])).toEqual(['when'])
     }
     expect(translate('en', 'files.deleteBody')).toContain('retention period set by your team at the time of deletion')
     expect(translate('en', 'files.trashNoteDays', { days: 1 })).toBe("Items are removed for good 1 day after they're deleted.")
