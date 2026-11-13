@@ -62,6 +62,7 @@ import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
+import { ListRow } from '../components/list/List'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
@@ -1039,18 +1040,16 @@ function ProjectPage() {
                         {t('projects.page.filesEmpty')}
                       </p>
                     )}
-                    <ul className="-ml-2 space-y-0.5">
+                    {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
+                    <ul className="-mx-3">
                       {files?.entries.slice(0, 30).map((f) => (
-                        <li key={f.path}>
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-hover"
-                            onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                          >
-                            {f.type === 'folder' ? <Folder size={14} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={14} className="shrink-0 text-faint" aria-hidden />}
-                            <span className="truncate">{f.name}</span>
-                          </button>
-                        </li>
+                        <ListRow
+                          key={f.path}
+                          onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                          icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
+                          name={f.name}
+                          nameTitle={f.name}
+                        />
                       ))}
                     </ul>
                     {files && (files.more || files.entries.length > 30) && (
@@ -1306,24 +1305,14 @@ export function ProjectFiles() {
         {p?.member === false && <p className="py-3 text-sm break-keep text-muted" data-testid="project-files-members-only">{t('projects.membersOnly')}</p>}
         {!list && !error && p?.member !== false && <Skeleton lines={4} />}
         {list && !list.entries.length && <p className="py-3 text-sm text-faint">{t('files.emptyReadOnly')}</p>}
-        <ul className="divide-y divide-line">
-          {list?.entries.map((f) => (
-            <li key={f.path}>
-              {f.type === 'folder' ? (
-                <Link to={down(f)} className="flex min-h-12 items-center gap-3 py-2 text-row" data-testid="project-file" data-type="folder">
-                  <Folder size={18} className="shrink-0 text-accent-text" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-                </Link>
-              ) : (
-                <button type="button" onClick={() => openTeamFile(f.path)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-row" data-testid="project-file" data-type="file">
-                  <FileText size={18} className="shrink-0 text-faint" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <span className="shrink-0 text-xs text-faint">{formatRelative(f.mtime, locale)}</span>
-                </button>
-              )}
-            </li>
-          ))}
+        <ul className="-mx-3">
+          {list?.entries.map((f) =>
+            f.type === 'folder' ? (
+              <ListRow key={f.path} to={down(f)} icon={<Folder className="text-accent-text" />} name={f.name} nameTitle={f.name} end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />} testId="project-file" link={{ 'data-type': 'folder' }} />
+            ) : (
+              <ListRow key={f.path} onClick={() => openTeamFile(f.path)} icon={<FileText />} name={f.name} nameTitle={f.name} end={<span className="shrink-0 self-center text-meta text-faint tabular-nums">{formatRelative(f.mtime, locale)}</span>} testId="project-file" link={{ 'data-type': 'file' }} />
+            ),
+          )}
         </ul>
         {list?.cursor && (
           <Button className="mt-3 w-full" busy={more} onClick={() => read(list.cursor!)} data-testid="project-files-more">
