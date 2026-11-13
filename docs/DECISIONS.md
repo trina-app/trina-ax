@@ -13053,7 +13053,8 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
   which the browser's history keeps) stay without it, so an address with a key is not left in the history.
 - Signing out answers with `Clear-Site-Data: "cache"`: the browser forgets its HTTP cache for the team (these pictures
   and the stored bodies of every `no-cache` answer). The app's own files come back from the service worker or the
-  server on the next load.
+  server on the next load. Browsers honour it on https only (not a plain-http office address), Safari only in
+  part, and a session that simply runs out sends nothing: it is extra care, the per-sign-in key is what keeps it safe.
 - What is looser than before, on purpose: within the same sign-in, a thumbnail already shown stays viewable from this
   browser's cache for up to a day after the server would refuse it (the person left the room, the message was deleted,
   the file was put on the download-only list later). The app no longer shows it; the bytes were on that computer
