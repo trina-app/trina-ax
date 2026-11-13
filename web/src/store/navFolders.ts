@@ -8,12 +8,14 @@
 // moves at once; a refusal puts it back with one toast. A read from before such a change reads again instead.
 import { create } from 'zustand'
 import { uuidv7, type Chat, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
-import { api, API } from '../lib/api'
+import { api, API, errorText } from '../lib/api'
+import { currentLocale, t } from '../i18n'
 import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { readChatGroups } from './chatGroups'
 import { useChats } from './chats'
 import { navFoldersChanged } from './live'
 import { useRooms, withRoom } from './rooms'
+import { toast } from './ui'
 
 interface NavFoldersState {
   folders: NavFolder[] | null
@@ -94,8 +96,8 @@ const pendingIds = (what: string) => optimisticPendingKeys((k) => isFolderKey(k)
 function withPendingFolders(items: NavFolder[]): NavFolder[] {
   const shown = useNavFolders.getState().folders ?? []
   const made = pendingIds('make')
-  const deleted = new Set(pendingIds('delete'))
-  const named = new Map(pendingIds('name').map((id) => [id, shown.find((f) => f.id === id)?.name]))
+  const deleted = new Set(pendingIds('delete').map(nowId))
+  const named = new Map(pendingIds('name').map(nowId).map((id) => [id, shown.find((f) => f.id === id)?.name]))
   if (!made.length && !deleted.size && !named.size) return items
   const out = items.filter((f) => !deleted.has(f.id)).map((f) => (named.get(f.id) !== undefined ? { ...f, name: named.get(f.id)! } : f))
   return [...out, ...shown.filter((f) => made.includes(f.id) && !out.some((x) => x.id === f.id))]
@@ -105,8 +107,25 @@ const setFolders = (fn: (all: NavFolder[]) => NavFolder[]) => useNavFolders.setS
 
 /** a folder on screen that the server has not made yet: its own id once it answers (null: it was refused) */
 const making = new Map<string, Promise<string | null>>()
+/** a folder made here: the id it had on screen before the server's answer → the server's id */
+const madeAs = new Map<string, string>()
+/** the id a folder has on screen now (one made here: the server's once it answered) */
+const nowId = (id: string) => madeAs.get(id) ?? id
 /** the server's id of a folder (one still being made: once it is) */
-const serverId = async (id: string): Promise<string | null> => (making.has(id) ? making.get(id)! : id)
+const serverId = async (id: string): Promise<string | null> => (making.has(id) ? making.get(id)! : nowId(id))
+
+/** a change to a folder that was never made (its making was refused, and said so): no second toast */
+class NotMade extends Error {}
+/** the server's id of the folder, or NotMade */
+const madeId = async (id: string): Promise<string> => {
+  const real = await serverId(id)
+  if (!real) throw new NotMade('folder not made')
+  return real
+}
+/** a refusal of the newest change, in the person's language (not for a folder whose making was refused) */
+function sayFailure(r: OptimisticResult<unknown>) {
+  if (!r.ok && r.newest && !(r.error instanceof NotMade)) toast({ level: 'error', text: errorText(r.error, currentLocale(), t('error.network')) })
+}
 
 /** A new folder, last in its list at once; the server's folder once it answers, or null when it was refused (one
  * toast says so). */
@@ -123,6 +142,7 @@ export async function createFolder(kind: NavFolderKind, name: string): Promise<N
     // the server's folder in its place (a rename of it meanwhile is sent to it, see serverId)
     settle: (f) => setFolders((all) => all.map((x) => (x.id === temp.id ? { ...f, name: x.name } : x))),
   })
+  if (r.ok) madeAs.set(temp.id, r.reply.id)
   made(r.ok ? r.reply.id : null)
   making.delete(temp.id)
   if (!r.ok) return null
@@ -137,15 +157,12 @@ export async function renameFolder(f: Pick<NavFolder, 'id' | 'kind'> & { name?: 
     key: folderKey(f.id, 'name'),
     from: was,
     to: name.trim(),
-    show: (n) => setFolders((all) => all.map((x) => (x.id === f.id ? { ...x, name: n } : x))),
-    send: async () => {
-      const id = await serverId(f.id)
-      if (!id) throw new Error('not made')
-      return api.call(API.updateNavFolder, { params: { id }, body: { name } })
-    },
+    show: (n) => setFolders((all) => all.map((x) => (x.id === nowId(f.id) ? { ...x, name: n } : x))),
+    send: async () => api.call(API.updateNavFolder, { params: { id: await madeId(f.id) }, body: { name } }),
     confirmed: (x) => x.name,
-    failText: making.has(f.id) ? false : undefined,
+    failText: false,
   })
+  sayFailure(r)
   if (r.ok) changed(f.kind)
   return r.ok
 }
@@ -161,17 +178,17 @@ export async function deleteFolder(f: Pick<NavFolder, 'id' | 'kind'>): Promise<b
     from: false,
     to: true,
     show: (gone) => {
-      if (gone) setFolders((all) => all.filter((x) => x.id !== f.id))
-      else if (folder) setFolders((all) => (all.some((x) => x.id === f.id) ? all : [...all, folder]))
+      if (gone) setFolders((all) => all.filter((x) => x.id !== nowId(f.id)))
+      else if (folder) setFolders((all) => (all.some((x) => x.id === nowId(f.id)) ? all : [...all, { ...folder, id: nowId(f.id) }]))
       // the rooms and chats in it: in no folder now (the server sends each room again too; this is at once), or back in it
       const put = <T extends { id: string; folderId?: string }>(x: T, ids: string[]): T => (!ids.includes(x.id) ? x : gone ? withoutFolder(x) : x.folderId ? x : { ...x, folderId: f.id })
       if (rooms.length) useRooms.setState((s) => ({ rooms: s.rooms.map((x) => put(x, rooms)) }))
       for (const c of useChats.getState().chats) if (chats.includes(c.id) && put(c, chats) !== c) useChats.getState().upsertChat(put(c, chats))
     },
+    // a folder whose making was refused is gone already
     send: async () => {
       const id = await serverId(f.id)
-      if (!id) return null
-      return api.call(API.deleteNavFolder, { params: { id } })
+      return id ? api.call(API.deleteNavFolder, { params: { id } }) : null
     },
   })
   if (r.ok) changed(f.kind)
@@ -218,14 +235,15 @@ export async function fileChat(chatId: string, folderId: string | null): Promise
       const c = useChats.getState().chats.find((x) => x.id === chatId)
       if (c) useChats.getState().upsertChat(withFolder(c, id))
     },
-    send: async () => {
-      const id = folderId && (await serverId(folderId))
-      if (folderId && !id) throw new Error('not made')
-      return api.call(API.setChatFolder, { params: { id: chatId }, body: { folderId: id || null } })
-    },
+    send: async () => api.call(API.setChatFolder, { params: { id: chatId }, body: { folderId: folderId && (await madeId(folderId)) } }),
     confirmed: (c) => c.folderId ?? null,
-    settle: (c) => useChats.getState().upsertChat(c),
+    // not a chat that left my list meanwhile (put in the trash): the answer would bring it back
+    settle: (c) => {
+      if (!optimisticPending(`chat:${chatId}:trash`) && useChats.getState().chats.some((x) => x.id === chatId)) useChats.getState().upsertChat(c)
+    },
+    failText: false,
   })
+  sayFailure(r)
   if (r.ok) {
     void readNavFolders()
     void readChatGroups()
@@ -261,14 +279,12 @@ export async function fileRoom(roomId: string, folderId: string | null): Promise
       roomFolders.set(roomId, id)
       useRooms.setState((s) => ({ rooms: s.rooms.map((x) => (x.id === roomId ? withFolder(x, id) : x)) }))
     },
-    send: async () => {
-      const id = folderId && (await serverId(folderId))
-      if (folderId && !id) throw new Error('not made')
-      return api.call(API.setRoomFolder, { params: { id: roomId }, body: { folderId: id || null } })
-    },
+    send: async () => api.call(API.setRoomFolder, { params: { id: roomId }, body: { folderId: folderId && (await madeId(folderId)) } }),
     confirmed: (x) => x.folderId ?? null,
     settle: (room) => useRooms.setState((s) => withRoom(s, room)),
+    failText: false,
   })
+  sayFailure(r)
   if (!optimisticPending(roomFolderKey(roomId))) roomFolders.delete(roomId)
   if (r.ok) void readNavFolders()
   return r

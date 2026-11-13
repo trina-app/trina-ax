@@ -9,7 +9,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { openHome } from '../../lib/screenHistory'
-import { optimistic, type OptimisticResult } from '../../lib/optimistic'
+import { optimistic, optimisticPending, type OptimisticResult } from '../../lib/optimistic'
 import { hideChatInGroups, showPinnedChat } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
@@ -68,6 +68,8 @@ export function changeChat<V>(o: {
     send: o.send,
     confirmed: o.confirmed,
     settle: (c) => {
+      // put in the trash here meanwhile: this answer is from before it and would bring the chat back
+      if (trashedHere.has(o.chat.id) || optimisticPending(`chat:${o.chat.id}:trash`)) return
       // the server's copy joins my list as before (a chat my list had not loaded yet)
       useChats.getState().upsertChat(c)
       showPinnedChat(c)
@@ -76,6 +78,9 @@ export function changeChat<V>(o: {
     failText: o.failText,
   })
 }
+
+/** chats put in the trash here (and not brought back since): a late answer of another change of theirs writes nothing */
+const trashedHere = new Set<string>()
 
 /** "now", for a change the server stamps with its own time (the row goes where the answer will put it) */
 const now = () => new Date().toISOString()
@@ -98,6 +103,8 @@ export function trashChat(chat: Chat, trashed: boolean, o: { onShown?: (c: Chat,
     to: trashed,
     show: (inTrash) => {
       const s = useChats.getState()
+      if (inTrash) trashedHere.add(chat.id)
+      else trashedHere.delete(chat.id)
       if (inTrash) {
         s.removeChat(chat.id)
         hideChatInGroups(chat.id)

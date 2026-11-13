@@ -371,3 +371,51 @@ test('a folder deleted: gone at once with its rooms back in their place; refused
   expect(useRooms.getState().rooms.find((r) => r.id === outside.id)!.folderId).toBeUndefined()
   expect(toasts()).toHaveLength(1)
 })
+
+test('a list read asked before a change and answered after its answer reads again instead of writing the old copy', async () => {
+  useChats.setState({ chats: [chat()], chatsLoaded: true })
+  const load = useChats.getState().loadChats(true)
+  await tick()
+  const done = moveChat(chat(), PROJECT)
+  await tick()
+  take(`PATCH /api/chats/${ID}`).answer(json(chat({ projectId: PROJECT, updatedAt: '2026-11-13T01:00:00.000Z' })))
+  await done
+  // the read from before the move answers now, with the chat outside the project: not written, asked again
+  take('GET /api/chats').answer(json({ items: [chat()], nextCursor: null }))
+  await tick(3)
+  expect(listed()?.projectId).toBe(PROJECT)
+  take('GET /api/chats').answer(json({ items: [chat({ projectId: PROJECT, updatedAt: '2026-11-13T01:00:00.000Z' })], nextCursor: null }))
+  await load
+  expect(listed()?.projectId).toBe(PROJECT)
+})
+
+test('a move answered after the chat was deleted here does not bring it back into the list', async () => {
+  useChats.setState({ chats: [chat()], chatsLoaded: true })
+  const move = moveChat(chat(), PROJECT)
+  const del = trashChat(chat(), true)
+  expect(listed()).toBeUndefined()
+  await tick()
+  take(`PATCH /api/chats/${ID}`).answer(json(chat({ projectId: PROJECT })))
+  await move
+  expect(listed()).toBeUndefined()
+  await tick()
+  take(`DELETE /api/chats/${ID}`).answer(json({ id: ID, deletedAt: '2026-11-13T01:00:00.000Z', purgeAt: '2026-11-27T01:00:00.000Z' }))
+  await del
+  expect(listed()).toBeUndefined()
+})
+
+test('a room dropped on a folder whose making is refused: one toast (the folder\'s), and the room is back out', async () => {
+  const r = room({ name: 'acme' })
+  useRooms.setState({ rooms: [r], loaded: true })
+  useNavFolders.setState({ folders: [] })
+  const made = createFolder('rooms', 'Acme ops')
+  const temp = useNavFolders.getState().folders![0]!.id
+  const filed = fileRoom(r.id, temp)
+  expect(useRooms.getState().rooms[0]!.folderId).toBe(temp)
+  await tick()
+  take('POST /api/nav-folders').answer(refused('You already have a folder with that name.'))
+  await made
+  expect((await filed).ok).toBe(false)
+  expect(useRooms.getState().rooms[0]!.folderId).toBeUndefined()
+  expect(toasts().map((x) => x.text)).toEqual(['You already have a folder with that name.'])
+})

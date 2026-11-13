@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
-import { optimisticPending } from '../lib/optimistic'
+import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -232,6 +232,7 @@ function keepPending(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
 
 /** a delete or restore of mine of the chat is still on its way (what is on screen decides, not a read or an event) */
 const trashPending = (id: string) => optimisticPending(`chat:${id}:trash`)
+const isChatEdit = (key: string) => key.startsWith('chat:')
 
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
 
@@ -505,8 +506,11 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const cursor = reset ? undefined : get().chatsCursor ?? undefined
       if (!reset && !cursor) return
+      const edits = optimisticEdits(isChatEdit)
       const page = await api.call(API.listChats, { query: { limit: PAGE, cursor } })
       if (session !== generation) return
+      // a change of a chat made here while it was asked (lib/optimistic.ts): the page may be from before it, ask again
+      if (edits !== optimisticEdits(isChatEdit)) return get().loadChats(reset)
       set((s) => {
         // a chat going to the trash or coming back from it stays as it is on screen
         const items = page.items.filter((c) => !trashPending(c.id) || s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))

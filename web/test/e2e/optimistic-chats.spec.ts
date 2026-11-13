@@ -4,7 +4,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { chatList } from './nav'
+import { chatList, isPhone } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -29,6 +29,21 @@ async function holdPatch(page: Page, id: string, o: { refuse?: boolean } = {}) {
     else await route.continue()
   })
   return { release, seen: () => seen }
+}
+
+/** The chat's project as the 트리나 list shows it: 최근 기록's tag on a computer; on a phone the history drawer has no
+ * tag, so the row's menu, whose item says "프로젝트 바꾸기…" once the chat is in one (and "프로젝트로 옮기기…" when not). */
+async function expectInProject(page: Page, id: string, title: string, inIt: boolean) {
+  if (!isPhone(page)) {
+    const tag = (await chatList(page)).locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).getByTestId('chat-row-project')
+    if (inIt) await expect(tag).toHaveText('Launch')
+    else await expect(tag).toHaveCount(0)
+    return
+  }
+  await openRowMenu(page, title)
+  await expect(page.getByTestId('chat-row-move')).toHaveText(t[inIt ? 'chat.project.change' : 'chat.project.add'])
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('chat-row-move')).toHaveCount(0)
 }
 
 async function openRowMenu(page: Page, title: string) {
@@ -98,9 +113,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await dialog.getByTestId('chat-project-save').click()
       await expect(dialog).toHaveCount(0)
       await expect.poll(held.seen).toBe(true)
-      // held: 최근 기록's row already carries its project's name, and its menu offers "프로젝트 바꾸기…"
-      const list = await chatList(page)
-      await expect(list.locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).getByTestId('chat-row-project')).toHaveText('Launch')
+      // held: the row already shows its project (최근 기록's tag; a phone: its menu offers "프로젝트 바꾸기…")
+      await expectInProject(page, id, 'Competitor notes', true)
       // the "moved" toast once the server has it
       await expect(page.getByText(translate('ko', 'chat.project.moved', { name: 'Launch' }))).toHaveCount(0)
       held.release()
@@ -120,11 +134,11 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const dialog = page.getByRole('dialog', { name: t['chat.project.title'] })
       await dialog.getByRole('radio', { name: /Launch/ }).check()
       await dialog.getByTestId('chat-project-save').click()
-      const row = (await chatList(page)).locator('li', { has: page.locator(`a[href="/c/${id}"]`) })
       await expect.poll(held.seen).toBe(true)
-      await expect(row.getByTestId('chat-row-project')).toHaveText('Launch')
+      await expectInProject(page, id, 'Competitor notes', true)
       held.release()
-      await expect(row.getByTestId('chat-row-project')).toHaveCount(0)
+      await expect(page.getByText('Acme server hiccup.')).toHaveCount(1)
+      await expectInProject(page, id, 'Competitor notes', false)
       await expect(page.getByText('Acme server hiccup.')).toHaveCount(1)
     })
   })
