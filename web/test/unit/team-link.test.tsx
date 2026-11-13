@@ -135,7 +135,8 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(repeated).toContain('&#x27;quote maker&#x27; skill')
     expect(repeated).not.toContain('quote-maker&#x27;')
     expect(html).toContain('data-testid="team-link-uses">3 of 10<')
-    expect(html).toContain('Seats left: 6')
+    expect(html).toContain('data-testid="team-link-seats">6<')
+    expect(view({ ...LINK, seats: { used: 4, limit: null } })).not.toContain('data-testid="team-link-seats"')
     expect(html).toContain('data-testid="team-link-replace"')
     expect(html).toContain('data-testid="team-link-revoke"')
     expect(html).not.toContain('data-testid="team-link-form"')
@@ -437,7 +438,7 @@ describe('on screen', () => {
     const sent: string[][] = []
     const m = await mount(<MemoryRouter><TeamLinkView data={data} inviter="Olga" team="Acme" groups={[leads, sales] as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} onGroups={async (ids) => { sent.push(ids); return true }} /></MemoryRouter>)
     try {
-      expect(m.get('team-link-groups').textContent).toBe(translate('ko', 'teamLink.joins', { groups: 'Leads' }))
+      expect(m.get('team-link-groups').textContent).toBe('Leads')
       await m.click('team-link-groups-change')
       const edit = m.get('team-link-groups-edit')
       expect(edit.textContent).toContain(translate('ko', 'teamLink.groupsKeep'))
@@ -466,7 +467,7 @@ describe('on screen', () => {
     const none = await mount(<MemoryRouter><TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={noop} onRevoke={noop} onGroups={async () => true} /></MemoryRouter>)
     try {
       await none.click('team-link-manage')
-      expect(none.get('team-link-groups').textContent).toBe(translate('ko', 'teamLink.joinsNone'))
+      expect(none.get('team-link-groups').textContent).toBe(translate('ko', 'teamLink.groupsNone'))
       await none.click('team-link-groups-change')
       expect(none.find('group-checks-new')).toBeNull()
     } finally { await none.unmount() }

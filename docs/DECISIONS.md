@@ -11694,7 +11694,8 @@ changes. On that path it supersedes P1's "파일 and 활동 open today's pages a
   inside that page lights the page's own place. Rows are links, so they also open in a new tab. A notice with no page of its own, or with what only
   its own view shows (a handover's buttons, a job's log, an ask to add an app), opens as itself at `/activity?n=<id>`.
   Opening a notice reads it. `/activity` with nothing picked says how many are unread and where mentions are. An old
-  `/activity?tab=mentions|threads` link goes to `/activity?in=chats&tab=…` (대화's 멘션·스레드, its tabs unchanged).
+  `/activity?tab=mentions|threads` link goes to `/activity?in=chats&tab=…` (대화's 멘션·스레드, its tabs unchanged), and
+  `?tab=dms` (the DMs tab #666 brought back on the old page) to 멘션·스레드 too: DMs are 대화's own list.
 - **파일**: 최근 파일 (`/files?view=recent`, `GET /api/files/recent`, newest first with the folder each is in), 팀 폴더 (the
   team folder's top folders, in the Files order, without projects/ and users/; the label opens the team folder's top),
   프로젝트 폴더 (projects I can see, by name; the board icon), then **내 파일** and 휴지통. The deepest place the open folder
@@ -24162,12 +24163,13 @@ Version impact: **minor** (new route, migration 288).
   names) or a file the caller's own applied folder plan marked as a form and moved (still remembered by the server:
   10 minutes), never `users/`, `skills/`, `.system` or another team file (400 `not_in_forms_folder`). Names quoted in
   the steps are one line, with backticks and `<` replaced, as `files/locations.ts` cleanLabel.
-- **Where the real fill cannot run.** box_shell is not offered in rooms, scheduled runs or shared project chats
+- **Where the real fill cannot run.** box_shell is not offered in scheduled runs or shared project chats
   (`chat/turn.ts`), nor when the team's dev environment is off or the person is outside its scope
   (`devenv/setting.ts`); edit_hwp exists only with the HWP plugin. There, step 7 runs: make_file with the same fields,
   and the AI must say plainly that the form itself cannot be filled here, so it made a copy with the same fields, and
   that opening it in their own chat (or asking an admin to turn on the dev environment) fills the real form. Who gets
-  box_shell is unchanged. **Open question for the owner:** should rooms (and scheduled runs) get the fill path?
+  box_shell is unchanged. The ✦ side chat beside a room is the person's own chat and fills the real form ("@트리나" in
+  rooms is off since "Trina side chat, PR 2").
 - **Sharing** is S's: re-read from the answer, the people it is shared with must open the form's folder, a free name,
   the caller's `humanSave` of `skills/general/<slug>/SKILL.md`, audited (`onboarding.skill_share`, `sourcePath`).
   Fixed on the way: a team without `skills/general/` yet could not share any draft (the name check under a missing
@@ -24282,6 +24284,19 @@ Version impact: **patch** (no route, no migration).
 - Tests: `tests/unit/b-form-skill.test.ts`, `tests/unit/c-move-suggest.test.ts`, `web/test/unit/form-skills.test.tsx`,
   `web/test/unit/folder-picker-suggestions.test.tsx`.
 
+## Activity: the DMs tab is back (feat/activity-dms-tab-back, 2026-11-13, the owner)
+
+Supersedes "no DMs tab" (#635, fix/activity-dms, the same day): the owner wants the tab back.
+- **Tabs.** All · DMs · Mentions · Threads again, as before #635 (a phone shows the short word, "MD" in Spanish). DMs
+  holds a direct or group chat's conversation rows (`room.kind` dm or group); a mention or a thread reply inside one is
+  under Mentions or Threads as well. The 멘션·스레드 page opened from a phone's 대화 tab (`?in=chats`) keeps All ·
+  Mentions · Threads (CHATS_FILTERS), and `?tab=dms` there opens All.
+- **One rule.** `dms` is back in shared `ActivityTab` and `activityTabHas`, so the page's filter and the server's
+  "Mark all as read" (`POST /api/notifications/read` `{ tab: 'dms' }`) read the same rows.
+- Tests: `web/test/e2e/activity-tabs.spec.ts`, `phone-menus-tabs.spec.ts`, `phone-chats-tab.cases.ts`,
+  `web/test/unit/inbox-rooms.test.tsx`, `web/test/unit/activity-mark-all.test.tsx`, `tests/unit/b-rooms-inbox.test.ts`.
+- Version impact: **minor** (a visible tab; the API accepts one more tab value).
+
 ## Activity: "Mark all as read" for the open tab (feat/activity-mark-all-read, 2026-11-13, QA TC-457)
 
 넣을 곳: trina-ax `web/src/pages/Activity.tsx`, `server/src/notifications/service.ts` (`readAll`) and
@@ -24291,8 +24306,8 @@ Activity cleared notices one click at a time.
 
 - **One call for the tab, on the server.** `POST /api/notifications/read` `{ tab, only? }` → `{ read }`. All: every
   unread notice of mine (not suppressed, inside the 30 days) and every unread conversation row; `only: 'rooms'` (대화's
-  멘션·스레드 page) the conversation rows alone; Mentions / Threads the conversation rows the tab shows (no DMs tab
-  since dev's 4a68912a9). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
+  멘션·스레드 page) the conversation rows alone; DMs / Mentions / Threads the conversation rows the tab shows (the DMs
+  tab was gone from dev's 4a68912a9 and is back since feat/activity-dms-tab-back). The tab rule moved from the page to shared `activityTabHas`, so the page and the server follow one rule, and
   rows not loaded yet are read too. Only mine, nothing deleted, a second call marks nothing.
 - **A conversation row reads as opening it does.** Opening a row reads its notices and then the room (or the thread) at
   its newest message. Mark all moves my place in the room (`markRead`), or for a thread's row in the thread
@@ -24373,3 +24388,15 @@ Activity cleared notices one click at a time.
 - Tests: `tests/unit/b-chat-answer-push.test.ts`, `web/test/unit/push-worker.test.ts`, `web/test/unit/room-notify.test.tsx`,
   `tests/unit/push-gateway.test.ts`, `tests/unit/push-locale.test.ts`.
 - Version impact: **minor**.
+
+## Docs-only pull requests run only the doc checks (ci/docs-only-fast, 2026-11-13, product owner)
+
+- **Why:** the owner: waiting ~10 minutes of builds and tests for a pull request that only edits DECISIONS or a changes
+  fragment is pointless; those files reach no build, no test and no app.
+- **How (`.github/workflows/ci.yml`):** a `scope` job diffs the pull request's merge commit against its base (first
+  parent). When every changed file is Markdown directly under `docs/` or `changes/`, the `docs` job runs
+  `features:check` and `check:docs` (onboarding doc contracts, tooltips, changelog), and `static`, `unit` and `other`
+  are skipped. The required check (`check`, "typecheck, native, unit, fast fuzz, web, relay") keeps its name: on that
+  path it passes when `scope` and `docs` passed; otherwise it needs `static`, `unit` and `other` as before.
+- **Not docs-only:** anything else, including `docs/features.ts`, `docs/api/`, `README.md` and the workflow itself; a
+  push to dev or main, a manual run and a run called by release.yml always run everything.
