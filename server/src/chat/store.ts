@@ -14,7 +14,8 @@ export interface ChatRow {
   active_leaf_id: string | null; created_at: string; updated_at: string; deleted_at: string | null
   /** where the title came from (title.ts): 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' */
   title_source: string
-  /** migration 242: the AI session of this person in a team chat room (rooms/ai.ts); never one of their chats on screen */
+  /** migration 242: an old room AI session of this person (that AI was removed, docs/DECISIONS.md "Room @트리나 code
+   * removed"); never one of their chats on screen */
   room_id: string | null
   /** migration 252: when the person last had the chat on screen (POST /api/chats/:id/seen); null: never since made */
   seen_at: string | null
@@ -188,7 +189,7 @@ export class ChatStore {
     return this.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE id = ?`).get(id) as ChatRow | null
   }
   /** own chat (optionally including the trash), for the server's own flows on a person's chat (drafts, merges). A room's
-   * AI session is not a chat of the person's (it is asked, stopped and read through the room, rooms/ai.ts), and a shared
+   * AI session is not a chat of the person's (an old room AI session, never opened), and a shared
    * project chat is not theirs alone: the chat routes find both through chat/shared.ts chatFor, these flows never */
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)

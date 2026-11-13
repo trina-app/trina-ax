@@ -140,11 +140,11 @@ test('not a member (an admin too), another room\'s address and no session are re
 test("a hidden old answer's file, another person's private preview's file and a deleted message's file are refused", async () => {
   const engine = fake()
   useEngine(engine)
-  // an AI preview only mia sees
+  // an old AI preview (only mia saw it while the room AI was there): nobody now
   const priv = await upload(mia.client, dm.id, 'private.hwp', fixture('agreement.hwp'))
   putWithFile(dm.id, priv.id, { privateTo: mia.id })
   expect((await preview(nora.client, dm.id, priv.id)).status).toBe(404)
-  expect((await preview(mia.client, dm.id, priv.id)).status).toBe(200)
+  expect((await preview(mia.client, dm.id, priv.id)).status).toBe(404)
   // an old answer hidden from nora (rooms/history.ts)
   const old = await upload(mia.client, dm.id, 'hidden.hwp', fixture('two-pages.hwp'))
   const answer = putWithFile(dm.id, old.id)

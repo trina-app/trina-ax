@@ -27,7 +27,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { compactName, foldName, groupSubject, matchName, MEMBERS_TEXT, mentioned, nameParts, nameSkeleton, PROJECT_MEMBERS_TOOL, projectMembersRefusal, projectMembersTool, said, sameNames, shownName, type MembersExec, type Subject } from '../../server/src/chat/project-members'
 import { DICTS } from '../../web/src/i18n'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
-import { ROOM_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
 import { TurnFiles } from '../../server/src/files/service'
 import { tr } from '../../server/src/chat/i18n'
@@ -219,7 +219,6 @@ describe('the red mark\'s test: the whole name in the person\'s own words (M5, r
 
 describe('where it runs', () => {
   test('never in a room, a shared chat, FILE_TOOLS or the remote connector; the main AI only; no room card after a room read', async () => {
-    expect(ROOM_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(false)
     expect(SHARED_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(false)
     expect(PROJECT_MEMBERS_TOOL in FILE_TOOLS).toBe(false)
     expect(PARENT_ONLY_TOOLS.has(PROJECT_MEMBERS_TOOL)).toBe(true)
@@ -245,7 +244,6 @@ describe('where it runs', () => {
     }) as unknown as MembersExec
     const cases: [MembersExec, RegExp][] = [
       [exec({}, { clientKind: 'schedule' }), /nobody could be asked/],
-      [exec({ room: { roomId: 'r' } }), /not available in a team chat room/],
       [exec({ shared: { project: {} } }), /not available in a shared project chat/],
       [exec({ otherAuthors: true }), /a chat other people wrote in/],
       [exec({ fromSlack: true }), /Slack/],

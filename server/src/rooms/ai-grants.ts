@@ -1,7 +1,7 @@
-// "이 방에서는 항상 허용" (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"): the person who asked @트리나 in a room lets it
-// make new team files in one folder and its subfolders there, without the room's change card, for 30 days (migration
+// "이 방에서는 항상 허용" (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"): in a ✦ side chat that read its own room, the person
+// lets the AI make new team files in one folder and its subfolders there, without the room's change card, for 30 days (migration
 // 266, room_ai_grants). A grant only skips that person's card: the folder rules, the skill-write card, the
-// wider-audience card and where the answer goes are decided as before. The calls a grant may cover (new files and files
+// wider-audience card are decided as before. The calls a grant may cover (new files and files
 // the same answer made, never skills or instruction files, never a top folder) are chosen in chat/turn.ts; this module
 // keeps the rows and checks, every time one is used, that nothing it was given under has changed:
 // - 30 days have not passed;
@@ -192,21 +192,12 @@ export function grantFor(db: Database, fx: FsCtx, rules: RuleSet, o: { userId: s
 }
 
 /** A call this answer's [이번만 허용] for its folder let through without a card: audited like a grant's use (`once`, no
- * grant), so the room's answer names its file too (grantMadeFiles). `rooms`: the room of a room session, or the rooms
- * the person's own chat read (`chat`: docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"); several are named under `rooms`,
+ * grant). `rooms`: the rooms the person's own chat read (`chat`: docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"); several are named under `rooms`,
  * each as roomAuditRef names it. */
 export function auditOnceUse(db: Database, o: { userId: string; rooms: readonly string[]; folder: string; segs: readonly string[]; tool: string; turnId: string | null; chat?: boolean }) {
   const refs = o.rooms.map((id) => roomRow(db, id)).filter((r): r is RoomRow => !!r).map(roomAuditRef)
   if (!refs.length) return
   audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...(refs.length === 1 ? refs[0] : { rooms: refs }), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true, ...(o.chat ? { chat: true } : {}) } })
-}
-
-/** The files this answer saved without a card through a grant or its own [이번만 허용] (its room.ai_grant_use rows whose
- * file the turn then created or changed), in the order they were used: the room's answer names them (rooms/ai.ts). */
-export function grantMadeFiles(db: Database, turnId: string): string[] {
-  const rows = db.query(`SELECT json_extract(a.detail, '$.path') path FROM audit_log a WHERE a.action = 'room.ai_grant_use' AND json_extract(a.detail, '$.turnId') = ?1
-    AND EXISTS (SELECT 1 FROM file_events e WHERE e.turn_id = ?1 AND e.path = json_extract(a.detail, '$.path') AND e.action IN ('create', 'update')) ORDER BY a.id`).all(turnId) as { path: string | null }[]
-  return [...new Set(rows.map((r) => r.path).filter((p): p is string => !!p))]
 }
 
 /** This person's grants for Settings › 트리나에게 허용한 것: only rooms they are in now (not archived), each room as they

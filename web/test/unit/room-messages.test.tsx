@@ -4,7 +4,7 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { ANSWER_QUOTES, previewLine, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
+import { ANSWER_QUOTES, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
 import { groupRuns } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
@@ -64,69 +64,19 @@ test('phones: a run whose time reads like the one above shows no time; a new min
   expect(sameTimeAsAbove(days, minute)).toEqual([false, false])
 })
 
-// ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
-test('an AI answer is shown like a chat answer without its steps: Markdown, who asked, the files it used', () => {
+// ---------------- the room AI's earlier answers (docs/DECISIONS.md "Room @트리나 code removed") ----------------
+test('an earlier AI answer is shown like a chat answer without its steps: Markdown, who asked', () => {
   const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina what changed?' })
-  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: ME, body: '## Changes\n\n- **one**', replyTo: { id: q.id, author: ME, excerpt: q.body, fileCount: 0, deleted: false }, sourceCount: 2 })
+  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: ME, body: '## Changes\n\n- **one**', replyTo: { id: q.id, author: ME, excerpt: q.body, fileCount: 0, deleted: false } })
   const html = render([q, a])
   expect(html).toContain('<h2')
   expect(html).toContain('<strong>one</strong>')
   expect(html).toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
   expect(html).toContain(translate('en', 'rooms.aiName'))
-  expect(html).toContain(translate('en', 'sources.title', { n: 2 }))
   expect(html).not.toContain('data-testid="steps"')
-  // "@Trina" in the question stands out like a person's name only while the server takes it (Me.server.roomAiMentions:
-  // room-mention-all.test.tsx); here no one is signed in, so it is plain text. The answer has no quote block of its own
+  // "@Trina" in the question is plain text. The answer has no quote block of its own
   expect(html).toContain('@Trina what changed?')
   expect(count(html, 'data-testid="message-quote"')).toBe(0)
-  expect(html).not.toContain('data-testid="room-ai-preview"')
-})
-
-test('a private preview says at its top that only I see it, with one text action and why in one plain line', () => {
-  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], personal: true, outside: true } })
-  const html = render([a]).replaceAll('&#x27;', "'")
-  expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
-  // the top line: mine only, in place of "asked by", with "Post to room…" on it as a text action (no framed button)
-  expect(html).toContain('data-testid="room-ai-private"')
-  expect(html).toContain(translate('en', 'rooms.aiPrivate'))
-  expect(html).not.toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
-  expect(html.indexOf('room-ai-private')).toBeLessThan(html.indexOf('mine only'))
-  const line = html.slice(html.indexOf('data-testid="room-ai-private"'))
-  const own = line.slice(0, line.indexOf('</p>'))
-  expect(count(own, '<button')).toBe(1)
-  expect(own).toContain('data-testid="room-ai-share"')
-  expect(own).toContain(`>${translate('en', 'rooms.aiPost')}<`)
-  expect(translate('ko', 'rooms.aiPost')).toBe('방에 올리기…')
-  expect(own).not.toContain('border-field-border')
-  expect(own).not.toContain('bg-accent')
-  // why, right under it and before the answer: one plain line, nothing named there (the confirm names the folders)
-  expect(html.indexOf('room-ai-preview')).toBeLessThan(html.indexOf('mine only'))
-  const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
-  expect(note.slice(note.indexOf('>') + 1, note.indexOf('</p>'))).toBe(translate('en', 'rooms.aiPrivateWhy'))
-  expect(html).not.toContain('acme/finance')
-  expect(html).not.toContain('marketing')
-  // nothing repeated under the answer; putting the preview away is in the "…" menu
-  expect(count(html, 'data-testid="room-ai-share"')).toBe(1)
-  expect(count(html, 'data-testid="message-menu"')).toBe(1)
-  expect(translate('ko', 'rooms.aiPrivateWhy')).toBe('방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고 있어요.')
-})
-
-test('the one line: the web alone has its own, a preview without reasons says everyone would see it', () => {
-  const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
-  expect(previewLine({ folders: [], personal: false, outside: true }, t)).toBe(translate('en', 'rooms.aiPrivateWhyOutside'))
-  for (const p of [{ folders: ['acme/finance'], personal: false, outside: true }, { folders: [], personal: true, outside: false }, { folders: [], otherFolders: true, personal: false, outside: false }, { folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] }, { folders: ['acme/x'], personal: false, outside: false, earlier: true as const }])
-    expect(previewLine(p, t)).toBe(translate('en', 'rooms.aiPrivateWhy'))
-  // another conversation some people here are not in is material, never "the web or a connected service"
-  expect(previewLine({ folders: [], personal: false, outside: false, otherRooms: true }, t)).toBe(translate('en', 'rooms.aiPrivateWhy'))
-  expect(previewLine({ folders: [], personal: false, outside: false }, t)).toBe(translate('en', 'rooms.aiPrivateAll'))
-  expect(previewLine(undefined, t)).toBe(translate('en', 'rooms.aiPrivateAll'))
-})
-
-test('in a 1:1 room the line names the other person, never "the room"', () => {
-  const t = (k: string, v?: Record<string, string | number>) => translate('ko', k as never, v)
-  expect(previewLine({ folders: ['acme/finance'], personal: false, outside: false }, t as never, true)).toBe(translate('ko', 'rooms.aiPrivateWhyDm'))
-  expect(previewLine(undefined, t as never, true)).toBe(translate('ko', 'rooms.aiPrivateAllDm'))
-  for (const k of ['rooms.aiPrivateWhyDm', 'rooms.aiPrivateAllDm']) expect(translate('ko', k as never, { folder: 'x' })).not.toContain('방 사람')
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
@@ -139,25 +89,6 @@ test("an AI answer's team file links are chips only for files the viewer may ope
   expect(html).toContain('>notes<')
   // someone else's answer: no delete for a member
   expect(html).not.toContain('data-testid="message-delete"')
-})
-
-test("someone else's question answered privately says so under the question, naming only who asked", async () => {
-  // the server marks the question (RoomMessage.answeredPrivately): after a reload as well as live
-  const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?', answeredPrivately: true })
-  const later = message({ roomId: R, seq: 2, author: CY, body: 'meanwhile' })
-  installDom()
-  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  try {
-    const html = m.html()
-    expect(count(html, 'data-testid="room-ai-private-for"')).toBe(1)
-    expect(m.get('room-ai-private-for').textContent).toBe(translate('en', 'rooms.aiAnsweredTo', { name: 'Ben' }))
-    // right under the question, not at the end of the room
-    expect(html.indexOf('room-ai-private-for')).toBeLessThan(html.indexOf('meanwhile'))
-  } finally {
-    await m.unmount()
-    useRooms.getState().reset()
-    removeDom()
-  }
 })
 
 test('touch screens: no hover row on every message; a long press opens its menu (reactions, reply in thread, copy, edit and delete my own)', async () => {
@@ -187,24 +118,6 @@ test('touch screens: no hover row on every message; a long press opens its menu 
   }
 })
 
-
-test('my stopped question says so under that question, not at the end of the room', async () => {
-  const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina table please' })
-  const later = message({ roomId: R, seq: 2, author: BEN, body: 'meanwhile' })
-  installDom()
-  useRooms.setState({ ai: { [R]: { answering: 0, runs: [{ turnId: uuidv7(), roomId: R, questionId: q.id, state: 'stopped', position: 0, steps: [], error: null, createdAt: q.createdAt }] } } })
-  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  try {
-    const html = m.html()
-    expect(count(html, 'data-testid="room-ai-ended"')).toBe(1)
-    expect(m.get('room-ai-ended').textContent).toContain(translate('en', 'rooms.aiStopped'))
-    expect(html.indexOf('room-ai-ended')).toBeLessThan(html.indexOf('meanwhile'))
-  } finally {
-    await m.unmount()
-    useRooms.getState().reset()
-    removeDom()
-  }
-})
 
 test('a room badge: "@" alone when it mentions me, grey for a muted room; a letter avatar is neutral, not the accent', async () => {
   const { UnreadBadge } = await import('../../src/components/nav/RoomsList')
@@ -335,7 +248,7 @@ test('a reply sent to the room too: marked as a thread reply in the timeline (a 
   expect(render([loud])).toContain('data-testid="room-thread-reply-mark"')
   // a reply has no thread of its own: no "reply in thread"
   expect(render([loud])).not.toContain('data-testid="message-thread"')
-  const inThread = renderToStaticMarkup(<RoomMessages roomId={R} messages={[loud]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" threadRootId={root} />)
+  const inThread = renderToStaticMarkup(<RoomMessages roomId={R} messages={[loud]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" />)
   expect(inThread).toContain(translate('en', 'rooms.alsoSent'))
   expect(inThread).not.toContain('room-thread-reply-mark')
   installDom()
@@ -418,23 +331,16 @@ test('an old answer hidden from me is one faint line: who asked it, no text, men
   expect(html).not.toContain('data-testid="reaction')
 })
 
-test('a quote of a hidden answer says so; a preview that used one offers to post only when what that used can be named', () => {
+test('a quote of a hidden answer says so', () => {
   const html = render([message({ roomId: R, seq: 5, body: 'old reply', replyTo: { id: uuidv7(), author: null, excerpt: '', fileCount: 0, deleted: true, withheld: true } })]).replaceAll('&#x27;', "'")
   expect(html).toContain(translate('en', 'rooms.withheldMessage'))
   expect(html).not.toContain(translate('en', 'rooms.deleted'))
-  const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
-  // not postable (the server refuses it too): the reason alone, no button
-  expect(previewLine({ folders: [], personal: false, outside: false, hidden: true }, t)).toBe(translate('en', 'rooms.aiWhyHidden'))
-  expect(translate('ko', 'rooms.aiWhyHidden')).toBe('가려진 예전 답을 참고해서 방에 올릴 수 없어요.')
-  const refused = render([message({ roomId: R, seq: 6, body: 'an answer', authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', preview: { folders: [], personal: false, outside: false, hidden: true } })]).replaceAll('&#x27;', "'")
-  expect(refused).toContain(translate('en', 'rooms.aiWhyHidden'))
-  expect(refused).not.toContain('data-testid="room-ai-share"')
-  // what the hidden answer was built on could be named: the plain line and the button, the folders in the confirm
-  const askable = render([message({ roomId: R, seq: 7, body: 'an answer', authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', preview: { folders: ['groups/marketing'], unable: { 'groups/marketing': 1 }, personal: false, outside: false, earlier: true } })]).replaceAll('&#x27;', "'")
-  expect(askable).toContain(translate('en', 'rooms.aiPrivateWhy'))
-  expect(askable).not.toContain(translate('en', 'rooms.aiWhyHidden'))
-  expect(count(askable, 'data-testid="room-ai-share"')).toBe(1)
-  expect(askable).not.toContain('marketing')
+})
+
+test('an old private AI message (the server no longer lists one) has no preview line or post action', () => {
+  const html = render([message({ roomId: R, seq: 6, body: 'an answer', authorKind: 'ai', author: null, askedBy: ME, visibility: 'private' })])
+  expect(html).not.toContain('room-ai-private')
+  expect(html).not.toContain('room-ai-share')
 })
 
 test('an answer\'s own quotes go without the typography\'s marks: a shared answer in a thread, and the room\'s AI answer (QA 2026-11-11)', () => {

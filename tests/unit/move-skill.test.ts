@@ -23,7 +23,7 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { levelsOf, moveOptions, planMove, runMove, skillAt } from '../../server/src/skills/move'
 import { checkSkill } from '../../server/src/chat/skills'
-import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 
 setDefaultTimeout(60_000)
@@ -518,7 +518,6 @@ describe('in the app: the Skills page and the AI', () => {
   })
 
   test('refused in a scheduled run, saying what to do; not offered in rooms, shared chats or sub-agents', async () => {
-    expect(ROOM_TOOLS.has('move_skill')).toBe(false)
     expect(SHARED_TOOLS.has('move_skill')).toBe(false)
     expect(PARENT_ONLY_TOOLS.has('move_skill')).toBe(true)
     const rt = h.rt()

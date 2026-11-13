@@ -128,7 +128,7 @@ function MarkWords({ mark, item }: { mark: RailMark; item: RailItem }) {
   const t = useT()
   if (!mark) return null
   const words =
-    mark.kind === 'ask' ? (item === 'chats' ? t('rooms.aiWaits') : t('marker.card'))
+    mark.kind === 'ask' ? t('marker.card')
     : mark.kind === 'dot' ? (item === 'chats' ? t('feed.chatsUnread') : t('marker.new'))
     : item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : t('notifications.unread', { count: mark.n })
   return <span className="sr-only" data-testid={`rail-${item}-mark-words`}>, {words}</span>

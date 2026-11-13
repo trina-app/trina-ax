@@ -90,7 +90,7 @@ export class TurnFiles {
    * room or a channel), other chats do not */
   namePaths = new Set<string>()
   /** team paths whose own name went to the model, and nothing of what is in them (the sub-folders a listing showed,
-   * chat/turn.ts: every path a room call named): a room session and a Slack chat count each as a name (read-scope.ts
+   * chat/turn.ts: every path a room call named): a Slack chat counts each as a name (read-scope.ts
    * {type:'name'}) */
   listedNames = new Set<string>()
   /** the same files per file with how and where (files/sources.ts): the answer's "참고한 파일" list. Shared by every

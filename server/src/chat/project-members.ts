@@ -286,16 +286,15 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'room' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
-export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'room' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'rt'>): { text: string; reason: string } | null {
+export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'rt'>): { text: string; reason: string } | null {
   const L = exec.spec.locale
   const no = (reason: string, why: RefusalReason, next: string) => ({ reason, text: refusal({ done: NONE, why, next }) })
   if (exec.restricted || exec.templateRun) return no('limited run', { kind: 'mode', mode: 'a run limited to one task' }, `${ownChat}, or change them on ${panel(L)}`)
   if (exec.spec.clientKind === 'schedule') return no('scheduled run', cardReason('unattended'), `${cardNext('unattended', 'in a chat of their own')}, or change them on ${panel(L)}`)
-  if (exec.room) return no('room', { kind: 'mode', mode: 'a team chat room', why: 'other people\'s messages are there, and one of them could ask for the change' }, `${ownChat}, or change them on ${panel(L)}`)
   if (exec.shared) return no('shared chat', { kind: 'mode', mode: 'a shared project chat', why: 'everyone in the project reads and writes it' }, `${ownChat}, or change them on ${panel(L)}`)
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', { kind: 'mode', mode: 'a confidential chat (safe operations)' }, `the user can change them on ${panel(L)}`)
   if (exec.otherAuthors) return no('other authors', { kind: 'mode', mode: 'a chat other people wrote in', why: 'one of their messages could ask for the change' }, `${ownChat}, or change them on ${panel(L)}`)

@@ -24644,3 +24644,30 @@ Activity cleared notices one click at a time.
   path it passes when `scope` and `docs` passed; otherwise it needs `static`, `unit` and `other` as before.
 - **Not docs-only:** anything else, including `docs/features.ts`, `docs/api/`, `README.md` and the workflow itself; a
   push to dev or main, a manual run and a run called by release.yml always run everything.
+
+## Room @트리나 code removed (fix/remove-room-ai-mention, 2026-11-13, product owner)
+
+- **Decision:** the owner, 2026-11-13: "코드도 삭제해줘". "@트리나" in rooms has been off since "Trina side chat, PR 2"
+  (2026-11-09); this removes its code and the `roomAiMentions` switch. It supersedes that entry's "Later:" line. People
+  ask the AI in the ✦ side chat beside a room (a personal chat) and send an answer with "대화방에 보내기".
+- **Removed:** the ask in `Rooms.send`; `rooms/ai.ts` (RoomAi: the room AI turn, its context block, where an answer
+  goes, private previews and their posting, stop, sources), `rooms/ai-redecide.ts`, `rooms/earlier-sources.ts`,
+  `rooms/ai-context.ts` (the room's <room_context> block and room_thread); `chat/room-project-chats.ts` (project_chats,
+  project_chat); the room session's own tools (room_file / save_room_file "here", room_thread) and schemas; the room
+  session branches of `chat/turn.ts`, `chat/tools.ts`, `chat/runtime.ts` (RoomTurns), `chat/prompt.ts` (the room section
+  and its allowlist) and the connection tools' `room` flag; the endpoints getRoomAi, stopRoomAi, listRoomAiRequests,
+  shareRoomMessage and roomMessageSources; the events room.ai, room.ai.run and room.ai.step; Room.aiWaits; RoomMessage
+  preview, answeredPrivately and sourceCount; in the web app the AI row of the "@" list, the "@트리나" token, the room's
+  AI status lines, the preview line with "방에 올리기…", the "?" badge for a waiting room AI and their strings in five
+  languages.
+- **Kept:** the ✦ side chat and every tool of a person's own chat (rooms, room_read, room_file, save_room_file,
+  post_to_room), "대화방에 보내기", "이 방에서는 항상 허용" grants (rooms/ai-grants.ts: used by the side chat), the room
+  history and hidden answers (rooms/history.ts, which still reads room_ai_turns.scope for old answers), mentions of
+  people and "@전체".
+- **Old data:** no table or row is dropped. An AI answer already posted to a room stays an ordinary message
+  (authorKind 'ai', "○○ 님이 물어봄" above it; no "참고한 파일" list any more). An unposted private preview is no longer
+  listed to anyone (canSee, SEE_SQL); its chat (chats.room_id) stays hidden from 트리나 기록 as before, and a turn left
+  queued in one refuses to run. `roomAiMentions` in server.json is accepted and ignored (OBSOLETE_KEYS, logged once).
+- **Tests:** the room-AI-only tests went (b-rooms-ai*, b-room-ai-grants, room-ai unit and e2e specs, their security
+  cases); the side chat's grant cases stay in b-chat-rooms-fewer-cards. Settings › 트리나에게 허용한 것 and the admin
+  switch are in web/test/e2e/ai-allowances.spec.ts.

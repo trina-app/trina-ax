@@ -201,7 +201,7 @@ export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, 
 }
 
 // ---------------- rooms ----------------
-type RoomWhy = 'ai' | 'room.mention' | 'room.dm'
+type RoomWhy = 'room.mention' | 'room.dm'
 /** a told message: its first line (noticeLine) and "Mark as read"'s place ("<room>@<seq>", "<room>/<thread root>@<seq>") */
 type Told = { line?: string; read?: string }
 const pendingRoom = new Map<string, { timer: ReturnType<typeof setTimeout>; why: RoomWhy; told?: Told }>()
@@ -210,11 +210,10 @@ const viewingHere = (roomId: string) => useSessionMarkers.getState().visible && 
 const titleOf = (r: Room) => roomTitle(r, { all: t('rooms.all'), gone: t('rooms.goneUser'), alone: t('rooms.groupAlone'), sep: t('rooms.nameSep'),
   names: (names, n) => (n > 0 ? t('rooms.groupNamesMore', { names, n }) : names) })
 
-const ROOM_WHY: Record<RoomWhy, MessageKey> = { ai: 'rooms.aiWaits', 'room.mention': 'rooms.mentionedYou', 'room.dm': 'rooms.newMessage' }
+const ROOM_WHY: Record<RoomWhy, MessageKey> = { 'room.mention': 'rooms.mentionedYou', 'room.dm': 'rooms.newMessage' }
 function laterRoom(roomId: string, why: RoomWhy, told?: Told) {
-  // one per room: the "?" wins over a message told in the same moment, a newer message replaces an older one
+  // one per room: a newer message replaces an older one
   const was = pendingRoom.get(roomId)
-  if (was?.why === 'ai' && why !== 'ai') return
   if (was) clearTimeout(was.timer)
   pendingRoom.set(roomId, { why, told, timer: setTimeout(() => { pendingRoom.delete(roomId); tellRoom(roomId, why, told) }, tellTiming.delayMs) })
 }
@@ -239,18 +238,16 @@ export function markReadFrom(token: string) {
 }
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
-  // read meanwhile (here or on another device), its AI no longer waiting, or on screen here: nothing
-  if (!r || viewingHere(roomId) || (why === 'ai' ? !r.aiWaits : !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true))) return
+  // read meanwhile (here or on another device), or on screen here: nothing
+  if (!r || viewingHere(roomId) || !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
   // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
-  const preview = why !== 'ai' && told?.line && useRooms.getState().alerts?.messagePreview === true ? told.line : ''
+  const preview = told?.line && useRooms.getState().alerts?.messagePreview === true ? told.line : ''
   const body = preview || t(ROOM_WHY[why])
-  // "Mark as read" (macOS): a message's notice only, never the AI-waits one (a question to answer)
-  const read = why !== 'ai' && told?.read ? told.read : undefined
+  // "Mark as read" (macOS)
+  const read = told?.read
   desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}`, ...(read ? { read } : {}) })
-  // a message rings the room sound here and the phone's own notification there; only the AI's "?" gets a toast
-  if (why === 'ai' && railHidden() && pageVisible()) toast({ level: 'info', text: title, detail: body, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => navigateTo(`/rooms/${roomId}`) } })
 }
 
 /** A new room message, before the rooms store applies it: one the server gave me a notice of is told in the desktop app
@@ -260,12 +257,10 @@ export function roomMessage(ev: Extract<ServerEvent, { type: 'room.message' }>, 
   if (!why || meta.replay || !desktop() || viewingHere(ev.data.roomId)) return
   laterRoom(ev.data.roomId, why, { line: noticeLine(ev.data.message), read: readToken(ev.data.message) })
 }
-/** A room changed, before the rooms store applies it: its AI started waiting on me (a card of my question). */
-export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>, meta: { replay: boolean }) {
+/** A room changed, before the rooms store applies it: one I am out of tells nothing more. */
+export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>) {
   const { roomId, room } = ev.data
-  if (!room) { clearTimeout(pendingRoom.get(roomId)?.timer); pendingRoom.delete(roomId); return }
-  const before = useRooms.getState().rooms.find((x) => x.id === roomId)
-  if (room.aiWaits && !before?.aiWaits && !meta.replay && !viewingHere(roomId)) laterRoom(roomId, 'ai')
+  if (!room) { clearTimeout(pendingRoom.get(roomId)?.timer); pendingRoom.delete(roomId) }
 }
 
 // ---------------- the window ----------------

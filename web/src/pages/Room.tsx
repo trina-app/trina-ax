@@ -45,7 +45,6 @@ import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
 import { ImageGroup } from '../components/ImageViewer'
-import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
@@ -259,8 +258,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
   const messages = timeline?.messages ?? NO_MESSAGES
-  // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
-  const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
   const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
   // a DM: the other person's online status (docs/DECISIONS.md "접속 상태"), on their picture on a computer and as a dot
   // before the name on a phone (which shows no picture here)
@@ -272,8 +269,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const detached = !!timeline?.newerCursor
   const detachedNow = useRef(detached)
   detachedNow.current = detached
-  // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
-  // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
+  // thumbnails load after the text, and a phone's keyboard shrinks the list: stay at the bottom if we were there
   // (lib/stickToBottom.ts)
   const list = useStickToBottom(() => {
     const th = useRooms.getState().timeline
@@ -285,7 +281,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useLayoutEffect(() => {
     list.follow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [last?.id, messages.length, pending.length, aiKey])
+  }, [last?.id, messages.length, pending.length])
   // my send or "최근 메시지로" from a window around an older message: the list lands at the bottom once the newest page
   // has taken the window's place. The scroll events on the way (the box clearing, the window's own place) come while the
   // window is still there and the list may not stick to it (onListScroll's canStick), so `stick` alone was lost and the
@@ -474,7 +470,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
             <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />
-            <RoomAiStatus roomId={roomId} />
           </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>

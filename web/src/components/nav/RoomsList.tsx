@@ -38,19 +38,11 @@ export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<
   }).filter((s) => s.rooms.length > 0)
 }
 
-/** A room's one badge: "?" in amber while its AI waits on me (a card of my own question; docs/DECISIONS.md "Session
- * markers"), else the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab does
- * not count). The same pill, only its mark and colour differ. */
+/** A room's one badge: the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
+ * does not count). */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
   const n = roomUnread(room)
-  if (room.aiWaits)
-    return (
-      <span className={clsx('shrink-0 rounded-full bg-warn px-1.5 text-micro font-bold text-canvas', className)} data-testid={testId} data-ai-waits="">
-        <span aria-hidden>?</span>
-        <span className="sr-only">{[t('rooms.aiWaits'), n > 0 && t('rooms.unread', { n })].filter(Boolean).join(', ')}</span>
-      </span>
-    )
   if (n <= 0) return null
   return (
     <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>

@@ -26,8 +26,7 @@ describe('room folders in 대화', () => {
 })
 
 describe("a folded room folder's pill", () => {
-  test('"?" over "@" over the number of unread rooms; muted rooms are left out; nothing: no pill', () => {
-    expect(roomFolderPill([room('a', { unreadCount: 2, mentioned: true }), room('b', { aiWaits: true })])).toEqual({ kind: 'ask' })
+  test('"@" over the number of unread rooms; muted rooms are left out; nothing: no pill', () => {
     expect(roomFolderPill([room('a', { unreadCount: 2, mentioned: true }), room('b', { unreadCount: 5 })])).toEqual({ kind: 'mention' })
     expect(roomFolderPill([room('a', { unreadCount: 2 }), room('b', { unreadCount: 5 }), room('c')])).toEqual({ kind: 'unread', n: 2 })
     expect(roomFolderPill([room('a', { unreadCount: 2, muted: true, mentioned: true })])).toBeNull()

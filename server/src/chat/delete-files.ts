@@ -1,7 +1,7 @@
 // delete_files (docs/DECISIONS.md "AI가 휴지통으로 옮기기"): the AI moves files and folders to the team trash, exactly as
 // the Files screen's delete does (TeamFiles.remove, never FileService.deleteFile), after the person's yes on the
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
-// scheduled run, an approved template run, a room, a shared project chat, a chat other people wrote in or one that has
+// scheduled run, an approved template run, a shared project chat, a chat other people wrote in or one that has
 // read rooms (chat/read-rooms.ts: a room read, a side chat, a quoted message) or a Slack thread, a confidential chat, a
 // draft or judge chat, and for a sub-agent. The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
@@ -65,7 +65,6 @@ const SCREEN = 'they can delete it themselves on the Files screen (it goes to th
 export const DELETE_REFUSAL = {
   scheduled: `${NONE}: a scheduled run has nobody to confirm the delete card. Tell the user ${SCREEN}, or to ask in a chat, where they confirm on a card.`,
   template: `${NONE}: an approved scheduled template only reads its folder and writes reports. Tell the user ${SCREEN}.`,
-  room: `${NONE}: the AI does not delete files in a team chat room (other people's messages are there). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
   roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
@@ -80,14 +79,13 @@ export const DELETE_REFUSAL = {
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 
 /** What delete_files needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules here are tested on their own. */
-export type DeleteExec = Pick<TurnExec, 'spec' | 'room' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'>
+export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
-export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'room' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'>): DeleteRefusal | null {
+export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'>): DeleteRefusal | null {
   if (exec.restricted) return 'restricted'
   if (exec.templateRun) return 'template'
   if (exec.spec.clientKind === 'schedule') return 'scheduled'
-  if (exec.room) return 'room'
   if (exec.shared) return 'shared'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.otherAuthors) return 'others'

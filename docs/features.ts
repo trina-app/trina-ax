@@ -97,7 +97,6 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
-  { id: 'rooms.ai', name: '@AI in a room: ask, stop, share the answer', area: 'Rooms', endpoints: ['getRoomAi', 'stopRoomAi', 'shareRoomMessage', 'roomMessageSources', 'listRoomAiRequests'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
 
   // ---------------- Skills ----------------

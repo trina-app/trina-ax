@@ -79,12 +79,9 @@ export function mentionsEveryone(text: string): boolean {
   return false
 }
 
-/** what a read showed, as read-scope sources: its rooms (from the oldest message shown), and the person's own private
- * previews as theirs alone */
-const seenOf = (r: Pick<ReadResult, 'seen' | 'ownPrivate'>, userId: string): ReadSource[] => [
-  ...r.seen.map((s): ReadSource => ({ type: 'room', id: s.roomId, ...(s.fromSeq !== undefined ? { fromSeq: s.fromSeq } : {}) })),
-  ...(r.ownPrivate ? [{ type: 'user' as const, id: userId }] : []),
-]
+/** what a read showed, as read-scope sources: its rooms (from the oldest message shown) */
+const seenOf = (r: Pick<ReadResult, 'seen'>): ReadSource[] =>
+  r.seen.map((s): ReadSource => ({ type: 'room', id: s.roomId, ...(s.fromSeq !== undefined ? { fromSeq: s.fromSeq } : {}) }))
 
 /** The connection's sources with `add`: one room source per room, from the oldest message read there (it has the
  * fewest readers, so it alone decides). A read that showed no message has no fromSeq (everyone in the room now): it
@@ -114,14 +111,14 @@ export async function roomTool(ctx: AppContext, user: Principal, name: string, a
     if (!a.success) return out(zodText(a.error), true)
     const search = a.data.query !== undefined || a.data.person !== undefined || a.data.since !== undefined || a.data.until !== undefined
     const r = search ? searchRooms(db, userId, tz, a.data) : listRooms(db, userId, tz, a.data.room)
-    return out(r.text, !r.ok, seenOf(r, userId))
+    return out(r.text, !r.ok, seenOf(r))
   }
   if (name === 'room_read') {
     const a = ReadInput.safeParse(args ?? {})
     if (!a.success) return out(zodText(a.error), true)
     // the members with their ids: room_send mentions people by id
     const r = readRoom(db, userId, tz, { ...a.data, memberIds: true })
-    return out(r.text, !r.ok, seenOf(r, userId))
+    return out(r.text, !r.ok, seenOf(r))
   }
   if (name === 'room_file') {
     const a = FileInput.safeParse(args ?? {})
@@ -196,7 +193,7 @@ function send(ctx: AppContext, userId: string, args: unknown, scope: WriteScope,
   } catch (e) {
     if (e instanceof HttpError) {
       if (e.code === 'rate_limited') return out(`Too many messages at once: try again in ${e.extra.retryAfter ?? 1} seconds.`, true)
-      // the room AI's own refusals (budget, busy, safe operations) come in the user's language
+      // the rooms' own refusals come in the user's language
       return out(e.userMessage ?? errorMessage(e.code, 'en'), true)
     }
     throw e

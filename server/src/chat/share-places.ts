@@ -1,5 +1,5 @@
 // Where content that some people cannot see came from, as a "confirm" before it reaches more people names it
-// ("대화방에 보내기" chat/answer-share.ts, posting a room AI preview rooms/ai.ts share): only where the person may look
+// ("대화방에 보내기" chat/answer-share.ts): only where the person may look
 // themselves (a folder they may read, their own folder, a team connection or shared Drive by its name, a team room by its
 // group's name, the everyone room). Never who: a 1:1 or group conversation is never named (its name is people's names).
 import type { Database } from 'bun:sqlite'

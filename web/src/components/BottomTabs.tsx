@@ -7,9 +7,7 @@
 // (rail/railBadges.ts chatsMark: how many conversations have something unread, a dot when only a mention/thread notice
 // is, the same number the computer shows), on 나 the unread Inbox notices that are not about a
 // conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
-// the accent for a new answer: store/sessionMarkers.ts). While @트리나 waits on me in a room (Room.aiWaits), 대화's pill
-// is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count comes back when
-// the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
+// the accent for a new answer: store/sessionMarkers.ts). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
 // face in rooms and the rail's 트리나) where the product is named after its AI, in its own orange (the owner,
 // 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar still marks where you
@@ -34,7 +32,7 @@ import { useNoticeUnread, useRoomNoticeUnread } from '../store/inbox'
 import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
-import { chatsMark, unreadRooms } from './rail/railBadges'
+import { chatsMark } from './rail/railBadges'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { TrinaStar } from './TrinaStar'
 
@@ -53,7 +51,6 @@ export function BottomTabs() {
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const chats = chatsMark(rooms, roomNotices)
-  const unread = unreadRooms(rooms)
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
@@ -87,12 +84,7 @@ export function BottomTabs() {
           ))}
       </TabLink>
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
-        {chats?.kind === 'ask' ? (
-          <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
-            <span aria-hidden>?</span>
-            <span className="sr-only">{[t('rooms.aiWaits'), unread > 0 && t('rail.unreadRooms', { n: unread })].filter(Boolean).join(', ')}</span>
-          </span>
-        ) : chats?.kind === 'count' ? (
+        {chats?.kind === 'count' ? (
           <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />
         ) : (
           chats?.kind === 'dot' && (
