@@ -99,8 +99,8 @@ describe('Project.alone', () => {
     }
   })
 
-  test('a project that does not share its chats says the same (the web uses it only while it shares them)', async () => {
+  test('a team project an older build left with the setting off still shares its new chats, and says alone the same', async () => {
     const id = await project('erin', 'Quiet', [], false)
-    expect(await seen('erin', id)).toMatchObject({ shareChats: false, alone: true })
+    expect(await seen('erin', id)).toMatchObject({ shareChats: true, alone: true })
   })
 })

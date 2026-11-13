@@ -1154,7 +1154,7 @@ function ProjectPage() {
               )}
             </div>
             {!chats && <Skeleton lines={3} />}
-            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t(isTeamProject(p) && !outside ? 'projects.page.chatsEmptyTeam' : 'projects.page.chatsEmpty')}</p>}
+            {chats && !chats.length && <p className="py-2 text-sm text-faint" data-testid="project-chats-empty">{t(isTeamProject(p) && !outside && !me?.server?.allChatsConfidential ? 'projects.page.chatsEmptyTeam' : 'projects.page.chatsEmpty')}</p>}
             {/* a team project where I have chats only I see (from before, brought in, "Only me"): once, a quiet line between
                 the heading and the list that says how many and opens the list to share them one at a time */}
             {chats && !outside && !p.inTrash && <PrivateChatsNotice project={p} chats={chats} />}

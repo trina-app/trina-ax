@@ -8,14 +8,14 @@
 // operations are on, the line says new chats are only theirs for now, with no switch. Any other project's box says who
 // will see the new chat as before (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always").
 import { Lock, Users } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { isTeamProject, sharesNewChats, whoSees } from '../../lib/sharedChat'
 import { useT } from '../../i18n'
-import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
+import { draftChat, draftChatIfAny, draftChatShared, dropDraft, forgetDraftChat, rememberChat, rememberDraftShared } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
 import { fileChat } from '../../store/navFolders'
@@ -62,12 +62,25 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   // a team project in place: its new chats are shared unless "Only me" (never sticks: a new box starts shared again)
   const team = known && isTeamProject(project) && !project.inTrash
   const draftId = projectId ? `project:${projectId}` : 'new'
+  // "Only me" asked (Continue in a chat only you see) while this box holds a chat made shared for its attachments: that
+  // chat and its chips go, before the box shows them, so the question can never be sent into the shared chat (security
+  // review M1). Once per ask (resetKey), in this render: the box below mounts after it
+  const dropped = useRef<string | null>(null)
+  const ask = `${draftId}:${resetKey}`
+  if (startPrivate && dropped.current !== ask) {
+    dropped.current = ask
+    if (draftChatShared(me.user.id, draftId) === true) dropDraft(me.user.id, draftId)
+  }
   const [onlyMe, setOnlyMe] = useState(startPrivate)
   useEffect(() => setOnlyMe(startPrivate), [startPrivate, resetKey, projectId])
-  // a chat already made for this box's attachments (lib/teamAttach): its sharing was set when it was made
-  const [drafted, setDrafted] = useState(() => !!draftChatIfAny(me.user.id, draftId))
-  useEffect(() => setDrafted(!!draftChatIfAny(me.user.id, draftId)), [me.user.id, draftId])
-  const shared = known && sharesNewChats(project, safeOps) && !(team && onlyMe)
+  // a chat already made for this box's attachments (lib/teamAttach): its sharing was set when it was made, and the
+  // switch shows that (fixed) state, never the one the person would like
+  const draftState = () => draftChatShared(me.user.id, draftId)
+  const [drafted, setDrafted] = useState<boolean | null>(draftState)
+  useEffect(() => setDrafted(draftState()), [me.user.id, draftId, resetKey])
+  // what the new chat will be: the draft chat's own state when there is one, else the switch
+  const privateNow = team && (drafted === null ? onlyMe : !drafted)
+  const shared = known && sharesNewChats(project, safeOps) && !privateNow
   const who = known && !team ? <WhoSeesLine shared={shared ? project : null} place="new" onOpen={shared && project.membersEditable ? onMembers : undefined} /> : undefined
   const send = useChats((s) => s.send)
   const upsertChat = useChats((s) => s.upsertChat)
@@ -87,24 +100,32 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   // the chat a draft's attachments go into: kept with the draft (lib/teamAttach), so chips kept while the person was
   // on another page are still sent into the chat they were attached to
   const ensureChat = () => {
-    setDrafted(true)
-    return draftChat(me.user.id, draftId, () =>
-      api.call(API.createChat, { body: { projectId, engine: engine.engine, model: engine.model ?? undefined, ...(team && onlyMe ? { private: true } : {}) } }).then((c) => {
+    const wantPrivate = team && onlyMe
+    // (the switch is fixed while the chat is being made; a failure frees it again)
+    if (drafted === null) setDrafted(!wantPrivate)
+    const made = draftChat(me.user.id, draftId, () =>
+      api.call(API.createChat, { body: { projectId, engine: engine.engine, model: engine.model ?? undefined, ...(wantPrivate ? { private: true } : {}) } }).then((c) => {
         upsertChat(c)
+        rememberDraftShared(me.user.id, draftId, !!c.shared)
+        setDrafted(!!c.shared)
         return c.id
       }),
     )
+    made.catch(() => setDrafted(draftState()))
+    return made
   }
 
   const fromProjects = useRailHere() === 'projects'
   const onSend = async (text: string, attachments: Attachment[]) => {
     const pending = draftChatIfAny(me.user.id, draftId)
     const chatId = pending ? await pending : null
-    const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model, ...(team && onlyMe ? { private: true } : {}) })
+    // never a private question into a shared draft chat: the switch shows the draft's state, and this checks it again
+    if (chatId && team && onlyMe && draftChatShared(me.user.id, draftId) !== false) throw new Error('draft chat is shared')
+    const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model, ...(privateNow ? { private: true } : {}) })
     forgetDraftChat(me.user.id, draftId)
     // the next new chat here starts shared again
     setOnlyMe(false)
-    setDrafted(false)
+    setDrafted(null)
     // into the folder asked for (a refusal leaves it in the list's other chats: nothing is lost)
     if (folderId && !projectId) await fileChat(r.chatId, folderId).catch(() => {})
     onSent?.(r.chatId)
@@ -136,6 +157,9 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       placeholder={placeholder}
       who={who}
       sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
+      // a project's box (Home's ?project=) sends only once the project is known: before, nothing says who will see the
+      // chat, and a team project would share it (security review S3)
+      hold={projectId && !known ? t('common.loading') : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
       card={card}
@@ -146,9 +170,9 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
         // the project shares its new chats (a team project on this server; not one an older build left off)
         shares={sharesNewChats(project, false)}
         safeOps={safeOps}
-        onlyMe={onlyMe}
+        onlyMe={privateNow}
         // a chat made already (for attachments) keeps how it was made
-        locked={drafted}
+        locked={drafted !== null}
         onToggle={() => setOnlyMe((v) => !v)}
         onMembers={project.membersEditable ? onMembers : undefined}
         t={t}

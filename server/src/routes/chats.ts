@@ -2,6 +2,7 @@
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
+import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
 import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message } from '@mycel/shared/api'
@@ -711,10 +712,8 @@ export const chatsRoutes: RouteModule = {
       // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 280)
       const insert = (folder: string, made = false) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
-        // a team project shares its new chats from the start (docs/DECISIONS.md "Team project chats shared by default");
-        // a personal one never does
-        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made, share_chats) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions, made ? 1 : 0, isPersonalPath(folder) ? 0 : 1)
+        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions, made ? 1 : 0)
       }
       let slug = body.slug?.normalize('NFC')
       if (slug !== undefined && (slug.includes('/') || badSegment(slug))) fail('validation', undefined, { fields: { 'body.slug': 'not a valid folder name' } })
@@ -754,6 +753,9 @@ export const chatsRoutes: RouteModule = {
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: made.path, rules } })
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
+      // a team project shares its new chats from the start (docs/DECISIONS.md "Team project chats shared by default"):
+      // the column for a rollback build, audited
+      markTeamShares(db, auth.user.id, 'created', [id])
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       return projectOut(rt.store.projectRow(id)!, p, true, auth.user.id)
     })
@@ -924,6 +926,8 @@ export const chatsRoutes: RouteModule = {
         }
       })
       save()
+      // pointed at a team folder (an admin, for a detached project, also a personal one's): it shares its new chats
+      if (repoint) markTeamShares(ctx.db, auth.user.id, 'repointed', [r!.id])
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
@@ -977,9 +981,7 @@ export const chatsRoutes: RouteModule = {
         out = await mapErrors(locale, () => componentC(ctx).files.moveFolderOnto(p.id, r!.folder_path, made.path, () => {
           // (the move pointed the project at made.path already, as a folder move does)
           free()
-          // a team project now: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared
-          // by default"); the chats made so far stay mine until I share them one by one
-          ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1, share_chats = 1 WHERE id = ?').run(made.path, r!.id)
+          ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1 WHERE id = ?').run(made.path, r!.id)
         }), 'params.id')
       } catch (e) {
         // the folder made above goes again only while it is empty (rmdir): never anything that is in it
@@ -989,6 +991,9 @@ export const chatsRoutes: RouteModule = {
       // the move is done: what follows only records it, and its failure never turns a done share into an error
       try {
         audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, files: out.files, bytes: out.bytes, rules } })
+        // a team project now: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared by
+        // default"); the chats made so far stay mine until I share them one by one
+        markTeamShares(ctx.db, auth.user.id, 'shared', [r!.id])
         afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
         if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
       } catch (e) { ctx.log.warn('project share: a step after the move failed', { projectId: r!.id, err: String((e as Error)?.message ?? e) }) }

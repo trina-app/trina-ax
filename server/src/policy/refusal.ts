@@ -144,7 +144,7 @@ const LABEL = {
   // the team's: Admin › Connected apps (web admin.integrations)
   connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas'),
   // a shared project chat's title menu (web chat.continuePrivately)
-  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya kamu lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ves tú'),
+  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ves tú'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
 const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA')

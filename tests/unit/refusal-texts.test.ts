@@ -166,8 +166,10 @@ describe('the instructions say what each kind of chat cannot do, and where to do
 
   test('a shared chat: what is missing there, and an own chat instead', () => {
     const t = sharedSection({ project: 'Atlas', audience: 3, asker: 'Alice Kim' }, 'ko')
-    expect(t).toContain('Not available in a shared chat: memories about Alice Kim, connected services (and connecting one), Google Drive, the browser, scheduled tasks, video generation and reading team chat rooms')
-    expect(t).toContain('a chat of their own (a new AI chat), where only Alice Kim sees the answer')
+    // everything SHARED_TOOLS leaves out (review S2), and always the way to a chat only they see, by its name in the
+    // person's language (docs/DECISIONS.md "Team project chats shared by default")
+    expect(t).toContain("Not available in a shared chat: memories about Alice Kim; naming this chat; listing, saving or moving skills; putting team files in the trash; changing the project's members; team chat rooms (reading them or posting to one); scheduled tasks; Google Drive; video generation; connected services (and connecting one); the browser on Alice Kim's computer; the dev environment.")
+    expect(t).toContain('Alice Kim can ask again in a chat only they see: "나만 보는 채팅에서 이어 하기" in this chat\'s menu at the top')
   })
 
   test('a confidential chat: told, with which tools are off and why, in the instructions and a resumed session', () => {

@@ -137,9 +137,8 @@ describe('the project setting', () => {
 // ---------------- sharing happens only at creation ----------------
 describe('shared only at creation', () => {
   test('chats made before stay private, chats made after are shared, a moved chat stays private, none while 1A is on or in a personal project', async () => {
-    // as an older build left it (the setting off; migration 292 turns it on for every team project)
-    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(projectId)
-    const before = await newShared()
+    // a chat from before ("Only me", or made while chats were not shared yet): private
+    const before = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
     expect(before.shared).toBeUndefined()
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
     const after = await newShared()
@@ -588,8 +587,7 @@ describe('around shared chats', () => {
     const p = await oldProject(h, 'dana', { name: 'Temp', folderPath: 'shared/temp-share', instructions: '' })
     await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const shared = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
-    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
-    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
+    const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id, private: true } })
     expect((await h.api('dana').call(API.getProject, { params: { id: p.id } })).sharedChats).toBe(1)
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
     expect(db().query('SELECT project_id, shared_at, deleted_at IS NOT NULL AS trashed FROM chats WHERE id = ?').get(shared.id)).toEqual({ project_id: null, shared_at: null, trashed: 1 })

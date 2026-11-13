@@ -1,6 +1,7 @@
 // The file screen (design tab 4 "파일", tab 2 "동시 수정"): tree, text content, save, folders, move / rename,
 // trash, version history. Every path goes through authorize() (policy/authorize.ts) with the caller's own rules;
 // what the caller may not read looks exactly like what does not exist.
+import { markTeamShares } from '../chat/team-shares'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
@@ -801,6 +802,10 @@ export class TeamFiles {
       const trashFollows = isDir && personalSide(fr.segs) === personalSide(target)
       db.query(`UPDATE projects SET folder_path = ? || substr(folder_path, length(?) + 1) WHERE ${under('folder_path')} AND (trashed_with IS NULL${trashFollows ? " OR trashed_with IN (SELECT id FROM trash_items WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/')" : ''})`)
         .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel, ...(trashFollows ? [fr.rel, fr.rel] : []))
+      // a project whose folder left users/ is a team project now: it shares its new chats (docs/DECISIONS.md "Team
+      // project chats shared by default"; the column for a rollback build)
+      // (onto a new project folder: the share records it itself, routes/chats.ts shareProject)
+      if (!o.onto) markTeamShares(db, userId, 'moved')
       re('file_versions', 'path')
       re('file_versions', 'conflict_path')
       re('attachments', 'path')
@@ -2092,6 +2097,8 @@ export class TeamFiles {
       inPlace.add(key(next))
       back.push(pr.id)
     }
+    // (a project back in a team folder shares its new chats: chat/team-shares.ts)
+    markTeamShares(db, null, 'moved')
     return back
   }
 

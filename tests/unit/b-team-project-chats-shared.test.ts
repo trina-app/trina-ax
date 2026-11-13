@@ -118,10 +118,12 @@ describe('chats from before stay private', () => {
     const team = (await teamProject('Old team')).id
     db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(team)
     const personal = legacyProject(db(), h.team, 'alice', { name: 'Old mine', folderPath: 'users/alice/projects/old-mine' })
-    const old = await h.api('alice').call(API.createChat, { body: { projectId: team } })
+    // the column does not decide any more (a team project shares its new chats, review S1); chats from before are private
+    expect((await h.api('alice').call(API.getProject, { params: { id: team } })).shareChats).toBe(true)
+    const old = await h.api('alice').call(API.createChat, { body: { projectId: team, private: true } })
     expect(old.shared).toBeUndefined()
-    // its creator may share one chat there already (the setting does not gate it any more); the other stays private
-    const earlier = await h.api('alice').call(API.createChat, { body: { projectId: team } })
+    // its creator may share one chat there (the setting does not gate it); the other stays private
+    const earlier = await h.api('alice').call(API.createChat, { body: { projectId: team, private: true } })
     expect((await h.api('alice').call(API.shareChat, { params: { id: earlier.id }, body: {} })).status).toBe('shared')
     expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(team)).toEqual({ share_chats: 0 })
     const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/292_b_team_project_chats_shared.sql'), 'utf8')
@@ -129,13 +131,46 @@ describe('chats from before stay private', () => {
     expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(team)).toEqual({ share_chats: 1 })
     expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(personal)).toEqual({ share_chats: 0 })
     expect(db().query("SELECT shared_at FROM chats WHERE id = ?").get(old.id)).toEqual({ shared_at: null })
-    const rows = db().query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'project.share_chats' AND target IN (?, ?)").all(team, personal)
+    const rows = db().query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'project.share_chats' AND actor_id IS NULL AND target IN (?, ?)").all(team, personal)
     expect(rows).toEqual([{ actor_id: null, target: team, detail: '{"on":true,"reason":"default"}' }])
     // once: a second run changes and audits nothing
     db().exec(sql)
-    expect(db().query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'project.share_chats' AND target = ?").get(team)).toEqual({ n: 1 })
+    expect(db().query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'project.share_chats' AND actor_id IS NULL AND target = ?").get(team)).toEqual({ n: 1 })
     // the next new chat there is shared
     expect((await h.api('alice').call(API.createChat, { body: { projectId: team } })).shared).toBeDefined()
+  })
+})
+
+describe('every team project shares, whatever the column says (review S1)', () => {
+  test('a personal project moved out of users/ by Files shares its new chats, and the column follows (audited)', async () => {
+    const mine = await h.api('alice').call(API.createProject, { body: { name: 'Roamer', scope: 'personal', participants: [], instructions: '' } })
+    const r = await h.api('alice').call(API.move, { body: { from: mine.folderPath, to: 'shared/roamer', onExists: 'fail', confirm: true } }).then(() => 'moved', (e: ApiError) => e.body.params?.reason ?? e.status)
+    // (Files lets it go: the project follows its folder)
+    expect(r).toBe('moved')
+    const now = await h.api('alice').call(API.getProject, { params: { id: mine.id } })
+    expect([now.folderPath, now.shareChats]).toEqual(['shared/roamer', true])
+    expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(mine.id)).toEqual({ share_chats: 1 })
+    expect(db().query("SELECT actor_id, detail FROM audit_log WHERE action = 'project.share_chats' AND target = ?").all(mine.id)).toEqual([{ actor_id: 'alice', detail: '{"on":true,"reason":"moved"}' }])
+    expect((await h.api('alice').call(API.createChat, { body: { projectId: mine.id } })).shared).toBeDefined()
+  })
+
+  test('a rollback build turned the column off: new chats are still shared; at start the column comes back (audited once)', async () => {
+    const p = await teamProject('Rolled')
+    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
+    expect((await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).shared).toBeDefined()
+    const { markTeamShares } = await import('../../server/src/chat/team-shares')
+    expect(markTeamShares(db(), null, 'default')).toBeGreaterThanOrEqual(1)
+    expect(markTeamShares(db(), null, 'default')).toBe(0)
+    expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(p.id)).toEqual({ share_chats: 1 })
+    expect(db().query("SELECT detail FROM audit_log WHERE action = 'project.share_chats' AND target = ? AND actor_id IS NULL").all(p.id)).toEqual([{ detail: '{"on":true,"reason":"default"}' }])
+  })
+
+  test('creating and sharing a project write the column with an audit row', async () => {
+    const p = await teamProject('Audited')
+    expect(db().query("SELECT actor_id, detail FROM audit_log WHERE action = 'project.share_chats' AND target = ?").all(p.id)).toEqual([{ actor_id: 'alice', detail: '{"on":true,"reason":"created"}' }])
+    const mine = await h.api('alice').call(API.createProject, { body: { name: 'Later', scope: 'personal', participants: [], instructions: '' } })
+    await h.api('alice').call(API.shareProject, { params: { id: mine.id }, body: { participants: [{ subjectType: 'user', subjectId: 'bob' }] } })
+    expect(db().query("SELECT actor_id, detail FROM audit_log WHERE action = 'project.share_chats' AND target = ?").all(mine.id)).toEqual([{ actor_id: 'alice', detail: '{"on":true,"reason":"shared"}' }])
   })
 })
 

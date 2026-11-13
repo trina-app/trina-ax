@@ -15127,6 +15127,17 @@ be asked again):
   chats kept the turn running with access they no longer had, and its live text kept reaching them. `afterAccessChange`
   now stops their running or queued turn in every shared chat they stopped seeing (`stopTurnsIn`; another person's
   turn there goes on), before telling their windows the chat is gone (QA TC-961).
+- **Independent security review (2026-11-13).** Fixed: (M1) a box's chat made shared for its attachments was kept for
+  the box, so "Continue in a chat only you see" opened the box with Only me shown and Send went into that shared chat:
+  the switch now shows the draft chat's own state (`lib/teamAttach.ts draftChatShared`, fixed while it exists), a
+  private ask drops a shared draft and its chips before the box shows them, and Send checks again; a failed draft frees
+  the switch. (S1) A team project could end up with the column off and no way back (an admin repoint of a detached
+  personal project, its folder moved out of `users/` in Files, a rollback build's switch): what decides is now that it
+  is a team project (`sharesNewChats`, `projectShare` on `projectCanShare`), and `chat/team-shares.ts markTeamShares`
+  writes the column, with one `project.share_chats` audit row each, on create, share, adoption, repoint, a folder move
+  or restore, and at every start. (S2) The shared chat's instructions list everything `SHARED_TOOLS` leaves out and
+  always name "Continue in a chat only you see". (S3) A project's box (Home's `?project=`) sends nothing until the
+  project is known. Also: the empty team project's "every member sees it" is not shown while safe operations are on.
 - Tests: `tests/unit/b-team-project-chats-shared.test.ts` (default, lock, 404 body, counts, search, share only by its
   creator, the switch, personal, safe operations, the migration, brought-in chats, the removed member's turn),
   `b-shared-chats`, `b-share-existing-chat`, `b-who-sees`, `permission-matrix` (updated for the setting),

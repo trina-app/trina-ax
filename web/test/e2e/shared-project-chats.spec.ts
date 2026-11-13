@@ -161,6 +161,50 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'project box, safe operations')
     })
 
+    test('a file attached in the box (a shared chat made for it), then "Continue in a chat only you see": the question goes to a new private chat (review M1)', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      await page.goto(`/projects/${id}`)
+      // attach: the box makes its chat for the file now, shared (the switch was off)
+      const made = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/chats')
+      await page.getByTestId('file-input').setInputFiles({ name: '메모.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') })
+      const draft = ((await (await made).json()) as { id: string; shared?: unknown })
+      expect(draft.shared).toBeTruthy()
+      await expect(page.getByTestId('attachment-chip')).toHaveAttribute('data-status', 'done')
+      // the switch shows what that chat is, and cannot change it
+      await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'false')
+      await expect(page.getByTestId('only-me-toggle')).toBeDisabled()
+      // leave: a shared chat of the project, asked something, then "Continue in a chat only you see"
+      const other = (await (await post(page, '/api/chats', { projectId: id })).json()) as { id: string }
+      await page.goto(`/c/${other.id}`)
+      await page.getByTestId('composer-input').fill('내 일정 알려줘')
+      await page.getByTestId('send').click()
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-continue-privately').click()
+      await expect(page).toHaveURL(new RegExp(`/projects/${id}$`))
+      // the shared draft and its chip are gone; Only me is on and may be changed
+      await expect(page.getByTestId('attachment-chip')).toHaveCount(0)
+      await expect(page.getByTestId('only-me-toggle')).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.getByTestId('only-me-toggle')).toBeEnabled()
+      await expect(page.getByTestId('composer-input')).toHaveValue('내 일정 알려줘')
+      await page.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+      const sent = page.url().split('/c/')[1]!
+      expect(sent).not.toBe(draft.id)
+      expect(sent).not.toBe(other.id)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      // the shared draft got nothing; Bob cannot open the new chat
+      const msgs = (await (await page.request.get(`/api/chats/${draft.id}/messages`)).json()) as { items: unknown[] }
+      expect(msgs.items).toEqual([])
+      const b = await bob(browser)
+      await b.goto(`/c/${sent}`)
+      await expect(b.getByTestId('chat-not-found-why')).toBeVisible()
+      await b.context().close()
+    })
+
     test('a shared chat: the header mark, the line under the box, a second person continues, names above messages', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)

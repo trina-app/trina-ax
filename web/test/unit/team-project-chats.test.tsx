@@ -16,6 +16,7 @@ import { useChats } from '../../src/store/chats'
 import { useProjects } from '../../src/store/projects'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
+import { draftChat, draftChatIfAny, rememberDraftShared } from '../../src/lib/teamAttach'
 import { installDom, mount, removeDom } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-0000000000c1'
@@ -106,6 +107,45 @@ describe('the box of a team project', () => {
       expect(m.get('only-me-toggle').getAttribute('aria-pressed')).toBe('true')
       expect((m.get('composer-input') as unknown as { value: string }).value).toBe('Check my calendar')
     } finally { await m.unmount() }
+  })
+
+  test('a draft chat made shared for attachments: the switch shows it; "Continue privately" drops it and sends to a new private chat (review M1)', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: meAs() } } as never)
+    const draft = `project:${P1}`
+    const shared = '01900000-0000-7000-8000-0000000000d1'
+    // attached in the box, then left: the box's chat was made shared
+    await draftChat('alice', draft, async () => shared)
+    rememberDraftShared('alice', draft, true)
+    const sends: { chatId: string | null; private?: boolean }[] = []
+    const realSend = useChats.getState().send
+    useChats.setState({ send: (async (o: { chatId: string | null; private?: boolean }) => { sends.push(o); return { chatId: 'x', sent: Promise.resolve() } }) as never })
+    try {
+      // back on the page: the switch says what that chat is (shared) and cannot change it
+      const plain = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project()} aiLine={false} /></MemoryRouter>)
+      expect(plain.get('only-me-toggle').getAttribute('aria-pressed')).toBe('false')
+      expect(plain.get('only-me-toggle').hasAttribute('disabled')).toBe(true)
+      await plain.unmount()
+      // "Continue in a chat only you see": the shared draft (and its chips) go; the question goes to a new private chat
+      const m = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project()} aiLine={false} startPrivate initialText="My Gmail please" resetKey={3} /></MemoryRouter>)
+      expect(draftChatIfAny('alice', draft)).toBeNull()
+      expect(m.get('only-me-toggle').getAttribute('aria-pressed')).toBe('true')
+      expect(m.get('only-me-toggle').hasAttribute('disabled')).toBe(false)
+      await m.click('send')
+      await m.until(() => sends.length > 0, 'the send', 2000)
+      expect(sends[0]).toMatchObject({ chatId: null, private: true })
+      await m.unmount()
+    } finally { useChats.setState({ send: realSend }) }
+  })
+
+  test("a project's box sends nothing before the project is known (Home's ?project=, review S3)", async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: meAs() } } as never)
+    const m = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={null} aiLine={false} initialText="hello" /></MemoryRouter>)
+    try {
+      expect(m.get('send').hasAttribute('disabled')).toBe(true)
+      expect(m.find('only-me-toggle')).toBeNull()
+    } finally { await m.unmount() }
+    const ready = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project()} aiLine={false} initialText="hello" /></MemoryRouter>)
+    try { expect(ready.get('send').hasAttribute('disabled')).toBe(false) } finally { await ready.unmount() }
   })
 
   test('safe operations: why new chats are only mine, no switch', async () => {

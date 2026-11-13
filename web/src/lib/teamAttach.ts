@@ -104,6 +104,10 @@ const draftChats = new Map<string, Promise<string>>()
 const key = (userId: string, draftId: string) => `${userId}:${draftId}`
 const CHIPS_PREFIX = 'mycel.chips:'
 const DRAFT_CHAT_PREFIX = 'mycel.draftChat:'
+/** whether a draft's chat was made shared (a team project's) or private: '1' / '0' (docs/DECISIONS.md "Team project
+ * chats shared by default"; the "Only me" switch shows the draft chat's own state) */
+const DRAFT_SHARED_PREFIX = 'mycel.draftShared:'
+const draftShared = new Map<string, boolean>()
 
 /** An attached chip as kept across a reload (only finished ones: the server has the attachment). */
 export interface SavedChip { id: string; source: 'upload' | 'team'; name: string; size: number | null; path?: string; attachment: Attachment }
@@ -192,7 +196,37 @@ export function draftChatIfAny(userId: string, draftId: string): Promise<string>
 }
 export function forgetDraftChat(userId: string, draftId: string) {
   draftChats.delete(key(userId, draftId))
-  try { session()?.removeItem(DRAFT_CHAT_PREFIX + key(userId, draftId)) } catch { /* storage blocked */ }
+  draftShared.delete(key(userId, draftId))
+  try {
+    session()?.removeItem(DRAFT_CHAT_PREFIX + key(userId, draftId))
+    session()?.removeItem(DRAFT_SHARED_PREFIX + key(userId, draftId))
+  } catch { /* storage blocked */ }
+}
+
+/** The draft's chat was made: whether it is a shared chat (Chat.shared). */
+export function rememberDraftShared(userId: string, draftId: string, shared: boolean) {
+  draftShared.set(key(userId, draftId), shared)
+  try { session()?.setItem(DRAFT_SHARED_PREFIX + key(userId, draftId), shared ? '1' : '0') } catch { /* storage blocked */ }
+}
+/** Whether the draft's chat is shared: true / false, or null when there is no draft chat. A draft chat whose state was
+ * not kept (made by an older build of this page) counts as shared: the safe side for "Only me". */
+export function draftChatShared(userId: string, draftId: string): boolean | null {
+  if (!draftChatIfAny(userId, draftId)) return null
+  const k = key(userId, draftId)
+  const have = draftShared.get(k)
+  if (have !== undefined) return have
+  let v: string | null = null
+  try { v = session()?.getItem(DRAFT_SHARED_PREFIX + k) ?? null } catch { /* storage blocked */ }
+  return v !== '0'
+}
+
+/** Drop a draft's chat and its chips (uploads still running stop): the next send makes a new chat. The chat already
+ * made stays an empty chat of its own (the list leaves those out). */
+export function dropDraft(userId: string, draftId: string) {
+  for (const chip of readStash<{ abort?: AbortController }>(userId, draftId)) chip.abort?.abort()
+  shareStash(userId, draftId, [])
+  saveChips(userId, draftId, [])
+  forgetDraftChat(userId, draftId)
 }
 
 /** Sign-out: nothing of the previous person's drafts, chips or last chat stays for the next one in this tab. An upload of
@@ -202,13 +236,14 @@ export function forgetTeamAttach() {
   for (const chips of stashes.values()) for (const chip of chips as { abort?: AbortController }[]) chip.abort?.abort(SIGNED_OUT)
   stashes.clear()
   draftChats.clear()
+  draftShared.clear()
   lastChat = null
   const s = session()
   try {
     const keys: string[] = []
     for (let i = 0; i < (s?.length ?? 0); i++) {
       const k = s!.key(i)
-      if (k && (k === LAST_CHAT_KEY || k.startsWith(CHIPS_PREFIX) || k.startsWith(DRAFT_CHAT_PREFIX))) keys.push(k)
+      if (k && (k === LAST_CHAT_KEY || k.startsWith(CHIPS_PREFIX) || k.startsWith(DRAFT_CHAT_PREFIX) || k.startsWith(DRAFT_SHARED_PREFIX))) keys.push(k)
     }
     for (const k of keys) s!.removeItem(k)
   } catch { /* storage blocked */ }
