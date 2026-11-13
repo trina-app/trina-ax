@@ -245,6 +245,29 @@ test('members cannot open admin screens', async ({ page }) => {
   expect((await page.request.get('/api/admin/users')).status()).toBe(403)
 })
 
+test('system: the Mac App Store build shows the plan with no Manage plan link (App Review 3.1.1)', async ({ page }) => {
+  await reset(page)
+  // the Mac App Store build's desktop bridge, as far as this page reads it (the store flag)
+  await page.addInitScript(() => {
+    const noop = () => {}
+    ;(window as unknown as { mycelDesktop: unknown }).mycelDesktop = {
+      bridgeVersion: 1, appVersion: '0.4.0', platform: 'darwin', store: true,
+      browser: { run: async () => ({ ok: false, content: [] }), cancel: noop },
+      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
+      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
+      notify: noop, openTeams: noop, setLocale: noop,
+    }
+  })
+  await signIn(page)
+  expect((await page.request.post('/__test/cloud', { data: { on: true } })).ok()).toBeTruthy()
+  await page.goto('/admin/system')
+  const plan = page.getByTestId('plan-card')
+  await expect(plan).toContainText('12명 중')
+  await expect(plan.getByRole('link', { name: '요금제 관리' })).toHaveCount(0)
+  await expect(plan.locator('a[href*="billing"]')).toHaveCount(0)
+  await expect(plan.getByRole('link', { name: '지원' })).toHaveAttribute('href', 'mailto:support@teamax.example')
+})
+
 test('system: storage use with what uses it; Team AX Cloud shows the plan and leaves out what TreeSoop manages', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

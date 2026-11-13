@@ -23,6 +23,7 @@ import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
+import { withAlways } from './always-allow'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -446,8 +447,16 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
   const choose = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null> => (await pick(question, options, extra)).value
   const confirmWhy = async (question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> => {
-    const r = await pick(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)
-    return r.value === 'allow' ? 'yes' : r.missing ?? 'declined'
+    // "Always allow" for this kind of card (chat/always-allow.ts): on, no card; else the card offers it
+    let missing: CardAnswer['missing'] | undefined
+    const ask = async (options: { label: string; value: string }[], more: { buttons?: true; note?: string }) => {
+      const r = await pick(question, options, { ...extra, ...more })
+      missing = r.missing
+      return r.value
+    }
+    const options = [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }]
+    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask) : await ask(options, {})
+    return v === 'allow' ? 'yes' : missing ?? 'declined'
   }
   return {
     locale: exec.spec.locale,
@@ -735,13 +744,16 @@ function moveSkillTool(exec: TurnExec): Tool {
         { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true },
       ]
       const base = plan.source.split('/').pop()!
-      const answer = await exec.waitForPerson({
-        kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
-        options: copy ? [{ label: skillText('copyYes', L), value: 'copy' }, { label: skillText('copyNo', L), value: 'skip' }] : [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
-        details,
-        ...(!copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? { note: skillText('moveNarrowHint', L, { name: base }).slice(0, 300) } : {}),
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+      const narrowHint = !copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? skillText('moveNarrowHint', L, { name: base }).slice(0, 300) : null
+      // "Always allow" for skill moves and copies (chat/always-allow.ts)
+      const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files',
+        copy ? [{ label: skillText('copyYes', L), value: 'copy' }, { label: skillText('copyNo', L), value: 'skip' }] : [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
+        copy ? 'copy' : 'move', (options, more) => exec.waitForPerson({
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
+          options, details, ...more,
+          ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
+          expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
       const yesValue = copy ? 'copy' : 'move'
       const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
@@ -815,10 +827,11 @@ function bTools(exec: TurnExec): Tool[] {
           const notKept = (answered: boolean) => settle({ label: tr('notRemembered', L, { text: value }).slice(0, 500), ...(answered ? {} : { detail: tr('notAnswered', L) }) })
           let answer: unknown
           try {
-            answer = await exec.waitForPerson({
+            // "Always allow" for memories (chat/always-allow.ts): on, kept without the card
+            answer = await withAlways(exec.alwaysPlace?.(), 'remember', [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
               kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
-              options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
-            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+              options, multiple: false, allowText: false, ...more,
+            } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
           } catch (e) { notKept(false); throw e }
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
             // "답하지 않음" only when the card ran out; a "no" is an answer

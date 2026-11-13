@@ -21,10 +21,26 @@ export const RoomFilesAllowance = z.object({
 })
 export type RoomFilesAllowance = z.infer<typeof RoomFilesAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance])
+/** The kinds of the AI's cards a person can answer with "Always allow" (docs/DECISIONS.md "Always allow on every card",
+ * server/src/chat/always-allow.ts). After that answer the card of that kind is not raised for them again in the chats
+ * they watch, until they take it back here. */
+export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post_to_room', 'shared_read', 'move_files', 'skill_files', 'skill_save', 'delete_files', 'project_members', 'video', 'big_download'] as const
+export const CardAlwaysKind = z.enum(CARD_ALWAYS_KINDS)
+export type CardAlwaysKind = z.infer<typeof CardAlwaysKind>
+
+/** "Always allow" on one kind of card (id `card:<kind>`). */
+export const CardAllowance = z.object({
+  kind: z.literal('card'),
+  id: z.string(),
+  card: CardAlwaysKind,
+  createdAt: z.string(),
+})
+export type CardAllowance = z.infer<typeof CardAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {
-  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance (room folders for new files), newest first.' }),
+  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card, room folders for new files), newest first.' }),
   deleteAiAllowance: endpoint({ method: 'DELETE', path: '/api/ai-allowances/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Take one of my allowances back (404: not mine or not there).' }),
 } as const

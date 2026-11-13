@@ -22747,6 +22747,28 @@ signed out, does not tell whether first-run setup is finished:
 
 This is the same line as #369 for `/api/health`.
 
+## Store apps show no purchase links (fix/store-no-purchase-links, 2026-11-13, product owner)
+
+Plans are bought, changed and managed only on the web console (the account site). The store apps — the Mac App Store
+and Microsoft Store desktop builds (`storeApp()`) and the iPhone and Android app (`mobileApp()`); together
+`noPurchaseLinks()` in `web/src/lib/desktop.ts` — show no button, link or call to action toward buying, upgrading,
+changing or managing the plan, and name no price. Apple App Review 3.1.1 forbids steering to a purchase outside in-app
+purchase outside the US storefront; a team app sold to organisations may bill on its own (3.1.3(b)(c)), so the model is
+fine as long as the app does not steer. Google Play's payments policy has the same rule. This follows "No [팀 만들기]
+in store builds" (the first-run screen, `firstRunLinks`) and the Mac App Store entry above.
+- **Admin › System › Plan** has no "Manage plan" link there; the status and support links stay.
+- **A full plan is said as a fact**: "The plan's member seats are all taken. To add someone, turn off an account that
+  is no longer used. The team owner manages the plan on the web." No link, no price. The same for the team link's "no
+  seats left".
+- **The server's seat refusal** to an admin (`assertSeatFree`: "… or change the plan. Change the plan: <account
+  page>") now carries `params.changePlan: true`; inside a store app the web client swaps its message for the app's own
+  words and drops `manageUrl` (`storeSafeError`, lib/api.ts). The server cannot tell a store app from a browser, so the
+  client words it. An invitee's "the team is full, let the person who invited you know" has no flag and is unchanged.
+- The plain web and the dmg/exe desktop builds are unchanged. The sign-in page has no signup or trial link in any build,
+  and the phone app's first-run screen links only the repository's install guide.
+- The Microsoft Store build follows the same rule here (one `storeApp()` check), although its first-run screen keeps
+  [팀 만들기]: the stricter choice for plan links.
+
 ## Budget during an answer: usage counted as it comes, the answer stops at a used-up block budget (fix/budget-mid-answer, 2026-11-11)
 
 - **Usage is counted as it comes.** The engine's usage goes on the turn row on every usage event (Claude Code's running
@@ -24869,3 +24891,45 @@ default.
   retries / the owner's locked password check still go), `tests/unit/b-presence.test.ts` (inUse, silence,
   grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
   `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.
+
+## Always allow on every card (feat/always-allow-everywhere, 2026-11-13, product owner)
+
+- **Why:** the owner, 2026-11-13, after a member stopped an answer because cards kept coming and a review of all 23
+  kinds of card: "항상 허용을 눌렀으면 안해야하는거 아니야?" and, for deletes, team skill saves, project members and AI videos,
+  "다 항상 허용". Rule: every permission card offers "Always allow" on its first showing; once a person picks it, that
+  kind of card is not raised for them again until they take it back. Supersedes the "outside content asks" parts of
+  "Connector write cards: outside content asks, Always allow for every connector" and the per-room folder grant of
+  "대화방에서 새 파일은 미리 허용" for new choices.
+- **How:** `server/src/chat/always-allow.ts` and table `card_always_allow` (migration 291_b: person × kind). Kinds
+  (`CARD_ALWAYS_KINDS`): room_change (any change after a room read, in the person's own chat and the ✦ side chat),
+  remember, save_wider, post_to_room (the text; files keep their own button), shared_read, move_files, skill_files
+  (move_skill, skill_files), skill_save (team skills and rules, not a taken name), delete_files (no card and no
+  two-cards-per-answer limit once on), project_members (the same), video (Higgsfield credits; the daily limit stays),
+  big_download (save_url over 1 GB). A yes / no card gets it through `ConfirmExtra.always` (chat/tools.ts turnPerson);
+  the server's own cards through `TurnExec.askAlways` / `withAlways`. The card shows "Always allow" before the no
+  (three answers as buttons) with one line: it will not ask again, even after reading web pages or files.
+- **Connections:** a person's stored Always allow (their own connection's rule, or `integration_user_allow`) and a team
+  connection set to send without asking now hold after outside content and after a room read; the card offers Always
+  allow there too, in a turn the person watches from their own app while the team's switch is on (review of #678: a
+  Slack question or the switch off keeps the earlier rule: outside content asks, no Always allow on the card, a
+  member's own Always allow ignored while the switch is off; an admin's "send without asking" stays). A scheduled run
+  still sends only what its task's card allowed. The cost, accepted by the owner: an
+  instruction planted in a web page, a file or a room message can now make the AI send through a connection that sends
+  without asking (tests/unit/b-chat-rooms.test.ts "a planted @fake instruction").
+- **Review of #678:** the one card that asks for a room change and a wider save together never offers "Always allow"
+  and is skipped only when both kinds are on; a post_to_room card that also offers the linked files offers no "Always
+  allow" (attaching files is the person's choice each time).
+- **Desktop browser:** the person's "Allow all websites" (Me.user.webAllowAll) turned on now turns the in-app browser to
+  "all" too while the team allows it (it only narrowed before), and the browser's own site card offers "Allow all
+  websites" on the first site. Office-network addresses still ask.
+- **Dev environment sites:** a person's "always" list holds up to 2,000 sites (was 100, after which "always" quietly
+  worked as once).
+- **Where it never applies (unchanged cards):** a scheduled run, a Slack question, a company profile draft and other
+  restricted turns, a confidential chat; an address that may carry data out (long query, random-looking parts,
+  user:password, an echo) and a redirect echo; a dev environment command that uses a login; a scheduled task's card;
+  connect_service. The choice is always the turn's own person's, never another member's, also in a shared project chat.
+- **Settings and the team:** the person's choices are listed in Settings › 트리나에게 허용한 것 (GET /api/ai-allowances,
+  `kind: 'card'`, id `card:<kind>`) and deleted there (DELETE, own only; 404 otherwise). Turning one on and off is
+  audited (`ai.always_allow`). The team switch is the existing `roomAlwaysAllow` (on by default), now titled
+  "'Always allow' on confirmation cards": off, no card offers it and the rows are ignored, not deleted. Room folder
+  grants made before keep working until they lapse; new ones are no longer made.

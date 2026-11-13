@@ -44,7 +44,7 @@
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
 import { getDomain, parse } from 'tldts'
-import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
+import { ROOM_REF_RE, type CardAlwaysKind, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import type { CardOutcome } from '../policy/refusal'
@@ -121,6 +121,9 @@ export interface ConfirmExtra {
   buttons?: true
   /** a line under the buttons: what the middle answer covers */
   note?: string
+  /** the kind of card this is for "Always allow" (chat/always-allow.ts): a yes / no card of the turn's person offers it,
+   * and once picked, the card is not raised again (confirm and confirmWhy answer yes at once) */
+  always?: CardAlwaysKind
 }
 
 /** The person behind a chat turn, as far as a tool needs them. */

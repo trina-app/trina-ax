@@ -175,9 +175,9 @@ export const TEXT = {
   roomAiConfirmInstruction: t('AI가 따르는 지시 파일이에요. 내용을 끝까지 확인해 주세요.', 'This is an instruction file the AI follows. Read all of its content.', 'Ini file instruksi yang diikuti AI. Baca seluruh isinya.', "AIが従う指示ファイルです。内容を最後まで確認してください。", "Es un archivo de instrucciones que sigue la IA. Revise todo su contenido."),
   roomAiConfirmYes: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir esta vez"),
   roomAiConfirmNo: t('허용 안 함', "Don't allow", 'Jangan izinkan', "許可しない", "No permitir"),
-  roomAiConfirmAlways: t('이 방에서는 항상 허용', 'Always allow in this room', 'Selalu izinkan di ruang ini', "このルームでは常に許可", "Permitir siempre en esta sala"),
-  /** under the three buttons: what "always" covers */
-  roomAiConfirmNote: t('내가 부를 때, 이 폴더에 새 파일을 만들 때만 적용돼요.', 'Applies only when you call it, to new files in this folder.', 'Berlaku hanya saat Anda memanggilnya, untuk berkas baru di folder ini.', "自分が呼んだとき、このフォルダーに新しいファイルを作る場合だけです。", "Solo se aplica cuando usted la llama, a archivos nuevos en esta carpeta."),
+  /** "Always allow" on any card (chat/always-allow.ts) and what it means, under the buttons */
+  cardAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre"),
+  cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina."),
   /** the step of a call a room grant let through, after its own words */
   roomGrantStep: STEP_TEXT.roomGrantStep,
   /** the step of a call this answer's [이번만 허용] for its folder let through */

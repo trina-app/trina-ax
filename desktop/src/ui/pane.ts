@@ -252,6 +252,11 @@ function promptCard(p: PanePrompt, more: number) {
       { class: 'actions' },
       h('button', { class: 'primary', type: 'button', onclick: () => ui.pane.answer(p.id, 'once') }, tr('perm.once')),
       h('button', { type: 'button', onclick: () => ui.pane.answer(p.id, 'always') }, tr('perm.always')),
+      // "Allow all websites" on the first card already (docs/DECISIONS.md "Always allow on every card"): this site now,
+      // every public site from then on (not office-network addresses), while the team allows it
+      !isPrivate && sites.teamAllowsAll
+        ? h('button', { type: 'button', 'data-testid': 'prompt-allow-all', onclick: () => { sites = { ...sites, siteAccess: 'all' }; ui.pane.setSiteAccess('all'); ui.pane.answer(p.id, 'once') } }, tr('allowAll.confirm'))
+        : null,
       h('button', { type: 'button', class: 'danger', onclick: () => ui.pane.answer(p.id, 'deny') }, tr('perm.deny')),
     ),
     more > 0 ? h('p', { class: 'more', 'data-testid': 'prompts-more' }, tr('pane.promptsMore', { n: String(more) })) : null,

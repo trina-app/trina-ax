@@ -237,7 +237,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
           if (!t.person || t.person.unattended) throw new ToolError(`this file is ${total === null ? 'over' : ''} ${shown}, larger than ${humanBytes(o.askAbove ?? ASK_ABOVE_BYTES)}, and a download that large needs the user's OK, which nobody can give here (a scheduled run), so it was skipped and nothing was saved. Say so in the summary; the user can ask for it in a chat`.replace(/ {2,}/g, ' '))
           const free = Math.min(...disks([work, ctx.engineConfig.teamRoot], statfs).map((d) => d.free))
           const question = fill(TEXT[total === null ? 'largeUnknown' : 'large'][L], { size: shown, free: Number.isFinite(free) ? humanBytes(free) : '?' }).replace('{url}', () => source.length > 2000 ? source.slice(0, 2000) + '…' : source)
-          if (!(await t.person.confirm(question, TEXT.allow[L], TEXT.deny[L]))) throw new ToolError(`the user chose not to download this ${shown} file, so nothing was saved. Do not try to get it another way; ask the user what they want`)
+          if (!(await t.person.confirm(question, TEXT.allow[L], TEXT.deny[L], { always: 'big_download' }))) throw new ToolError(`the user chose not to download this ${shown} file, so nothing was saved. Do not try to get it another way; ask the user what they want`)
           largeOk = true
         },
         onRedirect: redirects.check,
