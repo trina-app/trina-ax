@@ -168,6 +168,18 @@ export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<
   return seesUnder(rules, { folder_path: p.folder_path, trashed_with: null }, { ...u, groups })
 }
 
+/**
+ * A team project in the trash that this person reads again once it is back: one of its members by its folder's own rules
+ * (rulesInPlace), while its folder is still in the files trash (not deleted for good from there). Such a person keeps
+ * its card and gets its name and that it is in the trash, never its contents (docs/DECISIONS.md "A team project in the
+ * trash: its members keep its card"). false for a project in place, a personal one, or one whose folder was purged.
+ */
+export function memberWhileTrashed(db: Database, files: FileService, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, userId: string): boolean {
+  if (p.trashed_with === null || isPersonalFolder(p.folder_path)) return false
+  if (!db.query('SELECT 1 FROM trash_items WHERE id = ? AND restored_at IS NULL').get(p.trashed_with)) return false
+  return accountSeesProject(db, rulesInPlace(db, files, p), p, userId)
+}
+
 /** Who sees what, as admin/folders.ts AccessState holds it: the active people (role, groups) and the folder rules. */
 export interface AccessView { principals: readonly Principal[]; rules: RuleSet }
 
@@ -277,6 +289,9 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   const project = rt.store.projectRow(r.project_id!)
   const me = loadPrincipal(rt.db, userId)
   if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) {
+    // a shared chat of a project in the trash, to one of its members (who saw the chat before): the same 404, saying why
+    // and which project, so the link's page says it is in the trash (QA TC-1060). Anyone else: the plain 404.
+    if (project && me && !r.deleted_at && memberWhileTrashed(rt.db, rt.files, project, userId)) return fail('not_found', undefined, { params: { reason: 'project_in_trash', projectId: project.id } })
     // someone taken out of its project (or who left it) opens a shared chat they saw while in it, still there: one plain
     // reason, the project's name as it was then (QA TC-1067); a deleted chat and everyone else get the one 404 of a
     // missing chat

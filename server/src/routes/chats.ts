@@ -5,7 +5,7 @@
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
-import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message } from '@mycel/shared/api'
+import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -14,7 +14,7 @@ import type { AuthInfo } from '../services'
 import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
-import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
+import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, iso, type ChatRow, type MessageRow } from '../chat/store'
 import { hideTitle } from '../chat/title'
 import { isInternalChat, notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
@@ -41,10 +41,10 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { forgetPurgedChats } from '../chat/forget'
+import { deleteProjectForGood } from '../chat/project-delete'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
@@ -199,6 +199,17 @@ export const chatsRoutes: RouteModule = {
     const rt = getChatRuntime(ctx)
     const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
     const branchBusy = (a: ChatAccess, locale: Locale) => branchBusyCheck(rt, a, locale)
+    /** who moved a team project to the trash and when, while its folder is still in the files trash (null: in place, or
+     * its folder was deleted for good from there) */
+    const trashOf = (r: ProjectRowT): { by: UserRef | null; at: string } | null => {
+      const t = r.trashed_with ? ctx.db.query('SELECT deleted_by, deleted_at FROM trash_items WHERE id = ? AND restored_at IS NULL').get(r.trashed_with) as { deleted_by: string; deleted_at: string } | null : null
+      return t ? { by: rt.store.userRef(t.deleted_by), at: iso(t.deleted_at) } : null
+    }
+    /** may restore it now (restoreProject below): a team project in the trash, its folder not deleted for good; the owner
+     * and admins, or its creator while they are one of its members (QA TC-1062) */
+    const mayRestoreProject = (p: Principal, r: ProjectRowT): boolean =>
+      // its creator: the same rule as the restore itself (team-files/service.ts trashVisible: write by its own rules)
+      isTeamProject(r) && trashOf(r) !== null && (isAdmin(p) || (r.created_by === p.id && componentC(ctx).files.mayRestoreTrash(p.id, r.trashed_with!)))
     /** a project as the API shows it to `p`, with its shared chats (chat/shared.ts projectShare, `viewer`'s upload right)
      * and who changes its members (chat/project-access.ts membersView) */
     const projectOut = (r: ProjectRowT, p: Principal, canEdit: boolean, viewer: string, creators?: Map<string, Principal | null>, aud: Audiences = new Audiences(ctx.db, ctx.files)) => {
@@ -206,22 +217,35 @@ export const chatsRoutes: RouteModule = {
       // deleteProject's project_folder_stays, said before the click: a member's older project on an admin's folder (QA TC-1016)
       const canDelete = canManage && !(isProjectsFolder(r.folder_path) && r.trashed_with === null && !isAdmin(p) && !accessEditable(r, ctx.files, p)
         && (() => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...r.folder_path.split('/'))).isDirectory() } catch { return false } })())
+      // in the trash (docs/DECISIONS.md "A team project in the trash: its members keep its card"): who moved it there and
+      // when (while its folder is still in the files trash), whether the caller is one of its members, and may restore it
+      const trash = r.trashed_with !== null ? trashOf(r) : null
+      const inTrash = trash ? { trashed: trash, ...(memberWhileTrashed(ctx.db, ctx.files, r, p.id) ? { wasMember: true as const } : {}), ...(mayRestoreProject(p, r) ? { canRestore: true as const } : {}) } : {}
+      // a member of a team project in the trash who does not manage it: its name and that it is in the trash, nothing else
+      // (no instructions, members, counts or chats; QA TC-1060)
+      if (!canSeeProject(ctx.files, p, r) && !canManage) {
+        return { ...rt.store.toProject(r, false), instructions: '', member: false as const, canManage: false, canDelete: false, ...inTrash }
+      }
       // a team project the caller manages without reading it (the owner or an admin who is not a member, or one whose
-      // folder is in the trash): its name, creator, member count and state, nothing of its contents
+      // folder is in the trash): its name, creator, member count and state, nothing of its contents. In the trash also
+      // how many shared chats it has: deleting it for good sends them to their creators' trash (QA TC-1063)
       if (!canSeeProject(ctx.files, p, r)) {
-        const out = rt.store.toProject(r, false, { audience: aud.of(r).length })
-        return { ...out, instructions: '', member: false as const, canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
+        const shared = r.trashed_with !== null ? { sharedChats: (ctx.db.query('SELECT count(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').get(r.id) as { n: number }).n } : {}
+        const out = rt.store.toProject(r, false, { audience: aud.of(r).length, ...shared })
+        return { ...out, instructions: '', member: false as const, canManage, canDelete, ...inTrash, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
       return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud) }
     }
-    /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project). */
-    const projectFor = (p: Principal, id: string, manage: boolean, locale?: Locale): ProjectRowT => {
+    /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project).
+     * `trashed`: also a team project in the trash the caller is a member of (its card and page, its restore by its
+     * creator); only where the answer is its name and state, never its contents. */
+    const projectFor = (p: Principal, id: string, manage: boolean, o: { trashed?: boolean; locale?: Locale } = {}): ProjectRowT => {
       const r = rt.store.projectRow(id)
-      if (!r || !(canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r)))) {
+      if (!r || !(canSeeProject(ctx.files, p, r) || (manage && (mayManage(ctx, p, r) || (!!o.trashed && memberWhileTrashed(ctx.db, ctx.files, r, p.id)))))) {
         // GET of the project (`locale` given) by someone taken out of it (or who left): its name and that they are not
         // in it any more (QA TC-1067); its other routes keep the one 404
-        const gone = r && locale ? noLongerMember(ctx.db, r.id, p.id) : null
-        if (gone) return fail('not_found', tr('projectNoLongerMember', locale!, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
+        const gone = r && o.locale ? noLongerMember(ctx.db, r.id, p.id) : null
+        if (gone) return fail('not_found', tr('projectNoLongerMember', o.locale!, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
         return fail('not_found')
       }
       return r
@@ -702,7 +726,8 @@ export const chatsRoutes: RouteModule = {
       const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
       const aud = new Audiences(ctx.db, ctx.files)
       const creators = new Map<string, Principal | null>()
-      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r) || (manage && mayManage(ctx, p, r))).map((r) => projectOut(r, p, mayEdit(ctx, p, r), auth.user.id, creators, aud)) }
+      // with `manage`, also the team projects in the trash the caller is a member of: their cards stay, "In trash"
+      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r) || (manage && (mayManage(ctx, p, r) || memberWhileTrashed(ctx.db, ctx.files, r, p.id)))).map((r) => projectOut(r, p, mayEdit(ctx, p, r), auth.user.id, creators, aud)) }
     })
 
     // the owner's or an admin's card for team projects from before the update (chat/old-projects.ts; Admin › Home)
@@ -826,21 +851,24 @@ export const chatsRoutes: RouteModule = {
 
     kit.handle(API.getProject, ({ c, params, query, auth }) => {
       const p = principal(ctx, auth)
-      const r = projectFor(p, params.id, !!query.manage, c.get('locale'))
+      const r = projectFor(p, params.id, !!query.manage, { trashed: true, locale: c.get('locale') })
       return projectOut(r, p, mayEdit(ctx, p, r), auth.user.id)
     })
 
-    // a team project whose folder is in the trash comes back with it (the owner or an admin: they manage it without
-    // reading it; docs/DECISIONS.md "Project contents only for members"). Its folder's rules come back with the folder.
+    // a team project whose folder is in the trash comes back with it: the owner or an admin (they manage it without
+    // reading it; docs/DECISIONS.md "Project contents only for members"), or its creator while they are one of its
+    // members (docs/DECISIONS.md "A team project in the trash: its members keep its card", QA TC-1062). Its folder's
+    // rules come back with the folder.
     kit.handle(API.restoreProject, ({ c, params, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
-      const r = projectFor(p, params.id, true)
-      if (!isTeamProject(r) || !(p.role === 'owner' || p.role === 'admin')) fail('forbidden', tr('projectCreatorOnly', locale))
+      const r = projectFor(p, params.id, true, { trashed: true })
+      if (!isTeamProject(r) || !(isAdmin(p) || (r.created_by === p.id && (r.trashed_with === null || mayRestoreProject(p, r))))) fail('forbidden', tr('projectCreatorOnly', locale))
       const t = r.trashed_with ? ctx.db.query('SELECT id FROM trash_items WHERE id = ? AND restored_at IS NULL').get(r.trashed_with) as { id: string } | null : null
       if (!t) fail('conflict', tr('projectRestoreGone', locale), { params: { reason: 'project_folder_purged' } })
-      mapErrors(locale, () => componentC(ctx).files.restoreTrash(auth.user.id, t!.id, { manager: true }), 'params.id')
-      audit(ctx.db, { actor: auth.user.id, action: 'project.restore', target: r.id, detail: { name: r.name } })
+      // its creator restores it as Files › Trash lets them (team-files/service.ts trashVisible: their own project's folder)
+      // (audited as project.restore by the restore itself, as from Files › Trash)
+      mapErrors(locale, () => componentC(ctx).files.restoreTrash(auth.user.id, t!.id, isAdmin(p) ? { manager: true } : {}), 'params.id')
       const after = rt.store.projectRow(r.id)!
       return projectOut(after, p, mayEdit(ctx, p, after), auth.user.id)
     })
@@ -1057,50 +1085,8 @@ export const chatsRoutes: RouteModule = {
         for (const x of shared) for (const uid of audience) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } })
         return
       }
-      const trashFolder = false
-      // the private chats stay, without project. Its shared chats (those in the trash too) go to their creators' trash,
-      // as a single delete does (docs/DECISIONS.md "Shared project chats: the trash and live lists"): each stops being
-      // shared and, restored, is its creator's chat without project, keeping the several-authors rules (chat/turn.ts
-      // othersWrote, chat/shared.ts messageView). One whose creator would not see the project now (they lost its folder,
-      // or the account was deleted; a folder in the trash is judged by its own rules, as if it were back) goes for good,
-      // as before: nobody could restore it, and giving it back would show its creator what was said after they lost it.
-      // Their turns stop; everyone else who saw one hears it is gone.
-      const shared = ctx.db.query('SELECT id, user_id, deleted_at FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').all(r!.id) as { id: string; user_id: string; deleted_at: string | null }[]
-      const audience = new Audiences(ctx.db, ctx.files).of(r!)
-      const rules = rulesInPlace(ctx.db, ctx.files, r!)
-      const kept = shared.filter((x) => accountSeesProject(ctx.db, rules, r!, x.user_id))
-      const purged = shared.filter((x) => !kept.includes(x))
-      // the folder first: when it cannot go (a folder inside it the caller cannot write or may not trash), the project
-      // and its chats stay as they are
-      // for good: its folder's item in the trash goes for good too (only the project's own folder, as it went there)
-      const item = r.trashed_with ? ctx.db.query("SELECT id FROM trash_items WHERE id = ? AND restored_at IS NULL AND kind = 'folder' AND original_path = ?").get(r.trashed_with, r.folder_path) as { id: string } | null : null
-      if (item) mapErrors(locale, () => componentC(ctx).files.purgeTrash(item.id, auth.user.id, { manager: true }), 'params.id')
-      for (const x of shared) rt.stopChat(x.id)
-      const now = new Date().toISOString()
-      ctx.db.transaction(() => {
-        for (const x of purged) rt.purgeChat(x.id)
-        // one already in the trash keeps its time there (and who put it there)
-        for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
-        // in the trash: nobody's pin of them stays (chat/pins.ts), nor a list folder's row (none should be there: a
-        // project chat is never filed)
-        dropChatPins(ctx.db, kept.map((x) => x.id))
-        dropChatFolderItems(ctx.db, kept.map((x) => x.id))
-        ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
-        ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
-        // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
-        // folder, and every folder above it, admin-only to move, rename or trash for good). Not when its folder is in the
-        // trash: the marker is there with it, and the old path may be another folder's now.
-        if (r!.trashed_with === null && !trashFolder) dropProjectMarker(ctx.db, r!.folder_path)
-        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path, ...(trashFolder ? { folderTrashed: true } : {}), ...(shared.length ? { sharedChats: shared.length } : {}), ...(purged.length ? { sharedChatsPurged: purged.length } : {}) } })
-      })()
-      const gone = (id: string, uid: string) => rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: id, change: 'purged', chat: null } })
-      for (const x of kept) {
-        // its creator: now in their trash (a chat of theirs); one already there was out of their lists
-        if (!x.deleted_at) rt.publishChat(x.user_id, x.id, 'deleted')
-        for (const uid of audience) if (uid !== x.user_id) gone(x.id, uid)
-      }
-      for (const x of purged) for (const uid of audience) gone(x.id, uid)
-      if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
+      // for good: the same path as Files › Trash's Delete for good on a project's own folder (chat/project-delete.ts)
+      deleteProjectForGood(ctx, rt, r, auth.user.id, locale)
     })
   },
 }

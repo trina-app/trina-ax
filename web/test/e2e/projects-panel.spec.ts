@@ -90,10 +90,10 @@ test('a team project in the trash says only that: its row (a trash icon, no memb
     if (width < 768) {
       // a phone's list holds the projects the owner manages too (a computer's panel leaves them to the page's cards)
       await page.getByTestId('tab-projects').click()
-      // not a member: under 다른 팀 프로젝트, folded at first (QA TC-1071)
-      const other = page.getByTestId('phone-projects-list').getByTestId('projects-other')
-      await other.getByTestId('panel-section-fold').click()
-      const row = page.getByTestId('phone-projects-list').getByTestId('projects-panel-row').filter({ hasText: 'Acme binned' })
+      // she made it, so she is one of its members: it stays under 팀 프로젝트, in the trash (QA TC-1060; one she only
+      // manages would not be listed at all: Files › Trash has it, QA TC-1061)
+      const row = page.getByTestId('phone-projects-list').getByTestId('projects-team').getByTestId('projects-panel-row').filter({ hasText: 'Acme binned' })
+      await expect(page.getByTestId('phone-projects-list').getByTestId('projects-other')).toHaveCount(0)
       await expect(row.getByTestId('projects-panel-meta')).toContainText(t['chat.project.inTrash'])
       await expect(row.getByTestId('projects-panel-meta')).not.toContainText(t['projects.noMembers'])
       await expect(row.getByTestId('projects-panel-in-trash')).toBeVisible()

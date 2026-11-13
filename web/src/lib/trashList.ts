@@ -47,9 +47,12 @@ export function placeWords(dir: string, w: PlaceWords, sep = ' › '): string {
 export type TrashKind = 'file' | 'folder' | 'project'
 
 /** An item's name and where it was: "Hello" · "My projects", "price-sheet.xlsx" · "Company-wide › Sales". */
-export function trashPlace(it: Pick<TrashItem, 'originalPath' | 'type'>, w: PlaceWords): { name: string; where: string; kind: TrashKind } {
+export function trashPlace(it: Pick<TrashItem, 'originalPath' | 'type' | 'project'>, w: PlaceWords): { name: string; where: string; kind: TrashKind } {
   const path = it.originalPath
   const folder = it.type === 'folder'
+  // a team project's own folder, which went to the trash with its project: the server names the project (QA TC-1061;
+  // the person may not see it in their projects list, which has none in the trash)
+  if (folder && it.project) return { name: it.project.name, where: placeWords(parentPath(path), w), kind: 'project' }
   const project = folder ? w.projects.find((p) => p.folderPath.normalize('NFC') === path.normalize('NFC')) : undefined
   return { name: project?.name ?? baseName(path), where: placeWords(parentPath(path), w), kind: project ? 'project' : folder ? 'folder' : 'file' }
 }
@@ -72,7 +75,8 @@ export function groupTrash(items: readonly TrashItem[]): TrashGroup[] {
   for (const it of items) {
     if (seen.has(it.id)) continue
     seen.add(it.id)
-    const key = `${it.type === 'folder' ? 'd' : 'f'}:${it.originalPath.normalize('NFC')}`
+    // a project is a row of its own (never one with a file or folder of the same path)
+    const key = `${it.project ? `p:${it.project.id}` : it.type === 'folder' ? 'd' : 'f'}:${it.originalPath.normalize('NFC')}`
     const list = groups.get(key)
     if (list) list.push(it)
     else groups.set(key, [it])

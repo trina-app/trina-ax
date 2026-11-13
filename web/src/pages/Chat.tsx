@@ -20,7 +20,7 @@ import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -54,6 +54,7 @@ import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, lastOwnQuestion } from '../components/chat/privateAsk'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
+import { useTrashLines } from '../components/ProjectTrashNote'
 import { Button, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
@@ -376,6 +377,10 @@ function ChatView({ chatId }: { chatId: string }) {
     composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
+  // a shared chat of a project in the trash, to one of its members: the server says so (and only to them), and the page
+  // says what the project's page says (QA TC-1060)
+  if (loadError && isApiError(loadError, 'not_found') && loadError.body.params?.reason === 'project_in_trash' && typeof loadError.body.params.projectId === 'string')
+    return <ChatOfTrashedProject projectId={loadError.body.params.projectId} />
   // a shared chat of a project I was taken out of (or left): its name, plainly (QA TC-1067)
   const goneFrom = loadError ? noLongerMemberOf(loadError) : null
   if (goneFrom)
@@ -587,3 +592,35 @@ function BrowserToggle() {
 /** the answer failed because nothing answers this person (the button to connect or ask is on it) */
 const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
   !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))
+
+/** A shared chat link of a team project in the trash, opened by one of its members: the project is in the trash, who
+ * moved it there, who can restore it, and its page (where its creator or an admin restores it). The project is read
+ * as its card is (GET /api/projects/:id?manage=1: its name and state only); not readable any more: the plain answer. */
+function ChatOfTrashedProject({ projectId }: { projectId: string }) {
+  const t = useT()
+  const [project, setProject] = useState<Project | null | false>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.getProject, { params: { id: projectId }, query: { manage: '1' } }).then((p) => live && setProject(p.inTrash ? p : false), () => live && setProject(false))
+    return () => { live = false }
+  }, [projectId])
+  const lines = useTrashLines(project || {})
+  if (project === null) return <Skeleton lines={3} className="p-6" />
+  return (
+    <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
+      <EmptyState screen title={project ? t('chat.projectInTrash', { name: project.name }) : t('chat.notFound')}>
+        {project ? (
+          <>
+            {lines.moved && <p className="mb-1 break-keep" data-testid="chat-project-trashed-by">{lines.moved}</p>}
+            <p className="mb-1 break-keep" data-testid="chat-project-trash-restores">{project.canRestore ? t('chat.projectInTrashYou') : lines.restores}</p>
+            <Link to={`/projects/${project.id}`} className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-project-open">
+              {t('chat.openProject')}
+            </Link>
+          </>
+        ) : (
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
+        )}
+      </EmptyState>
+    </div>
+  )
+}

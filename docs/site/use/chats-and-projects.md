@@ -157,6 +157,10 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 - Only a project's members see what is in it. The owner and admins can change its members, but they do not see its
   chats, files and instructions unless they are members.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
+- **Move to trash** in a team project's menu puts it in the trash with its files. Its members keep its card, marked
+  **In trash**: its page says who moved it there and when, and that an admin or its creator can restore it. Nobody
+  opens its files, chats or instructions until then. An admin or its creator restores it on its page or in
+  **Files › Trash**, where it is one row with the project's name. **Delete for good** is for admins only.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.
 - **Shared chats.** In a team project's settings, its creator or an admin can turn on **Share this project's chats with its members**. From then on, new chats in the project can be seen and continued by its members; the chats you had before stay yours. Every question shows the picture and name of the person who sent it, yours too. Each answer runs as the person who asked, with their access. When the AI is about to read something some of them cannot open, it asks you first (**Read and share** / **Don't read**). A file you attach from your computer (📎, a paste or a drop) is saved in the project folder's **Chat attachments** subfolder (named in the team's language), where the project's people can open it, and a line under it says so; you need write access to the project folder (without it, the box offers team files only), and **✕** before sending moves the file to the trash. Turning the setting off keeps the chats already shared.
 
@@ -169,4 +173,4 @@ Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find 
 Deleting a chat moves it to **Deleted history**, where you can bring it back for 7 days by default. Admins can choose 1 to 365 days.
 
 - A shared chat goes to the **Deleted history** of the person who made it. When a project's creator or an admin deletes someone else's shared chat, it is in their **Deleted history** too, for as long as they can still bring it back.
-- Deleting a project moves its shared chats to the **Deleted history** of the people who made them. Brought back, such a chat is its maker's alone, without a project.
+- Deleting a project for good moves its shared chats to the **Deleted history** of the people who made them. Brought back, such a chat is its maker's alone, without a project.

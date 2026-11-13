@@ -1956,7 +1956,13 @@ export class TeamFiles {
     // a trashed group / project / rule folder went there by an admin or the owner (assertMayChangeManaged) and comes
     // back only the same way: listing it to members, whose restore then failed (they cannot write groups/ or
     // projects/), offered what could not be done (design tab 4 move/delete; security review r2)
-    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id)) return false
+    // A team project's own folder (docs/DECISIONS.md "A team project in the trash: its members keep its card"): the owner
+    // and admins manage every team project without reading it (chat/projects.ts mayManageProject), so they see and
+    // restore it here as on its page (QA TC-1061); so does its creator, while they may write it by its own parked rules,
+    // that is while they are one of its members (QA TC-1062)
+    const project = t.kind === 'folder' ? this.projectFolderOf(t, home) : null
+    if (project && isStaff(user)) return true
+    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id) && project?.created_by !== user.id) return false
     // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
     // since belong to that other folder and do not
     const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
@@ -1975,6 +1981,42 @@ export class TeamFiles {
       if (from !== null && from !== home && !atLeast(access(from), 'read')) return false
     }
     return true
+  }
+  /**
+   * A trashed folder that is exactly one team project's own folder (projects/<name>, which went to the trash with that
+   * project and nothing else), with no group's folder parked inside it: the project (its creator may see and restore it
+   * in Files › Trash, as the owner and admins do; trashVisible).
+   */
+  private projectFolderOf(t: TrashRow, home: string): { created_by: string | null } | null {
+    const segs = segsOf(home)
+    if (segs.length !== 2 || !inProjectZone(segs)) return null
+    const db = this.ctx.db
+    const rows = db.query('SELECT created_by, folder_path FROM projects WHERE trashed_with = ?').all(t.id) as { created_by: string | null; folder_path: string }[]
+    if (rows.length !== 1 || rows[0]!.folder_path !== t.original_path) return null
+    if (db.query(`SELECT 1 FROM groups g JOIN folders f ON f.id = g.folder_id WHERE f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/' LIMIT 1`).get(t.storage_path)) return null
+    return rows[0]!
+  }
+  /** May `userId` restore trash item `id` now? The same rule as restoreTrash without `manager` (trashVisible: for a team
+   * project's own folder, the owner, admins and its creator while they may write it by its own rules). */
+  mayRestoreTrash(userId: string, id: string): boolean {
+    const t = this.trashRow(id)
+    if (!t) return false
+    try { return this.trashVisible(this.principal(userId), this.rules(), t) } catch { return false }
+  }
+  /** The team project trash item `id` is the own folder of (null: any other item, or gone): Files › Trash's Delete for
+   * good on it is the project's own delete (routes/files.ts purgeTrash, chat/project-delete.ts). */
+  trashedProjectOf(id: string): { id: string; name: string } | null {
+    const t = this.trashRow(id)
+    const home = t ? this.trashHome(t) : null
+    // a team project in projects/<name> (an older project on another folder keeps the folder-only purge it had)
+    if (!t || home === null || t.kind !== 'folder' || !this.projectFolderOf(t, home)) return null
+    return this.trashProject(t) ?? null
+  }
+  /** the project a trashed folder is the own folder of (Files › Trash names it as the project) */
+  private trashProject(t: TrashRow): { id: string; name: string } | undefined {
+    if (t.kind !== 'folder') return undefined
+    const r = this.ctx.db.query('SELECT id, name FROM projects WHERE trashed_with = ? AND folder_path = ? ORDER BY created_at, id LIMIT 1').get(t.id, t.original_path) as { id: string; name: string } | null
+    return r ?? undefined
   }
   private trashRow(id: string): TrashRow | null {
     return this.ctx.db.query('SELECT id, original_path, storage_path, size, deleted_by, turn_id, deleted_at, purge_at, kind, folder_id FROM trash_items WHERE id = ? AND restored_at IS NULL').get(id) as TrashRow | null
@@ -2003,6 +2045,7 @@ export class TeamFiles {
       items: out.map((t) => ({
         id: t.id, originalPath: t.original_path, size: t.size, deletedBy: refs.get(t.deleted_by) ?? { id: t.deleted_by, name: t.deleted_by },
         turnId: t.turn_id, deletedAt: normIso(t.deleted_at), purgeAt: normIso(t.purge_at), type: t.kind,
+        ...(() => { const project = this.trashProject(t); return project ? { project } : {} })(),
       })),
       nextCursor: out.length === limit && (more || out[out.length - 1]!.id !== after) ? out[out.length - 1]!.id : null,
     }
@@ -2070,6 +2113,11 @@ export class TeamFiles {
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
     // its projects' paused scheduled tasks and shared chats come back to their people (QA TC-1014, TC-1015)
     projectsRestored(this.ctx, back, { by: userId, trashedAt: t.deleted_at })
+    // a project back with its folder: audited as its page's Restore audits it, from either place (QA TC-1061)
+    for (const id of back) {
+      const p = this.ctx.db.query('SELECT name FROM projects WHERE id = ?').get(id) as { name: string } | null
+      this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(userId, 'project.restore', id, JSON.stringify({ name: p?.name ?? '' }))
+    }
     return { entry: this.entry(person, this.rules(), r.segs) }
   }
   /**

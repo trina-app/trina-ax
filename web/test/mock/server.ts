@@ -387,6 +387,9 @@ export class MockServer {
   /** a team project's folder in the trash with it (DELETE /api/projects/:id the first time): its files, by project id;
    * null once purged (POST /__test/project-purge: restoring it is refused, 409 project_folder_purged) */
   trashedProjects = new Map<string, [string, FileNode][] | null>()
+  /** who moved a team project to the trash and when, and its row's id in Files › Trash (docs/DECISIONS.md "A team
+   * project in the trash: its members keep its card") */
+  trashMeta = new Map<string, { by: { id: string; name: string }; at: string; trashId: string }>()
   memories: Memory[] = []
   /** Settings › 트리나에게 허용한 것 (POST /__test/ai-allowances sets them; one person's, like memories) */
   aiAllowances: AiAllowance[] = []
@@ -651,6 +654,7 @@ export class MockServer {
     this.beforeUpdate = new Set()
     this.updateNoticeDismissed = new Set()
     this.trashedProjects.clear()
+    this.trashMeta.clear()
     this.projectRowIds.clear()
     this.memories = []
     this.aiAllowances = []
@@ -854,6 +858,24 @@ export class MockServer {
   projectManages(p: Project, u: User): boolean {
     if (!p.folderPath.startsWith('users/') && u.role !== 'member') return true
     return !p.inTrash && p.createdBy?.id === u.id && this.access(p.folderPath, u) === 'write'
+  }
+  /** like server/src/chat/shared.ts memberWhileTrashed: a team project in the trash (its folder not purged) this person is
+   * a member of by its folder's own rules */
+  projectWasMember(p: Project, u: User): boolean {
+    return !!p.inTrash && !p.folderPath.startsWith('users/') && !!this.trashedProjects.get(p.id) && this.access(p.folderPath, u) !== 'none'
+  }
+  /** like routes/chats.ts mayRestoreProject: the owner and admins, or its creator while a member */
+  projectMayRestore(p: Project, u: User): boolean {
+    return !!p.inTrash && !p.folderPath.startsWith('users/') && !!this.trashedProjects.get(p.id) && (u.role !== 'member' || (p.createdBy?.id === u.id && this.projectWasMember(p, u)))
+  }
+  /** the project as the API shows it to `u`: one in the trash as routes/chats.ts projectOut gives it (a member who does
+   * not manage it: its name and state only) */
+  projectOut(p: Project, u: User): Project {
+    if (!p.inTrash) return p
+    const meta = this.trashMeta.get(p.id)
+    const extra = { ...(meta && this.trashedProjects.get(p.id) ? { trashed: { by: meta.by, at: meta.at } } : {}), ...(this.projectWasMember(p, u) ? { wasMember: true as const } : {}), ...(this.projectMayRestore(p, u) ? { canRestore: true as const } : {}) }
+    if (!this.projectManages(p, u)) return { id: p.id, name: p.name, folderPath: p.folderPath, instructions: '', createdBy: p.createdBy, createdAt: p.createdAt, canEdit: false, inTrash: true, member: false, canManage: false, canDelete: false, ...extra }
+    return { ...this.sharedProjectOut(p, u), sharedChats: this.chats.filter((c) => c.projectId === p.id && this.sharedChats.has(c.id)).length, ...extra }
   }
 
   entry(path: string, n: FileNode, user: User): FileEntry {
@@ -2332,6 +2354,10 @@ export class MockServer {
     },
     getChat: (c) => {
       const x = this.chats.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      // a shared chat of a project in the trash: 404, with why for its members (chat/shared.ts chatFor; QA TC-1060)
+      const s = this.sharedChats.get(x.id)
+      const tp = s && this.projects.find((y) => y.id === s.projectId)
+      if (tp?.inTrash) fail('not_found', 404, undefined, undefined, this.projectWasMember(tp, c.user) ? { reason: 'project_in_trash', projectId: tp.id } : undefined)
       // a shared chat of a project the caller was taken out of: 404 with the project's name (QA TC-1067)
       const pr = x.projectId ? this.projects.find((p) => p.id === x.projectId) : undefined
       if (pr && !x.deletedAt && this.sharedChats.has(x.id) && this.formerMembers.has(`${pr.id}:${c.user.id}`) && !this.projectSees(pr, c.user)) this.notFoundFor(pr.id, c.user.id)
@@ -2558,7 +2584,7 @@ export class MockServer {
       return undefined
     },
     // like server/src/routes/chats.ts: the projects the caller reads; manage=1 also those they manage without reading
-    listProjects: (c) => ({ items: this.projects.filter((p) => this.projectSees(p, c.user) || (c.query.manage === '1' && this.projectManages(p, c.user))) }),
+    listProjects: (c) => ({ items: this.projects.filter((p) => this.projectSees(p, c.user) || (c.query.manage === '1' && (this.projectManages(p, c.user) || this.projectWasMember(p, c.user)))).map((p) => this.projectOut(p, c.user)) }),
     // like server/src/routes/chats.ts (docs/DECISIONS.md "Projects live only in projects/"): a team project is a new
     // projects/<name> (a taken name gets "-2") with its people, a personal one users/<me>/projects/<name>. The app sends
     // no folder. A spec may still name one: that sets up a project as older builds made them on an existing folder (the
@@ -2580,7 +2606,11 @@ export class MockServer {
       this.projects.push(p)
       return { status: 201, body: p }
     },
-    getProject: (c) => this.projectFor(c, c.query.manage === '1'),
+    getProject: (c) => {
+      const p = this.projects.find((x) => x.id === c.params.id)
+      if (p && c.query.manage === '1' && this.projectWasMember(p, c.user)) return this.projectOut(p, c.user)
+      return this.projectOut(this.projectFor(c, c.query.manage === '1'), c.user)
+    },
     getProjectsUpdateNotice: (c) => ({ items: this.updateNoticeOf(c.user).map((p) => ({ id: p.id, name: p.name })) }),
     // "Add me to these": a member of each, as Add me saves it (its members told)
     joinProjectsUpdateNotice: (c) => {
@@ -2623,6 +2653,7 @@ export class MockServer {
       }
       if (this.projectMembers.has(p.folderPath) && !p.inTrash) {
         this.trashedProjects.set(p.id, [...this.files.entries()].filter(([k]) => under(k)))
+        this.trashMeta.set(p.id, { by: { id: c.user.id, name: c.user.name }, at: now(), trashId: uuidv7() })
         for (const k of [...this.files.keys()]) if (under(k)) this.files.delete(k)
         p.inTrash = true
         return undefined
@@ -2636,8 +2667,9 @@ export class MockServer {
     },
     // its folder back from the trash, with its members (the owner and admins); purged meanwhile: 409
     restoreProject: (c) => {
-      const p = this.projectFor(c, true)
-      if (c.user.role === 'member' || p.folderPath.startsWith('users/')) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
+      const found = this.projects.find((x) => x.id === c.params.id)
+      const p = found && this.projectWasMember(found, c.user) ? found : this.projectFor(c, true)
+      if (!(c.user.role !== 'member' || p.createdBy?.id === c.user.id) || p.folderPath.startsWith('users/')) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
       const kept = this.trashedProjects.get(p.id)
       if (!p.inTrash || !kept) fail('conflict', 409, CHAT_TEXT.projectRestoreGone[c.user.locale as Locale] ?? CHAT_TEXT.projectRestoreGone.ko, undefined, { reason: 'project_folder_purged' })
       for (const [k, n] of kept!) this.files.set(k, n)
@@ -3042,9 +3074,20 @@ export class MockServer {
         .filter((x) => (!mine || x.deletedBy?.id === c.user.id) && this.trashRestorable(x.originalPath, c.user))
         .filter((x) => !c.query.cursor || x.id < c.query.cursor)
       const page = all.slice(0, limit).map(({ node: _n, ...t }) => t)
-      return { items: page, nextCursor: all.length > limit ? page[page.length - 1]!.id : null }
+      // a team project's own folder in the trash is one row, named as the project, for the owner, admins and its creator
+      // while a member (team-files/service.ts trashVisible; QA TC-1061, TC-1062): on the first page
+      const projects = c.query.cursor ? [] : this.projectTrashRows(c.user).filter((x) => !mine || x.deletedBy?.id === c.user.id)
+      return { items: [...projects, ...page], nextCursor: all.length > limit ? page[page.length - 1]!.id : null }
     },
     restoreTrash: (c) => {
+      const pt = this.projects.find((p) => this.trashMeta.get(p.id)?.trashId === c.params.id && p.inTrash)
+      if (pt) {
+        if (!this.projectMayRestore(pt, c.user)) fail('not_found', 404)
+        for (const [k, n] of this.trashedProjects.get(pt.id)!) this.files.set(k, n)
+        this.trashedProjects.delete(pt.id)
+        pt.inTrash = false
+        return { entry: this.entry(pt.folderPath, this.files.get(pt.folderPath) ?? { type: 'folder', mtime: now() }, c.user) }
+      }
       const t = this.trash.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (!this.trashRestorable(t.originalPath, c.user)) fail('not_found', 404)
       this.trash = this.trash.filter((x) => x.id !== t.id)
@@ -5725,6 +5768,12 @@ export class MockServer {
   notFoundFor(projectId: string | undefined, userId: string): never {
     const name = projectId ? this.formerMembers.get(`${projectId}:${userId}`) : undefined
     return name ? fail('not_found', 404, `You're no longer a member of '${name}'.`, undefined, { reason: 'no_longer_member', project: name }) : fail('not_found', 404)
+  }
+  projectTrashRows(u: User): TrashItem[] {
+    return this.projects.filter((p) => this.projectMayRestore(p, u)).map((p) => {
+      const m = this.trashMeta.get(p.id)!
+      return { id: m.trashId, originalPath: p.folderPath, size: 0, deletedBy: m.by, turnId: null, deletedAt: m.at, purgeAt: new Date(Date.parse(m.at) + 30 * 86_400_000).toISOString(), type: 'folder' as const, project: { id: p.id, name: p.name } }
+    })
   }
   /** A project the caller reads, or with `manage` one they manage (routes/chats.ts projectFor): else 404, the same
    * answer as no project */

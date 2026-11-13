@@ -88,6 +88,15 @@ describe('repeats of one path are one row', () => {
   test('a file and a folder of the same path are two rows', () => {
     expect(groupTrash([item('docs/x', { type: 'folder' }), item('docs/x')])).toHaveLength(2)
   })
+  test('a team project in the trash: one row of its own, named by the server, never one with a folder of its path (QA TC-1061)', () => {
+    const proj = { ...item('projects/spring', { type: 'folder' }), project: { id: '01900000-0000-7000-8000-0000000000aa', name: 'Spring Launch' } }
+    const folder = item('projects/spring', { type: 'folder', ago: 5000 })
+    expect(groupTrash([proj, folder])).toHaveLength(2)
+    // named by the project, under Projects, also when the person's own projects list has no such project
+    const w: PlaceWords = { words: folderWords('en', 'dana'), me: 'dana', projects: [], root: 'Team folder', myProjects: 'My projects', personal: 'Personal' }
+    expect(trashPlace(proj, w)).toEqual({ name: 'Spring Launch', where: 'Projects', kind: 'project' })
+    expect(trashPlace(folder, w)).toEqual({ name: 'spring', where: 'Projects', kind: 'folder' })
+  })
   test('across pages: a copy on page 2 joins the row of page 1; an item on both pages counts once', () => {
     const p1 = [item('a.txt', { ago: 1 }), item('b.txt', { ago: 2 })]
     const shared = item('c.txt', { ago: 3 })
