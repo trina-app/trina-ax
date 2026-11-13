@@ -1,14 +1,16 @@
 // Admin › MCP: asking a member to connect a service as their own connection. Some services log every call as the
 // person whose key it is, so that key belongs in the member's personal connection, which nobody else can see or use.
-// The admin opens it from Add connection's menu (a popup: the service — kind, name, address, how it signs in, the key's
-// header, usage notes for an API — and the member); the member gets a notice and adds their own key or signs in
+// The admin opens it from Add connection's menu (a popup: the member — picked from a search with pictures, the one
+// Folder permissions uses (AddNamed.tsx) — and the service: kind, name, address, how it signs in, the key's header,
+// usage notes for an API). Plain like Team settings: one line on top, short notes, red only after Send. The member gets
+// a notice and adds their own key or signs in
 // (Settings › MCP, AnswerDialog.tsx). The admin never sees the key. On the page, a request is one quiet row in the
 // Connected list while it waits (copy its link, withdraw it), and for two weeks after the member connected it,
 // declined it or it expired (ask again); a withdrawn one goes at once. No list of its own.
 // Server: server/src/integrations/connections/requests.ts.
 import clsx from 'clsx'
 import { Globe, Link2, RotateCcw, Undo2, Waypoints } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { INTEGRATION_REQUEST_DAYS, type IntegrationKind, type IntegrationRequest, type User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
@@ -21,6 +23,9 @@ import { Badge, Button, Field, IconButton, Modal, confirmDialog, inputCls } from
 import { useLoad } from '../../pages/admin/common'
 import { Choices } from './IntegrationDialog'
 import { ConnectorLogo } from './ConnectorsView'
+import { AddNamed } from '../../pages/admin/AddNamed'
+import { Avatar } from '../Avatar'
+import { useFaceOf } from '../../store/people'
 
 /** how long a request that ended (connected, declined, expired) stays on the page */
 const ENDED_SHOWN_MS = 14 * 24 * 60 * 60 * 1000
@@ -135,26 +140,32 @@ export function RequestDialog({ users, initial, onClose, onSent }: { users: User
   const t = useT()
   const locale = useLocale()
   const [f, setF] = useState<RequestForm>(() => initial ?? emptyRequestForm('mcp'))
-  const [touched, setTouched] = useState<Partial<Record<RequestField, boolean>>>({})
   const [submitted, setSubmitted] = useState(false)
   const [server, setServer] = useState<Partial<Record<RequestField, string | null>>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const errors = validateRequest(f)
-  const people = users.filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
+  const people = useMemo(() => users.filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name)), [users])
+  const noneTaken = useMemo(() => new Set<string>(), [])
+  const chosen = users.find((u) => u.id === f.userId)
+  const faceOf = useFaceOf()
+  const search = useRef<HTMLInputElement>(null)
+  const chosenRow = useRef<HTMLDivElement>(null)
+  const userLabelId = useId()
+  const userNoteId = useId()
 
   const errorOf = (k: RequestField): string | null => {
     if (k in server) return server[k] ?? t('integrations.error.field')
+    // red only once Send was pressed (not on a popup nobody has filled in yet, nor on leaving a field)
     const e = errors[k]
-    return e && (submitted || touched[k]) ? t(e) : null
+    return e && submitted ? t(e) : null
   }
   const change = (patch: Partial<RequestForm>, ...fields: RequestField[]) => {
     setF((x) => ({ ...x, ...patch }))
     if (fields.some((k) => k in server)) setServer((s) => Object.fromEntries(Object.entries(s).filter(([k]) => !fields.includes(k as RequestField))))
     setError(null)
   }
-  const blur = (k: RequestField) => () => setTouched((x) => ({ ...x, [k]: true }))
   const focusInvalid = useCallback(() => requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()), [])
 
   const send = async () => {
@@ -197,35 +208,75 @@ export function RequestDialog({ users, initial, onClose, onSent }: { users: User
     >
       <form className="space-y-5" noValidate onSubmit={(e) => { e.preventDefault(); void send() }}>
         <div ref={body} className="space-y-5">
-          <p className="text-sm text-muted">{t('integrations.request.intro', { days: INTEGRATION_REQUEST_DAYS })}</p>
-          <Field label={t('integrations.request.field.user')} error={errorOf('userId')}>
-            <select className={clsx(inputCls)} value={f.userId} onChange={(e) => change({ userId: e.target.value }, 'userId')} onBlur={blur('userId')} data-autofocus data-testid="integration-request-user">
-              <option value="">{t('integrations.request.field.userPlaceholder')}</option>
-              {people.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.username})
-                </option>
-              ))}
-            </select>
-          </Field>
+          <p className="text-sm text-muted">{t('integrations.request.intro')}</p>
+          {/* not a Field: its <label> would pass a click on the list or on Change to the search */}
+          <div data-field>
+            <span id={userLabelId} className="block text-label font-medium text-ink">{t('integrations.request.field.user')}</span>
+            {chosen ? (
+              <div ref={chosenRow} className="mt-2 flex min-h-9 items-center gap-2.5" role="group" aria-labelledby={userLabelId} data-testid="integration-request-user" data-user={chosen.id}>
+                <Avatar user={faceOf(chosen)} size={28} />
+                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium text-ink">{chosen.name}</span>
+                  <span className="min-w-0 shrink-[100] truncate text-xs text-faint">{chosen.username}</span>
+                </span>
+                <Button
+                  size="sm"
+                  data-autofocus
+                  aria-label={t('integrations.request.changeUser', { name: chosen.name })}
+                  onClick={() => {
+                    change({ userId: '' }, 'userId')
+                    requestAnimationFrame(() => search.current?.focus())
+                  }}
+                  data-testid="integration-request-user-change"
+                >
+                  {t('integrations.request.change')}
+                </Button>
+              </div>
+            ) : (
+              <AddNamed
+                users={people}
+                groups={[]}
+                taken={noneTaken}
+                inputRef={search}
+                inline
+                autoFocus
+                label={t('integrations.request.field.user')}
+                placeholder={t('integrations.request.field.userPlaceholder')}
+                noMatch={t('integrations.request.noMember')}
+                testId="integration-request-user-search"
+                describedBy={userNoteId}
+                invalid={!!errorOf('userId')}
+                onAdd={(o) => {
+                  change({ userId: o.id }, 'userId')
+                  requestAnimationFrame(() => chosenRow.current?.querySelector('button')?.focus())
+                }}
+                saidOf={(o) => t('integrations.request.chosen', { name: o.name })}
+              />
+            )}
+            {errorOf('userId') ? (
+              <span id={userNoteId} role="alert" className="mt-1 block text-xs text-danger">{errorOf('userId')}</span>
+            ) : (
+              <span id={userNoteId} className="mt-1 block text-xs text-faint">{t('integrations.request.userHint', { days: INTEGRATION_REQUEST_DAYS })}</span>
+            )}
+          </div>
           <Choices<IntegrationKind>
             legend={t('integrations.field.kind')}
             value={f.kind}
             onChange={(k) => change({ kind: k, method: requestMethodsFor(k).includes(f.method) ? f.method : 'key' }, 'method')}
-            options={(['mcp', 'http'] as const).map((k) => ({ value: k, label: t(`integrations.kind.${k}`), desc: t(`integrations.kind.${k}.desc`), testId: `integration-request-kind-${k}` }))}
+            options={(['mcp', 'http'] as const).map((k) => ({ value: k, label: t(`integrations.kind.${k}`), desc: t(`integrations.request.kindHint.${k}`), testId: `integration-request-kind-${k}` }))}
           />
-          <Field label={t('integrations.field.name')} hint={t('integrations.field.nameHint')} error={errorOf('name')}>
-            <input className={inputCls} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} onBlur={blur('name')} data-testid="integration-request-name" />
+          <Field label={t('integrations.field.name')} hint={t('integrations.request.nameHint')} error={errorOf('name')}>
+            <input className={inputCls} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} data-testid="integration-request-name" />
           </Field>
-          <Field label={t('integrations.field.url')} hint={t(f.kind === 'mcp' ? 'integrations.field.urlHint.mcp' : 'integrations.field.urlHint.http')} error={errorOf('url')}>
-            <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-request-url" />
+          <Field label={t('integrations.field.url')} hint={t('integrations.request.urlHint')} error={errorOf('url')}>
+            <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} data-testid="integration-request-url" />
           </Field>
           <Choices<'oauth' | 'key'>
             legend={t('integrations.field.auth')}
             value={f.method}
             onChange={(m) => change({ method: m }, 'method', 'headerName')}
             error={errorOf('method')}
-            options={requestMethodsFor(f.kind).map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: t(`integrations.auth.${m}.desc`), testId: `integration-request-auth-${m}` }))}
+            options={requestMethodsFor(f.kind).map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: m === 'oauth' ? t('integrations.request.oauthHint') : undefined, testId: `integration-request-auth-${m}` }))}
           />
           {f.method === 'key' && (
             <div className="space-y-4">
@@ -240,16 +291,16 @@ export function RequestDialog({ users, initial, onClose, onSent }: { users: User
                 ]}
               />
               {f.header === 'custom' && (
-                <Field label={t('integrations.field.headerName')} hint={t('integrations.field.headerNameHint')} error={errorOf('headerName')}>
-                  <input className={inputCls} value={f.headerName} maxLength={64} autoComplete="off" spellCheck={false} placeholder="X-API-Key" onChange={(e) => change({ headerName: e.target.value }, 'headerName')} onBlur={blur('headerName')} data-testid="integration-request-header-name" />
+                <Field label={t('integrations.field.headerName')} hint={t('integrations.request.headerNameHint')} error={errorOf('headerName')}>
+                  <input className={inputCls} value={f.headerName} maxLength={64} autoComplete="off" spellCheck={false} placeholder="X-API-Key" onChange={(e) => change({ headerName: e.target.value }, 'headerName')} data-testid="integration-request-header-name" />
                 </Field>
               )}
               <p className="text-xs text-muted">{t('integrations.request.keyByMember')}</p>
             </div>
           )}
           {f.kind === 'http' && (
-            <Field label={t('integrations.field.notes')} hint={t('integrations.field.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
-              <textarea className={clsx(inputCls, 'h-auto min-h-24 py-2')} rows={4} value={f.notes} placeholder={t('integrations.field.notesPlaceholder')} onChange={(e) => change({ notes: e.target.value }, 'notes')} onBlur={blur('notes')} data-testid="integration-request-notes" />
+            <Field label={t('integrations.field.notes')} hint={t('integrations.request.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
+              <textarea className={clsx(inputCls, 'h-auto min-h-24 py-2')} rows={4} value={f.notes} placeholder={t('integrations.field.notesPlaceholder')} onChange={(e) => change({ notes: e.target.value }, 'notes')} data-testid="integration-request-notes" />
             </Field>
           )}
           {error && (

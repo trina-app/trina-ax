@@ -24998,3 +24998,14 @@ default.
   audited (`ai.always_allow`). The team switch is the existing `roomAlwaysAllow` (on by default), now titled
   "'Always allow' on confirmation cards": off, no card offers it and the rows are ignored, not deleted. Room folder
   grants made before keep working until they lapse; new ones are no longer made.
+
+## Ask a member to connect: the member from a search with pictures (fix/ask-member-dialog, 2026-11-13, QA TC-188)
+
+- **Why:** the popup's Member was the browser's own dropdown ("Name (id)", no pictures, no search), a three-line
+  paragraph opened it, every field had a long note, and "Choose a member." was red before anything was filled in.
+- **How (`web/src/components/integrations/RequestDialog.tsx`):** the member is picked with the people search Folder
+  permissions and Team skills use (`pages/admin/AddNamed.tsx`, members only, in the flow), not a second picker; once
+  picked, one row (picture, name, id) with Change. AddNamed gained optional props (label, test id, no-match words,
+  error wiring, autofocus); its two other users are unchanged. One short line on top, short notes of the popup's own
+  (the team dialog's shared words stay), the 7 days under Member. Red only after Send (no error on leaving a field).
+- **Unchanged:** what is sent and the 7-day wait.
