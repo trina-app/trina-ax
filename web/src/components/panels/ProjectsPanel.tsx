@@ -40,7 +40,7 @@ export function NewProjectRow({ phone = false }: { phone?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'h-11')} data-testid="projects-panel-new">
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-11')} data-testid="projects-panel-new">
         <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
       </button>
       {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
@@ -84,7 +84,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
-  if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
+  if (!projects.length) return <p className="px-3 py-2 text-row text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
   const team = projects.filter((p) => !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (
@@ -105,8 +105,8 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
             >
               <SquareKanban size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
               <span className="min-w-0 flex-1">
-                <span className={clsx('block truncate text-sm text-ink', on && 'font-medium')} title={p.name} data-testid="projects-panel-name">{p.name}</span>
-                <span className="block truncate text-xs text-faint tabular-nums" data-testid="projects-panel-meta">{meta}</span>
+                <span className={clsx('block truncate text-row', on ? 'font-semibold text-ink' : 'text-muted')} title={p.name} data-testid="projects-panel-name">{p.name}</span>
+                <span className="block truncate text-meta text-faint tabular-nums" data-testid="projects-panel-meta">{meta}</span>
               </span>
             </Link>
           </li>
@@ -117,12 +117,12 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   return (
     <div data-testid="projects-list">
       {team.length > 0 && (
-        <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={12} aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
+        <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={14} className="text-muted" aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
           {rows(team)}
         </PanelSection>
       )}
       {mine.length > 0 && (
-        <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={12} aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
+        <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={14} className="text-muted" aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
           {rows(mine)}
         </PanelSection>
       )}

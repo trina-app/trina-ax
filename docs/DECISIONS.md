@@ -11765,6 +11765,25 @@ and rows looked alike).
   faint 1 px line down their left (as Claude Code, Linear and VS Code trees), and a small gap closes the group.
 - **Rows**: 14 px regular, unchanged. No new buttons, no cards; both themes use the existing tokens.
 
+## Panels: Slack-sized type (fix/panel-type-hierarchy, 2026-11-13, product owner)
+
+넣을 곳: `web/src/index.css` (`text-row`, `text-meta`, `h-row`, `pl-row-indent`), `web/src/components/panels/PanelFrame.tsx`
+and the rows of 트리나, 대화, 프로젝트, 파일 and 활동 (also the phone's drawer and 파일/프로젝트 lists, which share them). 이유: the
+owner compared the panels with Slack's sidebar, 2026-11-13: the structure is fine, but the text is far too small and the
+hierarchy does not show. Supersedes the sizes of "Panels: three levels you can tell apart"; the structure stays.
+
+- **Rows** 15 px, 30 px high on a computer (44 px on phones and touch screens, unchanged). Unread (a room with unread
+  messages, a chat that needs me, an unread notice) and the open row are semibold in ink; every other row is muted.
+- **Section headers** the rows' 15 px, semibold in ink, with the ▸ that folds them and their icon; no small grey letter-
+  spaced label. The rows of a section are indented 30 px so their icon starts under the header's words.
+- **Meta** (a project's "나만 · 3시간 전", a chat's project tag, a notice's time, a folded section's count) 13 px faint.
+- **Fixed rows on top** (트리나에게 묻기, 검색, 예약 작업, 팀 스킬, 새 프로젝트) the rows' 15 px. The panel's title is 18 px, one
+  step above the headers.
+- **Width** 288 px at 1440 (was 268), 256 px at 1280, still 240 px from 1200 down and at most 300 px: at 268 px the 15 px
+  titles with the 30 px indent lost about four more letters each. The 1052 px fold point is unchanged (240 px there).
+- Named tokens, not one-off sizes, so a later whole-app type pass can adopt them. The selected row keeps its fill
+  (`bg-hover`); no new colours.
+
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,

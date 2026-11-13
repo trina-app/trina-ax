@@ -175,14 +175,14 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
         {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
         {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
           <div key={key || 'all'} className="mb-2">
-            {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
+            {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
             <ul>{items.map(row)}</ul>
           </div>
         ))}
         {cursor && (
           <button
             type="button"
-            className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
+            className="w-full rounded-lg px-3 py-1.5 text-left text-meta text-muted hover:bg-hover"
             disabled={more}
             onClick={async () => {
               setMore(true)

@@ -27,7 +27,7 @@ const PHONE = '(max-width: 767.98px)'
 /** the progress is read again on a page change at most this often (another tab, a share applied on its own page) */
 const FRESH_MS = 5000
 
-const row = 'flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent max-sm:h-10'
+const row = 'flex h-row min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-row font-medium text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent max-sm:h-10'
 
 export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT()
@@ -76,7 +76,7 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
           <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
           <span className="min-w-0 truncate">{words.text}</span>
           {words.count && (
-            <span className="shrink-0 text-xs font-normal text-faint tabular-nums" data-testid="setup-row-count">
+            <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="setup-row-count">
               <span aria-hidden>· </span>{words.count}
             </span>
           )}

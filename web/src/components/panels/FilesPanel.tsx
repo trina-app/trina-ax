@@ -24,7 +24,7 @@ import { TEAM_TOP_ON_PHONE } from '../../lib/newChat'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
+import { PanelFrame, PanelSection, placeRow } from './PanelFrame'
 
 /** the team folder's top on a phone with the new tabs, where /files is these places (pages/Files.tsx, lib/screens.ts) */
 export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
@@ -118,7 +118,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
 
   const row = (p: Place) => (
     <li key={p.key}>
-      <Link to={p.to} aria-current={lit === p.key ? 'page' : undefined} className={clsx(panelRow, phone && 'h-11', lit === p.key && 'bg-hover font-medium')} data-testid={p.testId}>
+      <Link to={p.to} aria-current={lit === p.key ? 'page' : undefined} className={clsx(placeRow(lit === p.key), phone && 'min-h-11')} data-testid={p.testId}>
         <p.icon size={16} className="shrink-0 text-muted" aria-hidden />
         <span className="min-w-0 flex-1 truncate" title={p.label}>
           {p.label}

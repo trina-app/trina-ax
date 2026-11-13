@@ -26,7 +26,7 @@ import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
 import { Tooltip } from '../Tooltip'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
+import { PanelFrame, PanelSection, panelRowBox } from './PanelFrame'
 
 /** while the unread ones are not all loaded, this many older pages are read by themselves */
 const AUTO_PAGES = 9
@@ -173,7 +173,7 @@ export function ActivityPanel() {
         <>
           <SetupRow />
           {/* two lines when the words are long (English, Spanish): never cut */}
-          <Link to={CHATS_ACTIVITY} className={clsx(panelRow.replace('h-9', 'min-h-9 py-1.5'), 'text-muted')} data-testid="activity-panel-to-chats">
+          <Link to={CHATS_ACTIVITY} className={clsx(panelRowBox.replace('h-row', 'min-h-row py-1'), 'text-row text-muted')} data-testid="activity-panel-to-chats">
             <AtSign size={16} className="shrink-0" aria-hidden />
             <span className="min-w-0 flex-1">{t('activity.inChats')}</span>
             <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
@@ -188,7 +188,7 @@ export function ActivityPanel() {
                   // a touch screen: the chip takes taps from a 44 px box around it (its ::after: 26 px inside the border + 2 × 9), and
                   // looks the same
                   onClick={() => setChip(c)}
-                  className={clsx("relative inline-flex h-7 items-center rounded-full border px-3 text-xs font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
+                  className={clsx("relative inline-flex h-7 items-center rounded-full border px-3 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
                   data-testid={`activity-chip-${c}`}
                 >
                   {c === 'all' ? t('feed.tab.all') : c === 'trina' ? aiName(t) : t('activity.chip.requests')}
@@ -201,7 +201,7 @@ export function ActivityPanel() {
     >
       {error && <p role="alert" className="px-3 py-2 text-xs text-danger">{error}</p>}
       {!items && !error && <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />}
-      {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
+      {items && !shown.length && !cursor && <p className="px-3 py-2 text-row text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
       {old.length > 0 && (
         <PanelSection id="activity-panel-read" foldKey="activity:read" label={t('activity.read')} count={old.length} labelTestId="activity-panel-label" data-testid="activity-panel-read">
@@ -209,7 +209,7 @@ export function ActivityPanel() {
         </PanelSection>
       )}
       {cursor && items && (
-        <button type="button" onClick={() => void load(cursor)} disabled={paging} className={clsx(panelRow, 'text-xs text-muted')} data-testid="activity-panel-more">
+        <button type="button" onClick={() => void load(cursor)} disabled={paging} className={clsx(panelRowBox, 'text-meta text-muted')} data-testid="activity-panel-more">
           {t('common.loadMore')}
         </button>
       )}
@@ -239,10 +239,10 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       >
         <Icon size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
         <span className="min-w-0 flex-1">
-          <span className={clsx('line-clamp-2 text-sm break-words', unread ? 'font-semibold text-ink' : 'text-muted')} data-testid="activity-panel-text">
+          <span className={clsx('line-clamp-2 text-row break-words', unread ? 'font-semibold text-ink' : 'text-muted')} data-testid="activity-panel-text">
             {noticeText(item, t, locale)}
           </span>
-          <time dateTime={item.createdAt} className="mt-0.5 block text-xs text-faint">
+          <time dateTime={item.createdAt} className="mt-0.5 block text-meta text-faint">
             {listTime(item.createdAt, locale, t('sidebar.yesterday'))}
           </time>
         </span>

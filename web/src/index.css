@@ -83,6 +83,19 @@
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
   --leading-reading: 1.5rem;
+  /* The list panels' type (the rail's panels: 트리나, 대화, 프로젝트, 파일, 활동; the phone lists and drawer that share
+     their rows; docs/DESIGN-SYSTEM.md "List panels"): `text-row` 15px for every row, a section's header and the fixed rows
+     on top; `text-meta` 13px for a row's second line and tags (a project's "나만 · 3시간 전", a chat's project); `h-row`
+     30px, a row's height on a computer (44px on phones and touch screens); `pl-row-indent` 30px, a section's rows indented
+     so their icon starts under the header's words (the header's ▸ box 24px + its 6px gap). Text colour ladder for rows:
+     `text-ink` (unread, the open row, headers and the fixed rows) › `text-muted` (a read row) › `text-faint` (meta).
+     Same on phones: 15px is already the phone floor for rows. */
+  --text-row: 0.9375rem; /* 15px */
+  --text-row--line-height: 1.25rem;
+  --text-meta: 0.8125rem; /* 13px */
+  --text-meta--line-height: 1.125rem;
+  --spacing-row: 1.875rem; /* 30px */
+  --spacing-row-indent: 1.875rem; /* 30px */
   /* A message box's slot for a control beside the text (the clip, "+", the mic, send) and the recording bar: one text
      line's box, the reading line with 8px (py-2) above and below. The row is bottom-aligned and each control sits
      centred in its slot, so with one line the buttons and the text share one centre, and with more lines the buttons
