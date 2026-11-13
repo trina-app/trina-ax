@@ -17553,22 +17553,27 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
   instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
   admins share sees that line instead of the button.
-- **Sharing moves the files** (review M6): the server copies the personal folder into the new `projects/<name>` exactly
-  as before (same checks, same limits, same rollback), points the project there, and then puts the personal folder in
-  **my own trash** as I would (`TeamFiles.remove` as the caller, on a folder in my own space): one copy left, the old one
-  restorable for the trash's days. Only when that folder is the project's alone and was copied whole
-  (`mayTrashSharedOriginal`): exactly `users/<me>/projects/<name>` (an older project elsewhere in my folder may sit on a
-  folder that holds more), no other project on or inside it, no `skills` folder in it, no hidden entry or link, and as
-  many files on disk as the copy took (the copy leaves out links, hidden entries and files it cannot read, which the
-  trash would later lose). Otherwise, or when the trash refuses it, the folder stays and the share still stands; the
-  toast says only that the project is shared. Nothing about who may share changed (creator who may edit,
-  `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in the
-  new folder); before, the old copy answered it.
+- **Sharing moves the files** (review M6; owner 2026-11-13: a move, nothing in the trash). The server makes the new
+  `projects/<name>` with the members' rules first (same checks as before; a taken name steps around it, "-2"), then moves
+  the personal folder onto it in one step (`TeamFiles.moveFolderOnto`, the Files screen's move: the database part and
+  the rename in one transaction, the rename onto the empty folder last). Everything in the folder moves, hidden files,
+  links and a `skills` folder too, with the files' history; nothing goes to the trash and no second copy is left. The
+  files are the members' only from the moment they arrive (the rules were there first); the owner and admins who are
+  not members do not see them. A move that fails changes nothing: the folder, its files and the project stay as they
+  were, and the empty `projects/<name>` goes again. What I had deleted from the folder before stays in my own trash at
+  its old path (trash items do not cross a personal folder's edge, as in any move). A folder that holds another
+  project is refused (409 `project_inside`): that project would land below `projects/<name>`. A move has no copy
+  limits (nothing is duplicated). Before (2026-11-13 morning) the server copied the folder and put the old one in the
+  sharer's trash, where restoring it gave a duplicate. Nothing about who may share changed (creator who may edit,
+  `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in
+  the new folder).
 - Deleting a personal project says "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요."
 - Left for later (the plan's phase 2): renaming the folder with the project; clean folder names for long names; one
   transaction for make-and-move.
-- Tests: `tests/security/project-is-folder.test.ts` (the personal folder is in the trash after a share, kept after a
-  refused share, kept with a hidden file or a skills folder), `r1-copy-share` (kept when a link was left out), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
+- Tests: `tests/security/project-share-move.test.ts` (moved with history, nothing in the trash, rules before the files,
+  a failed move changes nothing, a taken name), `project-is-folder.test.ts` (hidden files and skills move too, a folder
+  holding another project is refused, a raced project is refused), `r1-copy-share` (a link moves and still opens
+  nothing), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
 
 ## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
 
