@@ -48,6 +48,15 @@ function sheetOrder(items: MenuItem[]): MenuItem[] {
 }
 const dangerLine = "max-md:relative max-md:mt-2 max-md:before:absolute max-md:before:inset-x-3 max-md:before:-top-1 max-md:before:border-t max-md:before:border-line max-md:before:content-['']"
 
+/** A computer's menu box (from 768px; a phone's sheet adds its own): as wide as its longest item, never narrower than
+ * 176px, so a longer word does not wrap ("Pindahkan ke proyek", "Answering or waiting for you"); a window narrower
+ * than that: as wide as the window less its edges, the words wrap and the row grows with them. Every menu of the app
+ * uses it, this one and those that place their own boxes (the Trina history's filter, nav/HistoryList.tsx). */
+export const menuBoxCls = 'border border-line bg-surface shadow-lg md:rounded-lg md:p-1 md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto'
+/** A menu's row: no fixed height, it grows with its words (a row of a fixed height let a wrapped label run over the
+ * next one, TC-1030); the colour and hover are the caller's (an item, a danger item, the chosen one) */
+export const menuRowCls = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm'
+
 /** px a computer's menu keeps clear of the window's edges, and between it and its button */
 export const MENU_EDGE = 8
 const MENU_GAP = 4
@@ -289,13 +298,11 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
           onContextMenu={(e) => e.stopPropagation()}
           aria-label={heading ?? label}
           className={clsx(
-            'fixed z-30 border border-line bg-surface shadow-lg md:rounded-lg md:p-1',
+            'fixed z-30',
+            menuBoxCls,
             // where fit() puts it (menuSpot), at once: no transition (with reduced motion every property has a short
             // one, index.css), which would leave it at 0,0 for a frame and spoil fit()'s measure at 0,0
             'md:top-[var(--menu-y,0px)] md:left-[var(--menu-x,0px)] md:transition-none',
-            // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek");
-            // a window narrower than that: as wide as the window less its edges, the words wrap
-            'md:w-max md:max-w-[calc(100vw-1rem)] md:min-w-44 md:max-h-[calc(100dvh-1rem)] md:overflow-y-auto',
             // phones: on the keyboard while it is still up (iOS lets a sheet open under it; lib/viewport.ts
             // --kb-inset), never higher than what is in sight, its rows scrolling
             'max-md:inset-x-0 max-md:bottom-[var(--kb-inset,0px)] max-md:max-h-[calc(var(--app-h,100dvh)-var(--safe-top))] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
@@ -323,7 +330,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
                 close()
                 it.onSelect()
               }}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
+              className={clsx(menuRowCls, 'max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover', it.danger && i > 0 && !all[i - 1]!.danger && dangerLine)}
               data-testid={it.testId}
             >
               {it.icon}

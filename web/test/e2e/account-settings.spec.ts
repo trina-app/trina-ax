@@ -220,8 +220,11 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
   await expect.poll(titles).toEqual(['Weekly notes'])
   await choose('status', 'waiting')
   await expect(side.getByTestId('recents-no-match')).toHaveText(t['sidebar.filter.none'])
-  await choose('status', 'confidential')
-  await expect(side.getByTestId('recents-no-match')).toBeVisible()
+  // "Confidential" only while Safe operations 1A is on or a chat is confidential (QA TC-1031; trina-panel.spec.ts)
+  await page.getByTestId('recents-view-status').click()
+  await expect(page.getByTestId('recents-status-waiting')).toBeVisible()
+  await expect(page.getByTestId('recents-status-confidential')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await choose('status', 'all')
   // Last activity: both were made just now
   for (const id of ['today', 'week', 'month', 'all']) {
