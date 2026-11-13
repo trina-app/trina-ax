@@ -130,6 +130,15 @@ export function readFolder(path: string, o: { fresh?: boolean } = {}): Promise<T
   return p
 }
 
+/** A change made here in these folders (store/fileChanges.ts): the reads of them on their way may be from before it and
+ * are not kept; what is kept stays (the change edits it). */
+export function outdateReads(keys: readonly string[]) {
+  for (const k of keys) {
+    if (started.has(k)) started.set(k, ++reads)
+    running.delete(k)
+  }
+}
+
 /** These folders' listings (and who can open them) are not shown again before they are read again. */
 export function dropFolders(keys: readonly string[]) {
   for (const k of keys) {

@@ -24579,6 +24579,33 @@ Batch A of the audit after "Optimistic changes: the screen first, the server aft
 - Not here: marking a chat seen (left as it is), a project page's own row list on a failed move out of it (it shows the
   row again only after a reload; pages/Projects.tsx is batch C's).
 
+## Optimistic projects and files (feat/optimistic-projects-files, 2026-11-13)
+
+Batch C of the audit after "Optimistic changes: the screen first, the server after": the same helper
+(`web/src/lib/optimistic.ts`) for 파일 and 프로젝트.
+- **Files** (`web/src/store/fileChanges.ts` `placeEntry`, key `file:<path>:place`, the item's path when the change was
+  made): a rename (in its place in the server's order: folders first, then by name), a move (one, the selection, a
+  drag; the row leaves this folder, the destination is read when it opens), the trash and its Undo, a new folder and
+  Restore in the trash view change the listing on screen and the folder kept in `store/teamFiles.ts` before the server
+  answers. The server's questions (who would lose or gain sight of it, a project's skills) are asked with the row
+  already moved; a no puts it back without a toast, a refusal with one. A batch is one change per row answered by the
+  batch's outcome, with the batch's one toast. "Moved", "moved to the trash" with its Undo and "restored to" come with
+  the answer. A folder read answered while a change is unanswered, or started before one, is not shown; the change's
+  end reads the folder again. Rows made here before the server has them are taken off by themselves, never by name, so
+  a row of the same name the server listed stays.
+- **Projects** (`pages/Projects.tsx`, `store/projects.ts` `showProject` / `hideProject` / `keepPendingProject`, keys
+  `project:<id>:name|trash`): a rename from a card or the project's page, the trash of a team project in projects/ and
+  its 되돌리기 show at once. The owner and admins keep the card and the page, saying "in the trash"; anyone else's card
+  goes and the page goes back to the list. Its private chats keep the project, as before. A list or project read
+  answered while one is on its way keeps the name and trash state on screen.
+- **A project's page and its chats** (#712 left this here): a chat moved out of the project that the server refuses
+  comes back to the list (the row's own copy now takes a chat back that is in the project again), and a deleted chat
+  leaves at once (`useChatActions().remove` tells the row's list each time; refused, it comes back). A chats read
+  answered while either is on its way keeps the row as on screen.
+- **Not optimistic**: deleting for good (a project in the trash, a personal project, files in the trash), members and
+  sharing, the project's edit dialog (a form that already says it is saving), the folder picker's new folder (it opens
+  the new folder, which the server must list) and a folder upload's folders.
+
 ## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
 
 Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`

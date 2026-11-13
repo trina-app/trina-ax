@@ -161,14 +161,15 @@ export function useChatActions() {
   }
 
   /** true once the chat is in the trash (false: cancelled, or the delete failed). After the confirm it leaves the lists
-   * at once; "Chat deleted." with its Undo comes when the server has it. */
-  const remove = async (chat: Chat): Promise<boolean> => {
+   * at once; "Chat deleted." with its Undo comes when the server has it. `onShown`: a list's own copy (a project's
+   * page), told each time the chat leaves it or, refused, comes back. */
+  const remove = async (chat: Chat, onShown?: (c: Chat, trashed: boolean) => void): Promise<boolean> => {
     // the trash by the name of its row in the 트리나 panel (a rename there follows here)
     if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return false
     const was = currentChat(chat)
     // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
     if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
-    const r = await trashChat(was, true)
+    const r = await trashChat(was, true, { onShown })
     if (!r.ok) return false
     if (r.newest) {
       const undo = () => void undoDelete({ ...was, deletedAt: now() }, t('chat.restoreFailed', { trash: t('sidebar.trash') }))

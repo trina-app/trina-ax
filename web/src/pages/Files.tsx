@@ -20,6 +20,10 @@
 // folder itself offers no new folder or upload. A project's folder is its members' (docs/DECISIONS.md "Project contents
 // only for members"): the owner or an admin who manages a project without being a member, sent to its folder, goes to
 // the project's page instead (there they can add themselves), not to "folder not found".
+// A rename, a move (one, the selection, a drag), the trash and its Undo, a new folder and a restore from the trash show
+// at once and go back with a toast when the server refuses (store/fileChanges.ts; docs/DECISIONS.md "Optimistic
+// projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
+// moved, and a no puts it back.
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -50,7 +54,9 @@ import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { readProjectList, useProjects } from '../store/projects'
-import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
+import { dropFolders, FOLDER_PAGE, folderKey, keptFolder, readFolder } from '../store/teamFiles'
+import { DECLINED, fileChangeKey, fileChangePending, fileEdits, later, madeEntry, onListingEdit, placeEntry } from '../store/fileChanges'
+import { optimistic } from '../lib/optimistic'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
@@ -84,6 +90,9 @@ const LONG_PRESS_SLOP = 10
 
 /** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
+
+/** POST /api/files/move's and a trash restore's answer: the item as the server has it now */
+type MoveResult = { entry: FileEntry }
 
 /** The folder (row or breadcrumb) under a drag: what a drop there would do, or why it would not. busy: a move is
  * still running. */
@@ -182,6 +191,11 @@ function Files() {
   }
   // a folder seen a moment ago shows as it was at once and is read again behind it (store/teamFiles.ts)
   const [tree, setTree] = useState<TreeResponse | null>(() => keptFolder(path))
+  /** the listing on screen now (a read that lands checks it) */
+  const tree0 = useRef(tree)
+  tree0.current = tree
+  // a change made here shows in the listing on screen at once (store/fileChanges.ts)
+  useEffect(() => onListingEdit((folder, f) => setTree((cur) => (cur && folderKey(cur.path) === folder ? f(cur) : cur))), [])
   /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
   const [error, setError] = useState<unknown>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -286,9 +300,16 @@ function Files() {
   }, [path])
   const listFolder = async (o?: { shown?: boolean }) => {
     const mine = ++loads.current
+    const edits = fileEdits()
     try {
       const r = await readFolder(path, { fresh: o?.shown !== true })
       if (mine !== loads.current) return
+      // a rename, move, trash or new folder made here while it was read, or still unanswered: this answer may be from
+      // before it and would undo it on screen; once nothing is on its way, read again (each change reads at its end)
+      if (tree0.current && folderKey(tree0.current.path) === folderKey(path) && (edits !== fileEdits() || fileChangePending())) {
+        if (!fileChangePending()) void onScreen.current?.load()
+        return
+      }
       lastListed.current = r
       setTree(r)
       setError(null)
@@ -470,6 +491,28 @@ function Files() {
     anchor.current = null
   }
 
+  /** A batch's rows leave the listing at once, each as its own change (store/fileChanges.ts) answered by the batch's
+   * outcome: done stays done, a failure or a no puts the row back (the batch's one toast says why: no toast per row). */
+  const leaveAtOnce = (items: readonly FileEntry[]) => {
+    const answers = new Map(items.map((e) => {
+      const answer = later<void>()
+      void placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => answer.promise, failText: false })
+      return [e.path, answer] as const
+    }))
+    return {
+      settle: (r: Outcome) => {
+        for (const e of r.done) answers.get(e.path)?.resolve()
+        for (const f of r.failed) answers.get(f.entry.path)?.reject(f.error)
+        for (const e of r.declined) answers.get(e.path)?.reject(DECLINED)
+        // (none left: every item is in one of the three)
+        for (const a of answers.values()) a.reject(DECLINED)
+      },
+      fail: (err: unknown) => {
+        for (const a of answers.values()) a.reject(err)
+      },
+    }
+  }
+
   /** Move items into one folder: the selection's "move", and rows dropped on a folder or a breadcrumb. Only those the
    * person may change (the rest are skipped and counted); one question when some of them would be hidden from other
    * people; one toast. `select`: as reportBatch. */
@@ -478,6 +521,10 @@ function Files() {
     const fixed = items.filter(isFixed).length
     const skipped = items.length - ok.length - fixed
     const skipWords = [skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null, fixed ? t('files.bulk.skipFixed', { n: fixed }) : null].filter(Boolean).join(' ')
+    // the destination's kept listing does not have them yet: read when it opens
+    dropFolders([folderKey(folder)])
+    // they leave the listing at once (store/fileChanges.ts); the batch's outcome answers each one (one toast for all)
+    const each = leaveAtOnce(ok)
     setRunning('move')
     try {
       const r = await moveMany(ok, folder, {
@@ -486,6 +533,7 @@ function Files() {
         confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
       })
+      each.settle(r)
       reportBatch(
         r,
         {
@@ -496,9 +544,14 @@ function Files() {
         undefined,
         select,
       )
+    } catch (err) {
+      // rows back, and why
+      each.fail(err)
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -525,7 +578,7 @@ function Files() {
       })
     } finally {
       setRunning(null)
-      void load()
+      void onScreen.current?.load()
     }
   }
 
@@ -536,21 +589,22 @@ function Files() {
     const skipped = chosen.length - items.length - fixedChosen
     const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    const each = leaveAtOnce(items)
     setRunning('delete')
     try {
       const r = await trashMany(items, { remove: (p) => api.call(API.remove, { query: { path: p } }) })
-      const undo = async () => {
-        try {
-          for (const id of r.trashIds) await api.call(API.restoreTrash, { params: { id } })
-        } catch (err) {
-          fail(err)
-        }
-        void load()
-      }
+      each.settle(r)
+      // trashIds are in the order of r.done
+      const undo = () => untrash(r.done.map((entry, i) => ({ entry, trashId: r.trashIds[i]! })))
       reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
+    } catch (err) {
+      // rows back, and why
+      each.fail(err)
+      fail(err)
     } finally {
       setRunning(null)
-      void load()
+      // (the folder on screen now: another one may have opened meanwhile)
+      void onScreen.current?.load()
     }
   }
 
@@ -620,12 +674,11 @@ function Files() {
   const mkdir = async () => {
     const name = await promptDialog({ title: t('files.newFolder'), label: t('files.folderName'), confirm: t('common.create'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name) return
-    try {
-      await api.call(API.mkdir, { body: { path: joinPath(path, name) } })
-      void load()
-    } catch (e) {
-      fail(e)
-    }
+    // in the listing at once, in its place among the folders; the server's copy (its own time, its rights) settles it
+    const at = joinPath(path, name)
+    const made = madeEntry({ name, path: at, type: 'folder', size: null, mtime: new Date().toISOString(), mime: null, access: 'write' })
+    await placeEntry({ key: fileChangeKey(at), from: null, to: made, send: () => api.call(API.mkdir, { body: { path: at } }), confirmed: (r) => r })
+    void onScreen.current?.load()
   }
 
   /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
@@ -635,55 +688,67 @@ function Files() {
   /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), or more people would see
    * it (out of a personal folder; QA TC-115), ask first, then confirm.
    * A project's folder moved to projects/<name> turns its skills on in that project's chats: that is asked first too. */
-  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<boolean> => {
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<MoveResult | null> => {
     // out of my personal folder to where more people see it: asked first as well (QA TC-115)
     body = { ...body, askWiden: true }
     try {
-      await api.call(API.move, { body })
-      return true
+      return await api.call(API.move, { body })
     } catch (err) {
       const skills = projectSkillsOn(err)
       if (skills) {
-        if (!(await confirmSkillsOn(skills))) return false
+        if (!(await confirmSkillsOn(skills))) return null
         return moveConfirmed({ ...body, skillsOk: true })
       }
       const added = widenedBy(err)
       if (added !== null) {
-        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return false
-        await api.call(API.move, { body: { ...body, confirm: true } })
-        return true
+        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t('files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
+        return await api.call(API.move, { body: { ...body, confirm: true } })
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
       const n = Number(err.body.params.lostViewers ?? 0)
-      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false
-      await api.call(API.move, { body: { ...body, confirm: true } })
-      return true
+      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return null
+      return await api.call(API.move, { body: { ...body, confirm: true } })
     }
   }
+
+  /** A move or rename at once (store/fileChanges.ts): the row leaves its place (`to`: where it shows instead; null: it
+   * leaves this listing for another folder, read there when it opens), the server's questions are asked meanwhile, a
+   * no or a refusal puts it back (a refusal with one toast). */
+  const moveEntry = (e: FileEntry, dest: string, onExists: 'fail' | 'rename', to: FileEntry | null) =>
+    placeEntry<MoveResult>({
+      key: fileChangeKey(e.path),
+      from: e,
+      to,
+      send: async () => {
+        const r = await moveConfirmed({ from: e.path, to: dest, onExists })
+        if (!r) throw DECLINED
+        return r
+      },
+      confirmed: to ? (r) => r.entry : undefined,
+    }).then((r) => {
+      // the listing as the server has it now (its order, a name it changed)
+      void onScreen.current?.load()
+      return r
+    })
 
   const rename = async (e: FileEntry) => {
     // a file's name starts selected without its extension (".bashrc" and a folder: all of it)
     const dot = e.type === 'folder' ? -1 : e.name.lastIndexOf('.')
     const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, select: dot > 0 ? dot : e.name.length, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
-    try {
-      if (await moveConfirmed({ from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' })) void load()
-    } catch (err) {
-      fail(err)
-    }
+    const dest = joinPath(parentPath(e.path), name)
+    // the new name in its place in the folder at once
+    await moveEntry(e, dest, 'fail', madeEntry({ ...e, name, path: dest }))
   }
 
   const moveTo = async (folder: string) => {
     const e = moving
     setMoving(null)
     if (!e) return
-    try {
-      if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
-      toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
-      void load()
-    } catch (err) {
-      fail(err)
-    }
+    // the destination's kept listing does not have it yet: read when it opens
+    dropFolders([folderKey(folder)])
+    const r = await moveEntry(e, joinPath(folder, e.name), 'rename', null)
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
   }
 
   /** '공유' (design tab 2 rule 3): copy the file into a team folder; first say how many more people will see it. */
@@ -704,19 +769,21 @@ function Files() {
     }
   }
 
+  /** Undo of the trash: the rows back at once (the server's copy, " (restored)" when the name was taken meanwhile). */
+  const untrash = (items: readonly { entry: FileEntry; trashId: string }[]) =>
+    Promise.all(
+      items.map(({ entry, trashId }) =>
+        placeEntry<MoveResult>({ key: fileChangeKey(entry.path), from: null, to: madeEntry(entry), send: () => api.call(API.restoreTrash, { params: { id: trashId } }), confirmed: (r) => r.entry }),
+      ),
+    ).then(() => void onScreen.current?.load())
+
   const remove = async (e: FileEntry) => {
     if (!(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
-    try {
-      const r = await api.call(API.remove, { query: { path: e.path } })
-      toast({
-        level: 'info',
-        text: t('files.trashed', { name: e.name }),
-        action: { label: t('common.undo'), run: () => void api.call(API.restoreTrash, { params: { id: r.trashId } }).then(() => load(), fail) },
-      })
-      void load()
-    } catch (err) {
-      fail(err)
-    }
+    // out of the listing at once; "moved to the trash" with its Undo comes with the server's answer
+    const r = await placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => api.call(API.remove, { query: { path: e.path } }) })
+    void onScreen.current?.load()
+    if (!r.ok || !r.newest) return
+    toast({ level: 'info', text: t('files.trashed', { name: e.name }), action: { label: t('common.undo'), run: () => void untrash([{ entry: e, trashId: r.reply.trashId }]) } })
   }
 
   // a file goes into a new chat as an attachment (a team-file reference); a folder is named in the prompt
@@ -1690,7 +1757,6 @@ function TrashView() {
   const [items, setItems] = useState<TrashItem[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
   const load = useCallback(async (more = false) => {
     try {
       const r = await api.call(API.trash, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
@@ -1706,18 +1772,24 @@ function TrashView() {
     void load(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // Restore: the row leaves the trash at once (lib/optimistic.ts); a refusal puts it back in its place with the
+  // server's words; "restored to …" comes with the answer
   const restore = async (it: TrashItem) => {
-    setBusy(it.id)
-    try {
-      const r = await api.call(API.restoreTrash, { params: { id: it.id } })
-      // phones: the folder it went back to, in words (short, no storage path)
-      toast({ level: 'success', text: t('files.restoredTo', { path: phone ? words.path(parentPath(r.entry.path), ' › ') || t('files.root') : r.entry.path }) })
-      setItems((cur) => cur?.filter((x) => x.id !== it.id) ?? null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(null)
-    }
+    const at = items?.findIndex((x) => x.id === it.id) ?? -1
+    const r = await optimistic({
+      key: `filetrash:${it.id}:restore`,
+      from: false,
+      to: true,
+      show: (out: boolean) =>
+        setItems((cur) => {
+          if (!cur) return cur
+          const rest = cur.filter((x) => x.id !== it.id)
+          return out ? rest : [...rest.slice(0, Math.max(0, at)), it, ...rest.slice(Math.max(0, at))]
+        }),
+      send: () => api.call(API.restoreTrash, { params: { id: it.id } }),
+    })
+    // phones: the folder it went back to, in words (short, no storage path)
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.restoredTo', { path: phone ? words.path(parentPath(r.reply.entry.path), ' › ') || t('files.root') : r.reply.entry.path }) })
   }
   const sorted = useMemo(() => items ?? [], [items])
   return (
@@ -1746,7 +1818,7 @@ function TrashView() {
                 {t('files.deletedBy', { who: it.deletedBy?.name ?? t('files.byAi'), date: formatDateTime(it.deletedAt, locale) })} · {t('files.purgeAt', { date: formatDateTime(it.purgeAt, locale) })}
               </span>
             </span>
-            <Button size="sm" busy={busy === it.id} onClick={() => restore(it)} className="shrink-0" data-testid="trash-restore">
+            <Button size="sm" onClick={() => void restore(it)} className="shrink-0" data-testid="trash-restore">
               <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
             </Button>
           </li>
