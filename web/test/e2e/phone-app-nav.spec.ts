@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openProjectsTab, openTab, tabButton } from './nav'
+import { openTab, tabButton } from './nav'
 import { openScript, START_TAB_SCRIPT } from '../../../mobile/src/nav'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
 
@@ -93,11 +93,12 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await app(page, true)
   await signIn(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  // the team folder (프로젝트 › 팀 폴더, QA TC-255): a step above the 프로젝트 tab's root
-  await openProjectsTab(page)
-  await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
-  await page.getByTestId('projects-team-folder-row').click()
+  // the team folder (파일 › 팀 폴더, QA TC-255): a step above the 파일 tab's root
+  await openTab(page, 'files')
   await expect(page).toHaveURL(/\/files$/)
+  await expect.poll(() => heard(page)).toEqual({ canGoBack: false, home: false })
+  await page.getByTestId('files-panel-root').click()
+  await expect(page).toHaveURL(/\/files\?team=1$/)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
   const before = await loads(page)
   // (2) the script the app injects for a tapped notification (src/nav.ts openScript)
@@ -108,7 +109,7 @@ test('nav-v1: a notification tapped with the app open opens its room without a r
   await expect.poll(() => heard(page)).toMatchObject({ canGoBack: true })
   // Back (the app's goBack): the folder the person was in
   await page.goBack()
-  await expect(page).toHaveURL(/\/files$/)
+  await expect(page).toHaveURL(/\/files\?team=1$/)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   expect(await loads(page)).toBe(before)
   await expect.poll(() => heard(page)).toEqual({ canGoBack: true, home: false })
