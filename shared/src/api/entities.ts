@@ -153,9 +153,9 @@ export const Project = z.object({
    * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
    * ends that. Absent from older servers: false. */
   inTrash: z.boolean().optional(),
-  /** shared project chats (docs/DECISIONS.md "Shared project chats"): new chats in this project are shared with its
-   * people. Team projects only; absent from older servers and for personal projects: off. Turning it off keeps the
-   * chats already shared. */
+  /** shared project chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"): new chats
+   * in this project are shared with its members unless started "Only me". Every team project since 2026-11-13; absent
+   * from older servers and for personal projects: off. */
   shareChats: z.boolean().optional(),
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */

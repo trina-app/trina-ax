@@ -143,6 +143,8 @@ const LABEL = {
   connectors: t('커넥터', 'Connectors', 'Konektor', 'コネクター', 'Conectores'),
   // the team's: Admin › Connected apps (web admin.integrations)
   connected: t('연결한 서비스', 'Connected apps', 'Aplikasi terhubung', '連携サービス', 'Apps conectadas'),
+  // a shared project chat's title menu (web chat.continuePrivately)
+  continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya kamu lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ves tú'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
 const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'トリナ', 'Trina') : t('AI', 'AI', 'AI', 'AI', 'IA')
@@ -163,6 +165,9 @@ export const SCREEN = {
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
   ownChat: (_L: Locale) => 'a chat of their own (a new AI chat)',
+  /** a shared project chat's title menu item that opens a new private chat in the same project with the last question
+   * (web chat.continuePrivately) */
+  continuePrivately: (L: Locale) => LABEL.continuePrivately[L],
 } as const satisfies Record<string, (L: Locale) => string>
 
 // ---------------- who can give access ----------------

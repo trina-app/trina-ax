@@ -386,8 +386,10 @@ export const chatsRoutes: RouteModule = {
       // the composer keeps the text and shows the refusal (QA TC-215)
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
-      // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
-      // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
+      // a chat made in a team project is a shared chat, from its first moment and for good (never a personal project,
+      // never while safe operations are on: chat/shared.ts sharesNewChats), unless it starts "Only me" (`private`): then
+      // it is its creator's alone until they share it (POST /api/chats/:id/share; docs/DECISIONS.md "Team project chats
+      // shared by default")
       let shared = false
       // a side chat of a room (✦ Trina): mine alone, and only of a room I am in now (the same 404 as a room that is not
       // there)
@@ -400,7 +402,7 @@ export const chatsRoutes: RouteModule = {
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
         // only admins see a project whose folder is in the trash, and no turn gets it: a chat there would get nothing
         if (p!.trashed_with !== null) fail('conflict', tr('projectInTrash', c.get('locale')), { fields: { 'body.projectId': 'project_in_trash' }, params: { reason: 'project_in_trash' } })
-        shared = sharesNewChats(p!)
+        shared = sharesNewChats(p!) && !body.private
       }
       const id = newId()
       const now = new Date().toISOString()
@@ -709,8 +711,10 @@ export const chatsRoutes: RouteModule = {
       // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 280)
       const insert = (folder: string, made = false) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
-        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions, made ? 1 : 0)
+        // a team project shares its new chats from the start (docs/DECISIONS.md "Team project chats shared by default");
+        // a personal one never does
+        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made, share_chats) VALUES (?,?,?,?,?,?,?,?,?,?)')
+          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions, made ? 1 : 0, isPersonalPath(folder) ? 0 : 1)
       }
       let slug = body.slug?.normalize('NFC')
       if (slug !== undefined && (slug.includes('/') || badSegment(slug))) fail('validation', undefined, { fields: { 'body.slug': 'not a valid folder name' } })
@@ -846,9 +850,11 @@ export const chatsRoutes: RouteModule = {
         if (!canWrite(ctx.files, p, r.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
         if (!mayEdit(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
       }
-      // sharing its chats (docs/DECISIONS.md "Shared project chats"): team projects only; turning it on is refused while
-      // safe operations are on (every chat would be confidential) or while its folder is in the trash. Off keeps the
-      // chats already shared
+      // sharing its chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"): a team
+      // project always shares its new chats (each may start "Only me"), so the switch is gone; the field stays so older
+      // apps parse. Off is refused; on is what it is already (the migration and every way a team project is made set
+      // it), else the old rules: team projects only, not while safe operations are on or its folder is in the trash
+      if (body.shareChats === false && projectCanShare(r!)) fail('conflict', tr('shareChatsAlways', locale), { fields: { 'body.shareChats': 'share_chats_always' }, params: { reason: 'share_chats_always' } })
       const shareTo = body.shareChats === undefined || (body.shareChats ? 1 : 0) === r!.share_chats ? null : body.shareChats
       if (shareTo !== null) {
         if (!projectCanShare(r!)) fail('conflict', tr('sharedProjectPersonal', locale), { fields: { 'body.shareChats': 'project_personal' }, params: { reason: 'project_personal' } })
@@ -971,7 +977,9 @@ export const chatsRoutes: RouteModule = {
         out = await mapErrors(locale, () => componentC(ctx).files.moveFolderOnto(p.id, r!.folder_path, made.path, () => {
           // (the move pointed the project at made.path already, as a folder move does)
           free()
-          ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1 WHERE id = ?').run(made.path, r!.id)
+          // a team project now: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared
+          // by default"); the chats made so far stay mine until I share them one by one
+          ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1, share_chats = 1 WHERE id = ?').run(made.path, r!.id)
         }), 'params.id')
       } catch (e) {
         // the folder made above goes again only while it is empty (rmdir): never anything that is in it

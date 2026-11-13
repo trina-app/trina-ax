@@ -98,7 +98,8 @@ function shareable(ctx: AppContext, rt: ChatRuntime, userId: string, r: ChatRow,
   if (!project || !me || !canSeeProject(ctx.files, me, project)) return no('project_not_sharing', 'chatShareNoProject')
   if (!projectCanShare(project)) return no('project_personal', 'sharedProjectPersonal')
   if (project.trashed_with !== null) return no('project_in_trash', 'projectInTrash')
-  if (project.share_chats !== 1) return no('project_not_sharing', 'chatShareNoProject')
+  // (not the project's setting: every team project shares its new chats since 2026-11-13, and one chat shared by its
+  // creator after the check is their choice for that chat; docs/DECISIONS.md "Team project chats shared by default")
   if (rt.activeTurn(r.id)) return no('chat_busy', 'chatShareBusy')
   return project
 }

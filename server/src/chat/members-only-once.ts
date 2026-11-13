@@ -100,7 +100,8 @@ export function adoptLeftoverFolders(ctx: AppContext, actor: string): number {
     try { if (!fs.lstatSync(path.join(root, top, name)).isDirectory()) continue } catch { continue }
     const now = new Date().toISOString()
     db.transaction(() => {
-      db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,0)')
+      // a team project: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared by default")
+      db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made, share_chats) VALUES (?,?,?,?,?,?,?,?,0,1)')
         .run(uuidv7(), name.normalize('NFC').slice(0, 100), rel, '', null, now, null, null)
       if (!db.query('SELECT 1 FROM folders WHERE path = ?').get(rel)) db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(uuidv7(), rel, now)
     })()

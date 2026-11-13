@@ -105,13 +105,17 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     .slice(0, CHAT_GROUPS_PROJECTS_MAX)
   const shown = recent.map((g) => ({ projectId: g.id, name: projects.get(g.id)!.name, lastActivityAt: view(g.rows[0]!).updatedAt, folded: g.at < foldBefore, ...head(g.rows) }))
 
-  // every project I can see with chats of my list, pinned ones too (the 프로젝트 panel's meta line)
+  // every project I can see with chats I can open there (the 프로젝트 panel's meta line): mine, and every shared chat of
+  // it, also one I never wrote in (a member who never asked there saw "No chats yet" while the project had shared
+  // chats); never another person's private chat (chatFor 'view': a chat of one person is theirs alone). Pinned ones too
   const activity = new Map<string, { count: number; at: ChatRow }>()
-  for (const r of chats) {
-    if (!r.project_id || !projects.has(r.project_id)) continue
-    const a = activity.get(r.project_id)
+  const inProjects = projects.size ? db.query(`SELECT ${CHAT_COLS} FROM chats WHERE project_id IS NOT NULL AND room_id IS NULL AND ${notInternalChat(db)}
+      AND deleted_at IS NULL AND (user_id = ? OR shared_at IS NOT NULL)`).all(me) as ChatRow[] : []
+  for (const r of inProjects.sort(newestFirst)) {
+    if (!projects.has(r.project_id!) || unused(rt, r)) continue
+    const a = activity.get(r.project_id!)
     if (a) a.count++
-    else activity.set(r.project_id, { count: 1, at: r })
+    else activity.set(r.project_id!, { count: 1, at: r })
   }
   const projectActivity = [...activity.entries()].map(([projectId, a]) => ({ projectId, count: a.count, lastActivityAt: view(a.at).updatedAt }))
 

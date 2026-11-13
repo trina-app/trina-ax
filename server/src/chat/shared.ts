@@ -1,5 +1,6 @@
-// Shared project chats (docs/DECISIONS.md "Shared project chats"). A project editor turns on "share its chats"
-// (projects.share_chats); every chat made in that project from then on (chats.shared_at, only at creation) is seen by
+// Shared project chats (docs/DECISIONS.md "Shared project chats", "Team project chats shared by default"). Every team
+// project shares its chats (projects.share_chats, set for each since 2026-11-13; the switch is gone); every chat made in
+// it (chats.shared_at, only at creation) unless started "Only me" (POST /api/chats `private`) is seen by
 // the people who can see the project (canSeeProject: who can read its folder; for a project in projects/ its members
 // only, the owner and admins too only as members; while its folder is in the trash, nobody) and may be continued by them. Nothing about who sees a chat is stored:
 // the audience is the project's readers now, so a rule change applies at once (losing access hides the chat, from its
