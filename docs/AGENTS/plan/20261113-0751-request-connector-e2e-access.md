@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 07:51
 - Branch: `fix/request-connector-e2e-access`
-- Status: in progress
+- Status: done
 - Where: web/test/e2e. Why: the spec still opens Advanced to reach "Who can use it", which #687 moved under the "For · Change" line
 - Version impact: none — a test change only
 
@@ -29,4 +29,4 @@ a11y, request-connector, integration-requests, skill-tool-counts, welcome-tools,
 
 ## Result
 
-(at the end)
+Done: the spec reaches the chooser through the For line (adv helper) and checks the whole team is already chosen. No other spec used the removed ids; no app change.
