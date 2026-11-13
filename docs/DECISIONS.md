@@ -25024,10 +25024,15 @@ default.
   `FORBIDDEN_LOG_FIELDS` and reads only the event name and `error`). Push gateway: crashes, a send that threw, and
   Apple or Google refusing the gateway's own key, team, topic or service account. A dead or foreign device token
   (410, `Unregistered`, `BadDeviceToken`, `UNREGISTERED`, `SENDER_ID_MISMATCH`) is one phone and stays a log line;
-  provider outages (5xx, 429) too. There is no test route and no test event.
+  provider outages (5xx, 429, and a 429 from Google's token endpoint) too. There is no test route and no test event.
+  A credential refusal repeats on every send until someone replaces the key, so it is sent once an hour per reason,
+  not once a minute.
+- **Crash handlers print the error as the runtime would** (the whole stack, unscrubbed) to stderr before they report
+  and exit: a listener stops the runtime's own print, and the local log (journald) must keep it. Only the report is
+  scrubbed.
 - **Cron check-ins from the jobs themselves.** One wrapper (`relay/deploy/relay-checkin.sh`) runs a timer's job between
   `in_progress` and `ok`/`error` on Sentry's HTTP check-in endpoint, keeps the job's exit code, and never fails the job
-  over a check-in. Monitors `relay-registry-backup`, `relay-cf-ips-refresh` and `relay-litestream` (a 15-minute check:
+  over a check-in. The URL holds the project key, so it reaches curl on stdin (`-K -`), not as an argument `ps` shows. Monitors `relay-registry-backup`, `relay-cf-ips-refresh` and `relay-litestream` (a 15-minute check:
   the unit is active, the replica can be listed, and the registry did not change more than 15 minutes after the newest
   replica file, so an idle registry is not an error). The wrapper sits in `/usr/local/sbin`, not in a release, so a
   timer works whichever release `current` points at.

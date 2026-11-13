@@ -3,7 +3,7 @@
 // nothing here reaches Sentry.
 import { describe, expect, test } from 'bun:test'
 import {
-  ErrorReporter, buildEvent, checkInUrl, environmentName, parseDsn, parseStack, reportCrashes, reporterFromDsn, scrubText,
+  ErrorReporter, LONG_REPEAT_WINDOW_MS, buildEvent, checkInUrl, environmentName, parseDsn, parseStack, reportCrashes, reporterFromDsn, scrubText,
 } from '../../shared/src/sentry-report.ts'
 import { createRelayLog } from '../../relay/src/log.ts'
 import { RELAY_VERSION } from '../../relay/src/relay.ts'
@@ -177,15 +177,48 @@ describe('limits and crashes', () => {
     const handlers = new Map<string, (e: unknown) => void>()
     const exits: number[] = []
     const logged: string[] = []
-    reportCrashes(r, (what) => logged.push(what), { on: (ev, l) => handlers.set(ev, l), exit: (c) => exits.push(c) })
-    handlers.get('uncaughtException')!(new TypeError('boom at /home/alice/x.ts'))
+    const stderr: string[] = []
+    reportCrashes(r, (what) => logged.push(what), { on: (ev, l) => handlers.set(ev, l), exit: (c) => exits.push(c), writeStderr: (t) => stderr.push(t) })
+    const boom = new TypeError('boom at /home/alice/x.ts')
+    handlers.get('uncaughtException')!(boom)
     handlers.get('unhandledRejection')!('ignored: already dying')
     await new Promise((d) => setTimeout(d, 50))
     expect(exits).toEqual([1])
     expect(logged).toEqual(['uncaught exception'])
+    // the local log keeps what the runtime would have printed: the whole stack, message unscrubbed
+    expect(stderr).toEqual([`${boom.stack}\n`])
     const [e] = f.events()
     expect(e!.level).toBe('fatal')
     expect(e!.exception.values[0]).toMatchObject({ type: 'TypeError', value: 'boom at [path]' })
     expect(f.posts[0]!.body).not.toContain('alice')
+  })
+
+  test('an unhandled rejection that is not an Error is printed as the runtime would', async () => {
+    const r = new ErrorReporter(parseDsn(DSN)!, { release: 'x', environment: 'production', logger: 'relay', fetch: fakeFetch().fetch })
+    const handlers = new Map<string, (e: unknown) => void>()
+    const stderr: string[] = []
+    const exits: number[] = []
+    reportCrashes(r, () => {}, { on: (ev, l) => handlers.set(ev, l), exit: (c) => exits.push(c), writeStderr: (t) => stderr.push(t) })
+    handlers.get('unhandledRejection')!('plain string reason')
+    await new Promise((d) => setTimeout(d, 50))
+    expect(stderr).toEqual(['unhandled rejection: plain string reason\n'])
+    expect(exits).toEqual([1])
+  })
+
+  test('a long repeat window holds a repeating error out for an hour, then lets one through', async () => {
+    const f = fakeFetch()
+    let now = T0
+    const r = new ErrorReporter(parseDsn(DSN)!, { release: 'x', environment: 'production', logger: 'push-gateway', fetch: f.fetch, now: () => now })
+    const revoked = { type: 'CredentialRejected', message: 'refused', tags: { reason: 'oauth_400' }, repeatWindowMs: LONG_REPEAT_WINDOW_MS }
+    r.capture(revoked)
+    for (let m = 1; m < 60; m++) { now = T0 + m * 60_000; r.capture(revoked) }
+    // a different reason is its own error
+    r.capture({ ...revoked, tags: { reason: 'oauth_401' } })
+    await r.flush(1000)
+    expect(f.posts.length).toBe(2)
+    now = T0 + LONG_REPEAT_WINDOW_MS
+    r.capture(revoked)
+    await r.flush(1000)
+    expect(f.posts.length).toBe(3)
   })
 })

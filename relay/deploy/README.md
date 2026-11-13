@@ -73,10 +73,11 @@ What is sent:
   event name (`request_failed`, `ops_keys_unusable`, …), the error message with addresses, paths, host names, emails,
   secrets, long ids and non-English text taken out, stack frames (the last two parts of a file name, function, line),
   and the tags `release` (`relay@<version>`), `environment` and `instance` (`a` or `b`). At most one copy of the same
-  error a minute and 30 reports a minute.
+  error a minute and 30 reports a minute. A crash is still printed in full to the journal, as without a key.
 - **Check-ins** (Sentry Crons; the monitor is created by its first check-in). Each run sends `in_progress`, then `ok` or
   `error`, with a random check-in id, the environment and the schedule. A check-in that cannot be sent never changes
-  the job's result.
+  the job's result. The check-in URL holds the project key, so it is handed to curl on stdin, never on its command
+  line.
 
   | Monitor slug | Job | Schedule (UTC) |
   |---|---|---|

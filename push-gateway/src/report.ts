@@ -5,7 +5,7 @@
 // key, a team key id or a client address (shared/src/sentry-report.ts builds it from the fields named here only).
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
-import { environmentName, reporterFromDsn, TAG_VALUE_RE, type ErrorReporter, type ReporterOptions } from '../../shared/src/sentry-report.ts'
+import { environmentName, LONG_REPEAT_WINDOW_MS, reporterFromDsn, TAG_VALUE_RE, type ErrorReporter, type ReporterOptions } from '../../shared/src/sentry-report.ts'
 import type { CredentialAlarm } from './fcm.ts'
 
 export interface GatewayReports {
@@ -42,7 +42,8 @@ export function gatewayReportsFrom(env: Record<string, string | undefined>, o: P
     alarm: (provider, reason) => {
       // the reason is a tag (the scrubber would cut a long code like InvalidProviderToken out of the message)
       const code = TAG_VALUE_RE.test(reason) ? reason : 'other'
-      reporter.capture({ type: 'CredentialRejected', message: `${PROVIDER_NAME[provider]} refused the gateway's credentials`, tags: { provider, reason: code } })
+      // every send fails the same way until someone replaces the key: one event an hour per reason, not one a minute
+      reporter.capture({ type: 'CredentialRejected', message: `${PROVIDER_NAME[provider]} refused the gateway's credentials`, tags: { provider, reason: code }, repeatWindowMs: LONG_REPEAT_WINDOW_MS })
     },
     // the error's class, its message (scrubbed) and its stack frames; the request is not passed here
     failed: (e) => {

@@ -13,10 +13,20 @@ const DSN = 'https://0123abcd@o1.ingest.example.test/42'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-checkin-'))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
 
-/** a fake curl: one line per call with its arguments (NUL-separated), exit code from FAKE_CURL_EXIT */
+/** a fake curl: one line per call with its arguments (NUL-separated), then the marker --stdin-url and the URL it read
+ *  from its config on stdin (-K -); exit code from FAKE_CURL_EXIT */
 const bin = path.join(tmp, 'bin')
 fs.mkdirSync(bin)
-fs.writeFileSync(path.join(bin, 'curl'), '#!/usr/bin/env bash\nprintf "%s\\0" "$@" >> "$FAKE_CURL_LOG"; printf "\\n" >> "$FAKE_CURL_LOG"; exit "${FAKE_CURL_EXIT:-0}"\n', { mode: 0o755 })
+fs.writeFileSync(path.join(bin, 'curl'), [
+  '#!/usr/bin/env bash',
+  'cfg=$(cat)',
+  'url=$(printf "%s" "$cfg" | sed -n \'s/^url = "\\(.*\\)"$/\\1/p\')',
+  'printf "%s\\0" "$@" --stdin-url "$url" >> "$FAKE_CURL_LOG"; printf "\\n" >> "$FAKE_CURL_LOG"',
+  'exit "${FAKE_CURL_EXIT:-0}"',
+  '',
+].join('\n'), { mode: 0o755 })
+/** the curl arguments other users could see in ps (everything before the URL read from stdin) */
+const argv = (call: string[]) => call.slice(0, call.indexOf('--stdin-url'))
 
 let n = 0
 function run(args: string[], env: Record<string, string> = {}) {
@@ -48,6 +58,12 @@ describe('relay-checkin', () => {
     const [start, end] = r.calls
     expect(start!.at(-1)).toBe(url)
     expect(start).toContain('--max-time')
+    // the key travels on stdin (-K -), never as an argument (ps shows those to every user)
+    for (const call of r.calls) {
+      expect(argv(call)).toContain('-K')
+      expect(argv(call).join(' ')).not.toContain('0123abcd')
+      expect(argv(call).join(' ')).not.toContain('ingest.example.test')
+    }
     const body = JSON.parse(start![start!.indexOf('--data-binary') + 1]!)
     expect(body).toMatchObject({
       status: 'in_progress', environment: 'production',
@@ -67,7 +83,8 @@ describe('relay-checkin', () => {
 
   test('the key from relay.env when the environment has none; an interval schedule', () => {
     const envFile = path.join(tmp, 'relay-file.env')
-    fs.writeFileSync(envFile, `RELAY_DOMAIN=example.test\nRELAY_SENTRY_DSN=${DSN}\nRELAY_SENTRY_ENV=\n`)
+    // a trailing space and tab after the key are dropped, as parseDsn trims
+    fs.writeFileSync(envFile, `RELAY_DOMAIN=example.test\nRELAY_SENTRY_DSN=${DSN} \t\nRELAY_SENTRY_ENV=\n`)
     const log = path.join(tmp, 'curl-file.log')
     const p = Bun.spawnSync(['bash', SCRIPT, 'relay-litestream', 'every 15 minute', '10', '5', ...JOB(0)], { env: { PATH: `${bin}:/usr/bin:/bin`, FAKE_CURL_LOG: log, RELAY_ENV_FILE: envFile } })
     expect(p.exitCode).toBe(0)

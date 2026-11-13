@@ -86,7 +86,7 @@ Reported:
   without a reason (`http_403`), a `.p8` key that cannot be read (`key_unreadable`); FCM `UNAUTHENTICATED`,
   `PERMISSION_DENIED`, `THIRD_PARTY_AUTH_ERROR`, a 401/403 without a code, the OAuth token call refused
   (`oauth_400`, `oauth_401`, …), a key that cannot be read, a service-account JSON that is set but cannot be read at
-  start (`service_account_invalid`). Every send fails the same way then, so one event a minute is sent per reason.
+  start (`service_account_invalid`). Every send fails the same way then, so one event an hour is sent per reason.
 - **A send that threw** (answered 500 `internal`): its type, scrubbed message and stack frames.
 - **A crash**: then the process exits with 1 as before.
 

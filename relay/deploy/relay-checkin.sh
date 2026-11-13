@@ -29,6 +29,9 @@ setting() {
 }
 dsn=${RELAY_SENTRY_DSN-$(setting RELAY_SENTRY_DSN)}
 env_name=${RELAY_SENTRY_ENV-$(setting RELAY_SENTRY_ENV)}
+# a DSN holds no spaces: drop any around it (a trailing space or tab in relay.env), as parseDsn trims
+dsn=$(printf '%s' "$dsn" | tr -d '[:space:]')
+env_name=$(printf '%s' "$env_name" | tr -d '[:space:]')
 [[ $env_name =~ ^[a-z0-9._-]{1,32}$ ]] || env_name=production
 
 url=""
@@ -58,17 +61,19 @@ new_id() {
   fi
 }
 
-# never fails: a check-in is a side note to the job
+# send <url> [curl options]: never fails, a check-in is a side note to the job. The URL holds the project's key, so it
+# goes to curl as a config line on stdin (-K -), not as an argument other users could read in ps.
 send() {
   [ -n "$url" ] || return 0
-  curl -fsS --max-time 10 -o /dev/null "$@" || echo "relay-checkin: the $slug check-in was not sent" >&2
+  local to=$1
+  shift
+  printf 'url = "%s"\n' "$to" | curl -fsS --max-time 10 -o /dev/null -K - "$@" || echo "relay-checkin: the $slug check-in was not sent" >&2
   return 0
 }
 
 id=$(new_id)
-send -X POST -H 'content-type: application/json' --data-binary \
-  "{\"check_in_id\":\"$id\",\"status\":\"in_progress\",\"environment\":\"$env_name\",\"monitor_config\":{\"schedule\":$schedule_json,\"checkin_margin\":$margin,\"max_runtime\":$max_runtime,\"timezone\":\"UTC\"}}" \
-  "$url"
+send "$url" -X POST -H 'content-type: application/json' --data-binary \
+  "{\"check_in_id\":\"$id\",\"status\":\"in_progress\",\"environment\":\"$env_name\",\"monitor_config\":{\"schedule\":$schedule_json,\"checkin_margin\":$margin,\"max_runtime\":$max_runtime,\"timezone\":\"UTC\"}}"
 
 "$@"
 rc=$?

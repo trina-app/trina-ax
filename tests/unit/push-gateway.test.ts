@@ -722,7 +722,8 @@ describe('push gateway: our credentials refused are reported, dead device tokens
       expect(h.alarms).toEqual(want)
     }
     // the OAuth exchange refused (a deleted or disabled key) alarms; Google's 5xx does not
-    for (const [status, want] of [[400, ['fcm:oauth_400']], [401, ['fcm:oauth_401']], [503, []]] as const) {
+    // only 400, 401 and 403 are a refusal: a 429 (Google busy) or 404 is not
+    for (const [status, want] of [[400, ['fcm:oauth_400']], [401, ['fcm:oauth_401']], [403, ['fcm:oauth_403']], [429, []], [404, []], [503, []]] as const) {
       const h = harness({ respond: (c, n) => (c.url.includes('oauth2') ? json(status, { error: 'invalid_grant' }) : defaultResponder(c, n)) })
       await expectError(await h.send(android()), 'provider_error')
       expect(h.alarms).toEqual([...want])
@@ -759,7 +760,17 @@ describe('push gateway: our credentials refused are reported, dead device tokens
     await gw.handle(signedRequest(TEAM, body(), h.clock.t), IP)
     await gw.handle(signedRequest(TEAM, body({ notificationId: 'n2' }), h.clock.t), IP)
     await reports.reporter!.flush(1000)
-    expect(posts.length).toBe(1) // the same refusal again within a minute is not sent twice
+    expect(posts.length).toBe(1) // the same refusal again is not sent twice
+    // a revoked key fails every send: an hour later the same refusal is still held out (one event an hour, not a minute)
+    let clock = T0
+    const later = gatewayReportsFrom({ PUSH_GATEWAY_SENTRY_DSN: 'https://0123abcd@o1.ingest.example.test/42' }, { build: 'x', fetch: fake, now: () => clock })
+    later.alarm!('fcm', 'oauth_400')
+    clock = T0 + 59 * 60_000
+    later.alarm!('fcm', 'oauth_400')
+    clock = T0 + 60 * 60_000
+    later.alarm!('fcm', 'oauth_400')
+    await later.reporter!.flush(1000)
+    expect(posts.length).toBe(3)
     expect(posts[0]!.url).toBe('https://o1.ingest.example.test/api/42/envelope/')
     const event = JSON.parse(posts[0]!.body.split('\n')[2]!)
     expect(event.release).toBe('push-gateway@abcdef012345')

@@ -16,6 +16,8 @@ const MAX_FRAMES = 40
 const MAX_FRAME_LINE = 500
 const MAX_PER_MINUTE = 30
 const REPEAT_WINDOW_MS = 60_000
+/** a repeat window for errors that repeat on every request until a person acts (a revoked key): one event an hour */
+export const LONG_REPEAT_WINDOW_MS = 3_600_000
 const SEND_TIMEOUT_MS = 5_000
 export const CRASH_FLUSH_MS = 2_000
 const DEFAULT_PAUSE_MS = 60_000
@@ -116,6 +118,8 @@ export interface ErrorInput {
   fatal?: boolean
   /** extra tags, each checked against TAG_VALUE_RE (a fixed code, never free text) */
   tags?: Record<string, string>
+  /** how long a repeat of this error stays out (default one minute; LONG_REPEAT_WINDOW_MS for a revoked key) */
+  repeatWindowMs?: number
 }
 
 export interface EventOptions { release: string; environment: string; logger: string; tags: Record<string, string>; now: number }
@@ -193,6 +197,7 @@ export interface ReporterOptions {
 /** Sends on its own time: capture never throws, never waits and never logs, so an error cannot report itself. */
 export class ErrorReporter {
   private inflight = new Set<Promise<void>>()
+  /** error key -> until when a repeat stays out */
   private recent = new Map<string, number>()
   private sentAt: number[] = []
   private pausedUntil = 0
@@ -236,11 +241,12 @@ export class ErrorReporter {
     const tags = Object.entries(i.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(',')
     const key = `${i.type}|${tags}|${i.message.slice(0, 100)}|${frames.slice(0, 400)}`
     this.sentAt = this.sentAt.filter((t) => t <= now && now - t < 60_000)
-    for (const [k, at] of this.recent) if (at > now || now - at >= REPEAT_WINDOW_MS) this.recent.delete(k)
+    // a clock set back must not hold an error out for the whole jump
+    for (const [k, until] of this.recent) if (until <= now || until - now > MAX_PAUSE_MS) this.recent.delete(k)
     if (this.recent.has(key)) return false
     if (!i.fatal && this.sentAt.length >= MAX_PER_MINUTE) return false
     this.sentAt.push(now)
-    this.recent.set(key, now)
+    this.recent.set(key, now + Math.min(Math.max(i.repeatWindowMs ?? REPEAT_WINDOW_MS, 0), MAX_PAUSE_MS))
     return true
   }
 
@@ -283,6 +289,8 @@ export function reporterFromDsn(dsn: string | undefined, o: ReporterOptions): Re
 interface CrashTarget {
   on(event: 'uncaughtException' | 'unhandledRejection', listener: (e: unknown) => void): unknown
   exit(code: number): void
+  /** where the full error goes, as the runtime prints it without a listener (default: stderr) */
+  writeStderr?(text: string): void
 }
 
 /** The process still ends with code 1 as it does without these handlers, so systemd restarts it the same way. They
@@ -294,6 +302,13 @@ export function reportCrashes(reporter: ErrorReporter, logLine: (what: string, e
     if (dying) return
     dying = true
     const err = e instanceof Error ? e : new Error(what)
+    // a listener stops the runtime's own print of the error: print it the same way, so the local log (journald) keeps
+    // the whole stack and message; only the report is scrubbed
+    try {
+      const text = `${e instanceof Error ? (e.stack ?? String(e)) : `${what}: ${String(e)}`}\n`
+      if (proc.writeStderr) proc.writeStderr(text)
+      else process.stderr.write(text)
+    } catch { /* exit anyway */ }
     try { reporter.capture({ type: err.name, message: err.message, stack: err.stack, fatal: true }) } catch { /* exit anyway */ }
     try { logLine(what, err) } catch { /* exit anyway */ }
     void reporter.flush(CRASH_FLUSH_MS).catch(() => {}).finally(() => proc.exit(1))

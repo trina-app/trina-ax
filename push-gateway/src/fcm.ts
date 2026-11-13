@@ -96,9 +96,9 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
     })
     if (res.status !== 200) {
       await res.body?.cancel()
-      // 400 invalid_grant (a deleted or disabled key), 401 invalid_client: the service account is refused. A 5xx is
-      // Google's trouble and passes.
-      if (res.status >= 400 && res.status < 500) deps.alarm?.('fcm', `oauth_${res.status}`)
+      // 400 invalid_grant (a deleted or disabled key), 401 invalid_client, 403: the service account is refused. A 429
+      // (busy) or a 5xx is Google's trouble and passes.
+      if (res.status === 400 || res.status === 401 || res.status === 403) deps.alarm?.('fcm', `oauth_${res.status}`)
       return null
     }
     const j = (await res.json().catch(() => null)) as { access_token?: unknown; expires_in?: unknown } | null
