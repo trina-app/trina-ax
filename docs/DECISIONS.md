@@ -11657,7 +11657,7 @@ computers and the tabs 트리나 · 대화 · 파일 · 나 on phones are the on
   `web/test/e2e/nav-rail-flag.spec.ts` went. The old e2e specs moved to the new helpers (web/test/e2e/nav.ts) in
   feat/nav-rail-p6, or went where they tested only the old layout (`sidebar`, `phone-nav`, `history-by-project`,
   `phone-projects-tab`: rail, panel and phone-tabs-v2 specs cover the same behaviour); the keys only they named
-  (`tabs.projects`, `rooms.showAll`, `sidebar.showMore`, `sidebar.allRooms`, `sidebar.moreUnread`) are gone in all five
+  (`sidebar.label`, `sidebar.open`, `tabs.projects`, `rooms.showAll`, `sidebar.showMore`, `sidebar.allRooms`, `sidebar.moreUnread`) are gone in all five
   languages.
 
 ## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
