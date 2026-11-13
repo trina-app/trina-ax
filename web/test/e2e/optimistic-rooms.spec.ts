@@ -168,12 +168,11 @@ test.describe('1440 wide, the 활동 panel', () => {
     await expect.poll(() => read.count()).toBe(1)
     await expect(page.getByTestId('activity-panel-dot')).toHaveCount(1)
     await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '1')
-    // refused (the panel's read, then the opened view's, which waits for it): the dot comes back, one toast says so
-    await read.refuse()
-    await expect.poll(() => read.count()).toBe(1)
+    // refused (one request: the opened view does not ask again what the list asked): the dot comes back, one toast
     await read.refuse()
     await expect(page.getByTestId('toast')).toHaveCount(1)
     await expect(page.getByTestId('activity-panel-dot')).toHaveCount(2)
     await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '2')
+    expect(read.count()).toBe(0)
   })
 })
