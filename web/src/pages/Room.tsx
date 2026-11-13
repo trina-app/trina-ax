@@ -485,7 +485,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       </div>
       {room?.gone ? (
         // the other person was deleted from the team: the history stays readable, the box is gone
-        <p className="shrink-0 border-t border-line px-4 py-3 text-center text-sm text-muted" data-testid="room-peer-gone">{t('rooms.peerGone', { name: room.peers[0]?.name ?? t('rooms.goneUser') })}</p>
+        <p role="status" className="shrink-0 border-t border-line px-4 py-3 text-center text-sm text-muted" data-testid="room-peer-gone">{t('rooms.peerGone', { name: room.peers[0]?.name ?? t('rooms.goneUser') })}</p>
       ) : (
       <RoomComposer
         roomId={roomId}
@@ -508,7 +508,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         meId={meId}
         onInvite={() => {
           setShowMembers(false)
-          setPicker(room?.kind === 'dm' ? { kind: 'new', preselect: room.peers.map((p) => p.id) } : { kind: 'invite', roomId })
+          setPicker(room?.kind === 'dm' ? { kind: 'new', preselect: room.gone ? [] : room.peers.map((p) => p.id) } : { kind: 'invite', roomId })
         }}
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />

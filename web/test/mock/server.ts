@@ -5920,7 +5920,8 @@ export class MockServer {
     const view = (chat: Chat, u: User) => {
       const v = this.sharedView(chat, u)
       if (v) return v
-      const tp = project(this.sharedChats.get(chat.id)!)
+      const sc = this.sharedChats.get(chat.id)
+      const tp = sc ? project(sc) : undefined
       return fail('not_found', 404, undefined, undefined, tp?.inTrash && this.projectWasMember(tp, u) ? { reason: 'project_in_trash', projectId: tp.id } : undefined)
     }
     const nameOf = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
