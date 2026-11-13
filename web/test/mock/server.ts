@@ -259,6 +259,9 @@ export class MockServer {
   /** status messages (docs/DECISIONS.md "상태 메시지"; server/src/auth/status-messages.ts): mine through PUT/DELETE
    * /api/me/status, anyone's through POST /__test/status; worked out by the server's own rules in the team's zone */
   statuses = new Map<string, { emoji: string; text: string; clear: StatusClear; starts_at: string | null; clears_at: string | null; until_day: string | null }>()
+  /** the instant the status rules take as "now" when a spec pinned the page's clock (POST /__test/status-clock {at}); null = the real clock */
+  statusClock: number | null = null
+  statusNow() { return new Date(this.statusClock ?? Date.now()) }
   /** who is online or away (docs/DECISIONS.md "접속 상태"), as POST /__test/presence sets it; the whole list goes to
    * each socket after its hello, changes to every socket */
   presence = new Map<string, 'online' | 'away'>()
@@ -571,6 +574,7 @@ export class MockServer {
     this.presenceSent = []
     this.typingSent = []
     this.statuses = new Map()
+    this.statusClock = null
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.fileRankCalls = []
@@ -1205,20 +1209,20 @@ export class MockServer {
   /** someone's status as the team sees it now (started, not ended), or undefined */
   liveStatus(id: string) {
     const r = this.statuses.get(id)
-    const now = new Date().toISOString()
+    const now = this.statusNow().toISOString()
     if (!r || (r.starts_at && r.starts_at > now) || (r.clears_at && r.clears_at <= now)) return undefined
     return statusOut(r)
   }
   /** mine for /api/me: also one that starts later */
   myStatus(id: string): MyStatus | undefined {
     const r = this.statuses.get(id)
-    const now = new Date().toISOString()
+    const now = this.statusNow().toISOString()
     if (!r || (r.clears_at && r.clears_at <= now)) return undefined
     return { ...statusOut(r), clear: r.clear, ...(r.starts_at && r.starts_at > now ? { fromDay: zonedDay(new Date(r.starts_at), this.settings.timeZone ?? 'Asia/Seoul') } : {}) }
   }
   /** set a status by the server's rules (a refusal comes back as the server's 400) */
   setStatus(id: string, body: SetStatusBody, locale: Locale) {
-    const now = new Date()
+    const now = this.statusNow()
     const cur = this.myStatus(id) ? this.statuses.get(id)! : null
     try {
       const p = planStatus(body, now, this.settings.timeZone ?? 'Asia/Seoul', cur ? { user_id: id, ...cur } : null, locale)
@@ -5296,6 +5300,7 @@ export class MockServer {
       else this.statuses.delete(u.id)
       this.publish(PROFILE_CHANGED)
     }
+    else if (p === '/__test/status-clock') this.statusClock = body.at == null ? null : Date.parse(String(body.at))
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
