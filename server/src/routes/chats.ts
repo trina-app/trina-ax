@@ -951,13 +951,13 @@ export const chatsRoutes: RouteModule = {
       if (query.ifEmpty) {
         if (!stillEmpty(ctx, p.id, r)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
         ctx.db.transaction(() => {
-          // checked again in the transaction that deletes it: a chat moved in since keeps the project
-          if (!stillEmpty(ctx, p.id, rt.store.projectRow(r.id) ?? r, { folder: false })) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+          // the folder goes in the same step, only while empty (rmdir: a file saved in the moment since makes it fail,
+          // and then the project stays too; nothing is lost). Already gone from disk: nothing to remove
+          const abs = path.join(ctx.files.fx.root, ...r.folder_path.split('/'))
+          if (fs.existsSync(abs) && !componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
           ctx.db.query('DELETE FROM projects WHERE id = ?').run(r.id)
           audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r.id, detail: null })
         })()
-        // the folder last, and only while empty (rmdir: a file saved in the moment since keeps it, nothing is lost)
-        componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)
         return
       }
       // a team project in projects/<name> whose folder is in place goes to the trash with its folder first (default,
@@ -1028,14 +1028,15 @@ export const chatsRoutes: RouteModule = {
 
 /** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
  * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
- * scheduled task on it, and nothing in its folder (`folder`: also looked at on disk). */
-function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT, o: { folder?: boolean } = {}): boolean {
+ * scheduled task or dev environment job on it, and nothing in its folder. */
+function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT): boolean {
   const segs = r.folder_path.split('/')
   if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
   if (r.created_by !== me || r.instructions !== '' || r.trashed_with !== null) return false
   if (ctx.db.query('SELECT 1 FROM chats WHERE project_id = ? LIMIT 1').get(r.id)) return false
   if (ctx.db.query('SELECT 1 FROM schedules WHERE project_id = ? LIMIT 1').get(r.id)) return false
-  if (o.folder === false) return true
+  // a job or dev server of its dev environment
+  if (ctx.db.query('SELECT 1 FROM dev_env_jobs WHERE project_id = ? LIMIT 1').get(r.id) || ctx.db.query('SELECT 1 FROM dev_env_runs WHERE project_id = ? LIMIT 1').get(r.id)) return false
   try { return fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).length === 0 } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' }
 }
 

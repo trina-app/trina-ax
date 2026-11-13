@@ -26,15 +26,29 @@ describe('DELETE /api/projects/:id?ifEmpty=1', () => {
   test('a project as it was made goes, with its empty folder', async () => {
     const p = await make('Undo me')
     expect(onDisk(p.folderPath)).toBe(true)
+    // the chat moved in, then back out (what 되돌리기 does first)
     const chat = A.chat('alice')
-    // the chat was moved back first: it no longer names the project
-    expect(A.ctx.db.query('SELECT project_id FROM chats WHERE id = ?').get(chat)).toEqual({ project_id: null })
+    expect((await A.json(`/api/chats/${chat}`, { as: 'alice', ...jsonBody({ projectId: p.id }, 'PATCH') })).status).toBe(200)
+    expect((await undo(p.id)).status).toBe(409)
+    expect((await A.json(`/api/chats/${chat}`, { as: 'alice', ...jsonBody({ projectId: null }, 'PATCH') })).status).toBe(200)
     const before = trashCount()
     expect((await undo(p.id)).status).toBe(204)
     expect(there(p.id)).toBe(false)
     expect(onDisk(p.folderPath)).toBe(false)
     expect(onDisk(p.folderPath.split('/').slice(0, 3).join('/'))).toBe(true) // my projects folder stays
     expect(trashCount()).toBe(before)
+  })
+
+  test('a file that appears after the check keeps the folder and the project (the rmdir fails, the delete rolls back)', async () => {
+    const p = await make('Late file')
+    const files = (await import('../../server/src/team-files/component')).componentC(A.ctx).files as unknown as { removeEmptyFolder: (...a: unknown[]) => boolean }
+    const real = files.removeEmptyFolder
+    files.removeEmptyFolder = (...a: unknown[]) => { fs.writeFileSync(path.join(A.team, p.folderPath, 'late.md'), 'late\n'); return real.apply(files, a) }
+    let r
+    try { r = await undo(p.id) } finally { files.removeEmptyFolder = real }
+    expect(r.status).toBe(409)
+    expect(there(p.id)).toBe(true)
+    expect(fs.readFileSync(path.join(A.team, p.folderPath, 'late.md'), 'utf8')).toBe('late\n')
   })
 
   test('kept when anything is in it: a chat (in the trash too), a file, a folder, instructions, a scheduled task', async () => {
