@@ -9,6 +9,7 @@ import {
   SLACK_BROKER_PATHS, SLACK_BROKER_SEAL_ALG, SLACK_BROKER_SEAL_INFO, SLACK_INSTALL_AUTHORIZE_URL, SLACK_SIGNIN_AUTHORIZE_URL,
   parseSlackBrokerAuthorization, parseSlackBrokerInstall, parseSlackBrokerPoll, parseSlackBrokerRedeem, parseSlackBrokerSigninRedeem,
   parseSlackBrokerSigninStart, parseSlackBrokerStatus, parseSlackBrokerToken, slackBrokerSealAad, slackBrokerSigningString,
+  parseSlackBrokerReadRedeem, parseSlackBrokerReadStart, slackBrokerUserSealAad, SLACK_BROKER_USER_SCOPES,
   type SlackBrokerEvent, type SlackBrokerInstallInfo, type SlackBrokerOp, type SlackBrokerSealedToken,
 } from '@mycel/shared/cloud-protocol'
 
@@ -47,10 +48,17 @@ export interface FakeBroker {
   redeemError: string | null
   /** who the next "Sign in with Slack" signed in as */
   signinAs: { slackUserId: string; slackTeamId: string }
+  /** an older hosting service: signin/read/* answer 404 (not found, no JSON) */
+  readSupported: boolean
+  /** who the next sign-in that lets the AI read signed in as, the user token Slack gave (handed over sealed) and its
+   * scopes (default: every user scope) */
+  readAs: { slackUserId: string; slackTeamId: string; token: string; scopes?: string[] }
+  /** refuse the next read redeem with this code */
+  readError: string | null
   calls: BrokerCall[]
   acks: string[]
   /** the browser's way back from Slack through the broker: the team's callback with a one-time handoff (or an error) */
-  slackReturn(kind: 'install' | 'signin', o?: { error?: 'consent_denied' | 'provider_error' }): string
+  slackReturn(kind: 'install' | 'signin' | 'read', o?: { error?: 'consent_denied' | 'provider_error' | 'missing_scope' }): string
   /** an envelope for the served owner (taken by its next poll); `id`: one handed out before, again */
   push(kind: SlackBrokerEvent['kind'], payload: unknown, id?: string): string
   /** the events not acknowledged yet */
@@ -61,14 +69,15 @@ export interface FakeBroker {
 
 export function startFakeBroker(o: { servedKey: string; botToken: string; teamOrigin: () => string }): FakeBroker {
   const nonces = new Set<string>()
-  const states = new Map<string, { kind: 'install' | 'signin'; returnState: string; challenge: string }>()
-  const handoffs = new Map<string, { kind: 'install' | 'signin'; challenge: string }>()
+  const states = new Map<string, { kind: 'install' | 'signin' | 'read'; returnState: string; challenge: string }>()
+  const handoffs = new Map<string, { kind: 'install' | 'signin' | 'read'; challenge: string }>()
   let queue: { e: SlackBrokerEvent; leasedUntil: number }[] = []
   let waiters: (() => void)[] = []
   let seq = 0
   const fake: FakeBroker = {
     url: '', servedKey: o.servedKey, serving: true, appId: 'A0APP', clientId: '1111111111.2222222222', botToken: o.botToken,
     install: null, nextInstall: {}, redeemError: null, signinAs: { slackUserId: 'U0ALICE', slackTeamId: 'T0ACME' }, calls: [], acks: [],
+    readSupported: true, readAs: { slackUserId: 'U0ALICE', slackTeamId: 'T0ACME', token: 'xoxp-fake-alice-' + 'r'.repeat(20) }, readError: null,
     slackReturn(kind, x = {}) {
       const last = [...states.entries()].reverse().find(([, s]) => s.kind === kind)
       if (!last) throw new Error(`no ${kind} was started at the fake broker`)
@@ -97,7 +106,7 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
   const fail = (code: string, status: number) => Response.json({ error: { code, message: `fake: ${code}` } }, { status })
   const opOf = Object.fromEntries(Object.entries(SLACK_BROKER_PATHS).map(([k, v]) => [v, k as SlackBrokerOp]))
   const challengeOf = (v: string) => crypto.createHash('sha256').update(v).digest('base64url')
-  const takeHandoff = (kind: 'install' | 'signin', h: string, verifier: string) => {
+  const takeHandoff = (kind: 'install' | 'signin' | 'read', h: string, verifier: string) => {
     const x = handoffs.get(h)
     handoffs.delete(h)
     return !!x && x.kind === kind && x.challenge === challengeOf(verifier)
@@ -108,7 +117,7 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
     async fetch(req) {
       const path = new URL(req.url).pathname
       const op = opOf[path]
-      if (!op || req.method !== 'POST') return new Response('not found', { status: 404 })
+      if (!op || req.method !== 'POST' || (!fake.readSupported && (op === 'readStart' || op === 'readRedeem'))) return new Response('not found', { status: 404 })
       const text = await req.text()
       const auth = parseSlackBrokerAuthorization(req.headers.get('authorization'))
       if (!auth || Math.abs(Date.now() - auth.ts) > 60_000 || nonces.has(`${auth.key}:${auth.nonce}`)) return fail('unauthorized', 401)
@@ -166,6 +175,27 @@ export function startFakeBroker(o: { servedKey: string; botToken: string; teamOr
         case 'uninstall':
           fake.install = null
           return Response.json({ slack: 'removed' })
+        case 'readStart': {
+          const b = parseSlackBrokerReadStart(body)
+          if (!b) return fail('invalid_request', 400)
+          if (!fake.install) return fail('not_installed', 404)
+          const state = crypto.randomBytes(32).toString('base64url')
+          states.set(state, { kind: 'read', returnState: b.returnState, challenge: b.codeChallenge })
+          const u = new URL(SLACK_INSTALL_AUTHORIZE_URL)
+          u.search = new URLSearchParams({ client_id: fake.clientId, state, redirect_uri: 'https://broker.example/slack-broker/', team: fake.install.teamId, user_scope: SLACK_BROKER_USER_SCOPES.join(',') }).toString()
+          return Response.json({ authorizationUrl: u.href, expiresAt: new Date(Date.now() + 600_000).toISOString() })
+        }
+        case 'readRedeem': {
+          const b = parseSlackBrokerReadRedeem(body)
+          if (!b) return fail('invalid_request', 400)
+          if (!takeHandoff('read', b.handoff, b.codeVerifier)) return fail('invalid_handoff', 400)
+          if (!fake.install) return fail('not_installed', 404)
+          if (fake.readError) { const code = fake.readError; fake.readError = null; return fail(code, code === 'provider_error' ? 502 : 409) }
+          if (fake.readAs.slackTeamId !== fake.install.teamId) return fail('outsider', 409)
+          const r = fake.readAs
+          return Response.json({ slackUserId: r.slackUserId, slackTeamId: r.slackTeamId, enterpriseId: null, scopes: r.scopes ?? [...SLACK_BROKER_USER_SCOPES],
+            token: sealForTest(r.token, b.sealKey, slackBrokerUserSealAad(fake.install.installId, r.slackTeamId, r.slackUserId)) })
+        }
         case 'signinRedeem': {
           const b = parseSlackBrokerSigninRedeem(body)
           if (!b) return fail('invalid_request', 400)

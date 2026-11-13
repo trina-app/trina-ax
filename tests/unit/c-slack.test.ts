@@ -97,6 +97,7 @@ describe('setup (the owner)', () => {
     expect(Object.fromEntries(Object.entries(SLACK).map(([k, e]) => [k, e.auth]))).toEqual({
       slackAdmin: 'admin', saveSlackTokens: 'owner', setSlackEnabled: 'admin', removeSlack: 'admin', startSlackInstall: 'admin',
       mySlack: 'user', unlinkSlack: 'user', previewSlackLink: 'user', confirmSlackLink: 'user', startSlackSignIn: 'user', cancelSlackLink: 'user',
+      recheckSlackReadScopes: 'admin',
     })
   })
 
@@ -284,6 +285,10 @@ describe('Enterprise Grid', () => {
 })
 
 describe('Sign in with Slack: the person proves the Slack account, no e-mail needed', () => {
+  // the old OpenID Connect sign-in: what linking uses while the Slack app has no user scopes yet (read_scopes
+  // 'missing'); with them, the same button is OAuth v2 and also keeps the user token (tests/unit/c-slack-read.test.ts)
+  beforeAll(() => { h.ctx.db.query("UPDATE slack_config SET read_scopes = 'missing'").run() })
+  afterAll(() => { h.ctx.db.query('UPDATE slack_config SET read_scopes = NULL').run() })
   const start = (who: string) => call(who, 'POST', '/api/slack/signin', {})
   const params = (url: string) => Object.fromEntries(new URL(url).searchParams)
   /** Slack sends the browser back: that person's browser with a session (or `null`: a browser with none). The page it
@@ -314,8 +319,8 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const admin = (await call('dana', 'GET', '/api/admin/slack')).json
     expect(admin.redirectUrl).toBe('https://team.acme.example/api/integrations/slack/oauth/callback')
     expect(JSON.parse(admin.manifest).oauth_config.redirect_urls).toEqual(['https://team.acme.example/api/integrations/slack/oauth/callback'])
-    // no user scopes in the app: Sign in with Slack asks for its own in its own flow
-    expect(JSON.parse(admin.manifest).oauth_config.scopes.user).toBeUndefined()
+    // the user scopes the one sign-in asks each person for (reading Slack, docs/SLACK.md "Reading Slack")
+    expect(JSON.parse(admin.manifest).oauth_config.scopes.user).toEqual(['channels:history', 'groups:history', 'im:history', 'mpim:history', 'channels:read', 'groups:read', 'im:read', 'mpim:read', 'users:read', 'search:read'])
     expect((await call('carol', 'GET', '/api/slack/me')).json.signIn).toBe(true)
     const url = new URL((await start('carol')).json.authorizationUrl)
     expect(url.origin + url.pathname).toBe('https://slack.com/openid/connect/authorize')
@@ -1075,7 +1080,8 @@ describe('Enterprise Grid: one link per Slack user, whatever the enterprise id',
     fake.enterpriseId = 'E0ORG'
     expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected', { timeoutMs: 10_000 })).toBe(true)
-    h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example'").run()
+    // (the old sign-in: tokens saved again reset what is known of the user scopes)
+    h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example', read_scopes = 'missing'").run()
     try {
       // a one-time link for that Slack user, from before (its event had no enterprise id)
       const t = await newLink('U0MALLORY')

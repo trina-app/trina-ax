@@ -169,6 +169,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const viewer = activeUser(db, spec.userId)
   if (!viewer) return early('Access denied: this account is disabled.', 'account disabled')
   const target = a.data.target ?? 'service'
+  // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Reading Slack"); without
+  // this the AI offered a card for Slack that does nothing (2026-11-13)
+  if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
   // cannot see or that turns the text around (hiddenText)
   for (const [field, v] of [['name', a.data.name], ['notes', a.data.notes], ['why', a.data.why]] as const) {
@@ -475,4 +478,20 @@ async function done(ctx: AppContext, exec: TurnExec, viewer: Viewer, requestId: 
   const v = row.status === 'connected' || !row.secret_enc ? view(ctx.db, row, viewer, L) : await integrationsOf(ctx).refresh(viewer, row.id, L)
   if (v.status !== 'connected') return { state: 'retry', integrationId: v.id, status: v.status, lastError: v.lastError ?? tr('connectNotYet', L) }
   return stateOfView(v, requestId, exec, row.auth === 'oauth')
+}
+
+/** A connect_service call for Slack: its name, or an address at slack.com */
+export function isSlack(name: string | undefined, url: string | undefined): boolean {
+  if (name && /^\s*slack\b/i.test(name)) return true
+  if (!url) return false
+  try { const h = new URL(url).hostname.toLowerCase(); return h === 'slack.com' || h.endsWith('.slack.com') } catch { return false }
+}
+
+/** How this person reaches Slack, in words for the AI (no card exists for it) */
+function slackWay(db: Database, userId: string): string {
+  const cfg = db.query('SELECT enabled, secret_enc, team_id FROM slack_config WHERE id = 1').get() as { enabled: number; secret_enc: string | null; team_id: string | null } | null
+  if (!cfg?.enabled || !cfg.secret_enc) return 'Slack is not set up for this team: the team\'s owner or an admin adds it in Admin › Connected apps › Slack. Tell the user that; do not offer a card.'
+  const linked = !!db.query('SELECT 1 FROM slack_links WHERE user_id = ? AND team_id = ?').get(userId, cfg.team_id)
+  if (!linked) return 'The user links their Slack account once in Settings › Connectors › Slack (Sign in with Slack): that also lets you read Slack as them. Tell the user that; do not offer a card.'
+  return 'The user\'s Slack account is linked. If you have no Slack tools, they allow reading once in Settings › Connectors › Slack (Allow reading Slack). Tell the user that; do not offer a card.'
 }

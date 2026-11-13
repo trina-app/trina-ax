@@ -666,6 +666,7 @@ export class Notifications {
             if (source.type === 'user') { if (source.id !== row.user_id) throw new Error('private source revoked'); continue }
             if (source.type === 'integration') { const c = getIntegration(this.ctx.db, source.id); if (!c || !mayUseIntegration(this.ctx.db, c, row.user_id)) throw new Error('source revoked'); continue }
             if (source.type === 'drive_share') { if (!shareCovers(this.ctx.db, source.id, row.user_id)) throw new Error('source revoked'); continue }
+            if (source.type === 'slack') { if (source.userId !== row.user_id) throw new Error('private source revoked'); continue }
             let folder = ''
             if (source.type === 'folder') {
               const found = this.ctx.db.query('SELECT path FROM folders WHERE id=?').get(source.id) as { path: string } | null

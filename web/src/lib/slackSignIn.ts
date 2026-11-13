@@ -12,6 +12,8 @@ const OUTCOME: Record<string, MessageKey> = {
   install_failed: 'slack.install.failed', workspace_taken: 'slack.install.taken', enterprise_install: 'slack.install.enterprise',
   missing_scope: 'slack.install.failed', own_app_saved: 'slack.install.ownApp', broker_unreachable: 'slack.install.unreachable',
   not_workspace_admin: 'slack.install.notAdmin', install_pending: 'slack.install.pending',
+  // reading Slack (the same sign-in, docs/SLACK.md "Reading Slack")
+  read_allowed: 'slack.read.allowed', scopes_missing: 'slack.read.scopesMissing', read_other_account: 'slack.read.otherAccount',
 }
 /** The words for an outcome; anything else (also a name like "constructor") is the general failure */
 export const outcomeText = (code: string): MessageKey => Object.hasOwn(OUTCOME, code) ? OUTCOME[code]! : 'slack.signin.failed'

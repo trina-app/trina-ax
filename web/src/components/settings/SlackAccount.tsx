@@ -1,6 +1,7 @@
 // Settings › App connectors › Slack (docs/SLACK.md): one line, always there while the team uses Slack: the Slack account
 // linked to me with Unlink, or "Sign in with Slack" to link the Slack account I sign in to (or, without it, how to get a
-// link in Slack). The outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack
+// link in Slack). That one sign-in also lets the AI read Slack as me; someone linked before (or by the one-time link)
+// sees whether it may, with "Allow reading Slack". The outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack
 // and nothing is linked. `onShown` tells the page whether it shows.
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -33,10 +34,11 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
   const shown = !!me && (me.available || !!me.link)
   useEffect(() => { onShown?.(shown) }, [shown, onShown])
   if (!me || !shown) return null
-  const signIn = async () => {
+  // `read`: linked already, only allow reading (the same sign-in; linking does both at once)
+  const signIn = async (read = false) => {
     setBusy(true); setError(null)
     // the person's own browser goes to Slack and comes back to this page
-    try { window.location.assign((await api.call(SLACK.startSlackSignIn, { body: {} })).authorizationUrl) }
+    try { window.location.assign((await api.call(SLACK.startSlackSignIn, { body: read ? { read: true } : {} })).authorizationUrl) }
     catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
   }
   const unlink = async () => {
@@ -47,7 +49,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
   return (
     <div className="space-y-2 border-t border-line pt-4" data-testid="slack-account">
       {error && <ErrorNote>{error}</ErrorNote>}
-      {outcome && <p className={`text-sm ${outcome === 'linked' ? '' : 'text-warn'}`} role="status" data-testid="slack-signin-outcome">{t(outcomeText(outcome))}</p>}
+      {outcome && <p className={`text-sm ${outcome === 'linked' || outcome === 'read_allowed' ? '' : 'text-warn'}`} role="status" data-testid="slack-signin-outcome">{t(outcomeText(outcome))}</p>}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium">Slack</p>
@@ -55,16 +57,23 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
             <p className="mt-1 text-xs text-muted">
               {t('slack.mine.linked', { name: me.link.slackName ?? me.link.slackUserId, workspace: me.workspace ?? '' })}
               <span className="mt-0.5 block text-faint">{t('slack.mine.since', { date: formatDateTime(me.link.linkedAt, locale) })}</span>
+              {/* whether the AI may read Slack as me; allowing it is the same sign-in */}
+              <span className={`mt-0.5 block ${me.read ? 'text-faint' : ''}`} data-testid="slack-read-state">{t(me.read ? 'slack.read.on' : me.readOffered ? 'slack.read.off' : 'slack.read.needsAdmin')}</span>
             </p>
           ) : (
             <>
-              <p className="mt-1 text-xs text-muted">{t(me.signIn ? 'slack.mine.signInHow' : 'slack.mine.how', { workspace: me.workspace ?? '' })}</p>
+              <p className="mt-1 text-xs text-muted">{t(me.signIn ? 'slack.mine.signInRead' : 'slack.mine.how', { workspace: me.workspace ?? '' })}</p>
               {me.emailSetByOther && <p className="mt-1 text-xs text-warn" data-testid="slack-email-set-by-other">{t('slack.mine.emailSetByOther')}</p>}
             </>
           )}
         </div>
         {me.link
-          ? <Button variant="danger" size="sm" busy={busy} disabled={busy} onClick={() => void unlink()} data-testid="slack-unlink">{t('slack.mine.unlink')}</Button>
+          ? (
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              {!me.read && me.readOffered && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn(true)} data-testid="slack-allow-read">{t('slack.read.allow')}</Button>}
+              <Button variant="danger" size="sm" busy={busy} disabled={busy} onClick={() => void unlink()} data-testid="slack-unlink">{t('slack.mine.unlink')}</Button>
+            </div>
+          )
           : me.signIn && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
       </div>
     </div>

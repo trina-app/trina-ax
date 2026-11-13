@@ -5,8 +5,11 @@ normal chat as the person who asked, with their own permissions, engine, budget 
 in that chat in the app. It is off until the team's owner or an admin sets it up; it works on hosted and self-hosted servers alike,
 also on an office Mac without a public address (Socket Mode: the server connects out to Slack).
 
-Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터", "Slack through the official Trina AX app" and "Admins manage
-Slack too".
+The same one sign-in that links a person's Slack account also lets the AI read Slack as them (only what they can see
+there): the thread they ask in, a channel, a search ("Reading Slack" below).
+
+Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터", "Slack through the official Trina AX app", "Admins manage
+Slack too" and "Slack: one connect links and allows reading".
 
 There are two ways to have the Slack app. Where the hosting service serves the server, the owner or an admin adds
 **the official app** with one button and copies nothing (below). Anywhere else the owner makes **the team's own app**
@@ -50,8 +53,11 @@ four steps.
   minutes, time to sign in here first) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
   is asked to sign in first and then goes on. 10 minutes, used once, the newest only.
 - **Sign in with Slack** to link your own account works the same way through the hosting service (its one redirect
-  URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
-  signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
+  URL is registered in the app). With reading (`signin/read/*`, "Reading Slack" below) the hosting service exchanges
+  Slack's code and hands this server your user token sealed; an older hosting service without those calls signs you in
+  the old way (it checks Slack's answer, revokes your user token at once and says only who signed in), and reading is
+  then not offered. This server checks that it is a person of this workspace, as before. No https address is needed
+  here.
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
   removed it): the token is forgotten here and Slack's page says "The app was removed from Slack. Add it to Slack
   again." People's links stay (the same workspace when it is added again). **Remove Slack** beside Add to Slack takes
@@ -146,6 +152,86 @@ of the old one.
 - **When an answer cannot start or fails**, Slack says why in plain words (the chat was deleted, a server problem, the
   budget's own sentence), not a code.
 
+## Reading Slack
+
+One **Sign in with Slack** links the account and lets the AI read Slack as that person: Slack's OAuth v2 page with user
+scopes only (`oauth/v2/authorize?user_scope=…`, the same redirect URL `<address>/api/integrations/slack/oauth/callback`).
+The server exchanges the code (`oauth.v2.access` with the client secret; the official app: the hosting service does),
+asks Slack whose token it is (`auth.test`: the same person of the workspace) and keeps the person's user token sealed
+(their own row in `slack_user_tokens`, the Slack key directory, AAD bound to the person). Nobody sees it: no answer,
+log line, prompt or chat.
+
+- **What the AI gets.** Its instructions always say how Slack is reached for this person (Slack not set up, not linked,
+  linked without reading, or reading) and that there is no card for Slack; `connect_service` refuses Slack with the
+  same sentence. Reading: the tools `slack_read_thread`, `slack_read_channel` (by id or a channel's name) and
+  `slack_search`, only what that Slack user can see (a private channel they are not in is "not found"). A question
+  from Slack also says where it was asked (workspace, channel name, thread) and carries the thread's messages so far
+  (at most 50 messages and 12,000 characters, read with the asker's token; a DM with the app: also without it), so
+  "summarize this thread" needs no tool call. Slack messages are framed as other people's words, never instructions.
+  Not in shared, confidential or draft chats.
+- **Linked before, or by the one-time link** (no token yet): Settings › Connectors › Slack says the AI cannot read
+  Slack yet, with **Allow reading Slack**. In Slack, the first question of a thread gets the same button next to
+  "working…" (to the asker only); it opens Slack's page directly, needs no sign-in here when it comes back (the
+  Slack account that allows it must be the linked one), and then the question is answered again with the thread. The
+  answer is never held back for it. The one-time link page goes straight on to Slack's page after **Link**.
+- **The Slack app has no user scopes yet** (an app made from an older manifest, or the official app before its update):
+  Slack refuses the page; linking goes on at the old sign-in in the same click (no reading), and Admin › Connected apps
+  › Slack shows **Update Slack permissions**: the team's own app: add the User Token Scopes below in *OAuth &
+  Permissions*, reinstall the app, then **I updated them**; the official app: **Add to Slack** again to approve them. A
+  grant with fewer scopes than asked: linked, the token revoked, the same prompt.
+- **Ends**: Unlink, a disabled or deleted account, Remove, another workspace saved, or Slack refusing the token (the
+  person removed the app's access in Slack): the token is revoked at Slack (`auth.revoke`) and deleted.
+- **Post to channel**: Slack messages from the conversation the answer goes back to need no notice; any other (another
+  channel, a DM, a search result) is named in the notice ("Slack #random", "Slack direct messages"; never a person).
+- **Slack's limit for the official app.** Slack limits `conversations.history` and `conversations.replies` to 1
+  request a minute and 15 messages for commercially distributed apps that are not in the Slack Marketplace (new installs
+  since 2025-05-29; internal customer-built apps keep their limits:
+  https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps and
+  https://docs.slack.dev/changelog/2025/06/03/rate-limits-clarity). The official Trina AX app is such an app; a team's
+  own app is internal and is not limited. With the official app the server asks for 15 at a time; when Slack says wait,
+  the AI is told so in words (try again in a minute, or search) instead of failing quietly, and is told to prefer
+  `slack_search` (not named by that change), one conversation at a time.
+
+### The hosting service's part (official app)
+
+The team server has no client secret of the official app, so the hosting service (control plane `src/slack-broker/`)
+must add two signed calls (contract: `shared/src/cloud-protocol/slack-broker.ts`, flows 8 and 9; MIT):
+
+1. **The Slack app's config:** the ten User Token Scopes `SLACK_BROKER_USER_SCOPES` (done in the app's settings
+   2026-11-13; no bot scope changes, so existing installs keep working). Workspaces that need an admin's approval for new
+   scopes approve them with Add to Slack again.
+2. **`POST /api/slack-broker/v1/signin/read/start`** `{ v: 1, returnState, codeChallenge }` (strict, like
+   `signin/start`) → `{ authorizationUrl, expiresAt }`: `https://slack.com/oauth/v2/authorize` with `client_id`,
+   `user_scope` = the ten scopes joined by commas, **no `scope`**, `team` = the owner's installed workspace,
+   `redirect_uri` = the one redirect URL `/slack-broker/`, and its own `state` (it tells this flow apart from install
+   and sign-in by the state). Slack returns there; the hosting service sends the browser to the owner's address it
+   recorded: `SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH?state=<returnState>&handoff=<one-time>`, or `&error=consent_denied`
+   (`access_denied`), `&error=missing_scope` (Slack refused the user scopes: `invalid_scope` and the like), else
+   `&error=provider_error`. `not_installed` (404 JSON) without an install.
+3. **`POST /api/slack-broker/v1/signin/read/redeem`** `{ v: 1, handoff, codeVerifier, sealKey }` → `{ slackUserId,
+   slackTeamId, enterpriseId, scopes, token }`: the handoff once, only for that owner, only with the verifier (as
+   `signin/redeem`). Exchange the code with `oauth.v2.access` (client id and secret); require `authed_user.token_type ==
+   "user"`, an `authed_user.access_token` (xoxp) and `team.id` == the owner's installed workspace (`outsider` 409
+   otherwise); call `auth.test` with that token (the same user and workspace). Seal the user token exactly like the bot
+   token (fresh X25519, HKDF with `SLACK_BROKER_SEAL_INFO`, AES-256-GCM) but with the additional data
+   `slackBrokerUserSealAad(installId, slackTeamId, slackUserId)`. Keep no copy, never call Slack with it again, never
+   log it; revoke it (`auth.revoke`) if anything fails after the exchange. A bot token Slack might return alongside is
+   never handed out. `scopes`: `authed_user.scope` split by commas.
+4. Rate limits as for `signin/start` (per owner and address). Nothing else changes: the team server revokes a user
+   token itself (`auth.revoke` with the token), and an older hosting service (404 on these paths) keeps today's
+   sign-in working.
+
+Nothing here is deployed by this repository; the control plane implements and deploys it.
+
+## Scopes (user token)
+
+| Scope | Why |
+| --- | --- |
+| `channels:history`, `groups:history`, `im:history`, `mpim:history` | `conversations.replies`, `conversations.history`: a thread, a conversation's recent messages (public and private channels, DMs, group DMs the person is in) |
+| `channels:read`, `groups:read`, `im:read`, `mpim:read` | `conversations.info` (a conversation's name and kind), `conversations.list` (a channel by its name) |
+| `users:read` | `users.info`: who wrote |
+| `search:read` | `search.messages` |
+
 ## Scopes (bot token)
 
 | Scope | Why |
@@ -158,11 +244,10 @@ of the old one.
 | `im:write` | `conversations.open` for the one DM telling a Slack account which account it was linked to by "Sign in with Slack" |
 | `channels:read`, `groups:read` | `conversations.info` just before *Post to channel*: a channel shared with another organization since the question (or one Slack says nothing about) gets nothing |
 
-The redirect URL is for "Sign in with Slack" (OpenID Connect; docs.slack.dev "Sign in with Slack"), which asks for
-`openid` and `profile` in its own flow: they are not in the app's user scopes (Slack does not let them be asked for
-together with other scopes, and the manifest's user scopes are asked for at install). The user token that sign-in gives
-the server is revoked at once and never kept. The app-level
-token needs `connections:write` (Socket Mode). No channel history, no files, no slash command.
+The redirect URL is for "Sign in with Slack": OAuth v2 with the user scopes above (the token is kept, "Reading Slack"),
+or, while the Slack app has no user scopes, OpenID Connect (`openid` and `profile`, asked for in its own flow; that
+token is revoked at once and never kept). The app-level token needs `connections:write` (Socket Mode). The bot reads no
+channel history; no files, no slash command.
 
 ## Limits
 
@@ -173,7 +258,8 @@ token needs `connections:write` (Socket Mode). No channel history, no files, no 
 | One-time link | 10 minutes, used once, the newest one only, 10 per Slack account per hour, one a minute |
 | Links | one Slack account per person, one person per Slack account; by "Sign in with Slack", or by the one-time link when the e-mails match |
 | Sign in with Slack | 10 minutes, used once, the newest one only, 20 a person per hour; needs the team's https address |
-| What the AI gets | the question's text only: no earlier messages of the thread, no files |
+| What the AI gets | the question, where it was asked, and (with reading allowed) the thread so far: at most 50 messages and 12,000 characters; more with `slack_read_thread`; no files |
+| Reading (official app) | Slack's limit for non-Marketplace apps: a conversation's history about once a minute, 15 messages at a time |
 | Answer in Slack | shortened to about 11,000 characters, with a link to the whole answer in the chat; posted to a thread: about 29,000 |
 | Waiting for an answer | 2 hours, then the asker is told (the chat keeps a later answer); a turn that waits for a card (a question of the AI, a confirmation) tells the asker to answer it in the app |
 | Ephemeral messages | Slack does not keep them (they are gone after a reload) and delivers them only to people in the channel; the chat in the app keeps the answer |
@@ -228,18 +314,24 @@ after 1, 2, 4 … seconds (at most a minute).
 - Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed` (the official app: `via: official`
   and whether Slack removed it), `slack.installed` ("Add to Slack"; `restored: true` for a token fetched again),
   `slack.removed_in_slack` (with the reason), `slack.linked` (`via: slack_signin` for a sign-in), `slack.link_refused`,
-  `slack.unlinked`, `slack.posted`.
+  `slack.unlinked`, `slack.posted`, `slack.read_allowed` (the AI may read Slack as the person), `slack.read_ended` (its
+token revoked: unlinked, account disabled, Slack refused it), `slack.read_scopes_recheck`.
+- A person's user token (reading): sealed with AAD bound to the person, used only for that person's own turns while
+  they are linked to that very Slack account, revoked at Slack on every way out. A read flow from Slack's button needs
+  no session here because Slack itself says who allowed it; any other Slack account than the linked one is refused and
+  its token revoked.
 
 ## Code and tests
 
-`server/src/integrations/slack/` (`api.ts` the Web API, `socket.ts` Socket Mode, `broker.ts` the official app through
+`server/src/integrations/slack/` (`read.ts` the AI's Slack tools and its section of the instructions, `api.ts` the Web API, `socket.ts` Socket Mode, `broker.ts` the official app through
 the hosting service, `envelope.ts` the shapes, `manifest.ts`, `post-check.ts` what an answer used before it is posted,
-`service.ts`, `text.ts`), `server/src/routes/slack.ts`, migrations `server/migrations/335_c_slack.sql` and
-`345_c_slack_official.sql`, the wire contract with the hosting service `shared/src/cloud-protocol/slack-broker.ts` (MIT),
+`service.ts`, `text.ts`), `server/src/routes/slack.ts`, migrations `server/migrations/335_c_slack.sql`,
+`345_c_slack_official.sql` and `348_c_slack_read.sql`, the wire contract with the hosting service `shared/src/cloud-protocol/slack-broker.ts` (MIT),
 contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx` (a page of Admin › Connected apps,
 `web/src/pages/admin/Integrations.tsx`), `web/src/pages/SlackLink.tsx`,
 `web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack-broker.test.ts` (the sealed-token vector
 shared with the control plane, signatures, the long poll) and `tests/unit/c-slack-official.test.ts` (the official app
-against the fake broker `tests/lib/fake-slack-broker.ts`), `tests/unit/c-slack.test.ts` with the fake Slack
+against the fake broker `tests/lib/fake-slack-broker.ts`), `tests/unit/c-slack-read.test.ts` (reading Slack: the one sign-in, the tools, the thread, Allow reading Slack,
+revoking, the post notice), `tests/unit/c-slack.test.ts` with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs, the OpenID Connect token method; nothing reaches Slack), the permission matrix
 (`tests/security/lib/slack-cases.ts`), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.
