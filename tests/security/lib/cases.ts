@@ -35,6 +35,7 @@ type Scope =
   | 'finance-write'   // finance folder write: bob + owner + admin
   | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read); the owner and admins only as members (none here)
   | 'alice-project'   // who manages the participants of alice's team project: alice (its creator) + owner + admin (they manage it without being members)
+  | 'alice-project-people' // who is in alice's team project: its members alice and erin, and the owner and admins who manage it
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
@@ -84,6 +85,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut'
     case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
+    case 'alice-project-people': return who === 'memberIn' || who === 'other' || who === 'owner' || who === 'admin'
     case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
@@ -271,6 +273,15 @@ export const SPECS: Record<string, Spec> = {
       if (r.json?.member !== false || r.json?.instructions !== '') throw new Error(`${who}: a restored project answered with its contents`)
     } },
   getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
+  // who is in it, by face (docs/DECISIONS.md "Who is in a project, by face"): its members (erin too, who did not make
+  // it), and whoever manages it; bob, outside it, 404. Only those who manage it get the groups
+  getProjectPeople: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/people`), scope: 'alice-project-people',
+    check: (r, _w, who) => {
+      if (r.status >= 300) return
+      const ids = (r.json?.people ?? []).map((x: { id: string }) => x.id).sort().join(',')
+      if (ids !== 'alice,erin') throw new Error(`${who}: the people of alice's team project were ${ids}`)
+      if (who === 'other' && r.json?.groups !== undefined) throw new Error('erin, a member who does not manage it, got its groups')
+    } },
   putProjectParticipants: { build: (c, w) => c.put(`/api/projects/${w.ids.projTeam}/participants`, { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: 'not-the-hash' }), scope: 'alice-project',
     check: (r, w, who) => {
       if (r.status < 300) throw new Error(`${who}: participants changed with a stale rules hash`)

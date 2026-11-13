@@ -2602,6 +2602,24 @@ export class MockServer {
       return this.sharedProjectOut(p, c.user)
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
+    // like server/src/routes/chats.ts getProjectPeople: its members and whoever manages it; the groups for the latter
+    getProjectPeople: (c) => {
+      const p = this.projectFor(c, true)
+      if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
+      if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
+      const creator = p.createdBy?.id
+      const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
+        .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))
+      if (!this.projectManages(p, c.user)) return { people }
+      const pm = this.projectMembers.get(p.folderPath)
+      const ids = new Set(people.map((x) => x.id))
+      const groupIds = [...new Set([...(pm?.participants ?? []), ...(pm?.others ?? []).filter((r) => r.path === p.folderPath && r.access !== 'none')].filter((x) => x.subjectType === 'group' && x.subjectId).map((x) => x.subjectId!))]
+      const groups = groupIds.flatMap((id) => {
+        const g = this.groups.find((x) => x.id === id)
+        return g ? [{ id, name: g.name, people: people.filter((x) => this.users.find((u) => u.id === x.id)?.groupIds.includes(id) && ids.has(x.id)).map((x) => x.id) }] : []
+      }).sort((a, b) => a.name.localeCompare(b.name))
+      return { people, groups }
+    },
     // like server/src/chat/project-access.ts previewAccess: members only (docs/DECISIONS.md "Project contents only for
     // members"): a new project counts the caller and the people chosen, for everyone; an existing one its members after
     // the change (`removeRules`: other settings of its folder taken out). Asked by someone who manages it without reading

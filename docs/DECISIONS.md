@@ -25730,6 +25730,30 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   used the row (integrations, connectors-hub, integration-templates, integration-requests, skill-tool-counts, a11y,
   phone-admin-pages).
 
+## Who is in a project, by face (feat/project-people, 2026-11-13)
+
+- **Why:** a team project's page said only "멤버 5명" and "새 채팅은 멤버 5명이 볼 수 있어요", and its members dialog listed
+  the creator and a group ("리드 · 부서"), never the five people. Nobody could see who was in it.
+- **Decision:** a stack of faces (24 px with a ring of the page's colour; 4 and "+N", on a phone too; the photo or the
+  first letter; the name on hover) under a shared project's name, one line, no card. Clicking it opens the members
+  dialog, for everyone who sees the page. The faces show once: the 멤버 line keeps "멤버 5명 · 관리" (manager review). A
+  personal project shows none. They are kept with the page in store/projectPage.ts ("Folders, project pages and file
+  previews open at once"), so going back shows them at once while they are read again; a members save reads them again,
+  and sign-out or an access change empties them with the rest.
+- **The dialog:** a group row says how many people it holds and opens to list them; under the picker one list of
+  everyone in it now, each person once even when two groups hold them, the creator and "나" marked; its title is the
+  count, so the "멤버 N명" line under the picker shows only while a change is pending (the count after it). A member who does
+  not manage it gets that list only, the line that says who changes the members, and 닫기.
+- **The server:** `GET /api/projects/:id/people` answers the project's audience (who reads its folder now, which in
+  projects/ is its members only), each person once with `avatarVersion`, the creator first, then by name. Its members
+  and whoever manages it (the owner, admins, its creator) read it; anyone else gets 404 as for no project. The groups,
+  expanded, go only to the owner, admins and a creator whose folder is theirs to change: they read its participants in
+  GET …/access anyway, and a member is not told
+  which groups were chosen. A personal project is 409 `project_personal`; a project made before outside projects/ is
+  409 `project_legacy` (the owner and admins see it by their role, so its list would tell a member who they are); one
+  in the trash has nobody in it. Tests: `tests/unit/b-project-people.test.ts`, the permission matrix
+  (`alice-project-people`), `web/test/e2e/project-people.spec.ts`.
+
 ## Slack: reading with the bot token only (feat/slack-read-bot-token, 2026-11-13, the owner, QA TC-879)
 
 - **Supersedes** "Slack: one connect links and allows reading" (#674, the same day): its user token (xoxp, ten user

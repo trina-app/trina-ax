@@ -69,6 +69,7 @@ beforeAll(() => {
       theProject = { ...theProject, ...(JSON.parse(String(init.body)) as Partial<Project>) }
       return json(200, theProject)
     }
+    if (url.pathname === `/api/projects/${P1}/people`) return json(200, { people: [{ id: 'mia', name: 'Mia', creator: true }, { id: 'bob', name: 'Bob' }] })
     if (url.pathname === `/api/projects/${P1}`) return json(200, project)
     if (url.pathname === '/api/chats') return json(200, { items: chats, nextCursor: null })
     if (url.pathname === '/api/files/audience') return json(200, { path: url.searchParams.get('path'), access: 'write', people: 3, everyone: false })
@@ -291,9 +292,12 @@ describe("a project's page", () => {
       expect(skeleton(m)).toBe(false)
       expect(chatTitles(m).join('|')).toContain('Kickoff notes')
       expect(m.get('project-files').textContent).toContain('1 item')
+      // who is in it: the faces under its name from the first frame too
+      expect(m.find('project-header-open')).not.toBeNull()
       release()
       await m.settle(50)
-      expect([count(/^GET \/api\/projects\//), count(/^GET \/api\/chats\?projectId=/), count(TREE('projects/acme-launch'))]).toEqual([1, 1, 1])
+      expect(count(new RegExp(`^GET /api/projects/${P1}/people`))).toBe(1)
+      expect([count(/^GET \/api\/projects\/[^/?]+(\?|$)/), count(/^GET \/api\/chats\?projectId=/), count(TREE('projects/acme-launch'))]).toEqual([1, 1, 1])
     } finally {
       await m.unmount()
     }
@@ -324,11 +328,11 @@ describe("a project's page", () => {
     const m = await projectPage()
     try {
       await m.until(() => m.find('project-members-only'), 'the page')
-      holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+      holdOnly = new RegExp(`^GET /api/projects/${P1}(\\?|$)`)
       const release = held()
       // a read on its way (an access change reads the page again), then a new name saved here
       accessChanged.emit()
-      await until(() => count(new RegExp(`^GET /api/projects/${P1}`)) === 2, 'the read again')
+      await until(() => count(new RegExp(`^GET /api/projects/${P1}(\\?|$)`)) === 2, 'the read again')
       await m.click('project-menu')
       await m.click('project-rename')
       const field = await m.until(() => m.container.ownerDocument!.body.querySelector('[data-testid="dialog-input"]'), 'the prompt')
@@ -353,7 +357,7 @@ describe("a project's page", () => {
     )
     try {
       await m.until(() => m.find('files-screen'), 'the Files screen')
-      expect(count(/^GET \/api\/projects\//)).toBe(1)
+      expect(count(/^GET \/api\/projects\/[^/?]+(\?|$)/)).toBe(1)
       expect(count(/^GET \/api\/files\/tree/)).toBe(0)
     } finally {
       await m.unmount()
@@ -380,7 +384,7 @@ describe("a project's page", () => {
     )
     try {
       await moved.until(() => moved.find('files-screen'), 'the Files screen')
-      expect(count(/^GET \/api\/projects\//)).toBe(1)
+      expect(count(/^GET \/api\/projects\/[^/?]+(\?|$)/)).toBe(1)
     } finally {
       await moved.unmount()
     }
@@ -389,7 +393,7 @@ describe("a project's page", () => {
   test('an access change while the page is open: nothing of it is kept until the project is read again', async () => {
     const m = await projectPage()
     await m.until(() => chatTitles(m).length === 2, 'the page')
-    holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+    holdOnly = new RegExp(`^GET /api/projects/${P1}(\\?|$)`)
     const release = held()
     accessChanged.emit()
     expect(useProjectPage.getState().pages[P1]).toBeUndefined()
@@ -475,5 +479,23 @@ describe("a file's preview", () => {
     } finally {
       await m.unmount()
     }
+  })
+})
+
+describe('the kept faces (store/projectPage.ts keepPeople)', () => {
+  const people = { people: [{ id: 'mia', name: 'Mia', creator: true as const }] }
+  test('kept with the page, kept across a new keep of it, gone on reset (sign-out) and for a page not kept', () => {
+    const s = useProjectPage.getState()
+    s.keepPeople(P1, people)
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
+    s.keep(P1, { project: project(), chats: null })
+    s.keepPeople(P1, people)
+    s.keep(P1, { project: project({ name: 'Renamed' }), chats: [] })
+    expect(useProjectPage.getState().pages[P1]?.people).toEqual(people)
+    s.keepPeople(P1, undefined)
+    expect(useProjectPage.getState().pages[P1] && 'people' in useProjectPage.getState().pages[P1]!).toBe(false)
+    s.keepPeople(P1, people)
+    s.reset()
+    expect(useProjectPage.getState().pages[P1]).toBeUndefined()
   })
 })

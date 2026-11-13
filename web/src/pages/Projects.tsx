@@ -73,6 +73,7 @@ import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
 import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
+import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
@@ -524,6 +525,10 @@ function ProjectPage() {
   }
   const me = useMe()
   const phone = useMediaQuery(PHONE)
+  // who is in it (a team project in projects/): the faces under its name; asked again after a save
+  // in the members dialog
+  const [peopleVersion, setPeopleVersion] = useState(0)
+  const people = useProjectPeople(p, peopleVersion)
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to
   // type in (with a mouse; a phone's keyboard does not jump up)
   const location = useLocation()
@@ -743,6 +748,7 @@ function ProjectPage() {
   // the members dialog saved: an owner or admin who added or took out themselves loads the page again (its files,
   // instructions and the others' chats come or go)
   const membersSaved = (next: Project) => {
+    setPeopleVersion((v) => v + 1)
     if ((next.member === false) !== (p?.member === false)) load({ manage: next.member === false, fresh: true })
     else changeP(next)
   }
@@ -810,6 +816,13 @@ function ProjectPage() {
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
         {/* phones: the name is the bar's; here for screen readers only */}
         <h1 className="text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
+        {/* who is in it, by face (a shared project only): clicking them opens the members dialog; a phone shows them
+            here too, under the bar's name */}
+        {hasMembers && people && people.people.length > 0 && (
+          <div className="mt-2 flex max-md:mt-0" data-testid="project-people-header">
+            <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
+          </div>
+        )}
         {summary && (
           <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted max-md:mt-0" data-testid="project-summary">
             {summary}
@@ -1163,7 +1176,8 @@ export function ProjectFiles() {
  * by its rules for the owner and admins ("3명", Project.audienceSplit) or the total. Whoever may change its members gets
  * 관리 (the members dialog) and nothing to open; anyone else opens the line to read who changes them: the creator by
  * name only while they can (Project.creatorChangesMembers: their account active, the folder theirs), else 관리자 (never
- * an admin's name). An admin on a project made before on another folder reads where to change it instead. */
+ * an admin's name). An admin on a project made before on another folder reads where to change it instead. The faces
+ * of who is in it are under the page's name only (ProjectPeople.tsx), not here again. */
 export function MembersRow({ project: p, sideAction, onManage }: { project: Project; sideAction: string; onManage: () => void }) {
   const t = useT()
   const me = useMe()
