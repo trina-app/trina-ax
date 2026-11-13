@@ -6,7 +6,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn, adv } from './helpers'
+import { reset, signIn, adv, choose } from './helpers'
 import { activityRows } from './nav'
 
 const KEY = 'member-own-' + 'k'.repeat(24)
@@ -18,10 +18,12 @@ const joined = (page: Page) => page.getByTestId('connected-apps').locator('[data
 async function makeTemplate(page: Page, o: { name?: string; url?: string } = {}) {
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   const d = modal(page)
   // a new connection is for the team with one key unless the admin picks a template
-  await expect((await adv(page, 'integration-who-team'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await expect(await adv(page, 'integration-who-team')).toHaveJSProperty('selected', true)
+  await choose(page, 'integration-who-template')
   // a template takes no key, and has no write rule (each member's own)
   await expect(page.getByTestId('integration-key')).toHaveCount(0)
   await expect((await adv(page, 'integration-write-ask'))).toHaveCount(0)
@@ -29,7 +31,7 @@ async function makeTemplate(page: Page, o: { name?: string; url?: string } = {})
   await page.getByTestId('integration-url').fill(o.url ?? 'https://mcp.tasks.example/mcp')
   // "no sign-in" is not offered for a template
   await expect((await adv(page, 'integration-auth-none'))).toHaveCount(0)
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   await expect(page.getByTestId('integration-template-key-note')).toBeVisible()
   await page.getByTestId('integration-notes').fill('Use the key from your Tasks profile.')
   await (await adv(page, 'integration-access-pick')).check()
@@ -91,7 +93,7 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await expect(page.getByTestId('integration-from-team')).toBeVisible()
   await expect(page.getByTestId('integration-name')).toHaveCount(0)
   await expect(page.getByTestId('integration-url')).toHaveCount(0)
-  await expect((await adv(page, 'integration-write-ask'))).toBeVisible()
+  await expect(await adv(page, 'integration-write-ask')).toHaveCount(1)
   await modal(page).getByRole('button', { name: 'Cancel' }).click()
 
   // the owner: one connected, and the key is nowhere
@@ -196,7 +198,9 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await axe()).toEqual([])
     // the admin's dialog with the template choice open
     await page.getByTestId('integration-add').click()
-    await (await adv(page, 'integration-who-template')).check()
+    // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+    await page.getByTestId('integration-pick-custom').click()
+    await choose(page, 'integration-who-template')
     expect(await axe()).toEqual([])
     await modal(page).getByRole('button', { name: 'Cancel' }).click()
     await page.context().clearCookies()
@@ -243,16 +247,18 @@ test('a new template is for the whole team unless the admin picks people; the me
   await signIn(page)
   await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
+  // Add lists the Discover apps first (QA TC-189); a custom app by its address is the last choice
+  await page.getByTestId('integration-pick-custom').click()
   // one team key and a template both start with the whole team (QA TC-134 retest); switching between them keeps it
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await choose(page, 'integration-who-template')
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-team')).check()
+  await choose(page, 'integration-who-team')
   await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
-  await (await adv(page, 'integration-who-template')).check()
+  await choose(page, 'integration-who-template')
   await page.getByTestId('integration-name').fill('Wiki')
   await page.getByTestId('integration-url').fill('https://mcp.wiki.example/mcp')
-  await (await adv(page, 'integration-auth-key')).check()
+  await choose(page, 'integration-auth-key')
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integration-templates') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toMatchObject({ name: 'Wiki', access: { everyone: true } })

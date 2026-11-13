@@ -15,6 +15,7 @@
 // choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
 // list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
 import clsx from 'clsx'
+import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -429,7 +430,7 @@ function PhoneField({ label, id, children }: { label: string; id: string; childr
   return (
     <li className="group/row pl-4 focus-within:bg-hover">
       <span className="flex min-h-12 items-center gap-3 border-t border-line pr-4 group-first/row:border-t-0">
-        <label htmlFor={id} className="w-28 shrink-0 text-sm leading-tight break-words text-ink">{label}</label>
+        <label htmlFor={id} className={clsx('w-28 shrink-0 leading-tight break-words', rowName())}>{label}</label>
         {children}
       </span>
     </li>

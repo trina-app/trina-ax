@@ -11,7 +11,8 @@ sign-in (sealed) and hands the library that person's access token on each call. 
 the Mac app the cards say "Not available on this computer yet".
 
 Code: `server/src/integrations/google-apps/` (service, config, catalog, tokens, transport, attachments), routes
-`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migration `341_c_google_apps.sql`.
+`server/src/routes/google-apps.ts`, contract `shared/src/api/google-apps.ts`, migrations `341_c_google_apps.sql` and `349_c_google_app_team.sql` (shared with
+the team).
 
 ## Setting it up (admins)
 
@@ -104,6 +105,42 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
   file tools, into the person's own folder unless they name another one. An attachment over about 18 MB is not read
   (its base64 would not fit in one 25 MB answer): the AI is told so in plain words, from the size the message listed
   (`file_size`, then not fetched at all) or from the answer itself.
+
+## Shared with the team
+
+An owner or admin can also connect **one Google account per app for the team** (a shared mailbox, a team calendar):
+Admin › Connectors › Gmail (or Calendar, Docs, Sheets) › Team settings › **Shared Google account** › **Connect for the
+team**. The dialog signs in at Google, confirms the account, then asks who may use it (everyone, groups or people: the
+same picker as a team connection). Per member stays the default: nothing is shared until an admin connects one and
+saves its people.
+
+- **Who may use it** is the shared connection's rule, exactly as for any team connection (`store.ts mayUse`): being an
+  admin is not a rule. The people it includes get its tools as `team_<app>__…` in their chats, side chats beside a
+  room and scheduled runs; nobody else does, through any path. A new one starts with nobody; closing the dialog before
+  Save removes it again.
+- **Only owners and admins** can connect, sign in again, change its people or remove it (`/api/admin/google-apps/:app/
+  team…`: the route checks the role and the service checks it again). A member sees, on the app's page in Settings ›
+  Connectors, "Shared by an admin: <account>" when it includes them, and can still connect their own account.
+- **A member's own connection is never touched.** It is a different row (scope `personal`); a member who has both gets
+  both, and the AI's list names the shared account and says to use the person's own unless they ask for the team's.
+- **Changes ask.** The shared connection's rule is "ask" and no screen changes it: the AI asks each member before it
+  sends or changes something, unless that member chose Always allow on its card. That choice is their own (`integration_user_allow`), ends when they leave its rule, and ends when an admin signs in a different
+  Google account. A scheduled run cannot send through it (nobody to ask).
+- **Its answers** may reach the people its rule includes (a team connection's read scope), not one person's.
+- **Removing it** deletes its tokens, rule and members' Always allow at once. Google revokes a whole grant, so it is
+  asked only when the admin who signed it in has no other Google sign-in here **and no sign-in of anyone here uses the
+  same Google account** (matched by the address confirmed at sign-in: a person's own app, another shared app, a Drive
+  connection or a Drive share). The same check guards a person's own Disconnect (apps or Drive) and every end of a
+  Drive share (stopped, ended at 팀장 넘기기, or stopped because its admin left or was demoted), so removing one never
+  ends another person's connection.
+- **A new one never replaces another admin's.** The dialog completes with `create: true` (409 `team_exists` when
+  another admin connected one meanwhile), and closing it removes only the connection it made (`?id=`). 팀장 넘기기 lists
+  it (`team_sign_ins`, `team_connection`) like other team sign-ins.
+- Data: a team row of `integrations` with `google_app` (at most one per app, migration 349's index), its sign-in a
+  `google_app_flows` row with `scope = 'team'` (only the team completion takes it).
+
+Google Drive has had its own form of this since #95: "Drives shared with the team", read-only and limited to chosen
+folders ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md) "Sharing a Drive with the team").
 
 ## Hosted servers
 

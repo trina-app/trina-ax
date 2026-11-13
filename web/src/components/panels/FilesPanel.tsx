@@ -13,10 +13,10 @@ import { Link, useLocation } from 'react-router-dom'
 import { SKILLS_DIR } from '@mycel/shared/skill-roots'
 import type { FileEntry } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
-import { api, API } from '../../lib/api'
 import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
 import { isInside } from '../../lib/paths'
-import { filesChanged } from '../../store/live'
+import { useFileLists, readTeamTop } from '../../store/fileLists'
+import { accessChanged, filesChanged, reloadAsked } from '../../store/live'
 import { readProjectList, useProjects } from '../../store/projects'
 import { useMe } from '../../store/session'
 import { useUi } from '../../store/ui'
@@ -24,7 +24,8 @@ import { TEAM_TOP_ON_PHONE } from '../../lib/newChat'
 import { SetupRow } from '../onboarding/SetupRow'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { IconButton } from '../ui'
-import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
+import { ListRow } from '../list/List'
+import { PanelFrame, PanelSection } from './PanelFrame'
 
 /** the team folder's top on a phone with the new tabs, where /files is these places (pages/Files.tsx, lib/screens.ts) */
 export const TEAM_ROOT_ON_PHONE = TEAM_TOP_ON_PHONE
@@ -76,22 +77,29 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const locale = useLocale()
   const words = useFolderWords()
   const me = useMe()?.user.id ?? null
-  const [top, setTop] = useState<FileEntry[] | null>(null)
+  // the team folder's top as last read (store/fileLists.ts): shown at once on a visit after the first, read again behind it
+  const read = useFileLists((s) => s.top)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let live = true
-    const load = () =>
-      void api.call(API.tree, { query: { path: '' } }).then(
-        (r) => live && setTop([...topFoldersFirst(r.entries, '')].filter((e) => e.type === 'folder' && !APART.has(e.path))),
+    const load = (fresh = false) =>
+      void readTeamTop({ fresh }).then(
+        () => live && setFailed(false),
         // not read (offline, a server hiccup): the rows it had stay; none yet, the label still opens the team folder
-        () => live && setTop((v) => v ?? []),
+        () => live && setFailed(true),
       )
     load()
-    const off = filesChanged.on(load)
+    const again = () => load(true)
+    const offs = [filesChanged.on(again), accessChanged.on(again), reloadAsked.on(again)]
     return () => {
       live = false
-      off()
+      offs.forEach((off) => off())
     }
   }, [])
+  const top = useMemo<FileEntry[] | null>(
+    () => (read ? [...topFoldersFirst(read, '')].filter((e) => e.type === 'folder' && !APART.has(e.path)) : failed ? [] : null),
+    [read, failed],
+  )
   const byId = useProjects((s) => s.byId)
   const listed = useProjects((s) => s.listed)
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
@@ -116,16 +124,7 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   const lit =
     view === 'recent' ? 'recent' : view === 'trash' ? 'trash' : at !== null ? (folderRows.filter((r) => r.path && isInside(at, r.path) && at !== '').sort((a, b) => b.path!.length - a.path!.length)[0]?.key ?? null) : null
 
-  const row = (p: Place) => (
-    <li key={p.key}>
-      <Link to={p.to} aria-current={lit === p.key ? 'page' : undefined} className={clsx(panelRow, phone && 'h-11', lit === p.key && 'bg-hover font-medium')} data-testid={p.testId}>
-        <p.icon size={16} className="shrink-0 text-muted" aria-hidden />
-        <span className="min-w-0 flex-1 truncate" title={p.label}>
-          {p.label}
-        </span>
-      </Link>
-    </li>
-  )
+  const row = (p: Place) => <ListRow key={p.key} to={p.to} selected={lit === p.key} icon={<p.icon />} name={p.label} nameTitle={p.label} testId={p.testId} />
   return (
     <>
       <ul className="mb-4">{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>

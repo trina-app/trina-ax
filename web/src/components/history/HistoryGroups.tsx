@@ -161,26 +161,26 @@ function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: 
     <div className="mt-2 first:mt-0" data-testid="history-group" data-group={group.projectId ? 'project' : 'other'} data-folded={folded ? '' : undefined}>
       {/* the heading is the group's name only (the link, or the other chats' fold), so a screen reader's list of
           headings reads the projects; the icon and ▾ follow it */}
-      <div className={clsx('group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
+      <div className={clsx('group/head relative flex h-row items-center gap-1 pr-9 pl-3 text-list-head font-semibold text-list-head-ink max-md:h-11 max-md:pr-11', canStart && headMark && 'md:pointer-coarse:pr-16 max-md:pr-17')} data-testid="history-group-head">
         {group.projectId ? (
           <>
             {/* the name's link is as tall as the header: 28 px, 44 px on a phone */}
             <h3 className="flex h-full min-w-0">
-              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="flex h-full min-w-0 items-center rounded hover:text-ink" data-testid="history-group-name">
+              <Link to={`/projects/${group.projectId}`} onClick={onNavigate} className="flex h-full min-w-0 items-center rounded hover:text-muted" data-testid="history-group-name">
                 <span className="truncate">{name}</span>
               </Link>
             </h3>
-            <FolderKanban size={12} className="shrink-0" aria-hidden />
+            <FolderKanban size={14} className="shrink-0 text-muted" aria-hidden />
             {/* no-tooltip: a disclosure's ▾ (aria-expanded), as on the section titles above */}
             <button type="button" aria-expanded={!folded} aria-controls={listId} aria-label={t('history.group.chats', { name })} onClick={fold} className="touch-hit -ml-1 flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="history-group-fold">
-              <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+              <ChevronDown size={14} className={clsx('text-muted transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
           </>
         ) : (
           <h3 className="flex h-full min-w-0">
-            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="flex h-full max-w-full items-center gap-1 rounded hover:text-ink" data-testid="history-group-fold">
+            <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={fold} className="flex h-full max-w-full items-center gap-1 rounded hover:text-muted" data-testid="history-group-fold">
               <span className="truncate">{t('history.other')}</span>
-              <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+              <ChevronDown size={14} className={clsx('shrink-0 text-muted transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
             </button>
           </h3>
         )}

@@ -105,10 +105,10 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   return (
     <div ref={listRef} data-testid="trina-list">
       <WaitingRow />
-      {empty && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
+      {empty && <p className="px-3 py-2 text-row text-faint">{t('sidebar.noChats')}</p>}
 
       {groups.pinned.length > 0 && (
-        <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={12} aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
+        <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
           <ul>{groups.pinned.map(row)}</ul>
         </PanelSection>
       )}
@@ -125,7 +125,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
           {cursor && (
             <button
               type="button"
-              className="flex h-8 w-full items-center rounded-lg px-3 text-left text-xs text-muted hover:bg-hover"
+              className="flex h-row w-full items-center rounded-lg px-3 text-left text-meta text-muted hover:bg-hover"
               disabled={moreLoading}
               onClick={() => {
                 setMoreLoading(true)
@@ -180,7 +180,7 @@ function WaitingRow() {
     <button type="button" className={clsx(panelRow, 'mb-1 font-medium')} onClick={() => navigate(`/c/${first.id}`)} data-testid="trina-waiting">
       <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-warn text-nano leading-4 font-bold text-canvas">?</span>
       <span className="min-w-0 flex-1 truncate">{t('marker.card')}</span>
-      <span className="shrink-0 text-xs font-normal text-muted tabular-nums" data-testid="trina-waiting-count">{waiting.length}</span>
+      <span className="shrink-0 text-meta font-normal text-muted tabular-nums" data-testid="trina-waiting-count">{waiting.length}</span>
     </button>
   )
 }

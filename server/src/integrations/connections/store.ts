@@ -185,12 +185,41 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
-  // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
-  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId
+  // a person's own Google app: only its owner, whatever the switch for members' own MCP connections says. The account
+  // an admin shared with the team for an app (scope 'team', migration 349) follows the team rule below like any team
+  // connection
+  if (row.google_app && row.scope === 'personal') return row.owner_user_id === userId
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) LIMIT 1`).get(row.id, userId, userId)
+}
+
+/** This person signed in an app's account shared with the team that still holds its tokens (but `except`): revoking
+ * their Google grant could end it for everyone it is shared with. */
+export function signsTeamGoogleApp(db: Database, user: string, except?: string): boolean {
+  return !!db.query(`SELECT 1 FROM integrations i JOIN team_sign_ins s ON s.kind = 'team_connection' AND s.target_id = i.id
+    WHERE i.scope = 'team' AND i.google_app IS NOT NULL AND i.secret_enc IS NOT NULL AND s.user_id = ? AND i.id != ? LIMIT 1`).get(user, except ?? '')
+}
+
+/** The Google address a connection's, a Drive connection's or a Drive share's account was confirmed with (JSON with
+ * `email`), lowercased; null when none is stored. */
+export function googleEmailOf(account: string | null | undefined): string | null {
+  try { const e = (JSON.parse(account ?? 'null') as { email?: unknown } | null)?.email; return typeof e === 'string' && e ? e.toLowerCase() : null } catch { return null }
+}
+
+/** Google revokes a whole grant (one Google account and app), so before asking it to revoke a token this server checks
+ * that no other sign-in here, of anyone, still uses the same Google account: a person's own Gmail, Calendar, Docs or
+ * Sheets, an account shared with the team, a Drive connection or a Drive shared with the team. Matched by the address
+ * confirmed at sign-in (the subjects differ: Google's userinfo for the apps, Drive's permissionId for Drive). An unknown
+ * address counts as in use (fail safe: nothing is revoked). `except`: the sign-in being removed. */
+export function googleAccountInUse(db: Database, email: string | null, except: { integration?: string; driveUser?: string; share?: string } = {}): boolean {
+  if (!email) return true
+  const e = email.toLowerCase()
+  const match = "lower(json_extract(account, '$.email')) = ?"
+  if (db.query(`SELECT 1 FROM integrations WHERE google_app IS NOT NULL AND secret_enc IS NOT NULL AND id != ? AND ${match} LIMIT 1`).get(except.integration ?? '', e)) return true
+  if (db.query(`SELECT 1 FROM drive_connections WHERE user_id != ? AND ${match} LIMIT 1`).get(except.driveUser ?? '', e)) return true
+  return !!db.query(`SELECT 1 FROM drive_team_shares WHERE secret_enc IS NOT NULL AND id != ? AND ${match} LIMIT 1`).get(except.share ?? '', e)
 }
 
 /** Is this person among the people an admin's template is for (templates.ts)? A template that is gone covers nobody.

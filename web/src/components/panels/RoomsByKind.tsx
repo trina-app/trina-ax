@@ -22,12 +22,12 @@ import { useRooms } from '../../store/rooms'
 import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, RoomFolderPillView, roomFolderPill, useFolderActions, useFolders, useDropTarget } from '../nav/NavFolders'
 import { RoomRow, roomSections, SECTION_WORD } from '../nav/RoomsList'
 import { useRoomTitle } from '../rooms/RoomIcon'
-import { groupHead, groupRows, PanelSection, panelRow } from './PanelFrame'
+import { groupHead, groupRows, PanelSection, panelRowBox } from './PanelFrame'
 import { useFolds } from './folds'
 
 /** rows drawn at first, and added each time the list's end comes near */
 export const ROOMS_BUDGET = 200
-const ROW_PX = 36
+const ROW_PX = 30
 
 const noop = () => {}
 
@@ -115,13 +115,13 @@ export function RoomsByKind() {
         id={id}
         foldKey={`chats:${s.key}`}
         label={s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
-        icon={s.key === 'pinned' ? <Pin size={12} aria-hidden /> : undefined}
+        icon={s.key === 'pinned' ? <Pin size={14} className="text-muted" aria-hidden /> : undefined}
         count={s.rooms.length}
         labelTestId="chats-panel-label"
         // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
         // so the section is drawn plainly while one is open
         className="[content-visibility:auto] has-[[aria-expanded=true]]:[content-visibility:visible]"
-        style={{ containIntrinsicSize: `auto ${32 + shown.length * ROW_PX}px` }}
+        style={{ containIntrinsicSize: `auto ${46 + shown.length * ROW_PX}px` }}
         data-testid="chats-panel-section"
         data-section={s.key}
       >
@@ -136,13 +136,13 @@ export function RoomsByKind() {
   if (folderNodes.length && !foldersOut) out.push(foldersSection(folderNodes))
   return (
     <div data-testid="sidebar-rooms-list" data-rooms={flat.length} data-drawn={Math.min(draw, flat.length)}>
-      {loaded && !everyRoom.length && <p className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</p>}
+      {loaded && !everyRoom.length && <p className="px-3 py-2 text-row text-faint">{t('rooms.listEmpty')}</p>}
       {out}
       {more && <ul aria-hidden><li ref={end} className="h-px" data-testid="chats-panel-more" /></ul>}
       {loaded && !folders.length && everyRoom.length > 0 && <NewFolderRow kind="rooms" className="mt-2" />}
       {/* not on the conversations page itself, which lists them already */}
       {hidden > 0 && pathname !== '/rooms' && (
-        <Link to="/rooms" className={`${panelRow} mt-2 text-xs text-muted`} data-testid="chats-panel-hidden">
+        <Link to="/rooms" className={`${panelRowBox} mt-2 text-meta text-muted`} data-testid="chats-panel-hidden">
           <EyeOff size={14} aria-hidden />
           <span className="truncate">{t('rooms.hidden.title', { n: hidden })}</span>
         </Link>
@@ -184,7 +184,7 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
         {shown.map((r) => (
           <RoomRow key={r.id} room={r} onNavigate={noop} section="folder" />
         ))}
-        {!folded && !count && <li className="px-3 py-1.5 text-xs text-faint" data-testid="room-folder-empty">{t('navFolders.empty')}</li>}
+        {!folded && !count && <li className="px-3 py-1.5 text-meta text-faint" data-testid="room-folder-empty">{t('navFolders.empty')}</li>}
       </ul>
     </section>
   )

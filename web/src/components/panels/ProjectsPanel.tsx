@@ -10,17 +10,18 @@
 import clsx from 'clsx'
 import { Lock, Plus, SquareKanban, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, matchPath, useLocation, useNavigate } from 'react-router-dom'
+import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
-import { api, API } from '../../lib/api'
 import { useChats } from '../../store/chats'
+import { accessChanged, reloadAsked } from '../../store/live'
 import { isAdmin, useMe } from '../../store/session'
-import { readProjectList, useProjects } from '../../store/projects'
+import { readManagedList, readProjectList, useProjects } from '../../store/projects'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
+import { ListIcon, ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 import { useGroupsRead } from './TrinaList'
 
@@ -40,8 +41,8 @@ export function NewProjectRow({ phone = false }: { phone?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'h-11')} data-testid="projects-panel-new">
-        <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
+      <button type="button" onClick={() => setOpen(true)} className={clsx(panelRow, 'font-medium', phone && 'min-h-row-min! pointer-coarse:min-h-row-min!')} data-testid="projects-panel-new">
+        <ListIcon><Plus /></ListIcon> <span className="truncate">{t('projects.new')}</span>
       </button>
       {open && <NewProjectDialog onClose={() => setOpen(false)} onMade={(p) => { setOpen(false); navigate(`/projects/${p.id}`) }} />}
     </>
@@ -59,15 +60,17 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   // a phone (no Projects page beside it): the owner and admins also find the team projects they manage without being
   // members (GET /api/projects?manage=1: their name and members only), under 팀 프로젝트, as the phone's list had them. A
   // computer's panel leaves them out: they are not the person's own, and the Projects page (/projects) lists them
+  // (the Projects page's list, store/projects.ts managed: as last read at once, read again behind it)
   const admin = isAdmin(useMe()) && phone
-  const [managed, setManaged] = useState<Project[]>([])
+  const managedList = useProjects((s) => s.managed)
+  const managed = useMemo(() => (admin ? (managedList ?? []).filter((p) => p.member === false) : []), [admin, managedList])
   useEffect(() => {
-    if (!admin) return setManaged([])
-    let live = true
-    api.call(API.listProjects, { query: { manage: '1' } }).then((r) => live && setManaged(r.items.filter((p) => p.member === false)), () => {})
-    return () => {
-      live = false
-    }
+    if (!admin) return
+    const read = (fresh = false) => void readManagedList({ fresh }).catch(() => {})
+    read()
+    const again = () => read(true)
+    const offs = [accessChanged.on(again), reloadAsked.on(again)]
+    return () => offs.forEach((off) => off())
   }, [admin])
   const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
   const projects = useMemo(() => {
@@ -84,7 +87,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
-  if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
+  if (!projects.length) return <p className="px-3 py-2 text-row text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
   const team = projects.filter((p) => !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (
@@ -95,34 +98,19 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
         const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        return (
-          <li key={p.id}>
-            <Link
-              to={`/projects/${p.id}`}
-              aria-current={on ? 'page' : undefined}
-              className={clsx('flex items-start gap-2.5 rounded-lg px-3 py-1.5 text-left hover:bg-hover focus-visible:-outline-offset-2', phone && 'py-2.5', on && 'bg-hover')}
-              data-testid="projects-panel-row"
-            >
-              <SquareKanban size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className={clsx('block truncate text-sm text-ink', on && 'font-medium')} title={p.name} data-testid="projects-panel-name">{p.name}</span>
-                <span className="block truncate text-xs text-faint tabular-nums" data-testid="projects-panel-meta">{meta}</span>
-              </span>
-            </Link>
-          </li>
-        )
+        return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={<SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
       })}
     </ul>
   )
   return (
     <div data-testid="projects-list">
       {team.length > 0 && (
-        <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={12} aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
+        <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={14} className="text-muted" aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
           {rows(team)}
         </PanelSection>
       )}
       {mine.length > 0 && (
-        <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={12} aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
+        <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={14} className="text-muted" aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
           {rows(mine)}
         </PanelSection>
       )}

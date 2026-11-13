@@ -11765,6 +11765,49 @@ and rows looked alike).
   faint 1 px line down their left (as Claude Code, Linear and VS Code trees), and a small gap closes the group.
 - **Rows**: 14 px regular, unchanged. No new buttons, no cards; both themes use the existing tokens.
 
+## Panels: Slack-sized type (fix/panel-type-hierarchy, 2026-11-13, product owner)
+
+넣을 곳: `web/src/index.css` (`text-row`, `text-meta`, `h-row`, `pl-row-indent`), `web/src/components/panels/PanelFrame.tsx`
+and the rows of 트리나, 대화, 프로젝트, 파일 and 활동 (also the phone's drawer and 파일/프로젝트 lists, which share them). 이유: the
+owner compared the panels with Slack's sidebar, 2026-11-13: the structure is fine, but the text is far too small and the
+hierarchy does not show. Supersedes the sizes of "Panels: three levels you can tell apart"; the structure stays.
+
+- **Rows** 15 px, 30 px high on a computer (40–44 px on phones and touch screens, as before). Unread (a room with unread
+  messages, a chat that needs me, an unread notice) and the open row are semibold in ink; every other row is muted.
+- **Section headers** the rows' 15 px, semibold in ink, with the ▸ that folds them and their icon; no small grey letter-
+  spaced label. The rows of a section are indented 30 px so their icon starts under the header's words; a 대화 folder
+  is indented the same, its rows one level deeper.
+- **Meta** (a project's "나만 · 3시간 전", a chat's project tag, a notice's time, a folded section's count) 13 px faint.
+- **Fixed rows on top** (트리나에게 묻기, 검색, 예약 작업, 팀 스킬, 새 프로젝트) the rows' 15 px. The panel's title is 18 px, one
+  step above the headers.
+- **Width** 288 px at 1440 (was 268), 256 px at 1280, still 240 px from 1200 down and at most 300 px: at 268 px the 15 px
+  titles with the 30 px indent lost about four more letters each. The 1052 px fold point is unchanged (240 px there).
+- Named tokens, not one-off sizes, so a later whole-app type pass can adopt them. The selected row keeps its fill
+  (`bg-hover`); no new colours.
+
+## Lists: one set of rows and headers (fix/panel-type-hierarchy, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/list/List.tsx` (`ListRow`, `ListIcon`, `ListSection`, `ListHeading`, `rowName`) and the list
+tokens in `web/src/index.css`. 이유: the owner, 2026-11-13, on a phone: 대화 looks right, 프로젝트, 파일 and 나 are too small;
+"is this properly componentized? Why is only Chats fine?" It was not: the phone's 대화 tab (`pages/Rooms.tsx`) drew its
+own rows (17 px names, 40 px round faces, 64 px rows), while 프로젝트 and 파일 reused the computer panel's rows with a
+`phone` flag (15 px, a bare 16 px icon, 44 px) and 나 used the settings list (`phone/PhoneList.tsx`: 15 px, 16 px icons,
+48 px). Three hand-made row styles.
+
+- **One set**: `ListRow` (icon, name, an optional second line, an end mark, `unread`, `selected`) for 프로젝트, 파일 and
+  활동, panel and phone alike; `ListSection`/`ListHeading` for every section header; `ListIcon` for every row icon,
+  `rowName` for the name of the rows that keep their own markup for menus and drag (a chat, a room) and of the
+  phone settings lists' rows (`PhoneListRow`, `PhoneChoiceRow`, `PhoneChecks`, a form field's name), so Settings and
+  Admin on a phone match 나. The panels' old names (`PanelSection`, `GroupChevron`) are re-exported from it.
+- **Phones follow the 대화 tab**: names 17 px, read ones in ink at 500 (the second line carries what is new), unread
+  semibold; icons in a 40 px round tile; a ListRow at least 56 px (the settings rows keep their 48 px); section headers 13 px semibold grey above unindented
+  rows (iOS style), as 대화's always were. Computers keep "Panels: Slack-sized type" (15 px, read rows muted, headers
+  15 px in ink, rows indented).
+- **One place to change**: the difference is only in the tokens (`--text-row`, `--spacing-row-min`,
+  `--spacing-list-icon`, `--color-row-read`, `--font-weight-row-read`, `--text-list-head`, `--color-list-head-ink`, …),
+  a computer's values in `@theme` and a phone's in their own `@media (max-width: 767.98px)` block, apart from the global
+  type scale. The 트리나 drawer's rows use the same size (17 px words, 20 px icons).
+
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,
@@ -24246,6 +24289,37 @@ at the bottom.
   and the chat messages API has no "after this message" read; doing less needs a server change (a newer cursor on the
   visible branch). AI chats' messages stay in memory without a limit, as before.
 
+## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
+
+Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`
+again, and each visit to 파일 showed the skeleton and read `GET /api/files/tree?path=` and `GET /api/files/recent`
+again (the Projects page and 최근 파일 kept their list in component state; 파일's places beside the rail too). At 390
+the same visits showed no skeleton: the phone's 프로젝트 list reads the projects store (`store/projects.ts`, `byId` and
+`listed`), as rooms and AI chats do since "Rooms left a moment ago open at once".
+- **One store per list, the phone's where there is one**: the manage=1 list is `managed` in the projects store (in the
+  server's order), read by `readManagedList` for both the computer's Projects page and an admin's phone list (which
+  read its own copy before); `put` and `drop` change it in place, so a rename, a save of members or a delete anywhere
+  shows on return. 파일 had no store: `store/fileLists.ts` keeps the team folder's top (the places beside the rail and
+  the phone's 파일 tab, the same component) and 최근 파일.
+- **A visit after the first** shows the list as last read from the first frame and reads it once behind it (one
+  request at a time per list: a list shown joins a read on its way; an event during one reads once more after it, its
+  answer may be from before the change); only the very first read shows the skeleton. A failed read leaves what was
+  there, with the page's own error note.
+- **Changes made here** (a delete, the trash, a members save, a new project) change the kept list at once; an answer to
+  a read started before such a change is not shown, and the list is read once more. A plain read's not_found (a chat's
+  project) leaves the Projects page's list alone: it may be a project the owner or an admin manages without being in it.
+- **Kept current**: no project events exist, so a visit reads again; while the page is open, an access change
+  (`access_changed`) or a live connection that could not resume (`reloadAsked`) reads it again. 파일's lists also read
+  again on every file event, as before.
+- **Access**: both stores are emptied at sign-out and when another person signs in (`dropPersonStores`), and a read
+  started before that never lands (a generation counter, as in the projects store). Another team is another address
+  and another page, so nothing crosses teams.
+- After, same mock: a return to 프로젝트 shows no skeleton and reads manage=1 once; a return to 파일 shows no skeleton and
+  reads the tree and the recent list once each. At 390 the same requests as before; 파일's places show the team folders
+  from the first frame too, and an admin's phone list now also reads again on an access change.
+- **Not changed**: a folder's own listing on the Files page (`/files?path=…`) still reads when opened, with its
+  skeleton; it pages, climbs on not_found and has many paths, which is a larger change than this one.
+
 ## Dev environment: the installer turns srt on (feat/install-srt-auto, 2026-11-12)
 
 Owner (pras), after Dion's list of where the dev environment is missing (2026-11-12): "Linux servers customers install
@@ -25275,3 +25349,77 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   from file with the existing checks.
 - **Sharing points only to places that exist:** the Discord link in README.md and issues / pull requests on
   github.com/trina-app/trina-ax. Open for the owner: a community listing process and community signing keys (B5).
+
+## Admin › AI accounts: provider logos and one state per row, like Team settings (fix/providers-page, 2026-11-13, QA TC-191)
+
+- **Logos.** Each provider and account shows its provider's mark: `web/public/icons/connectors/claude.svg` (Claude) and
+  `codex.svg` (the OpenAI mark), the files Connected apps already uses, on the same white tile (LogoTile), so they read
+  in dark mode. The API engine and a gateway's key show a plain plug icon (no brand). No new brand files.
+- **As simple as Team settings.** A provider row: mark, name, one state, the switch; a problem stays as one line (the
+  fix, e.g. a command). Moved into the opened row: how it signs in, every model, the version, when it was checked,
+  **Check again**, the Experimental note of the API engine (was a second badge and an orange sentence; the closed row
+  says "Not set up" and "Set it up"). An account row: mark, name (…last 4 of a key), the plan in short ("Claude
+  subscription · Max", was "Claude subscription (Pro, Max, Team) (max)") and one state; a problem adds one short link
+  ("Replace the key", "Connect it again"). Who uses it, this month's tokens and cost, last used, expiry and the
+  server's longer explanation open under the name. Check again, Move up / Move down join the ⋯ menu (were three icon
+  buttons on every row). "Accounts, in the order they are used" is "Accounts"; the two-line "Order of use…" note is
+  behind **How order works**.
+- The page keeps its name, AI accounts; the rename asked in QA TC-192 is a separate PR (fix/providers-rename) that
+  waits for a product decision.
+- Version impact: **patch** (web UI only; no API or data change).
+
+## The add-app dialog: Team settings' rows, the apps first (fix/add-team-app-dialog, 2026-11-13, QA TC-187, TC-189, TC-190)
+
+- **Layout.** IntegrationDialog's fields are Team settings rows (`SettingRow`: the words and one short line left, the
+  control right; stacked on a phone). The choices under Advanced (who connects, type, sign-in method, writing/deleting/
+  sending, a key's header) are selects instead of radio pills; each option keeps its test id. "Sign in with my own app"
+  is a switch row. Advanced is the word only: the collapsed summary of its choices (QA TC-204) is gone, since the closed
+  section now says nothing a member must read.
+- **Who may use it, once.** A team connection's "For: … · Change" line (now also when editing one or a template) carries
+  the sign-in note too; Change opens the access chooser under that line. It is no longer inside Advanced, so it shows
+  once. Defaults are unchanged: a new team connection or template is for the whole team.
+- **Errors.** A field's error shows after Save, or after leaving a field one typed in; leaving an empty field one never
+  typed in shows nothing (QA TC-187 saw red under a fresh form after clicking Advanced).
+- **The apps first.** Admin's Add (and "Team connection") opens a searchable list of the Discover apps the team has not
+  connected (icon and name), "Custom app (enter an address)" last; Back returns to it. A picked app is exactly the
+  Discover path (its name, address, MCP and sign-in, not editable). "Add one by its address" still opens the custom form
+  directly; the person's own Settings › Connectors and onboarding have no list (their Discover is on the page).
+- **Title.** Adding a listed app reads "Add Notion" with the app's icon (the "as a team connection" title is gone: the
+  For line says who it is for); its address is one small line. `Modal`'s title takes any content (a string still works).
+
+## A shared Google account for the team (feat/google-team-connection, 2026-11-13, QA TC-198)
+
+Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: [GOOGLE-APPS.md](GOOGLE-APPS.md)
+"Shared with the team".
+
+- **Reverses part of "No members' switch for connectors" (2026-11-12)**: "the AI uses only that person's own" no longer
+  holds for Gmail, Google Calendar, Google Docs and Google Sheets. An owner or admin may connect one Google account per
+  app for the team and pick who uses it; per member stays the default, and the shared one is an explicit admin choice
+  (nobody uses a new one until its people are saved). Also bends "Rooms use the asker's own Google apps only" (Gmail …
+  as built-in connectors): a side chat beside a room offers the shared account to the people its rule includes, as it
+  offers any team connection.
+- **The team-connection model, not a second permission system.** The shared account is a team row of `integrations`
+  (`scope = 'team'`, `google_app` set, owner NULL); its rule is `integration_access` and `store.ts mayUse` treats it as
+  every team connection (an access rule must match; being an admin is not one). Tools, read scope, hidden secrets,
+  members' Always allow and its pruning all follow without new code. The generic connection list and manage APIs still
+  hide every `google_app` row: it is managed only on the app's page.
+- **Owners and admins only, checked twice.** New `/api/admin/google-apps/:app/team…` endpoints (`auth: 'admin'`), and
+  the service reads the role again from the database on every call (an admin demoted mid sign-in cannot finish it). Its
+  sign-in is a `google_app_flows` row with `scope = 'team'` (migration 349, additive): only the team completion takes it,
+  only the personal one a personal flow, so neither can become the other.
+- **Writes keep asking.** Its write rule is "ask" and no screen sets it to "allow": sending as a shared mailbox asks the
+  member on the card each time unless they chose their own Always allow there. That choice ends when an admin signs a
+  different Google account in (they chose it for the old one), when they leave the rule, or when they turn it back on
+  the app's page. Scheduled runs cannot send through it. Considered and not done: forbidding Always allow on a shared
+  mailbox; kept consistent with every other team connection and the owner's "Always allow means done".
+- **The admin who signed it in** is recorded in `team_sign_ins` so 팀장 넘기기 lists it. It stays when that admin leaves
+  (a shared mailbox is the team's, unlike a Drive share of an admin's own Drive). Revocation at Google: Google revokes a whole
+  grant, so removing the shared account, a person's own Disconnect (apps or Drive) and every end of a Drive share (stopped,
+  ended at 팀장 넘기기, its admin gone) ask Google
+  only when neither the same person keeps another Google sign-in here nor anyone's sign-in here uses the same Google
+  account (`store.ts googleAccountInUse`, matched by the confirmed address; an unknown address counts as in use). Found
+  in review: a member's own Gmail on the team's mailbox account, disconnected, would have ended the shared one for
+  everyone.
+- **Google Drive unchanged**: "Drives shared with the team" (#95) already is its shared mode (read-only, chosen folders).
+- Version impact: **minor** (new admin feature and endpoints, optional fields, an add-only migration).
+- Tests: `tests/unit/c-google-apps-team.test.ts`.

@@ -9,8 +9,11 @@ import { DICTS } from '../../src/i18n'
 const t = DICTS.ko
 const H = { [CSRF_HEADER]: '1' }
 
+/** a team project with Bob in it (one only I see goes under 내 프로젝트, docs/DECISIONS.md "Projects: a place of their
+ * own"), or a personal one */
 async function project(page: Page, name: string, scope: 'team' | 'personal'): Promise<string> {
-  const r = await page.request.post('/api/projects', { headers: H, data: { name, scope, instructions: '', ...(scope === 'personal' ? { participants: [] } : {}) } })
+  const participants = scope === 'team' ? [{ subjectType: 'user', subjectId: 'bob' }] : []
+  const r = await page.request.post('/api/projects', { headers: H, data: { name, scope, instructions: '', participants } })
   expect(r.status()).toBe(201)
   return ((await r.json()) as { id: string }).id
 }

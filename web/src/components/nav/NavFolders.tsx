@@ -24,7 +24,7 @@ import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
 import { Tooltip } from '../Tooltip'
-import { panelRow } from '../panels/PanelFrame'
+import { panelRowBox } from '../panels/PanelFrame'
 
 /** my folders of one kind, read when first needed and kept current */
 export function useFolders(kind: NavFolderKind, on = true): NavFolder[] {
@@ -96,7 +96,7 @@ export function NewFolderRow({ kind, className }: { kind: NavFolderKind; classNa
   const t = useT()
   const act = useFolderActions(kind)
   return (
-    <button type="button" className={clsx(panelRow, 'h-8 text-muted', className)} onClick={() => void act.create()} data-testid={`${kind}-folder-new`}>
+    <button type="button" className={clsx(panelRowBox, 'text-row text-muted', className)} onClick={() => void act.create()} data-testid={`${kind}-folder-new`}>
       <FolderPlus size={16} className="text-faint" aria-hidden /> <span className="truncate">{t('navFolders.new')}</span>
     </button>
   )
@@ -126,11 +126,11 @@ export function FoldersLabelWords({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   return (
     <>
-      {folderKindName(t, kind)} <span className="font-normal">· {t('trinaList.onlyYou')}</span>
+      {folderKindName(t, kind)} <span className="text-meta font-normal text-faint">· {t('trinaList.onlyYou')}</span>
     </>
   )
 }
-export const FolderIcon = ({ className }: { className?: string }) => <Folder size={12} className={clsx('shrink-0', className)} aria-hidden />
+export const FolderIcon = ({ className }: { className?: string }) => <Folder size={14} className={clsx('shrink-0', className)} aria-hidden />
 
 /** A folder's "⋯": rename, up, down, delete. `count`: what I can see in it (a confirm only when it holds something). */
 export function FolderMenu({ folder, count, className, buttonClassName }: { folder: NavFolder; count: number; className?: string; buttonClassName?: string }) {

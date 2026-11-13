@@ -470,6 +470,11 @@ export class MockServer {
   plugins = new MockPlugins()
   /** Gmail, Google Calendar, Google Docs, Google Sheets (test/mock/googleApps.ts): nothing set up until a test does */
   googleApps = new MockGoogleApps()
+  /** whom the account shared with the team includes, and how many active people (googleApps.ts) */
+  readonly googleAppsWired = (() => {
+    this.googleApps.covers = (access, userId) => { const u = this.users.find((x) => x.id === userId); return !!u && this.templateCovers({ access }, u) }
+    this.googleApps.countOf = (access) => this.users.filter((u) => u.status === 'active' && this.templateCovers({ access }, u)).length
+  })()
   /** after-update to-dos an admin dismissed (server/src/system/after-update.ts) */
   afterDismissed: string[] = []
   integrationSecrets = new Map<string, string>()
@@ -4174,6 +4179,26 @@ export class MockServer {
       this.settleServiceRequests()
       return this.googleApps.adminStatus(c.params.app as GoogleAppId, this.driveClient !== 'none')
     },
+    // the account shared with the team (owners and admins; the route checks the role)
+    authorizeGoogleAppTeam: (c) => this.googleApps.authorizeTeam(this.gappId(c.params.app), c.user.id) ?? fail('conflict', 409, 'google_app_not_set_up'),
+    googleAppTeamFlow: (c) => this.googleApps.pollTeam(this.gappId(c.params.app), c.params.id!, c.user.id) ?? fail('not_found', 404, 'google_app_flow_not_found'),
+    cancelGoogleAppTeamFlow: (c) => { this.googleApps.cancel(c.params.id!); return undefined },
+    completeGoogleAppTeamFlow: (c) => {
+      const app = this.gappId(c.params.app)
+      if (c.body.create && this.googleApps.app(app)!.team) fail('conflict', 409, 'google_app_team_exists', undefined, { reason: 'team_exists' })
+      if (!this.googleApps.completeTeam(app, c.params.id!, { id: c.user.id, name: c.user.name })) fail('not_found', 404, 'google_app_flow_not_found')
+      return this.googleApps.adminStatus(app, this.driveClient !== 'none')
+    },
+    setGoogleAppTeam: (c) => {
+      const app = this.gappId(c.params.app)
+      if (!this.googleApps.setTeamAccess(app, c.body.access)) fail('not_found', 404, 'google_app_not_connected')
+      return this.googleApps.adminStatus(app, this.driveClient !== 'none')
+    },
+    removeGoogleAppTeam: (c) => {
+      const app = this.gappId(c.params.app)
+      if (c.query.id && c.query.id !== `team-${app}`) return { removed: false, revocation: 'not_needed' as const }
+      return this.googleApps.removeTeam(app)
+    },
     setGoogleAppMembers: (c) => {
       this.googleApps.app(c.params.app) ?? fail('not_found', 404)
       // the old members' switch: changes nothing (docs/DECISIONS.md "No members' switch for connectors")
@@ -4865,6 +4890,8 @@ export class MockServer {
   driveShareCovers(x: MockDriveShare, u: User): boolean {
     return x.access.everyone || x.access.users.includes(u.id) || x.access.groups.some((g) => u.groupIds.includes(g))
   }
+  /** the Google app in the path, or not found */
+  gappId(raw: string | undefined): GoogleAppId { return this.googleApps.app(raw ?? '') ? raw as GoogleAppId : fail('not_found', 404) }
   driveShareUsers(x: MockDriveShare): number {
     return this.users.filter((u) => u.status === 'active' && this.driveShareCovers(x, u)).length
   }

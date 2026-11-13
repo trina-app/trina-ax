@@ -7,7 +7,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { choose, realErrors, reset, signIn, watchConsole } from './helpers'
 import { openSettings } from './nav'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
@@ -52,7 +52,8 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   // one column: no type or sign-in cards up front, they are under Advanced
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
   await expect(dialog.getByTestId('integration-write-ask')).toBeHidden()
-  await expect(dialog.getByTestId('integration-advanced-summary')).toContainText('매번 묻기')
+  // Advanced is the word only (QA TC-187): no summary next to it
+  await expect(dialog.getByTestId('integration-advanced')).toHaveText('고급')
   await dialog.getByRole('button', { name: '취소' }).click()
   // back: the list again
   await detail.getByTestId('connector-back').click()
@@ -75,7 +76,7 @@ test('Add custom connector: Name and Server URL, the rest under Advanced; an API
   await dialog.getByTestId('integration-url').fill('https://mcp.wiki.example/mcp')
   await dialog.getByTestId('integration-advanced').click()
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'true')
-  await dialog.getByTestId('integration-auth-key').check()
+  await choose(dialog, 'integration-auth-key')
   await dialog.getByTestId('integration-key').fill('synthetic-key-' + 'k'.repeat(20))
   await dialog.getByTestId('integration-save').click()
   await expect(dialog).toHaveCount(0)
@@ -92,13 +93,12 @@ test('a field that needs fixing under Advanced opens it', async ({ page }) => {
   await dialog.getByTestId('integration-name').fill('Sample API')
   await dialog.getByTestId('integration-url').fill('https://api.example.com/v1')
   await dialog.getByTestId('integration-advanced').click()
-  await dialog.getByTestId('integration-kind-http').check()
-  await dialog.getByTestId('integration-auth-none').check()
+  await choose(dialog, 'integration-kind-http')
+  await choose(dialog, 'integration-auth-none')
   await dialog.getByTestId('integration-advanced').click()
   await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
-  // an API with no sign-in and no usage notes saves; the point here is that Advanced shows its choices in one line, in
-  // plain words: no kind ("MCP 서버" / "API") and no sign-in where there is none (QA TC-204)
-  await expect(dialog.getByTestId('integration-advanced-summary')).toHaveText('매번 묻기')
+  // closed, Advanced is the word only (QA TC-187): no summary of its choices next to it
+  await expect(dialog.getByTestId('integration-advanced')).toHaveText('고급')
 })
 
 test('Admin: a connector page Connects with one team key, and its ⌄ makes a template for the whole team', async ({ page }) => {
@@ -115,12 +115,12 @@ test('Admin: a connector page Connects with one team key, and its ⌄ makes a te
   await page.getByTestId('connector-connect-template').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByTestId('integration-advanced').click()
-  await expect(dialog.getByTestId('integration-who-template')).toBeChecked()
-  await expect(dialog.getByTestId('integration-access-everyone')).toBeChecked()
+  await expect(dialog.getByTestId('integration-who-template')).toHaveJSProperty('selected', true)
+  await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
   await dialog.getByRole('button', { name: '취소' }).click()
   await detail.getByTestId('connector-connect').click()
   await page.getByRole('dialog').getByTestId('integration-advanced').click()
-  await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toBeChecked()
+  await expect(page.getByRole('dialog').getByTestId('integration-who-team')).toHaveJSProperty('selected', true)
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
   // members may not add their own (Team settings): no "Just for me" either, the server would refuse it
   expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { personalIntegrations: false } })).ok()).toBeTruthy()
@@ -242,9 +242,62 @@ test('Admin: "Connect for the team" saved without opening Advanced reaches the w
   // who it is for, without opening Advanced; Change opens the chooser
   await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
   await dialog.getByTestId('integration-for-change').click()
-  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'true')
+  // who may use it opens under that line (QA TC-187), not again inside Advanced
+  await expect(dialog.getByTestId('integration-for-change')).toHaveAttribute('aria-expanded', 'true')
+  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
   await expect(dialog.getByTestId('integration-access-everyone')).toBeFocused()
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
   await dialog.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toMatchObject({ name: 'Linear', access: { everyone: true, groups: [], users: [] } })
+})
+
+// QA TC-189: Admin's Add lists the Discover apps (icon and name, searchable), a custom app by its address last; picking
+// one fills the form, so the admin only confirms. QA TC-187: a fresh custom form shows no error before Save.
+test('Admin: Add picks an app from Discover, or a custom app last', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/connectors')
+  await header(page).getByTestId('integration-add').click()
+  const dialog = page.getByRole('dialog')
+  const list = dialog.getByTestId('integration-pick')
+  await expect(list.getByTestId('integration-pick-notion').locator('img')).toHaveAttribute('src', '/icons/connectors/notion.svg')
+  await expect(list.locator('li').last()).toContainText('직접 추가 (주소 입력)')
+  // the apps with a setup of their own lead the list (Google Drive first), never a Google address under a custom app
+  await expect(list.locator('li').first().getByRole('button')).toHaveAttribute('data-testid', 'integration-pick-google-drive')
+  await expect(dialog.getByTestId('integration-pick-search')).toBeFocused()
+  await dialog.getByTestId('integration-pick-search').fill('noti')
+  await expect(list.locator('li')).toHaveCount(2)
+  await expect(dialog.getByTestId('integration-pick-count')).toHaveText('앱 1개')
+  // by keyboard: picking moves the keyboard to the dialog (it reads "Notion 추가"), and Tab stays inside it
+  await dialog.getByTestId('integration-pick-notion').focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeFocused()
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab')
+    await expect(dialog.locator(':focus')).toHaveCount(1)
+  }
+  await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
+  await expect(dialog.getByTestId('connector-summary')).toHaveText('주소: https://mcp.notion.com/mcp')
+  await expect(dialog.getByTestId('integration-name')).toHaveCount(0)
+  await expect(dialog.getByTestId('integration-save')).toHaveText('저장하고 로그인')
+  // back to the list, then a custom app: name and address, no error until Save
+  await dialog.getByTestId('integration-pick-back').focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog.getByTestId('integration-pick-search')).toBeFocused()
+  await dialog.getByTestId('integration-pick-custom').focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog.getByTestId('integration-name')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.locator(':focus')).toHaveCount(1)
+  await dialog.getByTestId('integration-name').focus()
+  await dialog.getByTestId('integration-url').focus()
+  await dialog.getByTestId('integration-advanced').click()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await dialog.getByTestId('integration-save').click()
+  await expect(dialog.getByText('이름을 넣어 주세요.')).toBeVisible()
+  // an app with a setup of its own opens that setup, not a form
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await header(page).getByTestId('integration-add').click()
+  await page.getByRole('dialog').getByTestId('integration-pick-google-drive').click()
+  await expect(page).toHaveURL(/\/admin\/connectors\/google-drive$/)
 })
