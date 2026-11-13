@@ -25027,3 +25027,17 @@ default.
 - The page keeps its name, AI accounts; the rename asked in QA TC-192 is a separate PR (fix/providers-rename) that
   waits for a product decision.
 - Version impact: **patch** (web UI only; no API or data change).
+
+## Admin: "AI accounts" is called "Providers" (fix/providers-rename, 2026-11-13, QA TC-192; waiting for a product decision)
+
+- **Reverses** "Plain words for members" (2026-11-11) for the admin page only: Admin › AI accounts is called
+  **Providers** again (ko **AI 제공사**, id Penyedia AI, ja AIプロバイダー, es Proveedores de
+  IA), as the QA report asked. Korean: "AI 제공사" is the word the Korean strings already use for Anthropic and OpenAI
+  ("AI 제공사(Anthropic·OpenAI)"); "AI 계정" read as the accounts only. Every pointer follows: the sidebar and the phone
+  back label (was "Team AI accounts"), Members' no-AI hints, the welcome line, the file list problem, handover, the
+  server's messages that name the page (`admin/engines.ts`, `system/messages*.ts`, `chat/i18n.ts`,
+  `credentials/i18n.ts`; the Linux ones still said "AI engines") and the guides. The "queue is long" message points to
+  Team settings, where "Answers at the same time" is now. The stored chat-error words in `shared/src/api/errors.ts`
+  (LEGACY_CHAT_ERRORS) keep their old text: they match answers already saved. The members' own Settings page
+  (`settings.providers`) keeps "AI accounts" (ko AI 계정) until the owner decides.
+- Version impact: **patch** (wording only; no API or data change).

@@ -205,13 +205,13 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 ## 6. AI 연결
 
-- owner가 브라우저에서 **관리자 › AI 계정**으로 연결한다: Claude(구독은 "Claude 구독 연결" 버튼으로 브라우저에서 승인하고 코드를 붙여 넣기,
+- owner가 브라우저에서 **관리자 › AI 제공사**으로 연결한다: Claude(구독은 "Claude 구독 연결" 버튼으로 브라우저에서 승인하고 코드를 붙여 넣기,
   또는 `claude setup-token` 토큰 붙여 넣기; 또는 Anthropic API 키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
   프록시가 요청마다 바꿔 끼움). 자체 설치는 네 종류를 다 쓸 수 있고(구독을 팀이 함께 쓸 때의 약관 안내가 화면에 뜸),
   `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. 호스팅도 기본으로 네 종류를 지원하지만 실제 허용 범위는 운영 설정과 제공사 약관을 따릅니다.
 - CLI 대체(브라우저 연결이 안 될 때만): `sudo /var/lib/mycel/root/set-claude-token < 토큰파일`(표준 입력만),
   Codex는 `sudo mycel-ctl codex-login`. 다음 시작 때 AI 연결로 옮겨진다.
-- 팀 API 엔진(OpenAI 호환, 실험 단계)은 관리자 › AI 계정 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
+- 팀 API 엔진(OpenAI 호환, 실험 단계)은 관리자 › AI 제공사 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
 
 ## 7. 팀원 연결
 
@@ -475,7 +475,7 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
    `stat` 출력에서 세 폴더는 `axserver 700`, `app.db`는 `axserver 600`이어야 합니다.
 8. 켜고 확인합니다: `sudo systemctl start mycel-launcher mycel-server mycel-update.timer`, `sudo mycel-ctl status`. 켠 직후에는 `health:` 줄이 `connection refused`일 수 있습니다(서버가 아직 켜지는 중). 몇 초 기다렸다가 `sudo mycel-ctl status`를 다시 실행하면 `ok:true`가 보입니다.
 9. 모두 예전 암호로 다시 로그인합니다. 예전 로그인·쓰지 않은 초대 링크·암호 재설정 링크는 더 이상 안 되므로 필요하면 새로 초대합니다.
-10. **관리자 › AI 계정**에서 AI 계정을 다시 연결하고 연동(Google, Slack 등)도 다시 연결합니다. 열쇠가 예전 서버의 키로 봉인되어 있고 그 키는 보관본에 없습니다. 예전 서버나 지원 첨부의 키 파일을 복사하지 않습니다.
+10. **관리자 › AI 제공사**에서 AI 계정을 다시 연결하고 연동(Google, Slack 등)도 다시 연결합니다. 열쇠가 예전 서버의 키로 봉인되어 있고 그 키는 보관본에 없습니다. 예전 서버나 지원 첨부의 키 파일을 복사하지 않습니다.
 11. 아래 확인을 하고 새 백업을 만든 뒤 `/var/lib/mycel/data/off-host.tar.zst.age`와 `/var/lib/mycel/data/recovered`를 지웁니다. `fresh-install`과 `team.fresh-install`은 일주일 뒤 지웁니다.
 
 리눅스에서 팀 폴더는 늘 `/var/lib/mycel/team`입니다(설치기가 설치·repair·업데이트마다 정함). 그 자리에 네트워크 공유나 다른 디스크를 마운트했다면 이 순서대로는 안 됩니다. 마운트 지점은 `mv`가 실패하고("Device or resource busy"), NFS·SMB에서는 `chown`/`chmod`가 안 될 수 있습니다. 공유는 마운트한 채로 두고 5·6단계의 팀 폴더 `mv`는 건너뜁니다. 새 설치가 공유에 만든 것을 옆으로 옮긴 뒤 되살린 `team/`의 내용을 공유에 복사하고, 서버 계정만 읽을 수 있는지 공유 관리자와 확인합니다. 설정·인증서·키는 새 설치의 것을 그대로 씁니다(보관본에 없음). 자세한 설명: [BACKUP-RESTORE.md](BACKUP-RESTORE.md#linux-a-new-server-from-the-archive).

@@ -30,7 +30,7 @@ export const CLAUDE_MODELS = [
   { id: 'sonnet', label: 'Claude Sonnet' },
   { id: 'haiku', label: 'Claude Haiku' },
 ]
-/** Claude Code's model choices (Admin > AI engines, the team default, the composer): the aliases, or with an
+/** Claude Code's model choices (Admin > Providers, the team default, the composer): the aliases, or with an
  * Anthropic-compatible gateway its model ids, the default first (the proxy forwards no other) */
 export function claudeModels(config: Pick<AppConfig, 'engine'>): { id: string; label: string }[] {
   const g = anthropicGateway(config)
@@ -80,8 +80,8 @@ export const T: Record<string, Record<Locale, string>> = {
   launcherDown: { ko: '실행기(엔진 계정 데몬)가 답하지 않아요.', en: 'The launcher (engine account daemon) does not answer.', id: 'Launcher (daemon akun mesin) tidak menjawab.', ja: "ランチャー（エンジンアカウントのデーモン）が応答しません。", es: "El lanzador (servicio de la cuenta del motor) no responde." },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없어요.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.', ja: "会社キーモードが有効ですが、会社のAPIキーが保存されていません。", es: "El modo de clave de empresa está activo, pero no hay ninguna clave de API de empresa guardada." },
   managedLimited: { ko: 'AI 연결이 사용 한도에 닿았어요. 한도가 풀리면 다시 쓸 수 있어요.', en: 'The AI connections have reached their limit. They work again when the limit ends.', id: 'Koneksi AI mencapai batasnya. Koneksi bisa dipakai lagi saat batas berakhir.', ja: "AI接続が使用上限に達しました。上限が解除されると再び使えます。", es: "Las conexiones de IA alcanzaron su límite. Volverán a funcionar cuando termine el límite." },
-  managedNone: { ko: 'AI 연결이 없어요. 관리자 > 연결 > AI 계정에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > Connections > AI accounts.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi > Akun AI.', ja: "AI接続がありません。「管理 > 接続 > AIアカウント」で追加してください。", es: "No hay conexión de IA. Añada una en Administración > Conexiones > Cuentas de IA." },
-  managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > 연결 > AI 계정를 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > Connections > AI accounts.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi > Akun AI.', ja: "このエンジンのAI接続は現在使えません（拒否、期限切れ、上限到達）。「管理 > 接続 > AIアカウント」を確認してください。", es: "Las conexiones de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con límite alcanzado). Revise Administración > Conexiones > Cuentas de IA." },
+  managedNone: { ko: 'AI 연결이 없어요. 관리자 > AI 제공사에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > Providers.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Penyedia AI.', ja: "AI接続がありません。「管理 > AIプロバイダー」で追加してください。", es: "No hay conexión de IA. Añada una en Administración > Proveedores de IA." },
+  managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > AI 제공사를 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > Providers.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Penyedia AI.', ja: "このエンジンのAI接続は現在使えません（拒否、期限切れ、上限到達）。「管理 > AIプロバイダー」を確認してください。", es: "Las conexiones de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con límite alcanzado). Revise Administración > Proveedores de IA." },
   version: { ko: '아직 검증하지 않은 버전이에요(고정 버전: {pinned}; 잠금 시험을 통과한 버전: {tested}).', en: 'This version has not been tested (pinned: {pinned}; lockdown-tested: {tested}).', id: 'Versi ini belum diuji (versi yang dikunci: {pinned}; lulus uji penguncian: {tested}).', ja: "このバージョンは未検証です（固定：{pinned}、制限テスト済み：{tested}）。", es: "Esta versión no se ha probado (fijada: {pinned}; con restricciones verificadas: {tested})." },
   lockdown: { ko: '이 버전의 엔진 잠금 시험이 실패했어요.', en: 'The engine lockdown test failed for this version.', id: 'Uji penguncian mesin gagal untuk versi ini.', ja: "このバージョンのエンジン制限テストに失敗しました。", es: "Falló la prueba de restricciones del motor para esta versión." },
   error: { ko: '상태를 확인하지 못했어요: {e}', en: 'Could not check the status: {e}', id: 'Tidak dapat memeriksa status: {e}', ja: "状態を確認できませんでした：{e}", es: "No se pudo comprobar el estado: {e}" },
@@ -333,7 +333,7 @@ export class EngineStatusCache {
   }
 }
 
-/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). A change
+/** One cache per server, shared by Admin > Providers and the composer's engine list (admin/engine-choice.ts). A change
  * of the team's AI connections (credentials/store.ts connectionsChanged) drops the two engines that use them. */
 const caches = new WeakMap<AppContext, EngineStatusCache>()
 export function engineStatusCache(ctx: AppContext): EngineStatusCache {
