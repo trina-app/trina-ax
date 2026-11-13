@@ -144,8 +144,6 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
 
     test('from a chat row\'s "…" in the sidebar: moved with the switch on, the confirm, shared; the row moves to its project and keeps the dialog', async ({ page, browser }) => {
       await reset(page)
-      // the history grouped by project: the moved chat's row goes to another group (and is made again)
-      await page.addInitScript(() => localStorage.setItem('mycel.sidebar.recentsView', JSON.stringify({ status: 'all', activity: 'all', group: 'project', sort: 'updated' })))
       await signIn(page)
       await project(page)
       const chatId = await privateChat(page, 'mine-source 경쟁사 메모 정리해 줘')
@@ -163,8 +161,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await dialog.getByTestId('chat-project-save').click()
       const ask = page.getByRole('dialog', { name: '이 채팅을 공유해서 멤버 2명이 볼 수 있게 할까요?' })
       await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 멤버 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 파일')
-      // the row went under its project meanwhile; the question is still there
-      await expect(list.getByRole('heading', { name: 'Launch' })).toBeVisible()
+      // a computer's 최근 기록 (one flat list since #683) names the row's project meanwhile (a phone's drawer lists by date,
+      // no tag); the question is still there
+      if (!vp.phone) await expect(row.getByTestId('chat-row-project')).toHaveText('Launch')
       await expect(ask).toBeVisible()
       await audit(page, 'share confirm from the row menu')
       await ask.getByTestId('share-chat-confirm').click()
