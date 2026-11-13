@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { sharesNewChats } from '../../lib/sharedChat'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
@@ -77,6 +78,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       }),
     )
 
+  const fromProjects = useRailHere() === 'projects'
   const onSend = async (text: string, attachments: Attachment[]) => {
     const pending = draftChatIfAny(me.user.id, draftId)
     const chatId = pending ? await pending : null
@@ -88,7 +90,8 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
     // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
     // file screen was missing when the person went there that quickly (e2e team-files, flaky)
     rememberChat(me.user.id, r.chatId)
-    navigate(`/c/${r.chatId}`)
+    // started on a project's page: the chat opens with 프로젝트 still lit (lib/rail.ts railState)
+    navigate(`/c/${r.chatId}`, fromProjects ? { state: { [RAIL_STATE_KEY]: 'projects' } } : undefined)
   }
 
   return (

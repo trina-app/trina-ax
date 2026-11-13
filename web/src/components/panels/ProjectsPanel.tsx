@@ -1,0 +1,116 @@
+// 프로젝트's list (docs/DECISIONS.md "Projects: a place of their own"; the owner, 2026-11-13: "프로젝트를 그냥 따로 하나의
+// 큰 탭으로"): beside the rail on a computer (ProjectsPanel) and as the phone's 프로젝트 tab (pages/Projects.tsx shows
+// ProjectsList at /projects on a phone). "+ 새 프로젝트" on top (today's new-project form), then two sections: 팀
+// 프로젝트 (in the team folder, with members) and 내 프로젝트 (personal, in my own folder: onlyMine below). Each project
+// is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
+// was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
+// recently active first, the ones without a chat of mine after them, newest first. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
+// on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
+// The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
+import clsx from 'clsx'
+import { Lock, Plus, SquareKanban, Users } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { Link, matchPath, useLocation } from 'react-router-dom'
+import type { Project } from '@mycel/shared/api'
+import { useLocale, useT } from '../../i18n'
+import { formatRelative } from '../../lib/format'
+import { useRailHere } from '../../lib/rail'
+import { useChats } from '../../store/chats'
+import { readProjectList, useProjects } from '../../store/projects'
+import { SetupRow } from '../onboarding/SetupRow'
+import { whoSeesProject } from '../projectWho'
+import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
+import { useGroupsRead } from './TrinaList'
+
+export function ProjectsPanel() {
+  const t = useT()
+  return (
+    <PanelFrame title={t('projects.title')} testId="projects-panel" top={<><NewProjectRow /><SetupRow /></>}>
+      <ProjectsList />
+    </PanelFrame>
+  )
+}
+
+/** "+ 새 프로젝트": the projects page's new-project form (/projects?new=1) */
+export function NewProjectRow({ phone = false }: { phone?: boolean }) {
+  const t = useT()
+  return (
+    <Link to="/projects?new=1" className={clsx(panelRow, 'font-medium', phone && 'h-11')} data-testid="projects-panel-new">
+      <Plus size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('projects.new')}</span>
+    </Link>
+  )
+}
+
+/** The projects I see, the most recently active first (see the top of this file). `phone`: rows a thumb can hit. */
+export function ProjectsList({ phone = false }: { phone?: boolean }) {
+  const t = useT()
+  const locale = useLocale()
+  const { groups } = useGroupsRead()
+  const byId = useProjects((s) => s.byId)
+  const listed = useProjects((s) => s.listed)
+  useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
+  const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
+  const projects = useMemo(() => {
+    const seen = Object.values(byId).filter((p) => listed?.has(p.id))
+    const at = (p: Project) => activity.get(p.id)?.lastActivityAt ?? ''
+    return seen.sort((a, b) => at(b).localeCompare(at(a)) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+  }, [byId, listed, activity])
+
+  // the project on screen: its page (and its files), or the chat of it opened from here (프로젝트 still lit)
+  const { pathname } = useLocation()
+  const place = useRailHere()
+  const chatId = matchPath('/c/:chatId', pathname)?.params.chatId
+  const chatProject = useChats((s) => (chatId && place === 'projects' ? s.chats.find((c) => c.id === chatId)?.projectId ?? s.others[chatId]?.projectId ?? null : null))
+  const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
+
+  if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
+  if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
+  const team = projects.filter((p) => !onlyMine(p))
+  const mine = projects.filter(onlyMine)
+  const rows = (list: Project[]) => (
+    <ul>
+      {list.map((p) => {
+        const a = activity.get(p.id)
+        // "나만" for mine; "멤버 N명" (its page's words) for a team one
+        const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
+        const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
+        const on = lit === p.id
+        return (
+          <li key={p.id}>
+            <Link
+              to={`/projects/${p.id}`}
+              aria-current={on ? 'page' : undefined}
+              className={clsx('flex items-start gap-2.5 rounded-lg px-3 py-1.5 text-left hover:bg-hover focus-visible:-outline-offset-2', phone && 'py-2.5', on && 'bg-hover')}
+              data-testid="projects-panel-row"
+            >
+              <SquareKanban size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className={clsx('block truncate text-sm text-ink', on && 'font-medium')} title={p.name} data-testid="projects-panel-name">{p.name}</span>
+                <span className="block truncate text-xs text-faint tabular-nums" data-testid="projects-panel-meta">{meta}</span>
+              </span>
+            </Link>
+          </li>
+        )
+      })}
+    </ul>
+  )
+  return (
+    <div data-testid="projects-list">
+      {team.length > 0 && (
+        <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={12} aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
+          {rows(team)}
+        </PanelSection>
+      )}
+      {mine.length > 0 && (
+        <PanelSection id="projects-mine" foldKey="projects:mine" label={t('projectsPanel.mine')} icon={<Lock size={12} aria-hidden />} count={mine.length} labelTestId="projects-panel-label" data-testid="projects-mine">
+          {rows(mine)}
+        </PanelSection>
+      )}
+    </div>
+  )
+}
+
+/** 내 프로젝트: a personal project (in my own folder): only I see it, admins included, and its chats are never shared.
+ * The sections follow where a project lives, as that decides who may see its name and whether its chats may be shared
+ * (a team project left with its creator alone stays a team project: "나만 봐요" on its row). */
+const onlyMine = (p: Project) => p.folderPath.startsWith('users/')

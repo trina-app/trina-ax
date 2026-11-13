@@ -31,21 +31,19 @@
 // members dialog) loads the page again. Deleting a team project in projects/ moves it to the trash with its folder; a
 // project in the trash says so on its page with 되돌리기 (the owner and admins; gone once the server says its folder
 // was deleted for good) and 완전히 삭제, and has no name menu there.
-// Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
-// intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
-// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. The list is 모든 프로젝트, a
-// screen of the 트리나 tab under its list (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나"); the team folder is the
-// 파일 tab. With no projects (a new team, a member in none) it says what a project is and offers 새 프로젝트 (everyone may
-// make one: a personal project, a team one as the team allows, components/ProjectForm.tsx). A project's page has one
-// bar, "‹ 트리나 · name · ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for
-// screen readers only); its files line is one row that opens the project's files on a screen of the 트리나 tab
-// (ProjectFiles below, /projects/:id/files, with no folder path line), so Back returns to the project.
+// Phones (below 768 px): /projects is the 프로젝트 tab's own list, the same as the computer's panel
+// (panels/ProjectsPanel.tsx; docs/DECISIONS.md "Projects: a place of their own"): "+ 새 프로젝트" on top, then each project
+// with when it was last active and how many chats of mine it holds. A project's page has one bar, "‹ 프로젝트 · name ·
+// ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for screen readers only); its
+// files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
+// /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
+import { RAIL_STATE_KEY } from '../lib/rail'
 import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { aiName } from '../lib/tabs'
@@ -62,14 +60,12 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
-import { whoSeesText } from '../components/chat/WhoSees'
-import { whoSees } from '../lib/sharedChat'
+import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
-import { useRowMenu } from '../components/rooms/RoomMenu'
-import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { ProjectForm } from '../components/ProjectForm'
+import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
 import { ProjectMembersDialog, chosenOf, confirmAddMe, projectNow } from '../components/ProjectMembersDialog'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { refusalKey } from '../lib/sharedChat'
@@ -302,44 +298,6 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   )
 }
 
-/** A project on a phone's list (QA TC-380): a row like Settings' (components/phone/PhoneList.tsx) with its name (a lock
- * after it when I may not see its contents), who sees it in its 멤버 line's words ("in the trash" while it is), the
- * card's "···" (44 px; a long press opens it too) and a chevron. No instructions here (the page has them), and no
- * time: the project has no last-activity field, and the chats this app holds are only mine, so a time would mislead. */
-function ProjectRow({ project: p, onRenamed, onDeleted, onMembers }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void }) {
-  const t = useT()
-  const menu = useRowMenu()
-  const who = whoSeesProject(t, p, 'projects.whoMembers')
-  return (
-    <PhoneListRow
-      icon={<FolderKanban size={16} className="text-accent-text" />}
-      to={`/projects/${p.id}`}
-      testId="project-row"
-      title={
-        <span className="block min-w-0">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{p.name}</span>
-            {p.member === false && !p.inTrash && (
-              <>
-                <Lock size={12} className="shrink-0 text-faint" aria-hidden />
-                <span className="sr-only">{t('projects.cardMembersOnly')}</span>
-              </>
-            )}
-          </span>
-          {/* the card's words and their test ids (ProjectCardLines) */}
-          {(who || p.inTrash) && (
-            <span className="block truncate text-xs text-faint" data-testid="project-row-sub">
-              <span data-testid="project-card-who">{who}</span>
-              {p.inTrash && <span data-testid="project-card-state">{who ? ' · ' : ''}{t('chat.project.inTrash')}</span>}
-            </span>
-          )}
-        </span>
-      }
-      menu={{ row: menu.row, guard: menu.guard, node: <ProjectCardMenu project={p} onRenamed={onRenamed} onDeleted={onDeleted} onMembers={onMembers} row={menu} /> }}
-    />
-  )
-}
-
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
@@ -369,11 +327,17 @@ export function ProjectList() {
       setError(errorText(e, locale, t('error.network')))
     }
   }
-  useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   const phone = useMediaQuery(PHONE)
+  // a phone's /projects is the 프로젝트 tab's list (panels/ProjectsPanel.tsx), which reads its own
+  useEffect(() => {
+    if (!phone) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone])
+  // "+ 새 프로젝트" in 프로젝트's list while this page is open already: the form opens
+  const askedNew = params.get('new') === '1'
+  useEffect(() => {
+    if (askedNew) setCreatingState(true)
+  }, [askedNew])
   const renamed = (r: Project) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -381,58 +345,31 @@ export function ProjectList() {
     removed(i)
     setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
   }
+  if (phone)
+    return (
+      // a phone: the 프로젝트 tab's own list, the same as the computer's panel (its top bar says 프로젝트)
+      <div className="flex h-full flex-col">
+        <h1 className="sr-only">{t('projects.title')}</h1>
+        <nav aria-label={t('projects.title')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-2 pb-6" data-testid="phone-projects-list">
+          <NewProjectRow phone />
+          <div className="mt-2">
+            <ProjectsList phone />
+          </div>
+        </nav>
+        {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
+      </div>
+    )
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      {phone ? (
-        // a phone: the top bar says 프로젝트 and holds "+" (no intro, no button row under it)
-        <>
-          <h1 className="sr-only">{t('projects.title')}</h1>
-          <PhoneBarAction>
-            <Tooltip label={t('projects.new')}>
-              <button type="button" onClick={() => setCreating(true)} aria-label={t('projects.new')} className="grid size-11 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-ink" data-testid="project-new">
-                <Plus size={22} aria-hidden />
-              </button>
-            </Tooltip>
-          </PhoneBarAction>
-        </>
-      ) : (
-        <PageHeader
-          title={t('projects.title')}
-          desc={t('projects.desc')}
-          actions={
-            <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
-              <Plus size={15} aria-hidden /> {t('projects.new')}
-            </Button>
-          }
-        />
-      )}
-      {phone ? (
-        // a phone: rows from edge to edge, like Settings' list
-        <div ref={box} className="pb-8" data-testid="project-rows">
-          {(error || !items) && (
-            <div className="p-4">
-              {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
-              {!items && !error && <Skeleton lines={4} />}
-            </div>
-          )}
-          {items && !items.length && (
-            // none yet: what a project is and a way to make one; the team folder still below
-            <div data-testid="projects-empty">
-              <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')}>
-                <p>{t('projects.desc')}</p>
-                <Button variant="primary" className="mt-4" onClick={() => setCreating(true)} data-testid="projects-empty-new">
-                  <Plus size={15} aria-hidden /> {t('projects.new')}
-                </Button>
-              </EmptyState>
-            </div>
-          )}
-          {!!items?.length && (
-            <PhoneListGroup>
-              {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
-            </PhoneListGroup>
-          )}
-        </div>
-      ) : (
+      <PageHeader
+        title={t('projects.title')}
+        desc={t('projects.desc')}
+        actions={
+          <Button variant="primary" onClick={() => setCreating(true)} data-testid="project-new">
+            <Plus size={15} aria-hidden /> {t('projects.new')}
+          </Button>
+        }
+      />
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
@@ -454,7 +391,6 @@ export function ProjectList() {
           ))}
         </ul>
       </div>
-      )}
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
       {/* the card as the server sees it now (an owner or admin who added or took out themselves: its instructions come or go) */}
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? r : x)))} />}
@@ -477,7 +413,7 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   const items = useChatMenuItems(c, { testId: 'project-chat', more, select: (fn) => () => (more.current?.focus(), void fn()), onMove, onChanged, onRemoved })
   return (
     <div className="group relative">
-    <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
+    <Link ref={row} to={`/c/${c.id}`} state={{ [RAIL_STATE_KEY]: 'projects' }} className="group -mx-2 flex items-center gap-4 rounded-md py-3 pr-10 pl-2 text-sm hover:bg-hover max-md:pr-12" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
       <span className="flex min-w-0 flex-1 items-center gap-2">
         {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
         {c.shared && <SharedIcon className="text-faint" />}
@@ -999,17 +935,6 @@ export function ProjectFiles() {
   )
 }
 
-/** Who sees a project, by the rule of its page's 멤버 line (MembersRow below), for that line and for its card on the list,
- * so the two never differ. `own` words the count of its own people (the owner and admins): beside the 멤버 label just the
- * number ("3명"), on a card with the word ("멤버 3명"). Nothing from a server without the count. */
-function whoSeesProject(t: ReturnType<typeof useT>, p: Project, own: 'projects.membersN' | 'projects.whoMembers'): string | undefined {
-  if (p.audience === undefined) return undefined
-  // a team project in projects/ is its members' (docs/DECISIONS.md "Project contents only for members"): its own count,
-  // also for the owner or an admin who is not a member ("남은 멤버 없음" when nobody active is one, "나만 봐요" when I am)
-  if (isProjectsFolder(p.folderPath)) return p.audience === 0 ? t('projects.noMembers') : p.member !== false && p.audience === 1 ? t('chat.whoMe') : t(own, { n: p.audience })
-  const shared = { audience: p.audience, alone: p.alone }
-  return whoSees(shared).kind === 'people' && p.audienceSplit ? t(own, { n: p.audienceSplit.direct }) : whoSeesText(t, shared, 'project')
-}
 
 /** The 멤버 line of a team project's page: who sees it (whoSeesProject). A team project in projects/ is its members'
  * (docs/DECISIONS.md "Project contents only for members"): "나만 봐요" when I am its only member, else how many ("3명";

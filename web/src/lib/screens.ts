@@ -5,9 +5,9 @@
 // it. docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나" (the tabs, lib/tabs.ts), "Admin and Settings on phones: a
 // list you tap into" (lib/backStack.ts).
 //
-// Parents: a page under a tab's list → that tab's root (트리나 /, 대화 /rooms, 파일 /files, 나 /settings); a new chat
-// (/new) → /, a project's new chat (/new?project=, /?project=) and its files → the project; 모든 프로젝트 and one project
-// → / (트리나's list has them); 파일's places (/files) are its root, and its top folders, a project's folder and my own
+// Parents: a page under a tab's list → that tab's root (트리나 /, 대화 /rooms, 프로젝트 /projects, 파일 /files, 나
+// /settings); a new chat (/new) → /, a project's new chat (/new?project=, /?project=) and its files → the project, a
+// project → /projects (프로젝트's list); 파일's places (/files) are its root, and its top folders, a project's folder and my own
 // folder are under it (not under the projects/ or users/ folder above them), a folder → the folder above it, a file →
 // its folder, the Trash → /files; a room's thread → the room; a Settings section → /settings (the account deletion page
 // → the profile); Activity and Admin → /settings; an Admin page and what is under it: pages/admin/adminScreens.ts; a
@@ -66,13 +66,13 @@ export function screenOf(to: string): Screen {
   if (pathname === '/') {
     const project = q(search).get('project')
     // a project's new chat is reached from the project; Home with ?prompt= (from a file's menu) is Home
-    return project ? s('ai', `/projects/${encodeURIComponent(project)}`, `/?project=${project}`) : s('ai', null, '/')
+    return project ? s('projects', `/projects/${encodeURIComponent(project)}`, `/?project=${project}`) : s('ai', null, '/')
   }
   switch (a) {
     case 'new': {
       // a new chat: under 트리나's list, a project's under the project (one screen, whatever its ?prompt=)
       const project = q(search).get('project')
-      return project ? s('ai', `/projects/${encodeURIComponent(project)}`, `/new?project=${project}`) : s('ai', '/', '/new')
+      return project ? s('projects', `/projects/${encodeURIComponent(project)}`, `/new?project=${project}`) : s('ai', '/', '/new')
     }
     case 'c':
       // under 트리나, never looked up in the chat list (see the top of this file)
@@ -83,10 +83,10 @@ export function screenOf(to: string): Screen {
       if (b && c === 'files') {
         const dir = (q(search).get('dir') ?? '').split('/').filter(Boolean).join('/')
         const up = dirOf(dir)
-        return s('ai', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
+        return s('projects', dir ? `/projects/${b}/files${up ? `?dir=${encodeURIComponent(up)}` : ''}` : `/projects/${b}`, `project-files:${b}:${dir}`)
       }
-      // 모든 프로젝트 and a project are under 트리나's list (a project's group opens it from there)
-      return s('ai', '/', pathname)
+      // 프로젝트's list is the tab's root; a project is under it
+      return b ? s('projects', '/projects', pathname) : s('projects', null)
     case 'scheduled':
       return b ? s('ai', '/scheduled', pathname) : s('ai', '/')
     case 'skills':

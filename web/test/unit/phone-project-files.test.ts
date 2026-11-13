@@ -6,18 +6,18 @@ import { chainOf, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/
 import { projectDir } from '../../src/pages/Projects'
 
 describe('the project files screen', () => {
-  test('in the 트리나 tab, under its project; a folder under the folder above', () => {
-    expect(screenOf('/projects/p1/files').tab).toBe('ai')
+  test('in the 프로젝트 tab, under its project; a folder under the folder above', () => {
+    expect(screenOf('/projects/p1/files').tab).toBe('projects')
     expect(parentOf('/projects/p1/files')).toBe('/projects/p1')
     expect(parentOf('/projects/p1/files?dir=sub')).toBe('/projects/p1/files')
     expect(parentOf('/projects/p1/files?dir=a%2Fb')).toBe('/projects/p1/files?dir=a')
     expect(parentOf('/projects/p1/files?dir=a%2Fb%2Fc')).toBe(`/projects/p1/files?dir=${encodeURIComponent('a/b')}`)
-    expect(chainOf('/projects/p1/files?dir=a%2Fb')).toEqual(['/', '/projects/p1', '/projects/p1/files', '/projects/p1/files?dir=a', '/projects/p1/files?dir=a%2Fb'])
+    expect(chainOf('/projects/p1/files?dir=a%2Fb')).toEqual(['/projects', '/projects/p1', '/projects/p1/files', '/projects/p1/files?dir=a', '/projects/p1/files?dir=a%2Fb'])
     expect(rootTab('/projects/p1/files')).toBeNull()
-    // the project's own page and 모든 프로젝트 are under 트리나's list, the tab's root
-    expect(parentOf('/projects/p1')).toBe('/')
-    expect(parentOf('/projects')).toBe('/')
-    expect(rootTab('/projects')).toBeNull()
+    // the project's own page is under 프로젝트's list, the tab's root
+    expect(parentOf('/projects/p1')).toBe('/projects')
+    expect(parentOf('/projects')).toBeNull()
+    expect(rootTab('/projects')).toBe('projects')
     expect(rootTab('/')).toBe('ai')
   })
 

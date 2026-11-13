@@ -1,8 +1,8 @@
 // The rail (lib/rail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1):
 // - every route of the signed-in app (App.tsx, the routes under <Layout />) has a decision here: one rail place or
 //   none. A route added to App.tsx without one fails this test, so no page is left with nothing lit by mistake;
-// - the places: 트리나 (Home, chats, projects, scheduled tasks, team skills, deleted history, connector consent, the
-//   welcome steps), 대화 (rooms and threads, and Activity's 멘션·스레드), 파일, 활동; none for Admin, the Slack pages
+// - the places: 트리나 (Home, chats, scheduled tasks, team skills, deleted history, connector consent, the
+//   welcome steps), 대화 (rooms and threads, and Activity's 멘션·스레드), 프로젝트 (the projects' list and pages), 파일, 활동; none for Admin, the Slack pages
 //   and an unknown address;
 // - what each place remembers for this browser tab, and where a press goes (the last page there, or its start when it
 //   is the lit one).
@@ -44,9 +44,9 @@ const DECIDED: Record<string, RailItem | null> = {
   activity: 'activity',
   files: 'files',
   'files/view': 'files',
-  projects: 'ai',
-  'projects/:projectId': 'ai',
-  'projects/:projectId/files': 'ai',
+  projects: 'projects',
+  'projects/:projectId': 'projects',
+  'projects/:projectId/files': 'projects',
   admin: null,
   'admin/:section': null,
   'admin/:section/:sub': null,
@@ -81,8 +81,8 @@ describe('every route has a place or none', () => {
 })
 
 describe('the places', () => {
-  test('four, in the order of the phone tabs: 트리나 · 대화 · 파일 · 활동', () => {
-    expect(RAIL_ITEMS).toEqual(['ai', 'chats', 'files', 'activity'])
+  test('five, in the order of the phone tabs: 트리나 · 대화 · 프로젝트 · 파일 · 활동', () => {
+    expect(RAIL_ITEMS).toEqual(['ai', 'chats', 'projects', 'files', 'activity'])
     for (const i of RAIL_ITEMS) expect(railOf(new URL(RAIL_ROOT[i], 'http://x').pathname)).toBe(i)
   })
 
@@ -164,7 +164,12 @@ describe("a page opened from another place's list (phase P3: a notice's chat ope
     expect(railHereKept('/projects/p1', '?members=1', { rail: 'activity' })).toBe('activity')
     expect(railHereKept('/projects/p1', '', null)).toBe('activity')
     expect(railHereKept('/c/abc', '', null)).toBe('ai')
-    expect(railHereKept('/projects/p1', '', null)).toBe('ai')
+    expect(railHereKept('/projects/p1', '', null)).toBe('projects')
+  })
+
+  test('a project\'s chat opened from its page keeps 프로젝트 lit; from 최근 기록 it is 트리나\'s', () => {
+    expect(railHere('/c/abc', '', { rail: 'projects' })).toBe('projects')
+    expect(railHere('/c/abc', '', null)).toBe('ai')
   })
 
   test('kept as what is open in 활동, and a press on 활동 opens it with 활동 lit again', () => {

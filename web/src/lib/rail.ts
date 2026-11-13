@@ -4,26 +4,27 @@
 // lights that place. Settings is a dialog over a page, so the caller asks with the page under it (App.tsx
 // `settings.under`). Each place remembers what was open in it for this browser tab (sessionStorage): going back to 트리나
 // opens the last AI chat again, back to 대화 the last room. Pure but for that small memory; every route of App.tsx is
-// checked in test/unit/rail.test.ts. Started from the 11-13 draft (branch wip/rail-draft), changed to the plan's four
-// places (no 프로젝트 place: projects are in 트리나's list).
+// checked in test/unit/rail.test.ts. Projects were in 트리나's list until the owner's 11-13 review ("프로젝트가 어디까지인지
+//안 보여"): now their own place, as on the phone.
 import { matchPath, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { RAIL_LAST_KEY } from './localData'
 import { activityInChats } from './screens'
 
-export type RailItem = 'ai' | 'chats' | 'files' | 'activity'
-/** the rail's order, top to bottom: the phone's tabs 1–3, then 활동 (the phone has it under 나) */
-export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'files', 'activity']
+export type RailItem = 'ai' | 'chats' | 'projects' | 'files' | 'activity'
+/** the rail's order, top to bottom: the phone's tabs 1–4, then 활동 (the phone has it under 나) */
+export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'projects', 'files', 'activity']
 
 /** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 */
-export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files?view=recent', activity: '/activity' }
+export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', projects: '/projects', files: '/files?view=recent', activity: '/activity' }
 
 /** The routes of App.tsx (under <Layout />) that belong to a place, as App.tsx writes them; any other address (Admin,
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
  * phase. test/unit/rail.test.ts keeps this in step with App.tsx. */
 const PAGES: Record<RailItem, readonly string[]> = {
-  ai: ['/', '/new', '/c/:chatId', '/projects', '/projects/:projectId', '/projects/:projectId/files', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
+  ai: ['/', '/new', '/c/:chatId', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
   chats: ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId'],
+  projects: ['/projects', '/projects/:projectId', '/projects/:projectId/files'],
   files: ['/files', '/files/view'],
   activity: ['/activity'],
 }

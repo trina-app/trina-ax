@@ -6,7 +6,7 @@
 // 팀 스킬 and 삭제한 기록, pinned under the list so they never sink under the projects. The header's filter button (status, last activity, group by, sort)
 // shows the whole history filtered instead (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"), with
 // one line that says what is filtered and a way back.
-import { BookMarked, CalendarClock, Search, Trash2, X } from 'lucide-react'
+import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { platform } from '../../lib/pwa'
@@ -36,20 +36,6 @@ export function TrinaPanel() {
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
-      // pinned under the list: 삭제한 기록 never waits at the end of a long list (UX review S2)
-      bottom={
-        <div className="space-y-0.5" data-testid="trina-panel-more">
-          <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
-            <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
-          </NavLink>
-          <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
-            <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
-          </NavLink>
-          <NavLink to="/trash" className={panelRowActive} data-testid="nav-trash">
-            <Trash2 size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.trash')}</span>
-          </NavLink>
-        </div>
-      }
       actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />}
       top={
         <>
@@ -61,6 +47,12 @@ export function TrinaPanel() {
             <Search size={16} aria-hidden /> {t('sidebar.search')}
             <kbd className={kbd}>{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
           </button>
+          <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
+            <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
+          </NavLink>
+          <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
+            <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
+          </NavLink>
           <SetupRow />
         </>
       }

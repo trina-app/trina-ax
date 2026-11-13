@@ -1,5 +1,5 @@
 // The new navigation's rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1): the marks on its places
-// (components/rail/railBadges.ts), when the list panel folds (rail/railPanel.ts), and the rail itself: the four places in
+// (components/rail/railBadges.ts), when the list panel folds (rail/railPanel.ts), and the rail itself: the five places in
 // order with their names, the lit one, a member's logo that is not a button.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
@@ -95,14 +95,14 @@ describe('Rail', () => {
     return m
   }
 
-  test('four places in the phone tabs\' order, each with its name; the page\'s place lit; 대화 and 활동 counted once each', async () => {
+  test('five places in the phone tabs\' order, each with its name; the page\'s place lit; 대화 and 활동 counted once each', async () => {
     const m = await draw('owner', '/rooms')
     try {
-      // Tab stops in order: the logo, the four places, my photo
+      // Tab stops in order: the logo, the five places, my photo
       const stops = m.container.querySelectorAll('[data-rail-stop]')
-      expect(stops.map((a) => a.getAttribute('data-testid'))).toEqual(['team-menu', 'rail-ai', 'rail-chats', 'rail-files', 'rail-activity', 'account-menu'])
-      const names = ['트리나', ko('tabs.chats'), ko('sidebar.files'), ko('inbox.title')]
-      stops.slice(1, 5).forEach((a, i) => expect(a.textContent).toContain(names[i]!))
+      expect(stops.map((a) => a.getAttribute('data-testid'))).toEqual(['team-menu', 'rail-ai', 'rail-chats', 'rail-projects', 'rail-files', 'rail-activity', 'account-menu'])
+      const names = ['트리나', ko('tabs.chats'), ko('projects.title'), ko('sidebar.files'), ko('inbox.title')]
+      stops.slice(1, 6).forEach((a, i) => expect(a.textContent).toContain(names[i]!))
       expect(m.get('rail-chats').getAttribute('aria-current')).toBe('page')
       expect(m.get('rail-ai').getAttribute('aria-current')).toBeNull()
       // two conversations unread (the muted one left out), not 13 messages
@@ -110,6 +110,7 @@ describe('Rail', () => {
       // 5 notices, 2 of them conversation rows: 3 on 활동
       expect(m.get('rail-activity-mark').getAttribute('data-n')).toBe('3')
       expect(m.container.querySelector('[data-testid="rail-files-mark"]')).toBeNull()
+      expect(m.container.querySelector('[data-testid="rail-projects-mark"]')).toBeNull()
       // owners and admins: the logo opens the team menu
       expect(m.get('team-menu').tagName.toLowerCase()).toBe('button')
     } finally {

@@ -5,12 +5,14 @@
 // Long lists stay cheap (the plan's rendering budget, measured with 200 rooms): each section is skipped by the browser
 // while it is off screen (content-visibility), and past 200 rows the rest is drawn 200 at a time as the list scrolls
 // near its end (the room on screen is always drawn).
-// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "폴더 · 나만 보여요"
-// with its +, then each folder as a section of its own (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
+// Each kind is a section whose label folds it (PanelFrame.tsx PanelSection, its count beside it while folded), as
+// Slack's sidebar sections.
+// My folders (docs/DECISIONS.md "List folders on screen") come between 고정 and 팀 대화방: "대화 폴더 · 나만 보여요"
+// with its +, then each folder as a group in that section (fold ▾, its "⋯", the rooms I keep in it by latest activity; a
 // folded one keeps one pill). A room shows in one place only: pinned › its folder › its kind. With no folder yet, one
 // quiet row "새 폴더" ends the list.
 import clsx from 'clsx'
-import { ChevronDown, EyeOff, Pin } from 'lucide-react'
+import { ChevronRight, EyeOff, Pin } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { NavFolder, Room } from '@mycel/shared/api'
@@ -20,8 +22,8 @@ import { useRooms } from '../../store/rooms'
 import { DROP_OVER, FolderIcon, FolderMenu, FoldersLabelWords, NewFolderButton, NewFolderRow, RoomFolderPillView, roomFolderPill, useFolderActions, useFolders, useDropTarget } from '../nav/NavFolders'
 import { RoomRow, roomSections, SECTION_WORD } from '../nav/RoomsList'
 import { useRoomTitle } from '../rooms/RoomIcon'
-import { PanelLabel, panelRow } from './PanelFrame'
-import { useFolds } from './TrinaList'
+import { groupHead, groupRows, PanelSection, panelRow } from './PanelFrame'
+import { useFolds } from './folds'
 
 /** rows drawn at first, and added each time the list's end comes near */
 export const ROOMS_BUDGET = 200
@@ -79,35 +81,43 @@ export function RoomsByKind() {
     return () => seen.disconnect()
   }, [more, draw])
 
+  const foldersSection = (nodes: ReactNode[]) => (
+    <PanelSection key="folders" id="chats-panel-folders" foldKey="chats:folders" label={<FoldersLabelWords kind="rooms" />} count={folders.length} action={<NewFolderButton kind="rooms" />} labelTestId="chats-panel-label" data-testid="chats-panel-folders">
+      {nodes}
+    </PanelSection>
+  )
   let left = draw
   const out: ReactNode[] = []
-  let labelled = false
+  // the folders, one section of their own ("대화 폴더 · 나만 보여요"), each folder a group in it
+  const folderNodes: ReactNode[] = []
+  let foldersOut = false
   for (const s of sections) {
     if (left <= 0) break
     if (s.folder) {
-      if (!labelled) {
-        labelled = true
-        out.push(
-          <PanelLabel key="folders-label" id="chats-panel-folders" icon={<FolderIcon />} action={<NewFolderButton kind="rooms" />} testId="chats-panel-label">
-            <FoldersLabelWords kind="rooms" />
-          </PanelLabel>,
-        )
-      }
       const key = `room-folder:${s.folder.id}`
       const folded = folds[key] === 'folded'
       const shown = drawnOf(s).slice(0, left)
       left -= shown.length
       const inIt = rooms.filter((r) => r.folderId === s.folder.id).length
-      out.push(<RoomFolder key={key} folder={s.folder} rooms={s.rooms} count={inIt} shown={shown} folded={folded} onFold={() => setFold(key, folded ? 'open' : 'folded')} />)
+      folderNodes.push(<RoomFolder key={key} folder={s.folder} rooms={s.rooms} count={inIt} shown={shown} folded={folded} onFold={() => setFold(key, folded ? 'open' : 'folded')} />)
       continue
+    }
+    if (folderNodes.length && !foldersOut) {
+      foldersOut = true
+      out.push(foldersSection(folderNodes))
     }
     const shown = s.rooms.slice(0, left)
     left -= shown.length
     const id = `chats-panel-${s.key}`
     out.push(
-      <section
+      <PanelSection
         key={s.key}
-        aria-labelledby={id}
+        id={id}
+        foldKey={`chats:${s.key}`}
+        label={s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
+        icon={s.key === 'pinned' ? <Pin size={12} aria-hidden /> : undefined}
+        count={s.rooms.length}
+        labelTestId="chats-panel-label"
         // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
         // so the section is drawn plainly while one is open
         className="[content-visibility:auto] has-[[aria-expanded=true]]:[content-visibility:visible]"
@@ -115,17 +125,15 @@ export function RoomsByKind() {
         data-testid="chats-panel-section"
         data-section={s.key}
       >
-        <PanelLabel id={id} icon={s.key === 'pinned' ? <Pin size={12} aria-hidden /> : undefined} testId="chats-panel-label">
-          {s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
-        </PanelLabel>
         <ul>
           {shown.map((r) => (
             <RoomRow key={r.id} room={r} onNavigate={noop} section={s.key} />
           ))}
         </ul>
-      </section>,
+      </PanelSection>,
     )
   }
+  if (folderNodes.length && !foldersOut) out.push(foldersSection(folderNodes))
   return (
     <div data-testid="sidebar-rooms-list" data-rooms={flat.length} data-drawn={Math.min(draw, flat.length)}>
       {loaded && !everyRoom.length && <p className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</p>}
@@ -154,13 +162,15 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
   })
   const pill = folded ? roomFolderPill(rooms) : null
   return (
-    <section aria-label={folder.name} className={clsx('mt-1', drop.over && DROP_OVER)} {...drop.props} data-testid="room-folder" data-folded={folded ? '' : undefined}>
-      <div className="group/head relative flex h-7 items-center gap-1 pr-9 pl-3 text-xs font-medium text-faint" data-testid="room-folder-head">
-        {/* the name folds it: one button (aria-expanded), as a disclosure */}
-        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className="flex h-full min-w-0 items-center gap-1 rounded hover:text-ink" data-testid="room-folder-fold">
-          <FolderIcon />
+    <section aria-label={folder.name} className={clsx(drop.over && DROP_OVER)} {...drop.props} data-testid="room-folder" data-folded={folded ? '' : undefined}>
+      <div className={clsx(groupHead, 'pr-9')} data-testid="room-folder-head">
+        {/* the ▸ and the name both fold it (aria-expanded), as a disclosure */}
+        <button type="button" aria-expanded={!folded} aria-controls={listId} onClick={onFold} className="flex h-full min-w-0 items-center gap-1 rounded" data-testid="room-folder-fold">
+          <span className="touch-hit flex size-6 shrink-0 items-center justify-center text-muted">
+            <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', !folded && 'rotate-90')} aria-hidden />
+          </span>
+          <FolderIcon className="mr-0.5 text-muted" />
           <span className="truncate" title={folder.name} data-testid="room-folder-name">{folder.name}</span>
-          <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
         </button>
         {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10 max-md:right-10" />}
         <FolderMenu
@@ -170,7 +180,7 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
           buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100 max-md:opacity-100"
         />
       </div>
-      <ul id={listId} hidden={folded && !shown.length}>
+      <ul id={listId} hidden={folded && !shown.length} className={groupRows}>
         {shown.map((r) => (
           <RoomRow key={r.id} room={r} onNavigate={noop} section="folder" />
         ))}

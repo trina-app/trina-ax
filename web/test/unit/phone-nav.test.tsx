@@ -97,9 +97,10 @@ async function rendered(ui: ReactNode): Promise<string> {
 const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: { state: { usr: null, key: 'k', idx } } })
 
 describe('which tab an address belongs to', () => {
-  test('the four tabs and their lists', async () => {
-    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', files: '/files', me: '/settings' })
-    for (const p of ['/', '/new', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/trash', '/connectors/authorize', '/projects', '/projects/p1', '/projects/p1/files']) expect(tabOf(p)).toBe('ai')
+  test('the five tabs and their lists', async () => {
+    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', files: '/files', me: '/settings' })
+    for (const p of ['/', '/new', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/trash', '/connectors/authorize']) expect(tabOf(p)).toBe('ai')
+    for (const p of ['/projects', '/projects/p1', '/projects/p1/files']) expect(tabOf(p)).toBe('projects')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
     for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
     // Connectors is a section of Settings (its old /connectors addresses lead there)
@@ -140,16 +141,16 @@ describe('the tab bar', () => {
   const tabs = (html: string) => [...html.matchAll(/data-testid="(tab-[a-z]+)"/g)].map((m) => m[1])
   const current = (html: string) => /<a [^>]*aria-current="page"[^>]*data-testid="(tab-[a-z]+)"/.exec(html)?.[1] ?? null
 
-  test('four tabs in order, each to its list', async () => {
+  test('five tabs in order, each to its list', async () => {
     const html = await bar('/')
-    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-files', 'tab-me'])
-    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-files', '/files'], ['tab-me', '/settings']]) {
+    expect(tabs(html)).toEqual(['tab-ai', 'tab-chats', 'tab-projects', 'tab-files', 'tab-me'])
+    for (const [id, to] of [['tab-ai', '/'], ['tab-chats', '/rooms'], ['tab-projects', '/projects'], ['tab-files', '/files'], ['tab-me', '/settings']]) {
       expect(new RegExp(`<a [^>]*data-testid="${id}"[^>]*>`).exec(html)?.[0]).toContain(`href="${to}"`)
     }
     expect(html).toContain(`>${aiName(ko)}</span></a>`)
     // each label on one line, cut at the tab's width (QA TC-255)
     const labels = [...html.matchAll(/<span class="([^"]*)" data-testid="bottom-tab-label">([^<]*)</g)]
-    expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('sidebar.files'), ko('tabs.me')])
+    expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('projects.title'), ko('sidebar.files'), ko('tabs.me')])
     for (const m of labels) expect(m[1]).toContain('whitespace-nowrap')
     for (const m of labels) expect(m[1]).toContain('truncate')
   })
@@ -181,7 +182,8 @@ describe('the tab bar', () => {
     expect(current(await bar('/'))).toBe('tab-ai')
     expect(current(await bar('/skills'))).toBe('tab-ai')
     expect(current(await bar('/rooms'))).toBe('tab-chats')
-    expect(current(await bar('/projects'))).toBe('tab-ai')
+    expect(current(await bar('/projects'))).toBe('tab-projects')
+    expect(current(await bar('/projects/p1'))).toBe('tab-projects')
     expect(current(await bar('/files'))).toBe('tab-files')
     expect(current(await bar('/trash'))).toBe('tab-ai')
     expect(current(await bar('/admin'))).toBe('tab-me')
@@ -258,14 +260,14 @@ describe('the top bar', () => {
     for (const p of ['/files', '/files/view', '/rooms/r1', '/c/abc']) expect(await html(p)).toBe('')
   })
 
-  test('모든 프로젝트 (/projects), under 트리나\'s list: ‹ 트리나 and its name', async () => {
+  test('프로젝트 (/projects), its tab\'s list: no ‹, its name', async () => {
     const h = await html('/projects')
-    expect(h).toContain(`data-testid="topbar-back-label">${aiName(ko)}<`)
+    expect(h).not.toContain('data-testid="topbar-back"')
     expect(h).toMatch(new RegExp(`aria-hidden="true"[^>]*data-testid="topbar-title">${ko('projects.title')}<`))
   })
 
   test('a page below a tab: ‹ named after where it goes (its parent, lib/screens.ts), and its name, for the eye only (the page has its heading)', async () => {
-    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects/p1', 'projects.title', aiName(ko)], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
+    for (const [p, key, up] of [['/skills', 'skills.title', aiName(ko)], ['/projects/p1', 'projects.title', ko('projects.title')], ['/scheduled/s1', 'settings.schedules', ko('settings.schedules')], ['/trash', 'trash.title', aiName(ko)]] as const) {
       const h = await html(p)
       expect(h).toContain('data-testid="topbar-back"')
       expect(h).toContain(`aria-label="${ko('tabs.backTo', { page: up })}"`)

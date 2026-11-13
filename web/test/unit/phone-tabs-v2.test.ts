@@ -11,10 +11,11 @@ const f = (p: string) => `/files?path=${encodeURIComponent(p)}`
 const items = (...ps: string[]): Item[] => ps.map((p, i) => ({ k: `k${i}`, p }))
 
 describe('the tabs', () => {
-  test('the four tabs: 트리나 · 대화 · 파일 · 나', () => {
-    expect(PHONE_TABS).toEqual(['ai', 'chats', 'files', 'me'])
-    expect(isTabNow('projects')).toBe(false)
-    for (const p of ['/', '/new', '/c/x', '/projects', '/projects/p1', '/projects/p1/files', '/scheduled', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
+  test('the five tabs: 트리나 · 대화 · 프로젝트 · 파일 · 나', () => {
+    expect(PHONE_TABS).toEqual(['ai', 'chats', 'projects', 'files', 'me'])
+    expect(isTabNow('projects')).toBe(true)
+    for (const p of ['/', '/new', '/c/x', '/scheduled', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
+    for (const p of ['/projects', '/projects/p1', '/projects/p1/files']) expect(tabOf(p)).toBe('projects')
     for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
     expect(tabOf('/rooms/r1')).toBe('chats')
     for (const p of ['/settings', '/activity', '/admin']) expect(tabOf(p)).toBe('me')
@@ -23,20 +24,20 @@ describe('the tabs', () => {
     expect(hidesTabs('/')).toBe(false)
   })
 
-  test('parents: the projects under 트리나\'s list, a new chat under the list or its project', () => {
+  test('parents: a project under 프로젝트\'s list, a new chat under the list or its project', () => {
     expect(parentOf('/')).toBeNull()
     expect(parentOf('/new')).toBe('/')
     expect(parentOf('/new?prompt=hi')).toBe('/')
     expect(parentOf('/new?project=p1')).toBe('/projects/p1')
     expect(parentOf('/?project=p1')).toBe('/projects/p1')
-    expect(screenOf('/?project=p1').tab).toBe('ai')
-    expect(parentOf('/projects')).toBe('/')
-    expect(parentOf('/projects/p1')).toBe('/')
-    expect(screenOf('/projects/p1/files').tab).toBe('ai')
+    expect(screenOf('/?project=p1').tab).toBe('projects')
+    expect(parentOf('/projects')).toBeNull()
+    expect(parentOf('/projects/p1')).toBe('/projects')
+    expect(screenOf('/projects/p1/files').tab).toBe('projects')
     // one screen, whatever its question
     expect(sameScreen('/new', '/new?prompt=hi')).toBe(true)
     expect(rootTab('/')).toBe('ai')
-    expect(rootTab('/projects')).toBeNull()
+    expect(rootTab('/projects')).toBe('projects')
   })
 
   test('파일: the places are the root; their own folders, the trash, recent files and the team folder\'s top under them', () => {
@@ -56,9 +57,9 @@ describe('the tabs', () => {
     expect(planFor(items('/files', f('projects/launch')), { k: 'n', p: f('projects/launch/a') }, 'push').push.map((x) => x.p)).toEqual([f('projects/launch/a')])
   })
 
-  test('an entry of the old 프로젝트 tab (kept across an update) takes its first screen\'s tab', () => {
-    expect(knownTab({ tab: 'projects' as never, root: { k: 'a', p: '/projects' } })).toBe('ai')
-    expect(knownTab({ tab: 'projects' as never, root: { k: 'a', p: '/files' } })).toBe('files')
+  test('an entry of the old 프로젝트 tab (its first screen the team folder, kept across an update) takes its first screen\'s tab', () => {
+    expect(knownTab({ tab: 'projects', root: { k: 'a', p: '/projects' } })).toBe('projects')
+    expect(knownTab({ tab: 'projects', root: { k: 'a', p: '/files' } })).toBe('files')
     expect(knownTab({ tab: 'files', root: { k: 'a', p: '/files' } })).toBe('files')
   })
 

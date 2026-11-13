@@ -53,8 +53,11 @@ export interface SwitchOptions { root?: boolean; drop?: boolean }
  * after an update) takes its first entry's tab now. */
 export function knownTab(sc: Partial<Pick<Scr, 'tab' | 'root' | 'trail'>>): Tab | null {
   const tab = sc.tab ?? null
-  if (tab === null || isTabNow(tab)) return tab
   const first = sc.root ?? sc.trail?.[0]
+  // 프로젝트 is a tab again (docs/DECISIONS.md "Projects: a place of their own"): an entry of the older 프로젝트 tab
+  // (before 2026-11-08; its first screen the team folder) is not one of its stacks
+  const older = tab === 'projects' && !!first && screenOf(first.p).tab !== 'projects'
+  if (tab === null || (isTabNow(tab) && !older)) return tab
   return first ? screenOf(first.p).tab : null
 }
 
