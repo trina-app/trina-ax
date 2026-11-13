@@ -13,7 +13,7 @@ import { ask, startHarness } from '../lib/b-harness'
 const codexOnly = process.argv.includes('--codex-only')
 const withCodex = !process.argv.includes('--no-codex') && !!CODEX_BIN
 const h = await startHarness({
-  name: 'b-e2e', realEngines: true, realCore: { engine: { authMode: 'local-login', ...(CODEX_BIN ? { codexBin: CODEX_BIN } : {}) } }, maxEngineTurns: 12, turnTimeoutMs: 5 * 60_000, askUserTimeoutMs: 3 * 60_000,
+  name: 'b-e2e', realEngines: true, realCore: { engine: { authMode: 'local-login', ...(CODEX_BIN ? { codexBin: CODEX_BIN } : {}) } }, maxEngineTurns: 12, stallTimeoutMs: 5 * 60_000, askUserTimeoutMs: 3 * 60_000,
   allowCmds: [CLAUDE_BIN, ...(CODEX_BIN ? [CODEX_BIN] : [])], sessionRoots: [path.join(os.homedir(), '.claude', 'projects')],
 })
 const checks: { name: string; ok: boolean; detail?: string }[] = []

@@ -21,7 +21,7 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-chat-pins', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-chat-pins', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   // on the fixtures' projects/falcon and its rules (finance reads it), as an older build made it: a new project gets a
   // private folder of its own since "Projects live only in projects/" (tests/lib/legacy-project.ts)

@@ -153,7 +153,7 @@ export async function startInstance(name: string): Promise<Instance> {
     },
   })
   ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-sec-')
-  configureChat(ctx, { engines: new StaticEngines(fakeEngines(bin, dataDir)), askUserTimeoutMs: 120_000, turnTimeoutMs: 120_000 })
+  configureChat(ctx, { engines: new StaticEngines(fakeEngines(bin, dataDir)), askUserTimeoutMs: 120_000, stallTimeoutMs: 120_000 })
   // the REAL session service (no test session module): cookies, CSRF and Origin checks as in production
   const app = await buildApp(ctx, [...ROUTE_MODULES])
   const server = Bun.serve({ port, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'direct', server: s }) })

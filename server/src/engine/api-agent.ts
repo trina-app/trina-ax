@@ -180,7 +180,7 @@ export function usageEvent(model: string, u: any, requestId: string | undefined)
 /** How long a provider may take to start answering (response headers); the stream itself has no limit here. */
 export const HEADERS_TIMEOUT_MS = 90_000
 
-interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; guard: LinkGuard; meter?: ApiMeter; maxTokens?: number }
+interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; guard: LinkGuard; meter?: ApiMeter; maxTokens?: number; activity?: () => void }
 /** One streamed completion: text deltas out as events; returns the tool calls and whether the model stopped. */
 async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unknown[], emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send): Promise<{ text: string; calls: ToolCall[] } | null> {
   const { guard } = o
@@ -205,7 +205,7 @@ async function metered(conf: ApiEngineConf, messages: ChatMessage[], tools: unkn
 
 async function stream(conf: ApiEngineConf, key: string | null, body: string, emit: (e: EngineEvent) => void, signal: AbortSignal, o: Send, spent: { cost: number | 'none' | 'unfinished' }): Promise<{ text: string; calls: ToolCall[] } | null> {
   const { fetchFn, headersTimeoutMs, guard, meter } = o
-  // an address that never answers fails after headersTimeoutMs instead of at the turn's time limit
+  // an address that never answers fails after headersTimeoutMs instead of at the turn's stall guard
   const hdr = new AbortController()
   const timer = setTimeout(() => hdr.abort(new Error(`no answer within ${Math.round(headersTimeoutMs / 1000)} s`)), headersTimeoutMs)
   let res: Response
@@ -236,6 +236,8 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
   // the completion's usage goes out as an event; its cost is what the meter counts (none known: its reservation)
   const counted = (ev: Extract<EngineEvent, { type: 'usage' }>) => { emit(ev); spent.cost = ev.costUsd ?? 'unfinished' }
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    // every chunk is a sign of life for the turn's stall guard (tool-call arguments stream without any event)
+    o.activity?.()
     buf += dec.decode(chunk, { stream: true })
     let nl: number
     while ((nl = buf.indexOf('\n')) >= 0) {
@@ -306,6 +308,8 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   meter?: ApiMeter; maxTokens?: number
   /** before each round after the first (the turn checks the person's budget; a used-up one aborts `signal`) */
   beforeRound?: () => void
+  /** each chunk of a model stream: a sign of life for the turn's stall guard (chat/turn.ts STALL_TIMEOUT_MS) */
+  activity?: () => void
   /** after beforeRound: true when the turn's tool set was built again (a service connected on a card), so the tools
    * are listed again for this round and the ones after it */
   toolsChanged?: () => boolean }): Promise<void> {
@@ -327,7 +331,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     if (o.signal.aborted) return
     if (step > 0 && o.toolsChanged?.()) tools = await listTools()
     let r: Awaited<ReturnType<typeof complete>>
-    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, meter: o.meter, maxTokens: o.maxTokens }) } catch (e) {
+    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, guard, meter: o.meter, maxTokens: o.maxTokens, activity: o.activity }) } catch (e) {
       if (o.signal.aborted) return
       // refused connection, unknown host, no answer in time, a cut stream, an address the cloud does not allow
       const why = (e as Error)?.cause instanceof Error ? `${(e as Error).message}: ${((e as Error).cause as Error).message}` : String((e as Error)?.message ?? e)

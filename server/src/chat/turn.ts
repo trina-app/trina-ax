@@ -5,7 +5,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
 // launch through the stage-1 launcher, live text deltas + steps over the realtime hub, DB saves every 0.3 s,
-// human waits (ask_user / browser site) that pause the 20-minute limit, stop, refusal / crash / lost-session
+// human waits (ask_user / browser site) that pause the stall guard, stop, refusal / crash / lost-session
 // retries, the file summary and usage, session stash, message.done.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -111,10 +111,16 @@ import { clearChatFolder } from './forget'
 import { publicStep, type ProjectRow, type StoredStep } from './store'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 
-/** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
-export const TURN_TIMEOUT_MS = 20 * 60_000
-/** Launcher hard stop: the active-time limit above is enforced by the server; this only catches a stuck server. */
-export const LAUNCHER_BACKSTOP_MS = 3 * 60 * 60_000
+/** One answer has no time limit (owner decision 2026-11-14, docs/DECISIONS.md "No time limit on one answer"): it ends
+ * when the engine is done, at the tool rounds, at a budget or at Stop. Only a stalled engine is ended: nothing from it
+ * for this long (no output line, no step or progress, no model-proxy event), counted only while the engine has the
+ * turn (not while it waits for a person or a slot, runs one of our tools or waits for the launcher). 15 minutes: longer
+ * than any silent stretch of a working engine (Claude Code's own Bash tool stops at 10 minutes; a model stream sends
+ * bytes every few seconds), shorter than the 20 minutes that used to end every answer. */
+export const STALL_TIMEOUT_MS = 15 * 60_000
+/** Launcher hard stop of one engine launch. The server's stall guard ends a hung engine, and the launcher ends it when
+ * the server's connection goes; this only catches a server that is alive but stuck. Far above any real answer. */
+export const LAUNCHER_BACKSTOP_MS = 12 * 60 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
 export const SESSION_STASH_MAX = 20 * 1024 * 1024
@@ -224,9 +230,9 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
-  /** the engine wrote text or called a tool in this turn (any attempt): a time limit then pauses work to continue from */
+  /** the engine wrote text or called a tool in this turn (any attempt) */
   private producedOutput = false
-  /** steps still running when the turn was stopped (Stop, a time limit): if the answer pauses at its limit they were
+  /** steps still running when the turn was stopped (Stop, the stall guard): if the answer pauses at a limit they were
    * cut off by the pause, not failed (Step.paused) */
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
@@ -318,9 +324,9 @@ export class TurnExec {
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
-  private wallClock: ReturnType<typeof setTimeout> | null = null
   private stopGrace: ReturnType<typeof setTimeout> | null = null
-  private readonly wallEndsAt: number
+  /** when the latest engine launch's own hard stop ends it at the latest (the launcher's timeoutMs), performance.now() */
+  private launchEndsBy = 0
   private activeCore: Running | null = null
   private terminationUnconfirmed = false
   /** an engine of this turn started (the launcher's started event): it ran, so a restart never queues it again */
@@ -347,8 +353,10 @@ export class TurnExec {
   private quarantinedAt = 0
   /** a quarantined turn still waiting on its launcher past the release time: stop reading it (abandonOverdue) */
   private readonly abandon = new AbortController()
-  private timeoutSource: 'active' | 'wall' | null = null
-  private activeMs = 0
+  /** the latest sign of life from the engine or the turn (STALL_TIMEOUT_MS), performance.now() */
+  private lastSignAt = performance.now()
+  /** our own tool calls of this turn that run now (mcp/protocol.ts tools/call): the engine waits on them */
+  private ownCalls = 0
   private humanWaits = 0
   /** card answers held back until the turn has a queue slot again (ChatRuntime.turnResuming): the turn gave its slot
    * back while it waited for the person, and its engine goes on only once it holds one */
@@ -416,10 +424,6 @@ export class TurnExec {
       const project = rt.store.projectRow(row.project_id!)
       this.shared = { project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
-    const limit = rt.wallTimeoutMs ?? 45 * 60_000
-    const remaining = spec.wallDeadlineAt ? Date.parse(spec.wallDeadlineAt) - Date.now() : limit
-    // A wall-clock rollback cannot extend this process's deadline. Persisted deadlines survive retries/recovery.
-    this.wallEndsAt = performance.now() + (Number.isFinite(remaining) ? Math.max(0, Math.min(limit, remaining)) : 0)
   }
 
   get id() { return this.spec.turnId }
@@ -433,7 +437,7 @@ export class TurnExec {
     return this.principal
   }
   get waitingForPerson() { return this.humanWaits > 0 }
-  /** a person answered, and the turn waits for a queue slot to go on (its time limit stays paused meanwhile) */
+  /** a person answered, and the turn waits for a queue slot to go on (the stall guard stays paused meanwhile) */
   get waitingForSlot() { return this.heldAnswers.length > 0 }
   /** how long ago the oldest held answer's card opened (its tool call started then), ms; 0: none held */
   heldSinceMs(): number {
@@ -442,6 +446,7 @@ export class TurnExec {
   }
   /** The turn holds a slot again (ChatRuntime.grantResumes): the held answers reach the engine. */
   resumeAnswers() {
+    this.sign()
     for (const a of this.heldAnswers.splice(0)) a.resolve(a.value)
   }
   /** The turn stops or ends while answers wait for a slot: none of them reaches a tool (like a card the end closed). */
@@ -455,10 +460,9 @@ export class TurnExec {
   async run() {
     this.status = 'running'
     this.saver = setInterval(() => this.save(), SAVE_INTERVAL_MS)
+    this.sign()
     this.clock = setInterval(() => this.tick(), 1000)
-    this.wallClock = setTimeout(() => this.expireWall(), this.remainingWallMs())
     try {
-      if (this.remainingWallMs() <= 0) this.expireWall()
       if (!this.stopReason) await this.execute()
     } catch (e) {
       if (!this.error) {
@@ -489,7 +493,7 @@ export class TurnExec {
     this.stop('shutdown')
   }
 
-  /** What every stop of the answer does (Stop, a time limit, shutdown: `reason`; a used-up budget: none, checkBudget),
+  /** What every stop of the answer does (Stop, the stall guard ('timeout'), shutdown: `reason`; a used-up budget: none, checkBudget),
    * in one place so they never drift apart. */
   private halt(reason?: 'stopped' | 'timeout' | 'shutdown') {
     // a turn that waited for a person holds a slot again while its engine ends (ChatRuntime.turnEngineEnding)
@@ -510,13 +514,6 @@ export class TurnExec {
     }, TURN_STOP_GRACE_MS)
   }
 
-  private remainingWallMs() { return Math.max(0, Math.ceil(this.wallEndsAt - performance.now())) }
-  private expireWall() {
-    if (this.status === 'finished' || this.stopReason) return
-    this.timeoutSource = 'wall'
-    this.rt.log.info('turn timed out', { turn: this.id, source: 'wall' })
-    this.stop('timeout')
-  }
   private quarantine() {
     if (this.quarantined) return
     this.quarantined = true
@@ -532,7 +529,7 @@ export class TurnExec {
     if (!this.quarantined || this.status !== 'finished') return null
     return { pgid: this.enginePgid, releaseAt: this.quarantineReleaseAt() }
   }
-  private quarantineReleaseAt() { return Math.max(this.wallEndsAt, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
+  private quarantineReleaseAt() { return Math.max(this.launchEndsBy, this.quarantinedAt) + this.rt.quarantineReleaseGraceMs }
   /** A quarantined turn that has not ended (its launcher stays connected but never confirms the end) past the release
    * time: stop waiting for the launcher, so the turn ends (as failed) and its slot follows the probe. True if it did. */
   abandonOverdue(): boolean {
@@ -541,14 +538,34 @@ export class TurnExec {
     return true
   }
 
-  private tick() {
-    if (this.humanWaits > 0 || this.heldAnswers?.length || this.status !== 'running') return
-    this.activeMs += 1000
-    if (this.activeMs >= this.rt.turnTimeoutMs && !this.stopReason) {
-      this.timeoutSource = 'active'
-      this.rt.log.info('turn timed out', { turn: this.id, source: 'active' })
-      this.stop('timeout')
+  /** Something came from the engine or happened in the turn (an output line, a step or its progress, a model-proxy
+   * event, a card answer, one of our tool calls starting or ending): the stall guard counts from here. */
+  private sign() { this.lastSignAt = performance.now() }
+
+  /** One of our tools runs for the engine (mcp/protocol.ts tools/call): the engine waits on it, so the stall guard waits
+   * too (box_shell may run 30 minutes, a long transcription longer; each tool has its own limits). Returns its end. */
+  ownCallStarted(): () => void {
+    this.ownCalls = (this.ownCalls ?? 0) + 1
+    this.sign()
+    let ended = false
+    return () => {
+      if (ended) return
+      ended = true
+      this.ownCalls = Math.max(0, this.ownCalls - 1)
+      this.sign()
     }
+  }
+
+  /** The stall guard (STALL_TIMEOUT_MS): no time limit on the answer, but an engine that has had the turn and produced
+   * nothing for that long is ended (stop 'timeout'; the answer ends with the `stalled` error). The clock does not run
+   * while the turn waits for a person or a slot, while one of our tools runs, or while it waits for the launcher. */
+  private tick() {
+    if (this.status !== 'running' || this.stopReason) return
+    if (this.humanWaits > 0 || this.heldAnswers?.length || this.ownCalls > 0 || this.waitingLauncher) { this.sign(); return }
+    const silentMs = performance.now() - this.lastSignAt
+    if (silentMs < this.rt.stallTimeoutMs) return
+    this.rt.log.warn('turn stalled: nothing from the engine', { turn: this.id, silentMs: Math.round(silentMs) })
+    this.stop('timeout')
   }
 
   private async execute() {
@@ -1036,7 +1053,7 @@ export class TurnExec {
       this.continueMode = 'round'
       try {
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
@@ -1216,6 +1233,7 @@ export class TurnExec {
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
+    this.sign()
     // the provider is busy and the engine tries again (QA TC-388): a line in the chat while it lasts
     if (ev.type === 'busy') return this.setBusy(ev.on)
     // what a Codex search asked for: for its step only, never the answer's outcome
@@ -1366,14 +1384,15 @@ export class TurnExec {
   }
 
   private async launchOnce(core: Running, lr: LaunchRequest, onLine: (l: string) => void): Promise<{ exit: any; stderr: string; notes: string[]; refused?: LauncherStop }> {
-    if (this.remainingWallMs() <= 0) this.expireWall()
     // a run that ended without its total (crash, kill): its calls' tokens stay counted; then the budget once more
     // (other answers of this person may have used it up since the last attempt)
     this.foldRunningUsage()
     this.checkBudget()
     if (this.stopReason || this.budgetHit) return { exit: null, stderr: '', notes: [] as string[] }
     if (!core.launcher) throw new CoreUnavailableError('engine launcher not running')
-    lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
+    lr = { ...lr, timeoutMs: lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS }
+    this.launchEndsBy = Math.max(this.launchEndsBy, performance.now() + lr.timeoutMs!)
+    this.sign()
     const h = core.launcher.launch(lr)
     this.handle = h
     this.enginePgid = null
@@ -1399,6 +1418,9 @@ export class TurnExec {
       if (next === 'abandoned') { try { h.close?.() } catch {} throw new Error('engine end not confirmed by the release time; turn abandoned') }
       if (next.done) break
       const e = next.value
+      // every line or event of the engine is a sign of life (partial messages and tool input included, which give no
+      // EngineEvent of their own)
+      this.sign()
       if (e.ev === 'started') { this.enginePgid = e.pgid; this.engineStarted = true; core.turns.bind(this.id, e.pgid) }
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
@@ -1447,6 +1469,7 @@ export class TurnExec {
 
   // ---------------- engine events -> answer ----------------
   private onEvent(e: EngineEvent, errors: EngineEvent[]) {
+    this.sign()
     switch (e.type) {
       case 'text':
         if (!e.delta) return
@@ -1660,6 +1683,7 @@ export class TurnExec {
     if (i >= 0) this.steps[i] = step
     else this.steps.push(step)
     this.dirty = true
+    this.sign()
     this.publishStep(step)
     return step
   }
@@ -1673,6 +1697,7 @@ export class TurnExec {
     if (s.detail && s.detail.length > 4000) s.detail = s.detail.slice(0, 4000)
     if (s.images && s.images.length > 20) s.images = s.images.slice(-20)
     this.dirty = true
+    this.sign()
     this.publishStep(s)
   }
 
@@ -3222,11 +3247,10 @@ export class TurnExec {
    * for it, then opens with its full time; the delete tool itself refuses while any card is open. */
   private exclusiveCard: Promise<void> | null = null
 
-  /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
+  /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
     o = { ...o, askedAt: o.askedAt ?? performance.now() }
-    if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
@@ -3243,10 +3267,7 @@ export class TurnExec {
   }
   private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.remainingWallMs() <= 0) this.expireWall()
-        this.closeRequest(request.requestId, null, 'timeout')
-      }, Math.min(o.timeoutMs, this.remainingWallMs()))
+      const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
       this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
@@ -3312,6 +3333,7 @@ export class TurnExec {
     this.requests.delete(requestId)
     clearTimeout(r.timer)
     this.humanWaits = Math.max(0, this.humanWaits - 1)
+    this.sign()
     const ev = { type: 'turn.request.closed' as const, data: { turnId: this.id, requestId, reason } }
     if (r.window) this.rt.hub.publishTo(this.spec.userId, r.window, ev)
     else this.rt.hub.publish(this.spec.userId, ev)
@@ -3417,7 +3439,6 @@ export class TurnExec {
     this.finishing = true
     if (this.saver) clearInterval(this.saver)
     if (this.clock) clearInterval(this.clock)
-    if (this.wallClock) clearTimeout(this.wallClock)
     if (this.stopGrace) clearTimeout(this.stopGrace)
     if (this.requeueOnEnd && !this.engineStarted && !this.producedOutput && !this.terminationUnconfirmed) {
       let back = false
@@ -3508,13 +3529,10 @@ export class TurnExec {
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
     for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
-    // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
-    // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
-    // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
-    if (this.stopReason === 'timeout' && !this.error) {
-      if (this.producedOutput) this.limitReason = 'time_limit'
-      else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
-    }
+    // the stall guard ended an engine that produced nothing for STALL_TIMEOUT_MS: an error with "retry", the text so far
+    // kept. Not a pause: nothing reached a limit, the engine stopped answering. (One answer has no time limit since
+    // 2026-11-14; answers paused at the old one keep their 'time_limit' and their "continue".)
+    if (this.stopReason === 'timeout' && !this.error) this.error = engineError('stalled', this.spec.locale)
     if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? 'updating' : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
@@ -3522,8 +3540,8 @@ export class TurnExec {
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null
-    if (stopReason) this.rt.log.info('turn paused at its limit', { turn: this.id, reason: stopReason, source: this.timeoutSource ?? 'engine' })
-    // a step the time limit cut off (also one the engine reported failed only because the stop ended its call) did not
+    if (stopReason) this.rt.log.info('turn paused at its limit', { turn: this.id, reason: stopReason })
+    // a step a limit cut off (also one the engine reported failed only because the stop ended its call) did not
     // fail: it shows as paused, and "continue" picks it up. Its status stays 'error' for apps without Step.paused.
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)

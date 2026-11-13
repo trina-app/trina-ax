@@ -126,10 +126,11 @@ export interface ProxyOpts {
   stopReason?: (turnId: string) => TurnStopReason | null
 }
 
-/** Turn.stop(): 'stopped' = the person (the Stop button, the chat deleted), 'timeout' = a time limit, 'shutdown' */
+/** Turn.stop(): 'stopped' = the person (the Stop button, the chat deleted), 'timeout' = the stall guard (the engine
+ * produced nothing for 15 minutes; one answer has no time limit), 'shutdown' */
 export type TurnStopReason = 'stopped' | 'timeout' | 'shutdown'
 /** the `by` of the log line of a request a stop ended */
-const stopBy = (why: TurnStopReason) => (why === 'stopped' ? 'person' : why === 'timeout' ? 'time_limit' : 'shutdown')
+const stopBy = (why: TurnStopReason) => (why === 'stopped' ? 'person' : why === 'timeout' ? 'stalled' : 'shutdown')
 
 /** answers the proxy gives on purpose (Codex's background calls, ./codex-path.ts): not logged as failures */
 const EXPECTED = new WeakSet<Response>()

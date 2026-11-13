@@ -3210,6 +3210,8 @@ only themselves. The owner chose the safest defaults for the open questions:
 
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
 
+- **2026-11-14:** the 20 active minutes and the 45 minutes in total are gone; only a stall guard (15 minutes with
+  nothing from the engine) remains. See "No time limit on one answer" below. The rest of this entry is unchanged.
 - The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`; 150 and an admin setting since 2026-10-31,
   "Tool rounds per answer" below), 30 rounds (API engine), 20 active minutes
   and 45 minutes in total. What changed is how a turn ends at them. Before, Claude's `error_max_turns` result was read
@@ -4128,6 +4130,8 @@ Trina should feel like Claude Code, which has WebSearch.
 
 ## Tool rounds per answer (feat/a9-followups, 2026-10-31)
 
+- **2026-11-14:** the 20 active minutes and the 45 minutes in total are gone; only a stall guard (15 minutes with
+  nothing from the engine) remains. See "No time limit on one answer" below. The rest of this entry is unchanged.
 - Claude Code's `--max-turns` for an answer is now the team setting `answerStepLimit` (Admin > Team settings, "한 답변의
   도구 사용 한도" / "Tool rounds per answer"), **default 150** (was a fixed 50), 10-500. Claude Code itself has no such
   cap, and the A9 comparison with Claude Code (2026-10-31, ten office tasks) showed Trina using many more
@@ -26545,3 +26549,51 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   `project-trash-members.spec.ts` (`SHOTS_DIR`: 1440 and 390, light and dark, as admin, creator and member).
 - Version impact: **minor** (members see a trashed project's card; creators restore; API fields `trashed`,
   `wasMember`, `canRestore`, `TrashItem.project`).
+
+## No time limit on one answer — 한 답변의 시간 제한 없앰 (feat/no-answer-time-limit, 2026-11-14, the owner, QA TC-1290)
+
+- **Why:** the owner wants long jobs to finish. An answer used to stop after 20 active minutes (time waiting for a person
+  not counted) or 45 minutes in total, whatever the AI was doing ("Continue after the per-answer limit", 2026-10-30).
+  What one answer may spend stays bounded by the budgets (the model proxy stops a Claude answer as soon as a block
+  budget is used up) and by the tool rounds per answer (150 by default, Admin > Team settings, "Tool rounds per answer";
+  the API engine's 30 rounds, each sub-agent's 50), all unchanged. Stop ends any answer at once.
+- **Removed:** the active clock (`TURN_TIMEOUT_MS`, `tick`), the total clock (`ChatRuntime.wallTimeoutMs`, the wall
+  timer, `TurnSpec.wallDeadlineAt`; the queue no longer writes `turns.wall_deadline_at`, which stays NULL: no
+  migration, older rows keep a value nothing reads) and the launch's `timeoutMs` cut to the remaining wall time. That
+  covers every engine (Claude Code, Codex, API engine), chat turns, side chats, scheduled tasks and approved template
+  runs, which all run as a `TurnExec`. The answer-step hint (5 languages), for-admins and the site's runtime page no
+  longer name 20 minutes.
+- **What else ends a turn that is really stuck, checked before removing:** the Stop button; the engine's exit; the
+  launcher stops the engine when the server's connection goes (a crash, kill -9, restart: mycel-launcher main.go);
+  a restart's recovery ends or requeues running rows; the launcher's own backstop (3 h, meant for a stuck server, and
+  never reached while 45 minutes cut every launch). Nothing ended an engine that is alive but silent (a model stream that
+  hangs, a hung engine or MCP bridge) before that backstop, while it held a queue slot. So one guard stays:
+- **Stall guard** (`STALL_TIMEOUT_MS`, 15 minutes; `ChatRuntime.stallTimeoutMs`): the turn ends when the engine has
+  had the turn and produced nothing for 15 minutes. Signs of life: every launcher event of the engine (each stdout or
+  stderr line, so Claude's partial messages and streamed tool input count, which give no EngineEvent of their own),
+  every EngineEvent, every API-engine stream chunk (`runApiAgent` `activity`), a step added or changed (tool progress),
+  a model-proxy event (busy retries included), a card answer, one of our tool calls starting or ending. The clock does
+  not run while the turn waits for a person or a queue slot, while one of our tools runs (`TurnToolSet.callStarted`,
+  counted around every `tools/call` in mcp/protocol.ts: box_shell may run 30 minutes, a long transcription longer; each
+  tool keeps its own limits) or while the turn waits for the launcher. Why 15 minutes: longer than any silent stretch of
+  a working engine (Claude Code's own Bash tool stops at 10 minutes; a model stream sends bytes every few seconds) and
+  shorter than the old 20 minutes, so a hung turn frees its slot no later than before. It is not a cap on length: an
+  answer that keeps producing anything runs on.
+- A stall ends the answer as an **error** `stalled` (`CHAT_ERROR_MESSAGES.stalled`, code `internal`: "The AI didn't
+  respond for 15 minutes, so the answer was stopped. Please try again."), the text so far kept, retry offered; not a
+  pause, since nothing reached a limit. A scheduled run that stalled is `problems`. The model proxy logs a request the
+  stall cut off as `by: 'stalled'`.
+- **Launcher backstop 3 h -> 12 h** (`LAUNCHER_BACKSTOP_MS`, also the turn's proxy token lifetime): it only catches a
+  server that is alive but stuck, and must not cut a real long answer. A quarantined slot (the engine's end not
+  confirmed) is released at its latest launch's own hard stop plus 5 minutes (was the wall deadline plus 5 minutes),
+  so the wait stays bounded; the probe still frees it as soon as the engine's process group or the launcher is gone.
+- **Kept for answers stored before:** `time_limit` in `TurnStopReason`, the database CHECK (migration 212) and the
+  readers, the "paused" line with Continue, the `<continuation>` note after such an answer, and the `timeout` /
+  `wall_timeout` error texts. No new answer gets any of them.
+- Tests: `tests/unit/b-chat.test.ts` "per-answer limits" (a stall ends as `stalled` with the text kept; output now and
+  then past the stall time is not stopped; one of our tools running past it is not stopped; an old `time_limit` answer
+  still gets the note), `b-subagents.test.ts` (a stall while sub-agents wait: the cut sub-tasks are audited),
+  `turn-deadline.test.ts` (no deadline, launches get the backstop, a person's wait pauses the stall clock, the API
+  engine's request ends at a stall), `fair-queue*.test.ts` (no deadline written), `proxy-codex.test.ts`,
+  `chat-errors-plain.test.ts`; the harness option `turnTimeoutMs` is now `stallTimeoutMs`.
+- Version impact: **patch** (a limit removed, one error text added; no API or database change).

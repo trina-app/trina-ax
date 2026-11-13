@@ -212,7 +212,7 @@ describe('set_title in real turns', () => {
   let h: Harness
   let alice: TestSocket
   beforeAll(async () => {
-    h = await startHarness({ name: 'b-chat-titles', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'b-chat-titles', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
     alice = await h.ws('alice', { windowId: 'win-titles-1' })
     await alice.next('hello')
   })
@@ -321,7 +321,7 @@ describe('set_title in real turns', () => {
 // without a WebSocket: the titles as the HTTP API shows them
 describe('QA SEC-16 through the API', () => {
   let h: Harness
-  beforeAll(async () => { h = await startHarness({ name: 'b-chat-titles-sec16', turnTimeoutMs: 60_000 }) })
+  beforeAll(async () => { h = await startHarness({ name: 'b-chat-titles-sec16', stallTimeoutMs: 60_000 }) })
   afterAll(async () => { await h.close() })
 
   test('QA SEC-16: the test key is not in the title of the list, search, one chat or a rename (B-W47-3, B-W5-1)', async () => {

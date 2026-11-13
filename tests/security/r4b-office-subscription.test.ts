@@ -118,7 +118,7 @@ describe.skipIf(!mac)('office subscription mode end to end (fake upstream): no M
     fs.writeFileSync(path.join(ENGINE_DIR, 'claude'), `#!${path.join(ENGINE_DIR, 'bun')}\nimport './fake-engine.ts'\n`, { mode: 0o755 })
     const proxyPort = await new Promise<number>((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)) }) })
     h = await startHarness({
-      name: 'r4b-office-sub', turnTimeoutMs: 60_000,
+      name: 'r4b-office-sub', stallTimeoutMs: 60_000,
       // the office "subscription" choice is managed mode (server.json keeps the older name this release, D18)
       realCore: { office: true, engine: { authMode: 'managed', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
       credentials: [],

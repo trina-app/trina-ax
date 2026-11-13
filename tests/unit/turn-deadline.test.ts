@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, expect, spyOn, test } from 'bun:test'
 import { openDb } from '../../server/src/db'
 import { setApiEnginePublicOnly } from '../../server/src/system/egress'
-import { TURN_STOP_GRACE_MS, TurnExec, type TurnSpec } from '../../server/src/chat/turn'
+import { LAUNCHER_BACKSTOP_MS, STALL_TIMEOUT_MS, TURN_STOP_GRACE_MS, TurnExec, type TurnSpec } from '../../server/src/chat/turn'
 import { runApiAgent } from '../../server/src/engine/api-agent'
 import type { ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnRegistry } from '../../server/src/turns'
@@ -15,16 +15,15 @@ import { silentLogger } from '../../server/src/log'
 beforeAll(() => setApiEnginePublicOnly(false))
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const close of cleanups.splice(0)) close() })
-function setup(ms: number, at?: string) {
+// One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"): `stallMs` is the stall guard's
+// silence (STALL_TIMEOUT_MS in production). The guard looks once a second.
+function setup(stallMs: number) {
   const db = openDb(':memory:')
-  // the deadline counts from here, after the migrations: opening the database is not part of the turn's time (it
-  // took ~40 ms of a 60 ms deadline on a 2-vCPU server)
-  const deadline = at ?? new Date(Date.now() + ms).toISOString()
   db.query("INSERT INTO users(id,username,name,role) VALUES('u','u','U','member')").run()
-  db.query("INSERT INTO turns(id,chat_id,user_id,engine,status,dispatched_at,wall_deadline_at) VALUES('t','c','u','api','running',?,?)").run(new Date().toISOString(), deadline)
+  db.query("INSERT INTO turns(id,chat_id,user_id,engine,status,dispatched_at) VALUES('t','c','u','api','running',?)").run(new Date().toISOString())
   const events: any[] = [], released: string[] = [], quarantined: string[] = []
   const rt = {
-    db, wallTimeoutMs: ms, turnTimeoutMs: 60_000, log: silentLogger,
+    db, stallTimeoutMs: stallMs, quarantineReleaseGraceMs: 300_000, log: silentLogger,
     ctx: { config: { mode: 'dev', engine: {} } },
     hub: { publish: (_: string, event: any) => events.push(event) }, relay: { cancelTurn() {} },
     store: { touchChat() {}, messageRow: () => null, userRef: () => null },
@@ -33,38 +32,62 @@ function setup(ms: number, at?: string) {
     launcherReady: async () => {}, launcherStopped() {}, shutdownCause: () => 'restart',
   } as unknown as ChatRuntime
   const spec: TurnSpec = { turnId: 't', chatId: 'c', userId: 'u', assistantId: 'a', userMessageId: 'm',
-    engine: 'api', model: null, locale: 'en', windowId: null, clientKind: 'web', wallDeadlineAt: deadline }
+    engine: 'api', model: null, locale: 'en', windowId: null, clientKind: 'web' }
   const exec = new TurnExec(rt, spec)
   cleanups.push(() => { exec.stop(); db.close() })
   return { db, rt, exec, events, released, quarantined }
 }
 
-test('expired dispatch deadline does not start an engine or reset the deadline', async () => {
-  const f = setup(45 * 60_000, new Date(Date.now() - 1).toISOString())
-  const execute = spyOn(f.exec as any, 'execute').mockImplementation(async () => {})
-  await f.exec.run()
-  expect(execute).not.toHaveBeenCalled()
-  expect(f.exec.stopReason).toBe('timeout')
-  expect(f.released).toEqual(['t'])
-  expect(f.db.query("SELECT status FROM turns WHERE id='t'").get()).toEqual({ status: 'error' })
+test('the stall guard is 15 minutes of silence, far below the launcher backstop', () => {
+  expect(STALL_TIMEOUT_MS).toBe(15 * 60_000)
+  expect(LAUNCHER_BACKSTOP_MS).toBe(12 * 60 * 60_000)
 })
 
-test('waiting for a person pauses active time but never the dispatch deadline', async () => {
-  const f = setup(80)
+test('an engine that produces nothing for the stall time ends the turn as stalled', async () => {
+  const f = setup(500)
+  spyOn(f.exec as any, 'execute').mockImplementation(async () => {
+    await new Promise<void>((resolve) => f.exec.abort.signal.addEventListener('abort', () => resolve(), { once: true }))
+  })
+  await f.exec.run()
+  expect(f.exec.stopReason).toBe('timeout')
+  expect(f.released).toEqual(['t'])
+  expect(f.db.query("SELECT status, error FROM turns WHERE id='t'").get()).toEqual({ status: 'error', error: "The AI didn't respond for 15 minutes, so the answer was stopped. Please try again." })
+})
+
+test('waiting for a person pauses the stall guard: a card open longer than the stall time ends by its own time only', async () => {
+  const f = setup(500)
   let answer: unknown = 'unresolved'
   spyOn(f.exec as any, 'execute').mockImplementation(async () => {
-    answer = await f.exec.waitForPerson({ requestId: 'r', kind: 'ask_user' } as any, { timeoutMs: 60_000 })
+    answer = await f.exec.waitForPerson({ requestId: 'r', kind: 'ask_user' } as any, { timeoutMs: 2500 })
   })
   await f.exec.run()
   expect(answer).toBeNull()
-  expect(f.exec.stopReason).toBe('timeout')
+  expect(f.exec.stopReason).toBeNull()
   expect(f.exec.openRequests()).toEqual([])
   expect(f.released).toEqual(['t'])
-  expect(f.events.some(x => x.type === 'turn.request.closed')).toBe(true)
+  expect(f.events.some(x => x.type === 'turn.request.closed' && x.data.reason === 'timeout')).toBe(true)
+  expect(f.db.query("SELECT status FROM turns WHERE id='t'").get()).toEqual({ status: 'done' })
 })
 
-test('launcher transport loss is not proof of termination and cannot release its slot', async () => {
+test('one of our tool calls running pauses the stall guard; silence after it ends still stalls', async () => {
   const f = setup(500)
+  let stoppedWhileCalling: unknown = 'unread'
+  spyOn(f.exec as any, 'execute').mockImplementation(async () => {
+    const ended = f.exec.ownCallStarted()
+    await Bun.sleep(2500)
+    stoppedWhileCalling = f.exec.stopReason
+    ended()
+    ended() // twice: counted once
+    await new Promise<void>((resolve) => f.exec.abort.signal.addEventListener('abort', () => resolve(), { once: true }))
+  })
+  await f.exec.run()
+  expect(stoppedWhileCalling).toBeNull()
+  expect(f.exec.stopReason).toBe('timeout')
+})
+
+test('launcher transport loss is not proof of termination and cannot release its slot before the launch\'s own end', async () => {
+  const f = setup(60_000)
+  const launchedAt = performance.now()
   const core = { turns: { bind() {} }, launcher: { launch: () => ({ kill() {}, events: (async function* () {
     yield { ev: 'started', pgid: 42 }
   })() }) } }
@@ -75,29 +98,29 @@ test('launcher transport loss is not proof of termination and cannot release its
   expect(f.released).toEqual([])
   expect(f.quarantined).toEqual(['t'])
   expect(f.db.query("SELECT status FROM turns WHERE id='t'").get()).toEqual({ status: 'error' })
+  // the launcher ends the engine at the launch's backstop at the latest: the slot is held until then (+ grace)
+  expect(f.exec.quarantineState()!.releaseAt).toBeGreaterThanOrEqual(launchedAt + LAUNCHER_BACKSTOP_MS + 300_000)
 })
 
-test('a retry receives only the remaining wall time; its confirmed exit returns one slot', async () => {
-  const f = setup(500)
+test('every launch gets the launcher backstop, not a remaining time; its confirmed exit returns one slot', async () => {
+  const f = setup(60_000)
   const limits: number[] = []
   const core = { turns: { bind() {} }, launcher: { launch: (request: any) => {
     limits.push(request.timeoutMs)
     return { kill() {}, events: (async function* () { yield { ev: 'exit', code: 0 } })() }
   } } }
   spyOn(f.exec as any, 'execute').mockImplementation(async () => {
-    await (f.exec as any).launch(core, { timeoutMs: 3 * 60 * 60_000 }, () => {})
+    await (f.exec as any).launch(core, {}, () => {})
     await Bun.sleep(25)
-    await (f.exec as any).launch(core, { timeoutMs: 3 * 60 * 60_000 }, () => {})
+    await (f.exec as any).launch(core, { timeoutMs: LAUNCHER_BACKSTOP_MS }, () => {})
   })
   await f.exec.run()
-  expect(limits).toHaveLength(2)
-  expect(limits[0]!).toBeLessThanOrEqual(500)
-  expect(limits[1]!).toBeLessThan(limits[0]!)
+  expect(limits).toEqual([LAUNCHER_BACKSTOP_MS, LAUNCHER_BACKSTOP_MS])
   expect(f.released).toEqual(['t'])
 })
 
 test('a thrown launcher stream requests termination and retains the unconfirmed slot', async () => {
-  const f = setup(500); let kills = 0
+  const f = setup(60_000); let kills = 0
   const core = { turns: { bind() {} }, launcher: { launch: () => ({ kill() { kills++ }, events: (async function* () {
     yield { ev: 'started', pgid: 42 }
     throw new Error('synthetic broken event stream')
@@ -109,7 +132,7 @@ test('a thrown launcher stream requests termination and retains the unconfirmed 
 })
 
 test('registering a claimed turn preserves its dispatch time and revocation closes tokens immediately', async () => {
-  const f = setup(500)
+  const f = setup(60_000)
   const at = '2026-10-27T00:00:00.000Z'
   f.db.query("UPDATE turns SET started_at=?, dispatched_at=? WHERE id='t'").run(at, at)
   const registry = new TurnRegistry(f.db, 501)
@@ -120,15 +143,15 @@ test('registering a claimed turn preserves its dispatch time and revocation clos
 })
 
 test('a terminal or missing claimed turn cannot regain a live tool token', () => {
-  const f = setup(500), registry = new TurnRegistry(f.db, 501)
+  const f = setup(60_000), registry = new TurnRegistry(f.db, 501)
   f.db.query("UPDATE turns SET status='stopped' WHERE id='t'").run()
   expect(() => registry.create('u', 'c', 'api', null, 't')).toThrow()
   expect(registry.get('t')).toBeUndefined()
   expect(() => registry.create('u', 'c', 'api', null, 'missing')).toThrow()
 })
 
-test('real API agent aborts its injected transport at the wall deadline without a second request', async () => {
-  const f = setup(60); let calls = 0, aborted = false
+test('real API agent: a model request that never answers is aborted at a stall, without a second request', async () => {
+  const f = setup(500); let calls = 0, aborted = false
   const fetchFn = (async (_url: unknown, init: RequestInit) => {
     calls++
     return await new Promise<Response>((_resolve, reject) => {
@@ -138,26 +161,34 @@ test('real API agent aborts its injected transport at the wall deadline without 
   spyOn(f.exec as any, 'execute').mockImplementation(async () => runApiAgent({
     conf: { baseUrl: 'http://127.0.0.1:1/v1', model: 'synthetic', label: 'Synthetic', key: null },
     message: 'test', systemPrompt: 'test', rpc: async () => ({ result: { tools: [] } }), emit: () => {},
-    signal: f.exec.abort.signal, fetchFn,
+    signal: f.exec.abort.signal, fetchFn, headersTimeoutMs: 60_000,
   }))
   await f.exec.run()
   expect(calls).toBe(1); expect(aborted).toBe(true)
   expect(f.exec.stopReason).toBe('timeout'); expect(f.released).toEqual(['t'])
 })
 
-test('successive human waits share one absolute deadline', async () => {
-  // The second card opens only if the first card's 20 ms timer runs before the wall deadline. With a 90 ms deadline, a
-  // stall of the event loop longer than ~70 ms on a busy CI runner ran that timer after the deadline: the turn ended
-  // and the second card never opened (CI unit shard 5 of #310 and #326: Received length: 1; their re-runs passed).
-  const f = setup(500); let first: unknown, second: unknown
-  spyOn(f.exec as any, 'execute').mockImplementation(async () => {
-    first = await f.exec.waitForPerson({ requestId: 'first', kind: 'ask_user' } as any, { timeoutMs: 20 })
-    second = await f.exec.waitForPerson({ requestId: 'second', kind: 'ask_user' } as any, { timeoutMs: 60_000 })
-  })
+test('the API engine\'s stream chunks are signs of life: a slow but steady answer is not a stall', async () => {
+  const f = setup(500)
+  const enc = new TextEncoder()
+  const chunk = (o: unknown) => enc.encode(`data: ${JSON.stringify(o)}\n\n`)
+  const fetchFn = (async () => new Response(new ReadableStream({
+    async start(c) {
+      // about 2.4 s of chunks that give no event of their own (like a tool call's arguments), then the answer
+      for (let i = 0; i < 6; i++) { c.enqueue(chunk({ choices: [{ delta: {} }] })); await Bun.sleep(400) }
+      c.enqueue(chunk({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }))
+      c.close()
+    },
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } })) as unknown as typeof fetch
+  const texts: string[] = []
+  spyOn(f.exec as any, 'execute').mockImplementation(async () => runApiAgent({
+    conf: { baseUrl: 'http://127.0.0.1:1/v1', model: 'synthetic', label: 'Synthetic', key: null },
+    message: 'test', systemPrompt: 'test', rpc: async () => ({ result: { tools: [] } }), emit: (e) => { if (e.type === 'text') texts.push(e.delta) },
+    signal: f.exec.abort.signal, fetchFn, activity: () => (f.exec as any).sign(),
+  }))
   await f.exec.run()
-  expect(first).toBeNull(); expect(second).toBeNull()
-  expect(f.events.filter(e => e.type === 'turn.request')).toHaveLength(2)
-  expect(f.exec.stopReason).toBe('timeout'); expect(f.released).toEqual(['t'])
+  expect(f.exec.stopReason).toBeNull()
+  expect(texts.join('')).toBe('ok')
 })
 
 test('stop revokes tokens now, quarantines after grace, and releases only after delayed native exit', async () => {

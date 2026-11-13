@@ -42,7 +42,7 @@ async function raw(who: string, method: string, p: string, body?: unknown): Prom
 const q = (p: string) => encodeURIComponent(p)
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'sec-project-members-only', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-project-members-only', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'erin', 'bob', 'carol', 'dana']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   const a = h.api('alice')
   projectId = (await a.call(API.createProject, { body: { name: 'Plan', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: K.instr } })).id

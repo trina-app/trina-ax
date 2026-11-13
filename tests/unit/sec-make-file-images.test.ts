@@ -24,7 +24,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR
 let h: Harness
 let bob: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'sec-make-file-images', askUserTimeoutMs: 5000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-make-file-images', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
   bob = await h.ws('bob', { windowId: 'win-sec-mf-bob' })
   await bob.next('hello')
   fs.writeFileSync(path.join(h.team, 'groups/finance/secret-chart.png'), PNG)

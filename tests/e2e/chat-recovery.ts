@@ -18,7 +18,7 @@ function fileTree(dir: string): string[] {
   }
   return entries.flatMap(entry => [entry.name, ...(entry.isDirectory() ? fileTree(path.join(dir, entry.name)).map(child => `${entry.name}/${child}`) : [])]).sort()
 }
-const h = await startHarness({ name: 'recovery', turnTimeoutMs: 30_000 })
+const h = await startHarness({ name: 'recovery', stallTimeoutMs: 30_000 })
 const browser = await chromium.launch({ headless: true }).catch(async error => { await h.close(); throw error })
 try {
   // The older tool fixture uses short group IDs; the browser's Me contract requires UUIDv7 IDs.

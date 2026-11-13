@@ -39,6 +39,8 @@ test('an error stored with the earlier words and no reason is still told apart (
   for (const [reason, message] of old) expect(chatErrorReason({ code: CHAT_ERROR_MESSAGES[reason].code, message })).toBe(reason)
   // and the new words, as stored by this server for older clients
   for (const l of LOCALES) expect(chatErrorReason({ code: 'busy', message: CHAT_ERROR_MESSAGES.wall_timeout[l] })).toBe('wall_timeout')
+  // the stall guard's words (one answer has no time limit since 2026-11-14), read back without params.reason too
+  for (const l of LOCALES) expect(chatErrorReason({ code: 'internal', message: CHAT_ERROR_MESSAGES.stalled[l] })).toBe('stalled')
   // the generic default of engine_unavailable, old and new, is a default text (shown in the language on screen)
   expect(isDefaultErrorMessage('engine_unavailable', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).')).toBe(true)
   expect(isDefaultErrorMessage('engine_unavailable', ERROR_MESSAGES.engine_unavailable.ja)).toBe(true)

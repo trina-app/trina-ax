@@ -17,7 +17,7 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'sec-chat-groups', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-chat-groups', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'dana']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })

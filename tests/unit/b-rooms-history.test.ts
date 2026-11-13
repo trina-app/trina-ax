@@ -33,7 +33,7 @@ const ws: Record<string, TestSocket> = {}
 let clock = Date.now()
 const groupIds: Record<string, string> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-rooms-history', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-rooms-history', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')
   for (const g of ['marketing', 'finance']) {
