@@ -11698,6 +11698,20 @@ under it) and W5 (the setup row is at the top of every list panel).
   `web/test/e2e/nav-rail-flag.spec.ts` (the rail only while on).
 - Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
 
+
+## 트리나 opens the list, not the setup steps; one step number (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S3)
+
+넣을 곳: Team AX core (`web/src/lib/rail.ts`, `web/src/lib/welcome.ts`), 이유: the rail above and W5's setup row. An owner
+with the setup unfinished lands on `/welcome` once per tab (W4); the rail kept it as 트리나's last page, so every later
+press on 트리나 opened "What is your company website?" instead of the chats.
+
+- `/welcome` is never kept as a place's last page: 트리나 opens the Trina list (or the chat open there before). The
+  setup row on every panel stays the way to the steps.
+- **One number**: the setup row's count is the step it opens, as the steps' own bar numbers it ("설정 이어서 하기 · 1/5"
+  opens "1/5 회사 소개"); it said "0/5" (the steps done) beside the bar's "1/5". `stepPosition` serves both. With one
+  step left the row still names it ("남은 일: 팀 파일"). Amends W5's "2/5 = the steps done". Known edge: with only
+  put-off steps left the row opens the earliest and says its number ("1/5" after "3/5"), as the bar does there.
+- Tests: `web/test/unit/rail.test.ts`, `web/test/unit/welcome.test.tsx`, `web/test/unit/setup-row.test.tsx`.
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,
@@ -11706,7 +11720,7 @@ under it) and W5 (the setup row is at the top of every list panel).
 `navRail` switch is on; with it off the sidebar's history is unchanged. On that path it supersedes the caps of "Trina
 history by project" (five projects, the five latest, "모두 보기") and the P1 panel's 프로젝트 row.
 
-- **Order**: 고정 · 폴더 · 나만 보여요 · 프로젝트 · 모든 프로젝트 (N) · 기타 기록, then 예약 작업 · 팀 스킬 · 삭제한 기록.
+- **Order**: 고정 · 트리나 폴더 · 나만 보여요 · 프로젝트 · 모든 프로젝트 (N) · 기타 기록, then 예약 작업 · 팀 스킬 · 삭제한 기록.
   Each chat shows in one place: pinned › one of my folders › its project › other. Folders show read-only (their name,
   rows, count); making, renaming and filling them is phase P4b.
 - **Projects**: groups only for projects I can see with my activity in the last 14 days, at most 8, newest first; the
@@ -11745,6 +11759,24 @@ history by project" (five projects, the five latest, "모두 보기") and the P1
 - Version impact: none while the switch is off (an additive endpoint and query flag; no changelog fragment, per
   `changes/README.md`).
 
+
+## A waiting chat never sinks below the fold (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S2)
+
+넣을 곳: Team AX core (`panels/TrinaList.tsx`, `panels/TrinaPanel.tsx`, `rail/Rail.tsx`, `store/sessionMarkers.ts`), 이유:
+the Trina list above. The walk: a member with six projects saw the rail's "?" but the waiting chat sat under "기타 기록",
+out of sight at 1440×900; 삭제한 기록 needed a scroll for anyone with projects.
+
+- **The rail's 트리나 with "?"** opens the first chat that waits on me (one not on screen), wherever it sits; without a
+  "?" it opens what was open there, as any place. Only from another place: the lit 트리나 opens its start (the waiting
+  row is there), so two waiting chats never make a loop. The list scrolls the open chat's row into sight (the least scroll).
+- **"? 답을 기다려요 N"**: one quiet row on top of the Trina list (computer panel and phone tab) while any chat waits; it
+  opens the first. No card. It counts the questions and cards that wait for my answer; a stopped run keeps its "?" on
+  its row and on the rail. The rail's "?" uses the rail's own rule (`waitingChats`: rows that show "?", from the same chats
+  and markers as `useAttention`), so the row, the rail and the rows agree.
+- **예약 작업 · 팀 스킬 · 삭제한 기록** stay pinned under the list on a computer (`PanelFrame` `bottom`), never scrolled
+  away; leaner than a header menu, which is the filter's. A phone keeps them at the list's end: a pinned block would sit
+  under the "트리나에게 묻기" button and take a sixth of the screen.
+- Tests: `web/test/unit/nav-folders.test.tsx` ("chats that wait on me"), `web/test/e2e/trina-panel.spec.ts`.
 ## 활동, 파일 and 대화 as lists beside the rail (feat/nav-rail-rest, 2026-11-13, navigation redesign P3)
 
 넣을 곳: Team AX core (`web/src/components/panels/{ActivityPanel,FilesPanel,RoomsByKind}.tsx`, `pages/Activity.tsx`,
@@ -17935,7 +17967,7 @@ the lists they sort are core. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md`
 2026-11-13). Only while the server's `navRail` switch is on; with it off no folder shows and `/api/nav-folders` is never
 read. The server half is the entry above.
 
-- **Making them**: "새 폴더" is the + on the "폴더 · 나만 보여요" label, or, before the first folder, one quiet row (beside
+- **Making them**: "새 폴더" is the + on the "트리나 폴더 · 나만 보여요" / "대화 폴더 · 나만 보여요" label, or, before the first folder, one quiet row (beside
   "+ 새 프로젝트" in the Trina list; at the end of 대화's). A name dialog checks 1–40 characters and a name I already use
   (any letter case) before the server does.
 - **A folder's header**: its name with ▾ folds it (remembered per person in this browser, as project groups); its "⋯"
@@ -17971,6 +18003,21 @@ read. The server half is the entry above.
   the same window sees none of them; the switch off shows and reads nothing).
 - Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
 
+
+## Two kinds of list folders, said where they show (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review M3)
+
+넣을 곳: Team AX core (`web/src/components/nav/NavFolders.tsx`), 이유: the folders above. The owner decided: folders belong to
+the list they are made in. 트리나's folders hold AI chats, 대화's hold rooms and DMs, as the server keeps them apart. The
+final UX walk found the dead end: a folder just made in 트리나 was missing from a room's "폴더로 옮기기", with no reason
+given, and both labels read "폴더 · 나만 보여요", as if one set.
+
+- **Labels**: "트리나 폴더 · 나만 보여요" in the Trina list, "대화 폴더 · 나만 보여요" in 대화 (en "Trina folders" /
+  "Chat folders", as the tab is "Chats"; id, ja, es alike). The AI's name comes from the edition (`aiName`).
+- **A row's "폴더로 옮기기"** opens a small menu headed with its kind ("대화 폴더"): that list's folders and "새 폴더 만들어
+  넣기". With none of that kind yet, one quiet line under it: "대화 폴더는 트리나 폴더와 따로 있어요." (the reverse for a
+  chat), read out with "새 폴더 만들어 넣기".
+- Not done: one folder set for both lists (the review's first option), and pre-filling the new folder's name.
+- Tests: `web/test/unit/nav-folders.test.tsx` (the kind names and the line in five languages), `web/test/e2e/nav-folders.spec.ts`.
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
 
 Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
@@ -20025,6 +20072,28 @@ logo's header (28 px).
   and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
   through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
 - Version impact: **minor** (a visible change to the sidebar; no API or data change).
+
+## Switching teams from the logo menu and 나 (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S6)
+
+넣을 곳: Team AX core (`web/src/components/TeamMenu.tsx`, `web/src/lib/teamSwitch.ts`, the 나 tab in
+`settings/SettingsDialog.tsx`), the desktop app (`desktop/src/main/main.ts`, `preload/app.ts`,
+`shared/src/desktop-bridge.ts` `teamMenu`) and the phone app (`mobile/src/protocol.ts` `change-team-v1`,
+`mobile/src/bridge.ts`, `mobile/App.tsx`), 이유: the app's own navigation. The walk found no way to switch teams in the new
+navigation: only the OS menu (⌘1–9) in the desktop app and the signed-out page's footer on a phone. Slack and KakaoTalk
+users look under the workspace logo.
+
+- **Desktop app**: the logo menu ends with "다른 팀으로 전환…" / "Switch team…" **for every role**, so a member's logo is
+  a menu button there too (it holds that one item). It opens the app's own menu under the pointer: the OS 팀 menu's list,
+  the open team ticked, ⌘1–9, then "팀 목록…". The app draws it, so the team page never learns the person's other teams
+  (`teamMenu()` takes nothing and returns nothing). An app before this addition opens its team list (`openTeams`).
+- **Phone app**: the 나 tab's team group has "다른 팀으로 전환…", which opens the app's own "다른 팀에 연결" screen over the
+  team, the one the signed-out footer opens (the team stays until another answered and the person said yes). New
+  optional capability `change-team-v1`; the app takes it at most once in three seconds. An app without it: no row. The
+  phone app holds one team at a time, so there is no list to show.
+- **A plain browser** (computer or phone) is one team per address: no item, no row; a member's logo stays a logo.
+- Tests: `web/test/unit/nav-menus.test.tsx` (member and owner, with and without `teamMenu`), `tests/unit/mobile-push.test.ts`
+  (`change-team-v1`: the capability, origin, nonce and the three-second limit).
+- Version impact: minor (a visible item; an optional bridge method and capability, no API change).
 ## 정보가 새는 곳 셋 — a member's dry run, the delete card, the matrix coverage (fix/access-info-leaks, 2026-11-10)
 
 - **Why:** a plan review found three places where a member learns what their permissions do not show them. Each was

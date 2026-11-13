@@ -53,6 +53,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
       onMouseLeave={peek.hide}
       data-marker={marker?.kind}
+      data-chat-id={chat.id}
       data-pinned={chat.pinnedAt ? '' : undefined}
       {...dragRow('chats', chat.id, !chat.projectId && !chat.shared && !chat.sideRoomId)}
     >

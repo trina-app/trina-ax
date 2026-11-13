@@ -5,15 +5,18 @@
 // Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. A member has neither item, so for
 // them it is the team's logo and name, not a button (a menu with no items would be a dead end). Keyboard as in the
 // profile menu: the first item takes focus, arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and
-// a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab.
+// a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab. In the desktop
+// app the menu ends with "다른 팀으로 전환…" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
+// member's logo is a button too.
 import clsx from 'clsx'
-import { Shield, UserPlus } from 'lucide-react'
+import { ArrowLeftRight, Shield, UserPlus } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { create } from 'zustand'
 import { teamIconUrl } from '@mycel/shared'
 import { useT } from '../i18n'
 import { teamAddressShown } from '../lib/team-address'
+import { switchTeam, useTeamSwitchWay } from '../lib/teamSwitch'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
 import { useWelcome } from '../store/welcome'
@@ -37,6 +40,9 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
+  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환…" for everyone, so a
+  // member gets the menu too; a plain browser is one team per address
+  const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
   const addressId = useId()
   const hide = (focusBack: boolean) => {
@@ -71,7 +77,7 @@ export function TeamMenu() {
     else if (e.key === 'End') go(-1)
   }
   const railHead = 'flex w-full flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-ink'
-  if (!admin)
+  if (!admin && !canSwitch)
     return (
       <div className="px-1.5 pt-2 pb-1" title={me.team.name}>
         <div className={railHead} data-testid="team-header">
@@ -109,30 +115,51 @@ export function TeamMenu() {
             </span>
           </div>
           <div role="separator" className="mx-1 mb-1.5 border-t border-line" />
-          <button
-            role="menuitem"
-            type="button"
-            className={item}
-            onClick={() => {
-              hide(true)
-              void openTeamInvite(navigate, button.current)
-            }}
-            data-testid="team-menu-invite"
-          >
-            <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
-          </button>
-          <button
-            role="menuitem"
-            type="button"
-            className={item}
-            onClick={() => {
-              hide(false)
-              navigate('/admin')
-            }}
-            data-testid="team-menu-admin"
-          >
-            <Shield size={16} className="text-muted" aria-hidden /> {t('sidebar.admin')}
-          </button>
+          {admin && (
+            <>
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(true)
+                  void openTeamInvite(navigate, button.current)
+                }}
+                data-testid="team-menu-invite"
+              >
+                <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
+              </button>
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(false)
+                  navigate('/admin')
+                }}
+                data-testid="team-menu-admin"
+              >
+                <Shield size={16} className="text-muted" aria-hidden /> {t('sidebar.admin')}
+              </button>
+            </>
+          )}
+          {canSwitch && (
+            <>
+              {admin && <div role="separator" className="mx-1 my-1.5 border-t border-line" />}
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={() => {
+                  hide(true)
+                  switchTeam()
+                }}
+                data-testid="team-menu-switch"
+              >
+                <ArrowLeftRight size={16} className="text-muted" aria-hidden /> {t('teamMenu.switch')}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

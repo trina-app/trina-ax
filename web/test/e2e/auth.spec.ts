@@ -52,7 +52,8 @@ test.describe('first-run setup in an English browser', () => {
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
     // a computer: the sidebar's row stands for the steps (Home has no row of its own there)
     await expect(page.getByTestId('setup-row-link')).toContainText('설정 이어서 하기')
-    await expect(page.getByTestId('setup-row-count')).toHaveText('· 0/5')
+    // the step it opens, the bar's "1/5 회사 소개" (one number on both)
+    await expect(page.getByTestId('setup-row-count')).toHaveText('· 1/5')
     await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
     // the steps are the owner's checklist while unfinished: Admin › Home's own checklist hides
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)

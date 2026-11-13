@@ -392,3 +392,16 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
   return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), threadReplies }), [chats, rooms, here, requests, threadReplies])
 }
+
+/** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's
+ * order, from the same chats and rules as 트리나's rail mark (useAttention): the rail's "?" and the Trina list's
+ * "답을 기다려요 N" row open the first one, so a waiting chat never sits out of sight under the project groups. */
+export function waitingChats(chats: readonly Chat[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): Chat[] {
+  return chats.filter((c) => markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })?.kind === 'ask')
+}
+export function useWaitingChats(): Chat[] {
+  const chats = useChats((s) => s.chats)
+  const requests = useChats((s) => s.requests)
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  return useMemo(() => waitingChats(chats, { here, cards: cardChats(requests) }), [chats, requests, here])
+}

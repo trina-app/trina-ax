@@ -3,8 +3,10 @@
 // folder that is not one of mine is ignored; a folded room folder keeps one pill, the strongest ("?" › "@" › how many
 // rooms are unread, muted ones left out); a name already used is found in any letter case.
 import { describe, expect, test } from 'bun:test'
-import type { NavFolder, Room } from '@mycel/shared/api'
-import { roomFolderPill } from '../../src/components/nav/NavFolders'
+import type { Chat, NavFolder, Room } from '@mycel/shared/api'
+import { translate } from '../../src/i18n'
+import { folderKindName, roomFolderPill } from '../../src/components/nav/NavFolders'
+import { waitingChats } from '../../src/store/sessionMarkers'
 import { roomsByKind } from '../../src/components/panels/RoomsByKind'
 import { foldersOf, nameTaken } from '../../src/store/navFolders'
 
@@ -49,5 +51,32 @@ describe("a folder's + opens the new-chat box with the folder", () => {
     expect(newChatPath({ folder: 'f1' }, false)).toBe('/?folder=f1')
     expect(homeRoute('/', '?folder=f1', true)).toEqual({ to: '/new?folder=f1' })
     expect(homeRoute('/new', '?folder=f1', false)).toEqual({ to: '/?folder=f1' })
+  })
+})
+
+// UX review M3: the two kinds never mix, so every place that shows or picks folders says which list they belong to
+describe('which list a folder belongs to', () => {
+  test('"트리나 폴더" and "대화 폴더" in every language, and the line that says they are separate', () => {
+    const name = '트리나'
+    expect(folderKindName((k, p) => translate('ko', k, { name, ...p }), 'chats')).toBe('트리나 폴더')
+    expect(folderKindName((k, p) => translate('ko', k, p), 'rooms')).toBe('대화 폴더')
+    expect(translate('ko', 'navFolders.separateRooms', { name })).toBe('대화 폴더는 트리나 폴더와 따로 있어요.')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const)
+      for (const k of ['navFolders.kindChats', 'navFolders.kindRooms', 'navFolders.separateRooms', 'navFolders.separateChats', 'teamMenu.switch'] as const) {
+        const v = translate(l, k, { name: 'Trina' })
+        expect(v).not.toBe(k)
+        expect(v).not.toContain('{')
+      }
+  })
+})
+
+// UX review S2: the rail's "?" and the list's "답을 기다려요 N" open the first chat that waits, from the rail's own rule
+describe('chats that wait on me', () => {
+  test('the rows that show "?" (a question, a card, a stopped run unseen), in the list\'s order; an unseen answer or a running chat is not one', () => {
+    const c = (id: string, o: Partial<Chat> = {}) => ({ id, title: id, runState: 'idle', updatedAt: '2026-11-13T00:00:00.000Z', ...o }) as Chat
+    const chats = [c('new', { unseen: true }), c('asks', { waiting: true }), c('runs', { runState: 'running' }), c('card'), c('failed', { unseen: true, lastOutcome: 'error' })]
+    expect(waitingChats(chats, { cards: new Set(['card']) }).map((x) => x.id)).toEqual(['asks', 'card', 'failed'])
+    // the chat on screen: its unseen outcome is seen; a question still waits
+    expect(waitingChats(chats, { here: 'failed' }).map((x) => x.id)).toEqual(['asks'])
   })
 })

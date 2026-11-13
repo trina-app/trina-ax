@@ -10,6 +10,7 @@ import { Rail } from '../../src/components/rail/Rail'
 import { activityMark, aiMark, chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
 import { panelState } from '../../src/components/rail/railPanel'
 import { useInbox } from '../../src/store/inbox'
+import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
@@ -128,6 +129,26 @@ describe('Rail', () => {
     } finally {
       await tabs.unmount()
       await rail.unmount()
+    }
+  })
+
+  // UX review S2: the waiting chat may sit far down the list; 트리나's "?" opens it, from another place only (no loop)
+  test('트리나 with "?" from another place opens the first waiting chat; lit, it opens its start', async () => {
+    const chatsBefore = useChats.getState()
+    const c = (id: string, o: object = {}) => ({ id, title: id, projectId: null, runState: 'idle', updatedAt: '2026-11-13T00:00:00.000Z', ...o })
+    useChats.setState({ chats: [c('seen'), c('asks', { waiting: true }), c('asks2', { waiting: true })], chatsLoaded: true } as never)
+    try {
+      for (const [path, href] of [['/rooms', '/c/asks'], ['/files', '/c/asks'], ['/', '/'], ['/c/asks', '/']] as const) {
+        const m = await draw('owner', path)
+        try {
+          expect(m.get('rail-ai-mark').getAttribute('data-mark')).toBe('ask')
+          expect(m.get('rail-ai').getAttribute('href')).toBe(href)
+        } finally {
+          await m.unmount()
+        }
+      }
+    } finally {
+      useChats.setState(chatsBefore, true)
     }
   })
 

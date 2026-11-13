@@ -135,6 +135,34 @@ describe('the team menu on top', () => {
     }
   })
 
+  // UX review S6: switching teams is found under the logo, as in Slack; the app draws the list (the page never sees it)
+  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환…, which opens the app\'s own teams menu (an older app: its team list)', async () => {
+    const calls: string[] = []
+    const g = globalThis as Record<string, unknown>
+    try {
+      for (const role of ['member', 'owner'] as const) {
+        for (const withMenu of [true, false]) {
+          g.mycelDesktop = { bridgeVersion: 1, appVersion: '0.4.0', platform: 'darwin', openTeams: () => calls.push(`${role}:openTeams`), ...(withMenu ? { teamMenu: () => calls.push(`${role}:teamMenu`) } : {}) }
+          as(role)
+          const m = await renderWithDialog()
+          try {
+            await m.click('team-menu')
+            const items = m.get('team-dropdown').querySelectorAll('[role="menuitem"]')
+            expect(items.map((x) => x.getAttribute('data-testid'))).toEqual(role === 'member' ? ['team-menu-switch'] : ['team-menu-invite', 'team-menu-admin', 'team-menu-switch'])
+            expect(m.get('team-menu-switch').textContent?.trim()).toBe(ko('teamMenu.switch'))
+            await m.click('team-menu-switch')
+            expect(m.find('team-dropdown')).toBeNull()
+          } finally {
+            await m.unmount()
+          }
+        }
+      }
+      expect(calls).toEqual(['member:teamMenu', 'member:openTeams', 'owner:teamMenu', 'owner:openTeams'])
+    } finally {
+      delete g.mycelDesktop
+    }
+  })
+
   for (const role of ['owner', 'admin'] as const) {
     test(`${role}: a button opens the menu: the team with its address, then 팀원 초대 and 관리자, nothing personal`, async () => {
       as(role, 'https://acme.trina.app')

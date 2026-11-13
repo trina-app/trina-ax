@@ -2,19 +2,20 @@
 // (TeamMenu.tsx: its menu for owners and admins: Invite people, Admin), then four places, each an icon with its name under it (the owner, 2026-11-07: no icon
 // without words): 트리나 · 대화 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx:
 // status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
-// the place already lit opens its start. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
+// the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that
+// waits on me. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
 // the photo in order; Up/Down/Home/End move between them too. The rail takes no shortcut of its own.
 import clsx from 'clsx'
 import { Bell, FolderOpen, MessageCircle, PanelLeftOpen } from 'lucide-react'
 import { useEffect, type KeyboardEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type RailItem } from '../../lib/rail'
 import { aiName } from '../../lib/tabs'
 import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
-import { useAttention } from '../../store/sessionMarkers'
+import { useAttention, useWaitingChats } from '../../store/sessionMarkers'
 import { AiTabIcon } from '../BottomTabs'
 import { AccountMenu } from '../nav/AccountMenu'
 import { TeamMenu } from '../TeamMenu'
@@ -39,6 +40,12 @@ export function Rail({ showList }: { showList: boolean }) {
   const roomNotices = useRoomNoticeUnread()
   const notices = useActivityUnread()
   const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms, roomNotices), files: null, activity: activityMark(notices) }
+  // 트리나 with its "?": the first chat that waits on me (not the one on screen), wherever it sits in the list, so it
+  // never waits below the project groups (UX review S2); without one the place opens as any place does
+  const waiting = useWaitingChats()
+  const onScreen = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
+  // only from another place: the lit 트리나 opens its start, where the waiting row sits on top (never a loop between chats)
+  const firstWaiting = marks.ai?.kind === 'ask' && current !== 'ai' ? waiting.find((c) => c.id !== onScreen) : undefined
   const label: Record<RailItem, string> = { ai: aiName(t), chats: t('tabs.chats'), files: t('sidebar.files'), activity: t('inbox.title') }
   const icon = (item: RailItem, lit: boolean): ReactNode =>
     item === 'ai' ? <AiTabIcon active={lit} /> : item === 'chats' ? <MessageCircle size={22} aria-hidden /> : item === 'files' ? <FolderOpen size={22} aria-hidden /> : <Bell size={22} aria-hidden />
@@ -58,7 +65,7 @@ export function Rail({ showList }: { showList: boolean }) {
       <ul className="mt-2 flex flex-col gap-1 px-1.5">
         {RAIL_ITEMS.map((item) => {
           const lit = item === current
-          const to = railTarget(item, current, last)
+          const to = item === 'ai' && firstWaiting ? `/c/${firstWaiting.id}` : railTarget(item, current, last)
           return (
             <li key={item}>
               <Tooltip label={label[item]}>

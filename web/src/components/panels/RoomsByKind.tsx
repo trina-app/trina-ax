@@ -89,7 +89,7 @@ export function RoomsByKind() {
         labelled = true
         out.push(
           <PanelLabel key="folders-label" id="chats-panel-folders" icon={<FolderIcon />} action={<NewFolderButton kind="rooms" />} testId="chats-panel-label">
-            <FoldersLabelWords />
+            <FoldersLabelWords kind="rooms" />
           </PanelLabel>,
         )
       }

@@ -46,20 +46,23 @@ On a computer, **트리나** on the bar on the left opens your list of Trina cha
 | Part | What is in it |
 |---|---|
 | **고정** (Pinned) | The chats you pinned |
-| **폴더** (Folders) | Your own folders, only you see them |
+| **트리나 폴더** (Trina folders) | Your own folders for Trina chats, only you see them |
 | **프로젝트** (Projects) | The projects you used in the last 14 days, up to 8, three chats each; **N개 더 보기** shows more |
 | **모든 프로젝트 (N)** | Every project you can see |
 | **기타 기록** (Other chats) | Your other chats, newest first |
 
-Then **예약 작업** (Scheduled), **팀 스킬** (Team skills) and **삭제한 기록** (Deleted history). The filter button at
-the top of the list can show only some chats, for example the ones that are answering or wait for you.
+When a chat waits for your answer, **답을 기다려요 N** (Waiting for you) sits on top of the list and opens it; so does
+**트리나** on the bar while it shows **?**. **예약 작업** (Scheduled), **팀 스킬** (Team skills) and **삭제한 기록**
+(Deleted history) stay under the list on a computer, and come at its end on a phone. The filter button at the top of the
+list can show only some chats, for example the ones that are answering or wait for you.
 
 ### Folders
 
 A folder sorts your list, nothing more: it holds no files and never changes who sees a chat. Make one with **+** on
-**폴더**, then use a chat's **···** › **폴더로 옮기기** (Move to folder), or drag the chat onto the folder. A folder's
+**트리나 폴더**, then use a chat's **···** › **폴더로 옮기기** (Move to folder), or drag the chat onto the folder. A folder's
 **···** renames it, moves it up or down, or deletes it; deleting a folder keeps its chats in your list. A project's chats
-stay in their project. The **대화** list has folders for conversations the same way.
+stay in their project. The **대화** list has its own **대화 폴더** (Chat folders) for rooms and direct messages:
+a Trina folder holds Trina chats only, and a chat folder holds conversations only.
 
 ## Several chats at once
 

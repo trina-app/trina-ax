@@ -122,6 +122,14 @@ describe('what each place remembers', () => {
     expect(railTarget('files', 'ai', last)).toBe('/files?view=recent')
   })
 
+  test('the owner\'s setup steps are never kept: 트리나 opens the list, not the wizard (UX review S3)', () => {
+    rememberRail('/c/abc')
+    rememberRail('/welcome')
+    rememberRail('/welcome', '?step=files')
+    expect(useRailMemory.getState().last.ai).toBe('/c/abc')
+    expect(railOf('/welcome')).toBe('ai')
+  })
+
   test('a kept address is a path of this app (never //host)', () => {
     sessionStorage.setItem('mycel.rail.last', JSON.stringify({ ai: '//evil.example/x', chats: '/rooms/r1', files: 3, activity: 'https://x' }))
     // read again as a new page would

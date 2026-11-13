@@ -28,7 +28,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, firstResultSkill, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, firstResultSkill, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, phoneSkips, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepPosition, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -357,15 +357,15 @@ describe('where the steps go', () => {
   })
 
   // the recheck of onboarding v5: a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting
-  // for a computer (put off counted as answered): it names what is left, and the count is the steps done
-  test('the setup row\'s words: one step left here is named ("남은 일: 팀 파일"); else "설정 이어서 하기" and the steps done', () => {
+  // for a computer (put off counted as answered): it names what is left, and the count is the step it opens
+  test('the setup row\'s words: one step left here is named ("남은 일: 팀 파일"); else "설정 이어서 하기" and the step it opens', () => {
     const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
     const phone = { ...fresh(), skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: 'done' } } as WelcomeProgress
     expect(showResume(phone, false)).toBe(true)
     expect(doneCount(phone)).toBe(2)
     expect(stepsLeft(phone, true, false)).toEqual(['files'])
     expect(setupRowWords(ko, phone, true, false)).toEqual({ text: '남은 일: 팀 파일', count: null })
-    // a computer has 내 스킬 and 도구 연결 left too: the steps done, "2/5", never "5/5"
+    // a computer has 내 스킬 and 도구 연결 left too: it opens 내 스킬, "2/5"
     expect(stepsLeft(phone, true, true)).toEqual(['skills', 'files', 'tools'])
     expect(setupRowWords(ko, phone, true, true)).toEqual({ text: '설정 이어서 하기', count: '2/5' })
     // a phone with two left counts its own four steps ("2/4", QA TC-271)
@@ -374,12 +374,17 @@ describe('where the steps go', () => {
     const off = { ...fresh(), steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: 'skipped' } } as WelcomeProgress
     expect(setupRowWords(ko, off)).toEqual({ text: '남은 일: 팀원 초대', count: null })
     expect(setupRowWords(ko, { ...off, steps: { ...off.steps, invite: 'done', tools: null } })).toEqual({ text: '남은 일: 도구 연결', count: null })
-    expect(setupRowWords(ko, { ...off, steps: { ...off.steps, profile: 'skipped' } })).toEqual({ text: '설정 이어서 하기', count: '3/5' })
-    // nothing done yet: "0/5"; 회사 소개 saved (no deck needed any more) counts as done
-    expect(setupRowWords(ko, fresh())).toEqual({ text: '설정 이어서 하기', count: '0/5' })
+    // two left: the count is the step the row opens, numbered as the steps' bar does (회사 소개 first: "1/5", the bar's
+    // "1/5 회사 소개"), never a second number (UX review S3)
+    expect(setupRowWords(ko, { ...off, steps: { ...off.steps, profile: 'skipped' } })).toEqual({ text: '설정 이어서 하기', count: '1/5' })
+    expect(stepPosition({ ...off, steps: { ...off.steps, profile: 'skipped' } }, 'profile')).toEqual({ n: 1, total: 5 })
+    // nothing done yet: "1/5", the bar's "1/5 회사 소개" (it said "0/5" before: two numbers for one place); 회사 소개 saved
+    // (no deck needed any more) counts as done
+    expect(setupRowWords(ko, fresh())).toEqual({ text: '설정 이어서 하기', count: '1/5' })
     expect(doneCount({ ...fresh(), steps: { ...fresh().steps, profile: 'done' } })).toBe(1)
     // the AI step counts with the others while it is on the bar
-    expect(setupRowWords(ko, { ...off, steps: { ...off.steps, ai: 'skipped' } }, false)).toEqual({ text: '설정 이어서 하기', count: '4/6' })
+    const noAi = { ...off, steps: { ...off.steps, ai: 'skipped' } } as WelcomeProgress
+    expect(setupRowWords(ko, noAi, false)).toEqual({ text: '설정 이어서 하기', count: `${stepPosition(noAi, resumeStep(noAi, false)!, false)!.n}/6` })
     // every language has the words
     expect(setupRowWords((k, p) => translate('en', k, p), phone, true, false).text).toBe('Still to do: Team files')
     expect(setupRowWords((k, p) => translate('en', k, p), { ...off, steps: { ...off.steps, invite: 'done', tools: null } }).text).toBe('Still to do: Tools')

@@ -165,3 +165,38 @@ test('opened on 대화 or 파일 first, 트리나 already shows its mark for uns
     await expect(page.getByTestId('rail-ai').locator('[data-mark="dot"]')).toBeVisible()
   }
 })
+
+// UX review S2: the waiting chat sat under six project groups, out of sight; 삭제한 기록 needed a scroll
+test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s "?" open it; 삭제한 기록 stays in sight under the list', async ({ page }) => {
+  await start(page)
+  for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `Plan ${n}`, await project(page, `Acme ${n}`))
+  const waits = await chat(page, 'Which template?')
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) await chat(page, `Note ${n}`)
+  await page.route('**/api/chats?*', async (route) => {
+    const r = await route.fetch()
+    const body = (await r.json()) as { items: { title: string }[] }
+    body.items = body.items.map((c) => (c.title === 'Which template?' ? { ...c, waiting: true } : c))
+    await route.fulfill({ json: body })
+  })
+  await page.goto('/rooms')
+  await expect(page.getByTestId('rail-ai').locator('[data-mark="ask"]')).toBeVisible()
+  // the rail's 트리나 with "?" opens the waiting chat, and its row is in sight in the list
+  await page.getByTestId('rail-ai').click()
+  await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
+  await expect(panel(page).locator(`li[data-chat-id="${waits}"]`)).toBeInViewport()
+  // the one row on top says how many wait and opens the first
+  await page.goto('/')
+  const row = panel(page).getByTestId('trina-waiting')
+  await expect(row).toBeInViewport()
+  await expect(row).toContainText(t['marker.card'])
+  await expect(row.getByTestId('trina-waiting-count')).toHaveText('1')
+  await row.click()
+  await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
+  // 예약 작업 · 팀 스킬 · 삭제한 기록 pinned under the list, without a scroll
+  for (const id of ['nav-scheduled', 'nav-skills', 'nav-trash']) await expect(panel(page).getByTestId(id)).toBeInViewport()
+  // nothing waits: no row
+  await page.unroute('**/api/chats?*')
+  await page.goto('/')
+  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
+  await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
+})

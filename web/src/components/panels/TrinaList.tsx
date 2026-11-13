@@ -25,7 +25,7 @@ import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/ch
 import { useChats } from '../../store/chats'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
 import { useMeStrict } from '../../store/session'
-import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
+import { cardChats, reasonText, useSessionMarkers, useWaitingChats } from '../../store/sessionMarkers'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { SessionMarker } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
@@ -121,6 +121,17 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const [otherMore, setOtherMore] = useState<Opened | null>(null)
   const [moving, setMoving] = useState<Chat | null>(null)
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
+  // the chat on screen in sight in the list (the rail's "?" or the waiting row opened one far down): the least scroll
+  // once per chat opened (a new read of the groups while I browse never pulls the list back)
+  const listRef = useRef<HTMLDivElement>(null)
+  const scrolledTo = useRef<string | null>(null)
+  useEffect(() => {
+    if (!openChat || scrolledTo.current === openChat) return
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-chat-id="${CSS.escape(openChat)}"]`)
+    if (!row) return
+    scrolledTo.current = openChat
+    row.scrollIntoView?.({ block: 'nearest' })
+  }, [openChat, groups])
 
   // what each opened group reads (so a new read of the groups can read it again)
   const asks = useRef(new Map<string, { query: Record<string, string>; keep: (c: Chat) => boolean }>())
@@ -174,7 +185,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   const withOpen = (rows: Chat[], belongs: boolean) => (onScreen && belongs && (!onScreen.shared || onScreen.shared.mine) && !onScreen.pinnedAt && !rows.some((c) => c.id === onScreen.id) ? [...rows, onScreen] : rows)
 
   return (
-    <div data-testid="trina-list">
+    <div ref={listRef} data-testid="trina-list">
+      <WaitingRow />
       {empty && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
 
       {groups.pinned.length > 0 && (
@@ -187,7 +199,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
       {groups.folders.length > 0 && (
         <section aria-labelledby="trina-folders" data-testid="trina-folders">
           <Label id="trina-folders" icon={<FolderIcon />} action={<NewFolderButton kind="chats" />}>
-            <FoldersLabelWords />
+            <FoldersLabelWords kind="chats" />
           </Label>
           {groups.folders.map((f) => {
             const key = `folder:${f.id}`
@@ -300,6 +312,28 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 }
 
 const noop = () => {}
+
+/** "? 답을 기다려요 N" on top of the list while any AI chat waits on me (the rail's "?"): one quiet row, no card; it opens
+ * the first one that is not on screen already (UX review S2: the waiting chat sank under six project groups). */
+function WaitingRow() {
+  const t = useT()
+  const requests = useChats((s) => s.requests)
+  const cards = useMemo(() => cardChats(requests), [requests])
+  const navigate = useNavigate()
+  // a question or card that waits for my answer (a stopped run keeps its "?" on its row, not here: the words would be wrong)
+  const waiting = useWaitingChats().filter((c) => c.waiting || cards.has(c.id))
+  const onScreen = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
+  if (!waiting.length) return null
+  const first = waiting.find((c) => c.id !== onScreen) ?? waiting[0]!
+  return (
+    <button type="button" className={clsx(panelRow, 'mb-1 font-medium')} onClick={() => navigate(`/c/${first.id}`)} data-testid="trina-waiting">
+      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-warn text-nano leading-4 font-bold text-canvas">?</span>
+      <span className="min-w-0 flex-1 truncate">{t('marker.card')}</span>
+      <span className="shrink-0 text-xs font-normal text-muted tabular-nums" data-testid="trina-waiting-count">{waiting.length}</span>
+    </button>
+  )
+}
+
 const dedupe = (list: Chat[]) => {
   const seen = new Set<string>()
   return list.filter((c) => !seen.has(c.id) && !!seen.add(c.id))

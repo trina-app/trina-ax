@@ -104,9 +104,10 @@ describe('the setup row', () => {
     try {
       await m.until(() => m.find('setup-row-link'), 'the row')
       expect(m.get('setup-row').getAttribute('data-state')).toBe('resume')
-      expect(m.get('setup-row-link').textContent).toBe(`${translate('ko', 'setupRow.resume')}· 1/${stepTotal()}`)
+      // the step it opens, as the steps' bar numbers it (회사 소개 put off, 내 스킬 done: "3/5 팀 파일"), not the steps done
+      expect(m.get('setup-row-link').textContent).toBe(`${translate('ko', 'setupRow.resume')}· 3/${stepTotal()}`)
       expect(m.get('setup-row-link').textContent).toContain('설정 이어서 하기')
-      expect(m.get('setup-row-count').textContent).toBe('· 1/5')
+      expect(m.get('setup-row-count').textContent).toBe('· 3/5')
       expect(m.get('setup-row-link').getAttribute('href')).toBe('/welcome')
       // a left click (react-router's Link follows only button 0)
       const click = Object.assign(new FakeEvent('click', { bubbles: true, cancelable: true }), { button: 0 })

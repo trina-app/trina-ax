@@ -4899,6 +4899,7 @@ export const es: Record<MessageKey, string> = {
   "viewer.gone": "Este archivo ya no está disponible: su mensaje se eliminó.",
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invitar a personas",
+  "teamMenu.switch": "Cambiar de equipo…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Deja que la IA use tus apps y servicios en tus chats.",
   "connectorsPage.addCustom": "Añadir conector propio",
@@ -5183,6 +5184,10 @@ export const es: Record<MessageKey, string> = {
   "navFolders.goesIntoClear": "No ponerlo en una carpeta",
   "navFolders.unreadRooms": "{n, plural, one {# conversación sin leer} other {# conversaciones sin leer}}",
   "navFolders.nameInvalid": "Use letras o números en el nombre.",
+  "navFolders.kindChats": "Carpetas de {name}",
+  "navFolders.kindRooms": "Carpetas de chats",
+  "navFolders.separateRooms": "Las carpetas de chats van aparte de las carpetas de {name}.",
+  "navFolders.separateChats": "Las carpetas de {name} van aparte de las carpetas de chats.",
   "projects.askHere": "Preguntar a {name} en este proyecto",
   "activity.inChats": "Las menciones y los hilos están en Chats",
   "activity.chips": "Mostrar",
