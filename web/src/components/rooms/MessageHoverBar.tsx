@@ -29,7 +29,7 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
       role="toolbar"
       aria-label={t('rooms.messageActions')}
       className={clsx(
-        'absolute right-2 z-20 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 shadow-md transition-opacity',
+        'absolute right-2 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 shadow-md transition-opacity',
         // hidden (and not in the pointer's way) until the message is hovered, has the keyboard's focus (not a click's: a
         // clicked button keeps the focus after the mouse has gone), or a menu of it is open
         'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 motion-reduce:transition-none',
@@ -37,7 +37,9 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
         'max-md:hidden pointer-coarse:hidden',
         // over the message's edge, not its words: the bar ends inside its 2 px padding, so a link at the end of the first
         // (or, below, the last) line stays under the pointer (it once took 14 px of the first line)
-        below ? 'top-[calc(100%-2px)]' : 'bottom-[calc(100%-2px)]',
+        // the first message's bar hangs where the next message's own bar shows (over that message's top edge): it lies
+        // above that one, so while it shows (the keyboard's focus, a menu open) nothing of the next message takes it
+        below ? 'top-[calc(100%-2px)] z-30' : 'bottom-[calc(100%-2px)] z-20',
       )}
       data-testid="message-hover-bar"
       data-below={below ? '' : undefined}
