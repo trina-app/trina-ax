@@ -308,8 +308,8 @@ test.describe('phone', () => {
   test('a long press on a row of the 대화 list opens its menu as a sheet; the 대화 tab leaves a hidden room out', async ({ page }) => {
     const state = await start(page)
     await page.goto('/rooms')
-    // 2 + 1 unread in the rooms shown; the hidden DM's 2 are not counted
-    await expect(tabMark(page, 'chats')).toContainText('3')
+    // two conversations unread among the rooms shown; the hidden DM is not counted
+    await expect(tabMark(page, 'chats')).toContainText('2')
     const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
     // no "⋯" on a touch screen: the long press is the way
     await expect(page.getByTestId('rooms-row-menu').first()).toBeHidden()
