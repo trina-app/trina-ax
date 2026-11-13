@@ -7,6 +7,9 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## 0.5.3 — 2026-11-13
 
+- **Activity** on a computer selects only the notice you opened. Two notices that open the same page (two people who joined one project) were both shown selected, filled and in bold, while that page was open.
+- **A message's hover bar** under the first message of a conversation stays on top of the next message's bar where they meet, so its buttons can be clicked while that message is hovered.
+
 - **Activity** has its **DMs** tab again, between All and Mentions: direct and group chats' notices are under it, and **Mark all as read** works there as on the other tabs. The 멘션·스레드 page opened from a phone's 대화 tab still has no DMs tab.
 - **Activity** has **Mark all as read** for the tab you are on: All reads every notice, DMs, Mentions and Threads only theirs, including ones not loaded yet. A conversation is read up to its newest message, as opening it does, so the room's unread count, the Activity count and the phone app's icon number go down at once, on your other devices too. The button shows only while the tab has something unread.
 - **Add an app for the team** (Admin › Connectors) now starts with a list of known apps, with their icons and a search; picking one fills in its name, address and sign-in, so you only confirm and sign in. **Custom app (enter an address)** is the last choice.
