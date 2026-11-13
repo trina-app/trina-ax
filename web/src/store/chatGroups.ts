@@ -5,9 +5,13 @@
 // for a reload (a reconnect it could not resume) or project access changes, and when the window comes back to the
 // front after a minute. One read at a time; a change during a read reads once more after it. The rows themselves are
 // drawn from the chats store when it has them (fresher marks), else as the server sent them.
+// The list listens for those changes only while it is on screen (panels/TrinaList.tsx); a change while it is not (a
+// phone's /new or a chat, a computer's 트리나 panel hidden) marks what was read stale here, so the list shown again reads
+// at once instead of keeping its 5 s rule and missing the new chat until a reload.
 import { create } from 'zustand'
 import type { ChatGroups } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { chatChanged, navFoldersChanged } from './live'
 
 interface ChatGroupsState {
   groups: ChatGroups | null
@@ -24,6 +28,7 @@ export const useChatGroups = create<ChatGroupsState>((set) => ({
     inFlight = null
     again = false
     lastRead = 0
+    stale = false
     if (timer) clearTimeout(timer)
     timer = null
     set({ groups: null, error: null })
@@ -36,6 +41,8 @@ let inFlight: Promise<void> | null = null
 /** something changed while a read was on its way: read once more after it */
 let again = false
 let lastRead = 0
+/** a chat or a chat folder of mine changed since the last read started */
+let stale = false
 let timer: ReturnType<typeof setTimeout> | null = null
 
 /** Read the groups (one read at a time; `minAgeMs`: not again that soon). */
@@ -44,7 +51,8 @@ export function readChatGroups(o: { minAgeMs?: number } = {}): Promise<void> {
     again = true
     return inFlight
   }
-  if (o.minAgeMs && lastRead && Date.now() - lastRead < o.minAgeMs) return Promise.resolve()
+  if (o.minAgeMs && !stale && lastRead && Date.now() - lastRead < o.minAgeMs) return Promise.resolve()
+  stale = false
   const mine = generation
   inFlight = api.call(API.listChatGroups).then(
     (groups) => {
@@ -78,3 +86,7 @@ export function chatGroupsChanged(): void {
     void readChatGroups()
   }, GROUPS_SETTLE_MS)
 }
+
+// what makes the list stale, heard whether it is on screen or not (the same changes TrinaList reads again after)
+chatChanged.on((d) => { if (!d.chat?.shared || d.chat.shared.mine || d.change !== 'updated') stale = true })
+navFoldersChanged.on((k) => { if (k === 'chats') stale = true })

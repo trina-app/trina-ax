@@ -708,8 +708,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(seenLine(page)).toHaveText(vp.phone ? '나만 봐요' : `${FOOTER_START} 나만 봐요`)
       await audit(page, 'shared chat, only me')
 
-      // a chat without a project: only me, nothing to open
-      await page.goto('/')
+      // a chat without a project: only me, nothing to open (a phone's new chat is /new)
+      await page.goto(vp.phone ? '/new' : '/')
       await page.getByTestId('composer-input').fill('혼자 볼 메모')
       await page.getByTestId('send').click()
       await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)

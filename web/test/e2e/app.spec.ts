@@ -136,7 +136,9 @@ test.describe('phone width', () => {
     await reset(page)
     await signIn(page)
     await openTab(page, 'files')
-    await page.getByTestId('file-row').filter({ hasText: 'marketing' }).getByRole('button').first().click()
+    // a phone's 파일 tab is its places (the team folder's top folders among them): marketing from there
+    await page.getByTestId('files-panel-team').filter({ hasText: 'marketing' }).click()
+    await expect(page).toHaveURL(/\/files\?path=marketing$/)
     await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first().click()
     const panel = page.getByTestId('file-panel')
     await expect(panel).toBeVisible()

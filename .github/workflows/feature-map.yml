@@ -104,6 +104,15 @@ jobs:
       - name: Failed tests in the run summary
         if: ${{ !cancelled() }}
         run: bun scripts/features/e2e-failures.ts "$RUNNER_TEMP/e2e-report.json" "shard ${{ matrix.shard }}/4" >> "$GITHUB_STEP_SUMMARY"
+      # a failed test's screenshot, trace and error context (Playwright keeps them only for failures), to read a failure
+      # that does not happen on a computer
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: e2e-failures-${{ matrix.shard }}
+          path: web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

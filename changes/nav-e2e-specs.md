@@ -1,0 +1,2 @@
+- **Trina list**: a chat started or changed while the list was off screen (a phone's new-chat page, a chat) is in the list when you come back, without a reload.
+- **Tests**: web e2e specs follow the rail navigation; the feature map keeps a failed shard's screenshots and traces.

@@ -7,6 +7,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn, adv } from './helpers'
+import { activityRows } from './nav'
 
 const KEY = 'member-own-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -320,11 +321,12 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
     { id: 'n1', eventType: 'integration.template', code: 'integration.template', sourceId: tid, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: tid, name: 'Tasks' } },
     { id: 'n2', eventType: 'schedule.failure', code: 'schedule.failure', sourceId: 's1', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: tid, name: 'Tasks' } },
   ] } }))
+  // a computer: the 활동 panel's rows, each opening where its notice leads
   await page.goto('/activity')
-  const items = page.getByTestId('notification-item')
+  const items = await activityRows(page)
   await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
   await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()
-  await items.filter({ hasText: 'Tasks is ready' }).getByTestId('notification-template-link').click()
+  await items.filter({ hasText: 'Tasks is ready' }).click()
   await expect(page).toHaveURL(/\/connectors/)
   await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
   await expect(page).not.toHaveURL(/template=/)

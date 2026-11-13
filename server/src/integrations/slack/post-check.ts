@@ -40,7 +40,13 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   const me = r.user_id
   // the whole team: every account that may read now, but the asker (a disabled or deleted account reads nothing)
   const audience = (db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY id").all(me) as { id: string }[]).map((u) => u.id)
-  const use = branchUse(db, r.chat_id, r.message_id)
+  const full = branchUse(db, r.chat_id, r.message_id)
+  // Slack messages it read (read.ts, the asker's own token): those of the conversation the answer is posted back to are
+  // seen there already; any other conversation (another channel, a DM, a search result) is not team-wide, and is named
+  // like a team connection. Neither goes through the team's file check (nobody here is known to see Slack content)
+  const channel = (db.query('SELECT channel_id FROM slack_requests WHERE id = ?').get(r.id) as { channel_id: string } | null)?.channel_id ?? null
+  const use = { ...full, other: full.other.filter((s) => s.type !== 'slack') }
+  const slackElsewhere = full.other.filter((s) => s.type === 'slack' && s.id !== channel)
   const pc = provenanceChecker(ctx, me, audience, use.answers)
   const prov = await pc.of([use], new Set())
   // nobody else on the team (one account, or every other one disabled): the asker's own material and an answer not all
@@ -50,7 +56,7 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   const ownFiles = use.files.some((f) => mineAt(f.path))
   const ownUse = ownFiles || use.other.some((s) => (s.type === 'user' && s.id === me) || (s.type === 'name' && mineAt(s.path)))
   // a team connection or a shared Drive: not team-wide, whatever its rules (named by its name, as 대화방에 보내기 does)
-  const outside = use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share')
+  const outside = [...use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share'), ...slackElsewhere]
   const places = new Map<string, AnswerSharePlace>()
   let otherPlaces = prov.otherPlaces
   let mine = false

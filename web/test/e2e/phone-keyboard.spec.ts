@@ -142,12 +142,17 @@ test('a DM and a thread at their bottom: the newest message stays right above th
   }
 })
 
-test('the 트리나 tab: the tab bar steps aside while the keyboard is up, and comes back when it goes down', async ({ page }) => {
+// the new-chat box (/new) has no tab bar at all (lib/tabs.ts hidesTabs: the box needs the bottom); a tab's own page with
+// a text field does: the team folder's search in the 파일 tab
+test('a tab with a field (파일 › the team folder\'s search): the tab bar steps aside while the keyboard is up, and comes back when it goes down', async ({ page }) => {
   await reset(page)
   await signIn(page)
+  await expect(page).toHaveURL(/\/new$/)
+  await expect(tabBar(page)).toHaveCount(0)
+  await page.goto('/files?team=1')
   const tabs = tabBar(page)
   await expect(tabs).toBeVisible()
-  await page.getByTestId('composer-input').tap()
+  await page.getByTestId('content-search-input').tap()
   for (const kind of ['app', 'safari'] as const) {
     await openKeyboard(page, kind)
     await expect(tabs).toBeHidden()

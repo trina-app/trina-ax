@@ -75,7 +75,8 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     // the link: one line on a tint, cut with "…" (the whole address in its title), no border; the message no frame (a
     // hairline beside the quote only)
     const urlEl = /<span[^>]*data-testid="team-link-url"[^>]*>/.exec(html)?.[0] ?? ''
-    expect(urlEl).toContain('truncate')
+    expect(urlEl).toContain('font-mono')
+    expect(html).toContain('min-w-0 truncate')
     expect(urlEl).toContain(`title="${URL_}"`)
     expect(urlEl).not.toContain('border')
     expect(/<button[^>]*data-testid="team-link-qr"[^>]*>/.exec(html)?.[0]).toContain(`aria-label="${en('members.qr')}"`)
@@ -125,9 +126,11 @@ describe('the team link on a phone: one primary action, no boxes', () => {
         // the rest is one quiet "링크 관리" row, folded; opened, still one primary and no "링크 끄기"
         expect(m.get('team-link-manage').getAttribute('class')).toContain('text-muted')
         expect(m.get('team-link-manage').textContent).toContain(ko('teamLink.manage'))
-        expect(m.find('team-link-url')).toBeNull()
-        await m.click('team-link-manage')
+        // the link is in view at once (one line); the facts wait in the fold
         expect(m.find('team-link-url')).not.toBeNull()
+        expect(m.find('team-link-facts')).toBeNull()
+        await m.click('team-link-manage')
+        expect(m.find('team-link-facts')).not.toBeNull()
         expect(m.find('team-link-revoke')).toBeNull()
         expect([...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))).toHaveLength(1)
         // no new frame: the fold adds no border of its own

@@ -8,7 +8,7 @@
 // end screen offers 홈으로 only (no kept skill in the team); a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import {  } from './nav'
+import { phoneTrinaHome } from './nav'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
 
@@ -168,7 +168,11 @@ test('a phone: 회사 소개 saves; the skills step is put off; 도구 연결 is
   expect(progress.skillsLater).toBeFalsy()
   expect(progress.doneShownAt).toBeTruthy()
   // Home on a phone: nothing left to resume, and no line that 내 스킬 waits for a computer
+  // (a phone's Home is 트리나's list; the new chat's box, where those lines would be, is /new)
   await page.getByTestId('welcome-done-home').click()
+  await expect(phoneTrinaHome(page)).toBeVisible()
+  await expect(page.getByTestId('setup-row')).toHaveCount(0)
+  await page.goto('/new')
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
   await expect(page.getByTestId('welcome-skills-computer')).toHaveCount(0)

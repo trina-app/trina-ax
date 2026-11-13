@@ -1,6 +1,6 @@
 // Room messages in ⌘K (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): ⌘K → a word → the 대화방 메시지 section → Enter
 // opens the room at that message, marked, even when it is older than the newest page (the page around it, with
-// "최근 메시지로" back to the newest); a thread reply opens its thread at the reply. Phones: the same from the menu's 검색.
+// "최근 메시지로" back to the newest); a thread reply opens its thread at the reply. Phones: the same from the 트리나 tab's 🔍.
 // The room and the search answer through page.route, contract-shaped (the mock server lists no rooms).
 // SHOTS_DIR=<dir>: the palette with chat records and messages, an empty result and the jump, at 1440 and 390, light and
 // dark, and the font sizes of a message row (font-sizes.json).
@@ -9,6 +9,7 @@ import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openSearch } from './nav'
 
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const ROOM = id(9001), DM = id(9002), GROUP = id(9003)
@@ -81,8 +82,8 @@ const messages = (page: Page) => palette(page).getByTestId('search-section-messa
 async function open(page: Page, phone = false) {
   if (phone) {
     await page.goto('/')
-    await page.getByRole('button', { name: '메뉴 열기' }).click()
-    await page.getByRole('button', { name: '검색' }).first().click()
+    // the 트리나 tab's 🔍 (the drawer and its menu are gone)
+    await openSearch(page)
   } else await page.keyboard.press('ControlOrMeta+k')
   await expect(palette(page)).toBeVisible()
 }

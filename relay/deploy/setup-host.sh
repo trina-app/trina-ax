@@ -2,7 +2,8 @@
 # One-time setup of a relay VM (Ubuntu 24.04, Lightsail Seoul 4 GB; control-plane 3.6.1). Run as root from an unpacked
 # relay bundle: `sudo ./deploy/setup-host.sh`. Idempotent. It does NOT create secrets: see README.md "Owner steps".
 #   packages (nftables, zstd, age, curl), Node 26 (install-node.sh), Litestream (pinned .deb), the mycel-relay account,
-#   /etc/mycel-relay, /var/lib/mycel-relay, /opt/mycel-relay, the systemd units and timers, the firewall.
+#   /etc/mycel-relay, /var/lib/mycel-relay, /opt/mycel-relay, the systemd units and timers (with their Sentry check-in
+#   wrapper relay-checkin and the Litestream check), the firewall.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
@@ -32,7 +33,12 @@ for i in a b; do [ -f "/etc/mycel-relay/instance-$i.env" ] || install -m 0644 "$
 [ -f /etc/litestream.yml ] || install -m 0644 "$here/litestream.yml" /etc/litestream.yml
 
 install -m 0644 "$here/mycel-relay@.service" /etc/systemd/system/mycel-relay@.service
-install -m 0644 "$here/cf-ips-refresh.service" "$here/cf-ips-refresh.timer" "$here/registry-backup.service" "$here/registry-backup.timer" /etc/systemd/system/
+install -m 0644 "$here/cf-ips-refresh.service" "$here/cf-ips-refresh.timer" "$here/registry-backup.service" "$here/registry-backup.timer" \
+  "$here/litestream-check.service" "$here/litestream-check.timer" /etc/systemd/system/
+# Sentry check-ins for the timers (nothing is sent without RELAY_SENTRY_DSN), outside the releases so a timer works
+# whichever release `current` points at
+install -m 0755 "$here/relay-checkin.sh" /usr/local/sbin/relay-checkin
+install -m 0755 "$here/litestream-check.sh" /usr/local/sbin/relay-litestream-check
 install -m 0755 "$here/mycel-relay-cli" /usr/local/sbin/mycel-relay-cli
 install -m 0755 "$here/relay-deploy.sh" /usr/local/sbin/relay-deploy
 install -m 0644 "$here/nftables.conf" /etc/nftables.conf
@@ -42,5 +48,5 @@ sysctl -q --system
 systemctl daemon-reload
 systemctl enable --now nftables >/dev/null
 nft -f /etc/nftables.conf
-systemctl enable --now cf-ips-refresh.timer registry-backup.timer >/dev/null
+systemctl enable --now cf-ips-refresh.timer registry-backup.timer litestream-check.timer >/dev/null
 echo "host ready. Next: credentials, relay.env (tailnet IP), operator-keys.json, then relay-deploy <bundle> (README.md)"

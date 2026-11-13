@@ -11,7 +11,7 @@ import {
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { createApns, type ApnsConfig } from './apns.ts'
 import { importTeamKey, sha256Hex, verifyEd25519, type Bytes, type FetchLike } from './crypto.ts'
-import { createFcm, parseServiceAccount, type SendOutcome } from './fcm.ts'
+import { createFcm, parseServiceAccount, type CredentialAlarm, type SendOutcome } from './fcm.ts'
 import type { GatewayState } from './state.ts'
 import { DEFAULT_APP_TITLE, alertBody } from './text.ts'
 
@@ -46,6 +46,10 @@ export interface GatewayDeps {
   endpoints?: { apnsProduction?: string; apnsSandbox?: string; fcm?: string }
   /** tests: the FCM time limit (default FCM_TIMEOUT_MS) */
   fcmTimeoutMs?: number
+  /** Apple or Google refused the gateway's own credentials (bun.ts: an error report when PUSH_GATEWAY_SENTRY_DSN is set) */
+  alarm?: CredentialAlarm
+  /** a send that threw (answered 500 internal): the error itself, for the error report; never logged */
+  failed?(e: unknown): void
 }
 
 const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
@@ -106,10 +110,13 @@ function apnsConfig(env: GatewayEnv): ApnsConfig | null {
 export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
   const title = env.APP_TITLE || DEFAULT_APP_TITLE
   const apnsCfg = apnsConfig(env)
-  const apns = apnsCfg ? createApns(apnsCfg, { fetch: deps.fetch, now: deps.now, production: deps.endpoints?.apnsProduction, sandbox: deps.endpoints?.apnsSandbox }) : null
+  const apns = apnsCfg ? createApns(apnsCfg, { fetch: deps.fetch, now: deps.now, production: deps.endpoints?.apnsProduction, sandbox: deps.endpoints?.apnsSandbox, alarm: deps.alarm }) : null
   const fcmCfg = parseServiceAccount(env.FCM_SERVICE_ACCOUNT)
-  const fcm = fcmCfg ? createFcm(fcmCfg, { fetch: deps.fetch, now: deps.now, origin: deps.endpoints?.fcm, timeoutMs: deps.fcmTimeoutMs }) : null
-  if (env.FCM_SERVICE_ACCOUNT && !fcmCfg) deps.log({ evt: 'config', outcome: 'fcm_invalid' })
+  const fcm = fcmCfg ? createFcm(fcmCfg, { fetch: deps.fetch, now: deps.now, origin: deps.endpoints?.fcm, timeoutMs: deps.fcmTimeoutMs, alarm: deps.alarm }) : null
+  if (env.FCM_SERVICE_ACCOUNT && !fcmCfg) {
+    deps.log({ evt: 'config', outcome: 'fcm_invalid' })
+    deps.alarm?.('fcm', 'service_account_invalid')
+  }
 
   async function send(req: Request, client: string): Promise<Response> {
     let platform: PushPlatform | undefined
@@ -183,8 +190,9 @@ export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
       if (req.method === 'POST' && pathname === PUSH_GATEWAY_SEND_PATH) {
         try {
           return await send(req, client)
-        } catch {
+        } catch (e) {
           deps.log({ evt: 'push', outcome: 'internal', status: PUSH_GATEWAY_ERRORS.internal })
+          try { deps.failed?.(e) } catch { /* a report never changes the answer */ }
           return answer(PUSH_GATEWAY_ERRORS.internal, { ok: false, error: 'internal' })
         }
       }

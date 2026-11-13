@@ -5,6 +5,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { isPhone } from './nav'
 
 const H = { [CSRF_HEADER]: '1' }
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -15,7 +16,8 @@ const list = (page: Page) => page.getByTestId('often-asked')
 /** someone with a chat: "팀에 준비된 것" (the newcomer block, which goes first) has nothing for them, so the list shows */
 async function withAChat(page: Page) {
   expect((await page.request.post('/api/chats', { headers: H, data: { title: 'Earlier chat' } })).ok()).toBeTruthy()
-  await page.goto('/')
+  // a phone's / is 트리나's list: the new chat's box is /new
+  await page.goto(isPhone(page) ? '/new' : '/')
   await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 

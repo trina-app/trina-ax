@@ -59,8 +59,28 @@
 //      SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH?state=<returnState>&handoff=<one-time> (or &error=…).
 //   7. signin/redeem   { handoff, codeVerifier }            → { slackUserId, slackTeamId, enterpriseId }
 //      The control plane exchanges the code (openid.connect.token), checks the id_token (issuer, audience, time, nonce,
-//      and that it names the owner's installed workspace), revokes the person's user token at once and answers only
-//      who signed in. No user token ever leaves the control plane.
+//      and that it names the owner's installed workspace) and answers only who signed in. No user token ever leaves the
+//      control plane, and it keeps none. Revoking: see "Dropping a user token" below.
+//   8. signin/read/start   { returnState, codeChallenge }   → { authorizationUrl, expiresAt }
+//      "Sign in with Slack" that also lets the AI read Slack as the person (docs/SLACK.md "Reading Slack"): Slack's OAuth
+//      v2 page (SLACK_INSTALL_AUTHORIZE_URL) with ONLY `user_scope` = SLACK_BROKER_USER_SCOPES (no bot `scope`), the
+//      app's client id, `team` = the owner's installed workspace and the same one redirect URL; back on the owner's
+//      address exactly as in 6 (SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH?state=…&handoff=… or &error=…; error
+//      `missing_scope` when Slack refused the user scopes, e.g. the app does not have them yet).
+//   9. signin/read/redeem  { handoff, codeVerifier, sealKey } → { slackUserId, slackTeamId, enterpriseId, scopes, token }
+//      The control plane exchanges the code (oauth.v2.access), checks that `team.id` is the owner's installed workspace
+//      and `authed_user.token_type` is "user", asks Slack whose token it is (auth.test: the same user and workspace),
+//      and hands the person's user token (xoxp) to the owner SEALED like a bot token, with
+//      slackBrokerUserSealAad(installId, slackTeamId, slackUserId) as the additional data. It keeps no copy (it never
+//      calls Slack with it again); a bot token Slack returns alongside is never handed out. `scopes`: what Slack granted
+//      the user token. The owner keeps it sealed and revokes it (auth.revoke) itself when the person unlinks. A failure
+//      after the exchange: the token is dropped as below.
+//   Dropping a user token (7 and 9, anything not handed out): Slack gives ONE user token per person and app, the same
+//      again each time the person allows it, so a token of the owner's installed workspace may be that person's working
+//      token at the owner (reading Slack). It is only dropped, never revoked. It is revoked (auth.revoke) only when it
+//      cannot be anyone's working token for this owner: another workspace, an organization-wide (Enterprise Grid)
+//      grant, or a grant of another app. The team server applies the same rule to its own app's sign-ins.
+//      Older control planes do not have 8 and 9 (404): the owner then uses 6 and 7 (linking only, no reading).
 //
 // Request:  POST, body = JSON (at most SLACK_BROKER_MAX_BODY_BYTES, strict: unknown keys are refused), header
 //           Authorization: TrinaSlackBroker key=<base64 SPKI Ed25519 public key>, ts=<unix ms>, nonce=<22-64 base64url>,
@@ -90,6 +110,8 @@ export const SLACK_BROKER_PATHS = {
   uninstall: `${SLACK_BROKER_API_PREFIX}/uninstall`,
   signinStart: `${SLACK_BROKER_API_PREFIX}/signin/start`,
   signinRedeem: `${SLACK_BROKER_API_PREFIX}/signin/redeem`,
+  readStart: `${SLACK_BROKER_API_PREFIX}/signin/read/start`,
+  readRedeem: `${SLACK_BROKER_API_PREFIX}/signin/read/redeem`,
 } as const
 export type SlackBrokerOp = keyof typeof SLACK_BROKER_PATHS
 
@@ -107,6 +129,13 @@ export const SLACK_SIGNIN_AUTHORIZE_URL = 'https://slack.com/openid/connect/auth
 
 /** The bot scopes of the official app (its manifest); an install must grant every one. */
 export const SLACK_BROKER_BOT_SCOPES = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
+
+/** The user scopes "Sign in with Slack" asks for when it also lets the AI read Slack as the person (signin/read/start;
+ * the team's own app asks for the same ones, server/src/integrations/slack/manifest.ts). The least that reads a thread,
+ * a channel's recent messages, a conversation's name and search: conversations.replies / .history (the four history
+ * scopes), conversations.info / .list (the four read scopes), users.info (users:read) and search.messages
+ * (search:read). */
+export const SLACK_BROKER_USER_SCOPES = ['channels:history', 'groups:history', 'im:history', 'mpim:history', 'channels:read', 'groups:read', 'im:read', 'mpim:read', 'users:read', 'search:read'] as const
 
 export const SLACK_BROKER_MAX_BODY_BYTES = 16_384
 export const SLACK_BROKER_MAX_SKEW_MS = 60_000
@@ -130,6 +159,8 @@ export const SLACK_BROKER_SEAL_ALG = 'X25519-HKDF-SHA256-A256GCM'
 export const SLACK_BROKER_SEAL_INFO = 'trina-slack-broker-token-v1'
 /** the AES-GCM additional data of a sealed bot token: the install and its workspace */
 export const slackBrokerSealAad = (installId: string, slackTeamId: string) => `${SLACK_BROKER_SEAL_INFO}|${installId}|${slackTeamId}`
+/** the AES-GCM additional data of a sealed USER token (signin/read/redeem): the install, its workspace and the person */
+export const slackBrokerUserSealAad = (installId: string, slackTeamId: string, slackUserId: string) => `${SLACK_BROKER_SEAL_INFO}|user|${installId}|${slackTeamId}|${slackUserId}`
 
 export interface SlackBrokerStatus { v: 1 }
 export interface SlackBrokerInstall { v: 1; returnState: string; codeChallenge: string }
@@ -139,6 +170,8 @@ export interface SlackBrokerPoll { v: 1; ack: string[]; waitMs: number }
 export interface SlackBrokerUninstall { v: 1 }
 export interface SlackBrokerSigninStart { v: 1; returnState: string; codeChallenge: string }
 export interface SlackBrokerSigninRedeem { v: 1; handoff: string; codeVerifier: string }
+export interface SlackBrokerReadStart { v: 1; returnState: string; codeChallenge: string }
+export interface SlackBrokerReadRedeem { v: 1; handoff: string; codeVerifier: string; sealKey: string }
 
 /** One workspace's install, as the owner sees it. Never a token. */
 export interface SlackBrokerInstallInfo {
@@ -175,6 +208,7 @@ export interface SlackBrokerLifecycle { event: 'uninstalled' | 'tokens_revoked' 
 export interface SlackBrokerPollAnswer { install: SlackBrokerInstallInfo | null; events: SlackBrokerEvent[] }
 export interface SlackBrokerUninstallAnswer { slack: 'removed' | 'unavailable' }
 export interface SlackBrokerSigninAnswer { slackUserId: string; slackTeamId: string; enterpriseId: string | null }
+export interface SlackBrokerReadAnswer extends SlackBrokerSigninAnswer { scopes: string[]; token: SlackBrokerSealedToken }
 
 /** Error codes and their HTTP status. */
 export const SLACK_BROKER_ERRORS = {
@@ -232,6 +266,7 @@ function parseStart(raw: unknown): { v: 1; returnState: string; codeChallenge: s
 }
 export const parseSlackBrokerInstall = (raw: unknown): SlackBrokerInstall | null => parseStart(raw)
 export const parseSlackBrokerSigninStart = (raw: unknown): SlackBrokerSigninStart | null => parseStart(raw)
+export const parseSlackBrokerReadStart = (raw: unknown): SlackBrokerReadStart | null => parseStart(raw)
 
 export function parseSlackBrokerRedeem(raw: unknown): SlackBrokerRedeem | null {
   const o = plain(raw)
@@ -259,6 +294,11 @@ export function parseSlackBrokerSigninRedeem(raw: unknown): SlackBrokerSigninRed
   if (!o || !exactly(o, ['v', 'handoff', 'codeVerifier']) || o.v !== 1) return null
   if (!b43(o.handoff) || typeof o.codeVerifier !== 'string' || !VERIFIER.test(o.codeVerifier)) return null
   return { v: 1, handoff: o.handoff, codeVerifier: o.codeVerifier }
+}
+
+export function parseSlackBrokerReadRedeem(raw: unknown): SlackBrokerReadRedeem | null {
+  const r = parseSlackBrokerRedeem(raw)
+  return r ? { ...r } : null
 }
 
 const SLACK_ID = /^[A-Z0-9]{2,40}$/
@@ -318,7 +358,7 @@ export function parseSlackBrokerAuthorization(header: string | null | undefined)
 
 /** The owner's return address after "Add to Slack" or "Sign in with Slack": only ever built from the owner's own
  * address (the control plane's records). */
-export function slackBrokerReturnUrl(ownerAddress: string, path: typeof SLACK_BROKER_TEAM_INSTALL_RETURN_PATH | typeof SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH, returnState: string, result: { handoff: string } | { error: 'consent_denied' | 'provider_error' }): string {
+export function slackBrokerReturnUrl(ownerAddress: string, path: typeof SLACK_BROKER_TEAM_INSTALL_RETURN_PATH | typeof SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH, returnState: string, result: { handoff: string } | { error: 'consent_denied' | 'provider_error' | 'missing_scope' }): string {
   const u = new URL(ownerAddress.replace(/\/+$/, '') + path)
   u.searchParams.set('state', returnState)
   if ('handoff' in result) u.searchParams.set('handoff', result.handoff)
@@ -329,12 +369,14 @@ export function slackBrokerReturnUrl(ownerAddress: string, path: typeof SLACK_BR
 /** `url` when it is Slack's own authorize page of that kind (https, slack.com, the exact path, a `state` and a
  * `client_id`, no credentials or fragment); otherwise null. A team server checks a start answer with it before it sends
  * a person's browser anywhere. */
-export function slackBrokerAuthorizeUrl(kind: 'install' | 'signin', url: unknown): string | null {
+export function slackBrokerAuthorizeUrl(kind: 'install' | 'signin' | 'read', url: unknown): string | null {
   if (typeof url !== 'string' || url.length > 4096) return null
   let u: URL
   try { u = new URL(url) } catch { return null }
-  const want = new URL(kind === 'install' ? SLACK_INSTALL_AUTHORIZE_URL : SLACK_SIGNIN_AUTHORIZE_URL)
+  const want = new URL(kind === 'signin' ? SLACK_SIGNIN_AUTHORIZE_URL : SLACK_INSTALL_AUTHORIZE_URL)
   if (u.origin !== want.origin || u.pathname !== want.pathname || u.username || u.password || u.hash) return null
   if (!b43(u.searchParams.get('state')) || !/^\d{3,20}\.\d{3,20}$/.test(u.searchParams.get('client_id') ?? '')) return null
+  // reading: user scopes only, never a bot scope (that would be an install, which only "Add to Slack" may start)
+  if (kind === 'read' && (u.searchParams.get('scope') || !u.searchParams.get('user_scope'))) return null
   return u.href
 }

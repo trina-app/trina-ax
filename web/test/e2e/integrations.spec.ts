@@ -5,6 +5,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole, adv } from './helpers'
+import { activityRows, openNotice } from './nav'
 
 const KEY = 'pm-secret-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -518,9 +519,12 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   // the owner: one notice in Activity, whose row opens Gmail's setup
   await page.context().clearCookies()
   await signIn(page)
+  // (a computer: its row in the 활동 panel opens it beside the list, as itself while it has its button)
   await page.goto('/activity')
-  const notice = page.getByTestId('notification-service-request-link')
+  await expect((await activityRows(page)).filter({ hasText: 'Gmail' })).toHaveCount(1)
+  const notice = (await openNotice(page, 'Bob님이 Gmail 추가를 요청했어요')).getByTestId('notification-service-request-link')
   await expect(notice).toHaveCount(1)
+  const opened = page.url()
   await expect(notice.getByTestId('notification-text')).toHaveText('Bob님이 Gmail 추가를 요청했어요')
   await expect(notice.getByTestId('notification-service-setup')).toHaveText('Gmail 설정하기')
   await notice.click()
@@ -535,7 +539,7 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await page.getByTestId('gapp-setup-save').click()
   await expect(page.getByTestId('gapp-admin-state')).toHaveAttribute('data-state', 'on')
   // the notice is done: it says added and opens nothing any more
-  await page.goto('/activity')
+  await page.goto(opened)
   await expect(page.getByTestId('notification-service-added')).toHaveText('추가됨')
   await expect(page.getByTestId('notification-service-request-link')).toHaveCount(0)
 
@@ -543,8 +547,9 @@ test('a member asks an admin to add an app the team has not set up; the admin ge
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/activity')
-  const ready = page.getByTestId('notification-service-ready-link')
-  await expect(ready.getByTestId('notification-text')).toHaveText('Gmail 준비가 끝났어요. 지금 연결할 수 있어요.')
+  const ready = (await activityRows(page)).filter({ hasText: 'Gmail 준비가 끝났어요' })
+  await expect(ready).toHaveCount(1)
+  await expect(ready).toContainText('Gmail 준비가 끝났어요. 지금 연결할 수 있어요.')
   await expect(ready).not.toContainText('Olga')
   await ready.click()
   await expect(page).toHaveURL(/\/connectors\/gmail$/)

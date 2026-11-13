@@ -189,6 +189,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
+    accountEnded(ctx, id)
   }
   // their running AI sign-ins: disabled, all of them; made a member, the team's (their own personal ones are theirs to keep)
   if (changed.status === 'disabled' || changed.role === 'member') { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: changed.status !== 'disabled' }) }
@@ -343,6 +344,7 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
+  accountEnded(ctx, id)
   revokeSignIns()
   statusGoneWithAccount(ctx, hadStatus)
   // their own AI connections went with them: the engines' state is read again, open screens ask again
@@ -482,4 +484,10 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   try { ended = toEnd.length ? await endConnections(ctx, me, toEnd) : [] } catch (err) { c.get('log').error('ending connections after a handover failed', { err }) }
   recordEnded(ctx, t, ended)
   return { ok: true, ended }
+}
+
+/** What components keep for a person outside this server ends with the account (Services.accountHooks: the person's
+ * Slack user token is revoked at Slack); best effort, after the account's rows changed. */
+function accountEnded(ctx: AppContext, id: string) {
+  for (const h of ctx.services.accountHooks ?? []) { try { h.disabled(id) } catch (e) { ctx.log.warn('account hook failed', { err: String(e) }) } }
 }

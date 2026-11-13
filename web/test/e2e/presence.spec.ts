@@ -101,7 +101,10 @@ test('a reload brings the list back with the new connection (it is a state, sent
   const sent = (await (await page.request.get('/__test/presence')).json()).sent as { user: string; state: string }[]
   const mine = sent.filter((s) => s.user === 'olga').map((s) => s.state)
   expect(mine.length).toBeGreaterThanOrEqual(2)
-  expect(new Set(mine)).toEqual(new Set(['active']))
+  // the page going away for the reload is a hidden tab, idle at once (dff6b2adc, #672); the new page says active
+  expect(mine.filter((s) => s === 'active').length).toBeGreaterThanOrEqual(2)
+  expect(mine.at(-1)).toBe('active')
+  expect(mine.every((s) => s === 'active' || s === 'idle')).toBe(true)
 })
 
 test('the member list: each person\'s dot, mine too; no serious accessibility problem', async ({ page }) => {

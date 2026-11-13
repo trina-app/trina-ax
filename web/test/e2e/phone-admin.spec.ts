@@ -230,20 +230,22 @@ test('nothing is wider than the screen on any Admin page, in Spanish too', async
 
 test.describe('from 768 px', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: false, isMobile: false })
-  test('a tablet: the sidebar as a rail of icons with their names beside the page, no strip, no list', async ({ page }) => {
+  // the app's rail stands beside it already: the menu is the 240 px list with its names at every computer width, never a
+  // second rail (Navigation P7, docs/AGENTS/plan/20261112-1839-nav-rail.md)
+  test('a tablet: the menu as a list with its names beside the page, no second rail, no strip, no phone list', async ({ page }) => {
     await page.goto('/admin/members')
     const side = page.getByTestId('admin-sidebar')
     await expect(side).toBeVisible()
-    await expect(side).toHaveAttribute('data-rail', '')
+    await expect(side).not.toHaveAttribute('data-rail', '')
     await expect(page.getByTestId('admin-phone-root')).toHaveCount(0)
     await expect(page.getByTestId('phone-page-bar')).toHaveCount(0)
     // a column, never a sideways strip
     const menu = page.getByTestId('admin-menu')
     expect(await menu.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await expect(menu.getByRole('link', { name: t['admin.members'] })).toHaveAttribute('aria-current', 'page')
-    // the names show under the icons (a finger has no hover for a tip)
+    // the names show (a finger has no hover for a tip)
     await expect(menu.getByText(t['admin.folders'], { exact: true })).toBeVisible()
-    // the page keeps room beside the app's sidebar and the rail
+    // the page keeps room beside the app's rail and the menu
     expect((await page.getByTestId('admin-content').boundingBox())!.width).toBeGreaterThan(420)
     await menu.getByRole('link', { name: t['admin.groups'] }).click()
     await expect(page).toHaveURL(/\/admin\/groups$/)

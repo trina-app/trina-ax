@@ -19,7 +19,7 @@ import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
-import { addSources, sourceOf } from './read-scope'
+import { addSources, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
@@ -92,6 +92,8 @@ export const B_TOOL_DESCRIPTIONS = {
 export interface ChatToolSet extends TurnToolSet {
   /** sections for the AI's instructions from per-person tools (connected services) */
   prompt: string[]
+  /** outside content those sections carry (TurnToolProvider seen): marked by the turn once its session starts */
+  seen: ReadSource[]
   /** the same for a resumed session's turn context (shorter where a provider says so) */
   context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
@@ -200,6 +202,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
+  const seen: ReadSource[] = []
   // the connections' tools by name, with whether a call only reads (integrations/connections/tools.ts): after a room
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
@@ -216,6 +219,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
     }
     if (built.prompt) prompt.push(built.prompt)
+    if (built.seen?.length) seen.push(...built.seen)
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
   }
@@ -226,6 +230,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   const set: ChatToolSet = {
     prompt,
+    seen,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },

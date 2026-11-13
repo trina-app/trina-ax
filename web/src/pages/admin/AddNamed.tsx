@@ -1,5 +1,6 @@
 // One search for a person or a group, shared by Admin › Folder permissions' edit panel (AccessEdit.tsx) and the Team
-// skills page's "who can edit" dialog (SkillManagers.tsx).
+// skills page's "who can edit" dialog (SkillManagers.tsx), and for one member in Admin › Connectors' "Ask a member to
+// connect" (RequestDialog.tsx: no groups, its own label and words).
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type RefObject } from 'react'
@@ -26,7 +27,7 @@ export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
  * the field closes the list only once its click has landed (a centred dialog moves as a whole when the list closes),
  * and Tab closes it at once. `saidOf`: what a screen reader hears once one is picked (default: added with read access,
  * as the edit panel adds them). */
-export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf, placeholder }: {
+export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf, placeholder, label, noMatch, testId, describedBy, invalid, autoFocus }: {
   users: User[]
   groups: Group[]
   taken: ReadonlySet<string>
@@ -37,6 +38,17 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
   saidOf?: (o: NamedOption) => string
   /** the field's own words (default: "Find a person or group by name") */
   placeholder?: string
+  /** what a screen reader calls the field (default: "Add a person or group") */
+  label?: string
+  /** the list's words when nothing matches (default: "No person or group matches.") */
+  noMatch?: string
+  /** the field's test id (default: edit-add) */
+  testId?: string
+  /** a note or an error under the field, and whether that is an error */
+  describedBy?: string
+  invalid?: boolean
+  /** the field a dialog focuses when it opens */
+  autoFocus?: boolean
 }) {
   const t = useT()
   const listId = useId()
@@ -114,7 +126,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
   return (
     <div ref={box} className="mt-2">
       <label id={labelId} className="sr-only" htmlFor={`${listId}-input`}>
-        {t('accessEdit.add')}
+        {label ?? t('accessEdit.add')}
       </label>
       <div className="relative">
         <div className="relative">
@@ -126,6 +138,8 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
             aria-expanded={open}
             aria-controls={listId}
             aria-autocomplete="list"
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             aria-activedescendant={open && shown[cur] ? optionId(cur) : undefined}
             autoComplete="off"
             value={q}
@@ -139,8 +153,9 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
             onClick={() => setOpen(true)}
             onBlur={() => (!inline || !byPointer.current) && setOpen(false)}
             onKeyDown={onKey}
-            className="h-9 w-full rounded-lg border border-field-border bg-surface pr-3 pl-8 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10"
-            data-testid="edit-add"
+            className="h-9 w-full rounded-lg border border-field-border bg-surface pr-3 pl-8 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent aria-[invalid=true]:border-danger max-sm:min-h-10"
+            data-testid={testId ?? 'edit-add'}
+            data-autofocus={autoFocus || undefined}
           />
         </div>
         <ul
@@ -171,7 +186,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
               {o.off && <Badge className="ml-auto">{t('accessEdit.disabled')}</Badge>}
             </li>
           ))}
-          {!shown.length && <li className="px-2 py-1.5 text-xs text-faint">{t('accessEdit.noMatch')}</li>}
+          {!shown.length && <li className="px-2 py-1.5 text-xs text-faint">{noMatch ?? t('accessEdit.noMatch')}</li>}
         </ul>
       </div>
       <p role="status" className="sr-only">

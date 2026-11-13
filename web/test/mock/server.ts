@@ -2137,11 +2137,11 @@ export class MockServer {
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
-    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, ...this.slackOver.mine }),
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false, readOffered: false, ...this.slackOver.mine }),
     slackAdmin: () => ({
       mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
-      signIn: false, redirectUrl: null, ...this.slackOver.admin,
+      signIn: false, redirectUrl: null, readScopes: null, userScopes: [], reading: 0, ...this.slackOver.admin,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again
@@ -5758,7 +5758,12 @@ export class MockServer {
       const out = base(c) as { status: number; body: Chat }
       this.chatOwners.set(out.body.id, c.user.id)
       const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
-      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
+      // a new chat is told to my windows, as the server does (routes/chats.ts createChat: publishChat 'created'), so the
+      // 트리나 list reads its groups again and shows the chat while its first answer runs
+      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) {
+        this.sharedSend((userId) => (userId === c.user.id ? { type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } } : null))
+        return out
+      }
       this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
       this.publish({ type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } })
       return { ...out, body: view(out.body, c.user) }

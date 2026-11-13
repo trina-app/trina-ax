@@ -49,6 +49,9 @@ test('templates stay dormant, select readable source/private output, and reuse t
 
 test('inbox shows generic events, persists preferences and marks items read without requesting OS permission', async ({ page }) => {
   await reset(page)
+  // the page's list, each notice with its own 읽음 표시, is a phone's (/activity); on a computer the notices are 활동's
+  // panel beside the rail and one opens by itself (nav rail #673, components/panels/ActivityPanel.tsx)
+  await page.setViewportSize({ width: 390, height: 844 })
   let prefs = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }
   let readAt: string | null = null, reads = 0, preferenceUpdates = 0
   await page.addInitScript(() => {
@@ -86,6 +89,9 @@ test('inbox shows generic events, persists preferences and marks items read with
 
 test('access revocation drops an inbox chat link; changing locale during a save does not leave preferences disabled', async ({ page }) => {
   await reset(page)
+  // the page's list, each notice with its own 읽음 표시, is a phone's (/activity); on a computer the notices are 활동's
+  // panel beside the rail and one opens by itself (nav rail #673, components/panels/ActivityPanel.tsx)
+  await page.setViewportSize({ width: 390, height: 844 })
   let allowed = true, changed = false, release!: () => void, received!: () => void
   const held = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { received = resolve })
   await page.route('**/api/notification-preferences', async route => {
