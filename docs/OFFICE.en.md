@@ -255,7 +255,8 @@ The Mac serves `https://<machine>.<tailnet>.ts.net:<port>` on a TLS port that is
 Security choices:
 
 - The first-run setup is refused on the Tailscale address, as on the public address. Before sign-in, `/api/health` gives only `ok` and the time. Sign-in failures use the internet limits. The activity log marks these sign-ins `tailnet`.
-- Every device on the tailnet reaches the sign-in page. Tailscale device approval and ACLs decide who that is. Remove a person who leaves from the tailnet and disable their account.
+- Every device on the tailnet reaches the sign-in page. Tailscale device approval and ACLs decide who that is. Remove a person who leaves from the tailnet and disable their account. Devices shared in from another tailnet, and devices behind a subnet router (by default they get the router's 100.x address), also count as tailnet peers.
+- Traffic goes inside Tailscale's WireGuard connection and TLS ends on the Mac. When a direct connection is not possible, a Tailscale relay (DERP) carries the packets, still encrypted end to end.
 - The listener binds to the Tailscale IPv4 address only, so the port does not exist on the office network. The server answers only peers in 100.64.0.0/10 and only Host `<name>:<port>` (403 and 421 otherwise). The office port still answers only the office subnet: do not add 100.64.0.0/10 to `TEAMAX_ALLOW_FROM` or set `TEAMAX_INCLUDE_VPN=1` for this.
 - Do not put `tailscale serve` in front of the app port. Requests through it come from 127.0.0.1, so the office-network check and the first-run setup refusal cannot see that they are remote.
 - The certificate goes into the public Certificate Transparency logs: the machine name and the tailnet name become public. Devices outside the tailnet still cannot connect.

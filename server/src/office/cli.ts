@@ -129,6 +129,14 @@ export function tailnetNode(s: Pick<OfficeSettings, 'tailscaleHost' | 'tailscale
   return n
 }
 
+/** The node as server.json should see it: a check that gave no IPv4 (a failed or slow `tailscale status`, a short
+ * reconnect, sleep) keeps the last known one, so server.json and the server do not change for a short gap. Only a
+ * different IPv4 changes it. The listener itself retries a bind that fails while the address is gone. */
+export function stickyTailnet(node: TailnetNode | null, lastIp: string | null): TailnetNode | null {
+  if (!node || node.ipv4 || !lastIp) return node
+  return { ...node, ipv4: lastIp }
+}
+
 /** The supervisor's certificate step: `tailscale cert` when due. Returns a line for the log when something happened
  * or is wrong ('' = nothing to say). */
 export function tailnetCertStep(s: OfficeSettings, run: Run | null, lastCheck: number, now = new Date()): { line: string; checked: boolean } {
@@ -240,6 +248,7 @@ export async function run(home: string): Promise<never> {
     if (pr !== tailnetProblem) say(pr ? `Tailscale address ${tailnetOrigin(s)}: ${pr}` : `Tailscale address ${tailnetOrigin(s)} on ${n?.ipv4}`)
     tailnetProblem = pr
   }
+  let lastTailnetIp = st.tailnet?.ipv4 ?? null
   if (s.tailscaleHost) { tailnetSay(st.tailnet); tailnetStep() }
   say(`home ${p.home}; desks: ${st.origins.join('  ')}${st.changed ? ` (new server certificate: ${st.reason})` : ''}`)
   if (st.left.length) say(`left out of the certificate (not private addresses): ${st.left.join(', ')}`)
@@ -306,8 +315,10 @@ export async function run(home: string): Promise<never> {
     try { const r = reloadMarkedUpdateAgent(s); if (r) say(r) } catch (e) { say(`update agent reload failed: ${(e as Error).message}`) }
     const host = localHostName()
     const lan = lanInfo({ includeVpn: s.includeVpn })
-    const node = tailnetNode(s, tsRun)
-    if (s.tailscaleHost) { tailnetSay(node); tailnetStep() }
+    const seen = tailnetNode(s, tsRun)
+    if (s.tailscaleHost) { tailnetSay(seen); tailnetStep() }
+    const node = stickyTailnet(seen, lastTailnetIp)
+    if (node?.ipv4) lastTailnetIp = node.ipv4
     const key = JSON.stringify([host, lan, node?.ipv4 ?? null])
     if (key === st.key && Date.now() - lastTls < TLS_RECHECK_MS) return
     try {

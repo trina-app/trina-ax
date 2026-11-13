@@ -11,7 +11,7 @@ import { hostAllowed, originsFor, tailnetHostAllowed, tailnetOriginOf } from '..
 import { directFetch, fromOutside } from '../../server/src/http/tunnel'
 import { readPair, tailnetListener, type Serve } from '../../server/src/http/tailnet-listener'
 import { peerIp } from '../../server/src/main'
-import { portProblems, tailnetCertStep, tailnetNode, tailscaleAddress } from '../../server/src/office/cli'
+import { portProblems, prepare, stickyTailnet, tailnetCertStep, tailnetNode, tailscaleAddress } from '../../server/src/office/cli'
 import { loadSettings, officePaths, parseTailscaleHost, serverConfig, settingsFrom, settingsText, tailnetOrigin } from '../../server/src/office/settings'
 import {
   certCheckDue, findTailscaleBin, inTailnetV4, pairProblem, parseStatus, refreshTailnetCert, servePorts, tailnetCertPaths,
@@ -148,6 +148,24 @@ describe('tailscale status', () => {
     expect(tailnetNode(s, fakeTs({ status: { ...STATUS, CertDomains: ['other.tail1234.ts.net'] } }))?.problem).toMatch(/now other\.tail1234\.ts\.net/)
     expect(tailnetNode(s, null)?.problem).toMatch(/CLI was not found/)
     expect(tailnetNode({ tailscaleHost: null, tailscaleBin: null }, fakeTs())).toBeNull()
+  })
+
+  test('a status check that gives no IPv4 keeps the last one: server.json and the restart flag do not change', () => {
+    const ok = parseStatus(JSON.stringify(STATUS))
+    const failed = { certName: null, ipv4: null, running: false, problem: 'tailscale status failed: timeout' }
+    expect(stickyTailnet(failed, TS_IP)?.ipv4).toBe(TS_IP)
+    expect(stickyTailnet(failed, TS_IP)?.problem).toBe(failed.problem) // still reported
+    expect(stickyTailnet(ok, '100.64.0.9')?.ipv4).toBe(TS_IP) // a new address wins
+    expect(stickyTailnet(failed, null)?.ipv4).toBeNull()
+    expect(stickyTailnet(null, TS_IP)).toBeNull()
+    const home = path.join(BASE, 'sticky')
+    fs.mkdirSync(path.join(home, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'config', 'office.env'), `TEAMAX_TAILSCALE_HOST=${TS}\nTEAMAX_RUN_DIR=/tmp/ts-run\n`)
+    const first = prepare(home, { addrs: ['192.168.1.18'], subnets: NET, host: 'mini', tailnet: ok })
+    const again = prepare(home, { addrs: ['192.168.1.18'], subnets: NET, host: 'mini', tailnet: stickyTailnet(failed, TS_IP) })
+    expect(again.changed).toBe(false)
+    expect(again.key).toBe(first.key)
+    expect(JSON.parse(fs.readFileSync(officePaths(home).serverJson, 'utf8')).tailnet.bind).toBe(TS_IP)
   })
 
   test('check-ports: a port `tailscale serve` uses is refused', async () => {
