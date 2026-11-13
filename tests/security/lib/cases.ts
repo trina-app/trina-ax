@@ -167,6 +167,7 @@ export const SPECS: Record<string, Spec> = {
       if (r.status !== 200 || r.json?.teamName !== 'Sec Team' || r.json?.valid !== true) throw new Error(`${who}: the invite's info answered ${r.status} ${r.text.slice(0, 160)}`)
       const extra = Object.keys(r.json).filter((k) => !['teamName', 'role', 'expiresAt', 'valid', 'inviterName', 'full'].includes(k))
       if (extra.length) throw new Error(`${who}: the invite's info carries ${extra.join(', ')}`)
+      if (typeof r.json.full !== 'boolean') throw new Error(`${who}: the invite's info has no full flag`)
       inviterOnlyByName(r, w, who, "the invite's info")
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },

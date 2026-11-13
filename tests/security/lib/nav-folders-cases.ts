@@ -21,10 +21,10 @@ function aliceFolder(w: World, kind: 'chats' | 'rooms', fresh = false): Promise<
 const noCanary = (text: string, who: Who, what: string) => {
   if (who !== 'memberIn' && text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}: ${what} showed alice's folder name`)
 }
-/** a new chat of `c`'s person with no project */
 // someone who must change the password first is stopped before any lookup (403 password_change_required): a refusal that
 // names nothing, as good as the 404 the others get
 const pwGate = (who: Who, r: { status: number; json: any }) => who === 'pwchange' && r.status === 403 && r.json?.error?.code === 'password_change_required'
+/** a new chat of `c`'s person with no project */
 const ownChat = async (c: Client) => (await c.ok('POST', '/api/chats', {})).id as string
 
 export const NAV_FOLDER_SPECS: Record<string, Spec> = {
