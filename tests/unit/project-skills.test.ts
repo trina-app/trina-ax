@@ -356,12 +356,14 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     expect(r.card!.question).toContain('프로젝트 › nobody-yet의 스킬 폴더에 저장할까요? 아직 이 폴더를 쓰는 프로젝트가 없어서 어떤 채팅도 따르지 않아요.')
   })
 
-  test('a side chat beside a room is like a room: no project skills; moved into the project, like any of its chats', async () => {
+  test('a side chat beside a room is like a room: no project skills, and it never moves into a project (QA TC-1010)', async () => {
     const room = await h.api('bob').call(API.createRoom, { body: { kind: 'dm', userId: 'dana' } })
     const side = await h.api('bob').call(API.createChat, { body: { sideRoomId: room.id } })
     expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).not.toContain(LAUNCH)
-    await h.api('bob').call(API.updateChat, { params: { id: side.id }, body: { projectId: '01900000-0000-7000-8000-00000000f001' } })
-    expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).toContain(`- launch [project: Falcon]: ${LAUNCH}`)
+    // it holds the room's words: moving it into a project (and so sharing it) is refused (tests/unit/b-side-chat-no-project.test.ts)
+    const moved = await h.api('bob').call(API.updateChat, { params: { id: side.id }, body: { projectId: '01900000-0000-7000-8000-00000000f001' } }).then(() => null, (e: { status: number; body: { params?: { reason?: string } } }) => [e.status, e.body.params?.reason])
+    expect(moved).toEqual([400, 'side_chat_no_project'])
+    expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).not.toContain(LAUNCH)
   })
 
   test('skills that switch on ask first: an admin pointing a project whose folder is gone at projects/<name> with skills, a personal project shared', async () => {
