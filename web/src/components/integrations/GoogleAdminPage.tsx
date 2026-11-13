@@ -6,7 +6,7 @@
 // "service", or blocked "hosted") that line says so, and there is nothing to set up. Under the details, Team settings in
 // the layout of Admin › Team settings: who can use it (everyone in the team, each with their own account: there is no
 // members' switch, docs/DECISIONS.md "No members' switch for connectors"), Google Drive's Drives shared with the team
-// (DriveShares.tsx), and the Google APIs a card with its own Google app needs switched on. The setup dialogs stay where they were (DriveConnector.tsx DriveSetupDialog, GoogleAppAdmin.tsx).
+// (DriveShares.tsx), a Google app's account shared with the team (GoogleAppTeam.tsx), and the Google APIs a card with its own Google app needs switched on. The setup dialogs stay where they were (DriveConnector.tsx DriveSetupDialog, GoogleAppAdmin.tsx).
 import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -21,6 +21,7 @@ import { CardMenu } from './AppConnectorCard'
 import { driveAdminLine, driveAdminOn } from './DriveConnector'
 import { DriveAdminSettings } from './DriveShares'
 import { ApiList, googleAppAdminLine, googleAppAdminOn } from './GoogleAppAdmin'
+import { GoogleAppTeamRow } from './GoogleAppTeam'
 import { Note } from './GoogleAppConnector'
 
 /** Google sign-in comes from the hosting service: nothing to set up here (no Google client, no redirect address). */
@@ -118,7 +119,7 @@ export function DriveAdminPage({ status, onSetUp, onStatus }: { status: DriveAdm
 
 /** A Google app's page in Admin › Connectors (Gmail, Google Calendar, Google Docs, Google Sheets). `view`: the admin's
  * own view of it (Connectors'), for its tools; none on an older server. */
-export function GoogleAppAdminPage({ status, view, onSetUp }: { status: GoogleAppAdminStatus; view?: GoogleAppView; onSetUp: () => void }) {
+export function GoogleAppAdminPage({ status, view, onSetUp, onStatus }: { status: GoogleAppAdminStatus; view?: GoogleAppView; onSetUp: () => void; onStatus: (s: GoogleAppAdminStatus) => void }) {
   const t = useT()
   const id = status.id
   const name = builtInName(id)
@@ -147,6 +148,8 @@ export function GoogleAppAdminPage({ status, view, onSetUp }: { status: GoogleAp
       {(status.configured || showApis) && (
         <TeamSettings>
           {status.configured && <WhoRow count={status.connectedMembers} />}
+          {/* one account for the people an admin picks (an older server sends no team: nothing to show) */}
+          {status.configured && status.team !== undefined && <GoogleAppTeamRow status={status} onStatus={onStatus} />}
           {showApis && (
             <SettingRow heading title={t('gapps.admin.apisTitle')} desc={t('gapps.admin.apis')} testId="gapp-admin-apis-row"
               below={<div className="mt-2"><ApiList apis={status.apis} bare /></div>} />

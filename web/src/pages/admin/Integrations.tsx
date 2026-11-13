@@ -164,7 +164,7 @@ export default function AdminIntegrations() {
           const d = drive.data
           if (open?.kind === 'drive' && d) return <DriveAdminPage status={d} onSetUp={() => setDriveSetup(true)} onStatus={(st) => drive.setData(st)} />
           const gs = open?.kind === 'gapp' ? gapps.data?.find((x) => x.id === open.id) : undefined
-          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} />
+          if (gs) return <GoogleAppAdminPage status={gs} view={views.data?.find((x) => x.id === gs.id)} onSetUp={() => setGappSetup(gs.id)} onStatus={setGapp} />
           if (open?.kind === 'listed') {
             const c = open.c
             const have = [...list, ...tpls].find((i) => servesAt(c, i.url))

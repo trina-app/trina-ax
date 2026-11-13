@@ -245,3 +245,59 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await audit()).toEqual([])
   })
 }
+
+test('Admin shares one Gmail account with the team (QA TC-198): sign in, confirm, pick who uses it; Change people, Remove', async ({ page }) => {
+  await reset(page)
+  await googleApps(page, { app: 'gmail', client: 'app' })
+  await fakeGoogle(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/connectors?app=gmail')
+  const row = page.getByTestId('gapp-team')
+  await expect(row.getByTestId('gapp-team-row')).toContainText('팀이 함께 쓰는 Google 계정')
+  const popup = page.waitForEvent('popup')
+  await row.getByTestId('gapp-team-connect').click()
+  const dialog = page.getByTestId('gapp-team-dialog')
+  await expect(dialog).toHaveAttribute('data-step', 'connect')
+  await dialog.getByTestId('gapp-team-google').click()
+  await popup
+  await expect(dialog.getByTestId('gapp-team-account')).toContainText('team-gmail@example.test')
+  await dialog.getByTestId('gapp-team-confirm').click()
+  // then who may use it: nobody until Save
+  await expect(dialog).toHaveAttribute('data-step', 'people')
+  await expect(dialog.getByTestId('gapp-team-signed-in')).toContainText('team-gmail@example.test')
+  await expect(dialog.getByTestId('integration-access-pick')).toBeChecked()
+  await dialog.getByTestId('integration-access-everyone').check()
+  const put = page.waitForRequest((r) => /\/api\/admin\/google-apps\/gmail\/team$/.test(r.url()) && r.method() === 'PUT')
+  await page.getByTestId('gapp-team-save').click()
+  expect((await put).postDataJSON()).toEqual({ access: { everyone: true, groups: [], users: [] } })
+  await expect(row.getByTestId('gapp-team-email')).toHaveText('team-gmail@example.test')
+  await expect(row.getByTestId('gapp-team-detail')).not.toContainText('아무도')
+  await expect(row.getByTestId('gapp-team-connect')).toHaveCount(0)
+  // ⋯ › Remove, confirmed: back to Connect for the team
+  await row.getByTestId('gapp-team-menu').click()
+  await page.getByTestId('gapp-team-remove').click()
+  await page.getByRole('dialog').getByRole('button', { name: '없애기' }).click()
+  await expect(row.getByTestId('gapp-team-connect')).toBeVisible()
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('a member sees the shared account when it includes them, and has no way to make or change one', async ({ page }) => {
+  await reset(page)
+  await googleApps(page, { app: 'gmail', client: 'app', team: { email: 'team-box@example.test', access: { everyone: false, groups: [], users: ['bob'] } } })
+  await signIn(page, BOB)
+  await page.goto('/connectors/gmail')
+  const detail = page.getByTestId('gapp-detail')
+  await expect(detail.getByTestId('gapp-shared')).toContainText('team-box@example.test')
+  // their own Connect stays
+  await expect(detail.getByTestId('gapp-connect')).toBeEnabled()
+  await expect(page.getByTestId('gapp-team-connect')).toHaveCount(0)
+  // not included: nothing about it
+  await googleApps(page, { app: 'gmail', team: { email: 'team-box@example.test', access: { everyone: false, groups: [], users: [] } } })
+  await page.reload()
+  await expect(detail.getByTestId('gapp-connect')).toBeEnabled()
+  await expect(detail.getByTestId('gapp-shared')).toHaveCount(0)
+  // the admin page is not theirs
+  const r = await page.request.post('/api/admin/google-apps/gmail/team/authorize', { data: {} })
+  expect(r.status()).toBe(403)
+})
