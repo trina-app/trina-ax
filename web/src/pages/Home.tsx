@@ -67,7 +67,6 @@ import { TrinaStar } from '../components/TrinaStar'
 import { FileDropZone } from '../components/FileDropZone'
 import { useFolders } from '../components/nav/NavFolders'
 import { Tooltip } from '../components/Tooltip'
-import { useNavRail } from '../lib/navRail'
 
 // Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
 // chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).

@@ -266,3 +266,32 @@ test('with the switch off nothing of it shows', async ({ page }) => {
   await expect(page.getByTestId('row-folder-move')).toHaveCount(0)
   expect(asked).toBe(false)
 })
+
+test("on a phone: the same folders in 트리나's list, the long-press menu files a chat, the folder's + opens the box at /new", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await navRail(page)
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill('olga')
+  await page.getByTestId('login-password').fill('correct horse battery')
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByTestId('phone-trina-home').or(page.getByTestId('welcome'))).toBeVisible()
+  const weekly = (await (await post(page, '/api/nav-folders', { kind: 'chats', name: '주간 보고' })).json()) as { id: string }
+  await chat(page, 'Weekly notes')
+  await page.goto('/')
+  const list = page.getByTestId('phone-trina-list')
+  const f = list.locator('[data-testid="trina-group"][data-kind="folder"]')
+  await expect(f.getByTestId('trina-group-name')).toHaveText('주간 보고')
+  // a touch screen shows the header's + and "⋯" without hover
+  await expect(f.getByTestId('folder-menu')).toBeVisible()
+  // the row's "⋯" (always shown on a phone) › 폴더로 옮기기 › 주간 보고, as sheets
+  const row = list.locator('li').filter({ has: page.locator('a[href^="/c/"]').getByText('Weekly notes', { exact: true }) })
+  await row.getByTestId('chat-row-menu').click()
+  await page.getByTestId('row-folder-move').click()
+  await page.getByRole('menuitemradio', { name: '주간 보고' }).click()
+  await expect(rowTitles(f)).toHaveText(['Weekly notes'])
+  await page.screenshot({ path: process.env.SHOTS ? `${process.env.SHOTS}/phone-trina-390-light.png` : test.info().outputPath('phone.png') })
+  await f.getByTestId('trina-group-ask').click()
+  await expect(page).toHaveURL(new RegExp(`/new\\?folder=${weekly.id}$`))
+  await expect(page.getByTestId('home-folder')).toContainText('주간 보고')
+})

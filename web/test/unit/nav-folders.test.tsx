@@ -42,3 +42,12 @@ describe('my folders', () => {
     expect(nameTaken(all, 'rooms', 'Ideas')).toBe(false)
   })
 })
+
+describe("a folder's + opens the new-chat box with the folder", () => {
+  test('on a phone with the new tabs at /new, else at /; a / with a folder goes to /new on such a phone', async () => {
+    const { newChatPath, homeRoute } = await import('../../src/lib/newChat')
+    expect(newChatPath({ folder: 'f1' }, false)).toBe('/?folder=f1')
+    expect(homeRoute('/', '?folder=f1', true, true)).toEqual({ to: '/new?folder=f1' })
+    expect(homeRoute('/new', '?folder=f1', false, true)).toEqual({ to: '/?folder=f1' })
+  })
+})

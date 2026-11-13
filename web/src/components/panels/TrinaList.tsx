@@ -21,6 +21,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { markerOf, type Marker } from '../../lib/sessionMarkers'
 import { aiName } from '../../lib/tabs'
+import { newChatPath } from '../../lib/newChat'
 import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
@@ -361,7 +362,7 @@ function Group(props: {
   const askLabel = t('history.group.newChat', { name, ai: aiName(t) })
   return (
     <div className={clsx('mt-1', folder && drop.over && DROP_OVER)} {...(folder ? drop.props : {})} data-testid="trina-group" data-kind={kind} data-folded={folded ? '' : undefined}>
-      <div className={clsx('group/head relative flex h-7 items-center gap-1 pl-3 text-xs font-medium text-faint', folder ? 'pr-16' : 'pr-9', canAsk && headMark && (folder ? 'pointer-coarse:pr-24' : 'pointer-coarse:pr-16'))} data-testid="trina-group-head">
+      <div className={clsx('group/head relative flex h-7 items-center gap-1 pl-3 text-xs font-medium text-faint', folder ? 'pr-16' : 'pr-9', canAsk && headMark && (folder ? 'pointer-coarse:pr-24 max-md:pr-24' : 'pointer-coarse:pr-16'))} data-testid="trina-group-head">
         <h4 className="flex h-full min-w-0 items-center gap-1">
           {icon}
           {projectId ? (
@@ -377,7 +378,7 @@ function Group(props: {
           <ChevronDown size={12} className={clsx('transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
         </button>
         {headMark && (
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', canAsk && 'group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0', canAsk && (folder ? 'pointer-coarse:right-16' : 'pointer-coarse:right-9'))} data-testid="trina-group-mark">
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', canAsk && 'group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0', canAsk && (folder ? 'pointer-coarse:right-16 max-md:right-16' : 'pointer-coarse:right-9'))} data-testid="trina-group-mark">
             <SessionMarker marker={headMark} label={reasonText(headMark.reason, t)} />
           </span>
         )}
@@ -386,8 +387,8 @@ function Group(props: {
             <button
               type="button"
               aria-label={askLabel}
-              onClick={() => (folder ? navigate(`/?folder=${folder.id}`) : navigate(`/projects/${projectId}`, { state: { newChat: true } }))}
-              className={clsx('absolute top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100', folder ? 'right-8' : 'right-1')}
+              onClick={() => (folder ? navigate(newChatPath({ folder: folder.id })) : navigate(`/projects/${projectId}`, { state: { newChat: true } }))}
+              className={clsx('absolute top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100', folder ? 'right-8 max-md:opacity-100' : 'right-1')}
               data-testid="trina-group-ask"
             >
               <Plus size={14} aria-hidden />
@@ -399,7 +400,7 @@ function Group(props: {
             folder={folder}
             count={head.count}
             className="absolute inset-y-0 right-1 flex items-center"
-            buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
+            buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100 max-md:opacity-100"
           />
         )}
       </div>

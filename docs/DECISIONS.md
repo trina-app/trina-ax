@@ -17861,9 +17861,10 @@ read. The server half is the entry above.
   대화 count leaves them; the room on screen stays drawn in a folded folder. A folded Trina folder keeps its strongest
   session marker, as project groups.
 - **Empty folder**: one short line, "아직 비어 있어요" (the P2 line ran to three lines in a 240 px panel).
-- **Phones**: the same components draw in the phone's lists (P5 reuses TrinaList and RoomsByKind): the header's + and
-  "⋯" always show on a touch screen, the row menus are sheets. A new chat from a folder's + uses `/?folder=`; P5's
-  `newChatPath` should carry it to `/new` like `?project=`.
+- **Phones**: 트리나's tab draws the same Trina list (P5), so the same folders show there; below 768 px a folder header's
+  + and "⋯" always show and the row menus are sheets (a long press, or the row's "⋯"). A folder's + goes through
+  `newChatPath({ folder })`: `/new?folder=<id>` on a phone with the new tabs, `/?folder=<id>` elsewhere (`homeRoute` sends
+  a phone's `/?folder=` to `/new` like `?project=`).
 - Fixed on the way: a row's menu in 대화 was cut off at its section's edge (`content-visibility: auto` contains paint), so
   a section is drawn plainly while one of its menus is open.
 - Tests: `web/test/unit/nav-folders.test.tsx`, `web/test/e2e/nav-folders.spec.ts` (make, rename, reorder, delete; keyboard

@@ -9,9 +9,10 @@ import { phoneTabsV2 } from './tabs'
 const isPhone = () => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767.98px)').matches === true
 
 /** The new-chat box's address now, with its question and project (the same query on both addresses). */
-export function newChatPath(o: { project?: string | null; prompt?: string | null } = {}, phone: boolean = isPhone()): string {
+/** `folder`: one of my chat folders the new chat goes in (a folder's + in the Trina list). */
+export function newChatPath(o: { project?: string | null; prompt?: string | null; folder?: string | null } = {}, phone: boolean = isPhone()): string {
   // encoded as the links always were (encodeURIComponent: a space is %20, not +)
-  const parts = [o.project && `project=${encodeURIComponent(o.project)}`, o.prompt && `prompt=${encodeURIComponent(o.prompt)}`].filter(Boolean)
+  const parts = [o.project && `project=${encodeURIComponent(o.project)}`, o.folder && `folder=${encodeURIComponent(o.folder)}`, o.prompt && `prompt=${encodeURIComponent(o.prompt)}`].filter(Boolean)
   const query = parts.length ? `?${parts.join('&')}` : ''
   return `${phone && phoneTabsV2() ? '/new' : '/'}${query}`
 }
@@ -32,7 +33,7 @@ export function homeRoute(pathname: string, search: string, phone: boolean, v2: 
   if (pathname === '/new' && !onPhoneTabs) return { to: `/${search}` }
   if (pathname === '/' && onPhoneTabs) {
     const q = new URLSearchParams(search)
-    if (q.has('prompt') || q.has('project')) return { to: `/new${search}` }
+    if (q.has('prompt') || q.has('project') || q.has('folder')) return { to: `/new${search}` }
     return { list: true }
   }
   return { list: false }

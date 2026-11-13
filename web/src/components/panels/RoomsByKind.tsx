@@ -162,12 +162,12 @@ function RoomFolder({ folder, rooms, count, shown, folded, onFold }: { folder: N
           <span className="truncate" title={folder.name} data-testid="room-folder-name">{folder.name}</span>
           <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
         </button>
-        {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10" />}
+        {pill && <RoomFolderPillView pill={pill} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 group-hover/head:opacity-0 group-has-[:focus-visible]/head:opacity-0 pointer-coarse:right-10 max-md:right-10" />}
         <FolderMenu
           folder={folder}
           count={count}
           className="absolute inset-y-0 right-1 flex items-center"
-          buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
+          buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100 max-md:opacity-100"
         />
       </div>
       <ul id={listId} hidden={folded && !shown.length}>
