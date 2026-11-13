@@ -615,9 +615,11 @@ export class BrowserPane {
     this.repeatHint = new RepeatPromptHint()
     this.officeLetThrough.clear()
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
+    // closed now, with the old person's tabs: not after the clear, which can end seconds later (a fresh profile's first
+    // check runs while the person signs in) and then closed the pane they had just opened (QA TC-940)
+    this.hide()
     // an explicit list and a time limit: a clear that never settles must not stop every later AI browser call
     const cleared = await clearSessionData(this.session, 'in-app browser')
-    this.hide()
     this.emit()
     return cleared
   }

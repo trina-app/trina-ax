@@ -222,6 +222,28 @@ test('phone width: the page and an app\'s page fit; Me has Connectors, the 트�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
+test('phone width: the ⋯ menu on a person\'s connected Gmail page opens fully on screen (QA TC-935)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await googleApps(page, { client: 'app' })
+  await fakeGoogle(page)
+  await signIn(page)
+  await page.goto('/settings/connectors/gmail')
+  const detail = page.getByTestId('gapp-detail')
+  const popup = page.waitForEvent('popup')
+  await detail.getByTestId('gapp-connect').click()
+  await popup
+  await detail.getByTestId('gapp-confirm').click()
+  await expect(detail).toHaveAttribute('data-state', 'connected')
+  await detail.getByTestId('gapp-menu').click()
+  const menu = page.getByTestId('gapp-menu-items')
+  await expect(menu).toBeVisible()
+  const box = (await menu.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(8)
+  expect(box.x + box.width).toBeLessThanOrEqual(390 - 8)
+  await expect(page.getByTestId('gapp-menu-disconnect')).toBeInViewport({ ratio: 1 })
+})
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`the page, Gmail's page and its Settings have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })

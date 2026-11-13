@@ -2,7 +2,8 @@
 // one action on the right: a button or a ⋯ menu). Anything it shows while it works (waiting for Google, "connect this
 // account?") goes under the row, inside it. CardMenu is the ⋯ every connection's page uses.
 import { MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { MENU_EDGE } from '../rooms/MenuButton'
 import { IconButton } from '../ui'
 import { ConnectionRow } from './ConnectionRow'
 
@@ -26,10 +27,25 @@ export function AppConnectorCard({ logo, name, line, lineTone, action, children,
 
 export interface CardMenuItem { label: string; onSelect: () => void; danger?: boolean; disabled?: boolean; testId: string }
 
+/** How far to move a ⋯ menu that opens under its button, right edges in line (`left`, `width` in window px), so it stays
+ * MENU_EDGE clear of both sides of the window: on a phone a ⋯ near the left (a person's Gmail page, next to Connected)
+ * opened its menu off the screen's left edge (QA TC-935). 0 when it fits. */
+export function cardMenuShift(left: number, width: number, viewWidth: number): number {
+  return Math.max(MENU_EDGE, Math.min(left, viewWidth - MENU_EDGE - width)) - left
+}
+
 /** ⋯ on a card: the few things you rarely do with it (reconnect, disconnect). Arrow keys move, Esc and Tab close. */
 export function CardMenu({ label, items, testId }: { label: string; items: CardMenuItem[]; testId: string }) {
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  const menu = useRef<HTMLDivElement>(null)
+  const [shift, setShift] = useState(0)
+  // measured before it paints: where it would be with no shift, moved in when that is off a side of the window
+  useLayoutEffect(() => {
+    if (!open || !menu.current) { setShift(0); return }
+    const r = menu.current.getBoundingClientRect()
+    setShift(cardMenuShift(r.left, r.width, document.documentElement.clientWidth))
+  }, [open])
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])]
   useEffect(() => {
     if (!open) return
@@ -55,7 +71,7 @@ export function CardMenu({ label, items, testId }: { label: string; items: CardM
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={label} className="absolute right-0 z-30 mt-1 w-max max-w-[min(20rem,calc(100vw-2rem))] min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid={`${testId}-items`}>
+        <div ref={menu} role="menu" aria-label={label} style={shift ? { transform: `translateX(${shift}px)` } : undefined} className="absolute right-0 z-30 mt-1 w-max max-w-[min(20rem,calc(100vw-2rem))] min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid={`${testId}-items`}>
           {items.map((it) => (
             <button key={it.testId} type="button" role="menuitem" disabled={it.disabled}
               className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-hover focus:bg-hover focus:outline-none disabled:opacity-50 ${it.danger ? 'text-danger' : ''}`}
