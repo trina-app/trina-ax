@@ -305,7 +305,7 @@ describe('the card and the change', () => {
       { label: 'Add (1)', text: 'Bob Lee · person' },
       { label: 'Remove (1)', text: 'Erin Yoo · person' },
     ])
-    expect(c.options).toEqual([{ label: 'Change members', value: 'change' }, { label: MEMBERS_TEXT.no.en, value: 'skip' }])
+    expect(c.options).toEqual([{ label: 'Change members', value: 'change' }, { label: 'Always allow', value: '__always' }, { label: MEMBERS_TEXT.no.en, value: 'skip' }])
     expect(members(p.folderPath)).toEqual(['alice', 'bob'])
     expect(r.content).toContain(`/projects/${p.id}?members=1`)
     expect(r.content).toContain('added Bob Lee (person)')

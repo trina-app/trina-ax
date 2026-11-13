@@ -40,11 +40,11 @@ export const TEXT = {
   once: t('이번만 보내기', 'Send once', 'Kirim sekali ini', "今回だけ送信", "Enviar esta vez"),
   alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre"),
   // the line under the three buttons: what Always allow covers, and where it is turned off
-  alwaysNote: t('항상 허용: 앞으로 AI가 묻지 않고 {name}에 보내요. 바깥 내용(웹 페이지, 다른 사람의 파일 등)을 읽은 대화에서는 계속 물어요. 설정 › 커넥터에서 끌 수 있어요.',
-    'Always allow: from now on the AI sends to {name} without asking. In a chat that read something from outside (a web page, someone else\'s file), it still asks. You can turn it off in Settings › Connectors.',
-    'Selalu izinkan: mulai sekarang AI mengirim ke {name} tanpa bertanya. Dalam obrolan yang membaca sesuatu dari luar (halaman web, file orang lain), AI tetap bertanya. Anda bisa mematikannya di Pengaturan › Konektor.',
-    "常に許可：今後AIは確認せずに{name}へ送信します。外部の内容（ウェブページ、他の人のファイルなど）を読んだチャットでは、引き続き確認します。設定 › コネクターでオフにできます。",
-    "Permitir siempre: a partir de ahora la IA envía a {name} sin preguntar. En un chat que leyó algo de fuera (una página web, un archivo de otra persona), sigue preguntando. Puede desactivarlo en Configuración › Conectores."),
+  alwaysNote: t('항상 허용: 앞으로 AI가 묻지 않고 {name}에 보내요. 웹페이지나 파일을 읽은 대화에서도 다시 묻지 않아요. 설정 › 커넥터에서 끌 수 있어요.',
+    "Always allow: from now on Trina sends to {name} without asking, even after reading web pages or files. You can turn it off in Settings › Connectors.",
+    'Selalu izinkan: mulai sekarang Trina mengirim ke {name} tanpa bertanya, bahkan setelah membaca halaman web atau file. Anda bisa mematikannya di Pengaturan › Konektor.',
+    "常に許可：今後トリナは、Webページやファイルを読んだ後でも確認せずに{name}へ送信します。設定 › コネクターでオフにできます。",
+    "Permitir siempre: a partir de ahora Trina envía a {name} sin preguntar, incluso tras leer páginas web o archivos. Puede desactivarlo en Configuración › Conectores."),
   // the card's first line in a chat that read something from outside, for a connection that asks anyway: why the card
   // has no Always allow (TC-328)
   outsideAsksOnce: t('이 대화는 바깥 내용(웹 페이지, 다른 사람의 파일, 서비스의 답 등)을 읽었어요. 그래서 여기서는 바꿀 때마다 물어요.',

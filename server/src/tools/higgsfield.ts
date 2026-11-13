@@ -133,7 +133,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
         }))
       }
       const L = t.person.locale
-      const end = await askConfirm(t.person, fill(TEXT.confirm[L], { duration: String(a.duration), aspect: a.aspect_ratio, resolution: a.resolution, prompt: a.prompt }), TEXT.allow[L], TEXT.deny[L])
+      const end = await askConfirm(t.person, fill(TEXT.confirm[L], { duration: String(a.duration), aspect: a.aspect_ratio, resolution: a.resolution, prompt: a.prompt }), TEXT.allow[L], TEXT.deny[L], { always: 'video' })
       if (end !== 'yes') {
         throw new ToolError(refusal({
           done: end === 'declined' ? 'The person did not allow this video, so no video was made and no credits were spent.' : 'No video was made and no credits were spent.',

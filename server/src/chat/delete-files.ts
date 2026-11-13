@@ -26,6 +26,7 @@ import { neutralizeTags } from './prompt'
 import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
+import { alwaysHere, withAlways } from './always-allow'
 
 export const DELETE_FILES_TOOL = 'delete_files'
 /** delete cards one answer may show (card fatigue: a third ask is a new message) */
@@ -79,7 +80,7 @@ export const DELETE_REFUSAL = {
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 
 /** What delete_files needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules here are tested on their own. */
-export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'>
+export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
 export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'>): DeleteRefusal | null {
@@ -194,7 +195,9 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (mode) return refused(mode, paths)
     const s = state()
     if (s.declined) return refused('declined', paths)
-    if (s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
+    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card and no card limit
+    const always = alwaysHere(exec.alwaysPlace?.(), 'delete_files')
+    if (always !== 'on' && s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
     if (s.open || exec.openRequests().length) return refused('busy', paths)
     let user
     try { user = exec.livePrincipal() } catch {
@@ -218,16 +221,15 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const card = deleteCard(plan, L, teamTimeZone(rt.db), Date.now(), (p) => placeWords(rt.db, p, L, spec.userId))
     const requestId = uuidv7()
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-    s.shown++
+    if (always !== 'on') s.shown++
     s.open = true
     let answer: unknown
     try {
-      answer = await exec.waitForPerson({
+      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }], 'trash', (options, more) => exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-        options: [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }],
-        details: card.details,
+        options, details: card.details, ...more,
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true }))
     } finally { s.open = false }
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }

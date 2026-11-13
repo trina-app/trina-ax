@@ -139,7 +139,7 @@ describe('saving a room file from my own chat', () => {
     // shared/ is wider than the room: the wider-audience card, the rooms-seen line in front, with what the call saves
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
-    expect(c.options?.map((o) => o.value)).toEqual(['save', 'skip'])
+    expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
     expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
     expect(c.question).toContain(`messages of the room '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))
@@ -205,7 +205,7 @@ describe('saving a room file from my own chat', () => {
     fs.writeFileSync(at(`users/alice/second-${file.name}`), 'mine\n')
     const again = await run('alice', chat, fake(save(roomId, file.id, `users/alice/second-${file.name}`)))
     expect(again.cards).toHaveLength(1)
-    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', 'skip'])
+    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', '__always', 'skip'])
     expect(again.cards[0]!.question).toContain(`Save conversation file · ${file.name}`)
     expect(fs.readFileSync(at(`users/alice/second-${file.name}`), 'utf8')).toBe('mine\n')
     for (const f of [`downloads/${file.name}`, `second-${file.name}`]) fs.rmSync(at(`users/alice/${f}`), { force: true })

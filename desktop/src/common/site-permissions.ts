@@ -155,12 +155,14 @@ export class SitePermissions {
 
   /**
    * The person's "Allow all websites" on the team server as it just said it (Me.user.webAllowAll). From on to off: this
-   * browser goes back to "ask" too (stricter). On never widens it: that takes the person's click in the app's own
-   * window. Returns true when anything changed (caller persists and tells both screens).
+   * browser goes back to "ask" too (stricter). From off to on, while the team allows it: this browser opens every site
+   * too (docs/DECISIONS.md "Always allow on every card"; the owner, 2026-11-13: one "Allow all websites" is enough).
+   * Returns true when anything changed (caller persists and tells both screens).
    */
   setPersonPolicy(on: boolean): boolean {
     const before = `${this.personAll}:${this.access}`
     if (this.personAll && !on) this.access = 'ask'
+    if (!this.personAll && on && this.policyAll) this.access = 'all'
     this.personAll = on
     return before !== `${this.personAll}:${this.access}`
   }

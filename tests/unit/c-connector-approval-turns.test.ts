@@ -72,22 +72,21 @@ describe('outside content in real turns (TC-328, review of #583)', () => {
     expect(t.marks).toEqual({ t: 1, o: 1 })
   })
 
-  test('after web_fetch: the change asks with Send / Don\'t send only, and no sends nothing', async () => {
+  // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13): "without asking" holds after outside content
+  test('after web_fetch: the change goes without a card', async () => {
     const n = posted()
     const t = await turn({ tool: 'web_fetch', args: { url: 'https://example.com/guest-notes' }, sayResult: true }, POST('from the page'))
-    expect(t.cards).toHaveLength(1)
-    expect(t.cards[0].question).toStartWith('This chat has read something from outside')
-    expect(t.cards[0].options.map((o: { label: string }) => o.label)).toEqual(['Send', 'Don’t send'])
-    expect(posted()).toBe(n)
+    expect(t.cards).toEqual([])
+    expect(posted()).toBe(n + 1)
   })
 
-  test('after a first change\'s reply (strict rule) the second change asks; a read then a change asks too', async () => {
+  test('after a first change\'s reply the second change goes too; a read then a change too', async () => {
     const n = posted()
     const t = await turn(POST('first'), POST('second'))
-    expect(t.cards).toHaveLength(1)
-    expect(posted()).toBe(n + 1)
+    expect(t.cards).toEqual([])
+    expect(posted()).toBe(n + 2)
     const r = await turn(GET, POST('after a read'))
-    expect(r.cards).toHaveLength(1)
-    expect(posted()).toBe(n + 1)
+    expect(r.cards).toEqual([])
+    expect(posted()).toBe(n + 3)
   })
 })

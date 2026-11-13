@@ -90,8 +90,8 @@ describe('the card, and the post', () => {
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question).toBe('#전체(5명)에 보낼까요?')
     expect(r.card!.details).toEqual([{ label: '보낼 내용', text }])
-    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['보내기', 'send'], ['보내지 않기', 'no']])
-    expect(r.card!.buttons).toBeUndefined()
+    expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['보내기', 'send'], ['항상 허용', '__always'], ['보내지 않기', 'no']])
+    expect(r.card!.buttons).toBe(true)
     // bob's message: the text as the AI's answer, no note, no mention; the others get it
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.authorKind).toBe('user')
@@ -157,8 +157,9 @@ describe('the card, and the post', () => {
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send_files' })
     // bob may read neither (carol and dana are admins): one line each, and what attaching the file changes
     expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).")
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
-    expect(r.card!.buttons).toBe(true)
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', '__always', 'no'])
+    // four answers: a list, not buttons (buttons hold three)
+    expect(r.card!.buttons).toBeUndefined()
     // the file that [파일도 함께 보내기] attaches, by its path
     expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!

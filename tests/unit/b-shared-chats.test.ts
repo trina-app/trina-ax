@@ -321,7 +321,7 @@ describe('the read card', () => {
     const q = (r.card as { question: string }).question
     expect(q).toContain('Groups › marketing')
     expect(q).toContain('Of the 2 members who see this chat, 1 cannot see this place')
-    expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', "Don't read"])
+    expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', 'Always allow', "Don't read"])
     expect(r.done.content).toContain(CANARY)
     expect(ws.bob!.frames.slice(bobFrames).some((f) => f.type === 'turn.request')).toBe(false)
     const a = audits('chat.shared_read', chat.id).map((x) => JSON.parse(x.detail!))

@@ -78,11 +78,12 @@ const posted = () => fake.seen.filter((s) => s.method === 'POST' && s.path.start
 /** the chat read something someone else wrote, as chat/turn.ts marks it (web_fetch: noteTaint → taint) */
 const outside = (chat: string, col: 'session_tainted' | 'room_outside' | 'rooms_seen' = 'session_tainted') => A.ctx.db.query(`UPDATE chats SET ${col} = 1 WHERE id = ?`).run(chat)
 const SEND3 = ['Send once', 'Always allow', 'Don’t send']
-const SEND2 = ['Send', 'Don’t send']
 const OUTSIDE_LINE = 'This chat has read something from outside'
 
-describe('TC-328: outside content asks, whatever the rule', () => {
-  test('a team connection set to "Run without asking": no card in a clean chat; after a read from the same service it asks, and no sends nothing', async () => {
+// docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13: "항상 허용을 눌렀으면 안해야하는거 아니야?"): a
+// connection that sends without asking for this person does so also after outside content or a room read
+describe('TC-328 (since 2026-11-13): "without asking" holds after outside content too', () => {
+  test('a team connection set to "Run without asking": no card in a clean chat, and none after a read from the same service', async () => {
     const clean = asker('no')
     const n0 = created()
     expect((await turn('alice', { person: clean }).call('team_guestboard__create_task', { title: 'clean' })).isError).toBe(false)
@@ -94,30 +95,21 @@ describe('TC-328: outside content asks, whatever the rule', () => {
     const read = await t.call('team_guestboard__search_tasks', { query: 'Project brief' })
     expect(read.isError).toBe(false)
     expect(p.cards).toEqual([])
-    const w = await t.call('team_guestboard__create_task', { title: 'CANARY-B11 guest notes' })
-    expect(w.isError).toBe(true)
-    expect(w.summary).toBe('team_guestboard__create_task -> not allowed by the user')
-    expect(created()).toBe(n0 + 1)
-    // the card says why, and offers no Always allow (it is on already)
-    expect(p.cards).toHaveLength(1)
-    expect(p.cards[0]!.question).toStartWith(OUTSIDE_LINE)
-    expect(p.cards[0]!.options).toEqual(SEND2)
-    // a yes sends it
-    const yes = asker('yes')
-    const t2 = turn('alice', { person: yes, chat: t.chat })
-    expect((await t2.call('team_guestboard__create_task', { title: 'after a yes' })).summary).toContain('confirmed by the user')
+    const w = await t.call('team_guestboard__create_task', { title: 'after a read' })
+    expect(w.isError).toBe(false)
+    expect(p.cards).toEqual([])
     expect(created()).toBe(n0 + 2)
   })
 
-  test('a web page or other outside words, or a room\'s messages, in the chat: the change asks; the own chat\'s "used a tool" mark alone does not; reads never ask', async () => {
+  test('a web page or other outside words, or a room\'s messages, in the chat: no card either; reads never ask', async () => {
     for (const col of ['session_tainted', 'rooms_seen'] as const) {
       const p = asker('no')
       const t = turn('alice', { person: p })
       outside(t.chat, col)
       const n = created()
-      expect((await t.call('team_guestboard__create_task', { title: col })).isError, col).toBe(true)
-      expect(p.cards, col).toHaveLength(1)
-      expect(created(), col).toBe(n)
+      expect((await t.call('team_guestboard__create_task', { title: col })).isError, col).toBe(false)
+      expect(p.cards, col).toEqual([])
+      expect(created(), col).toBe(n + 1)
     }
     // room_outside is set in the person's own chat before any connection tool runs (chat/turn.ts noteRoomTool), this
     // one included: it says a tool was used, not that something was read (review of #583)
@@ -136,7 +128,7 @@ describe('TC-328: outside content asks, whatever the rule', () => {
     expect(r.cards).toEqual([])
   })
 
-  test('an HTTP API set to "Run without asking": POST asks after a web page, GET does not', async () => {
+  test('an HTTP API set to "Run without asking": POST and GET go without a card after a web page too', async () => {
     const clean = asker('no')
     const n0 = posted()
     expect((await turn('alice', { person: clean }).call('api_request', { connection: 'team_teamapi', method: 'POST', path: '/tasks', body: { title: 'clean' } })).isError).toBe(false)
@@ -147,10 +139,9 @@ describe('TC-328: outside content asks, whatever the rule', () => {
     expect((await t.call('api_request', { connection: 'team_teamapi', method: 'GET', path: '/tasks' })).isError).toBe(false)
     expect(p.cards).toEqual([])
     const r = await t.call('api_request', { connection: 'team_teamapi', method: 'POST', path: '/tasks', body: { title: 'from the page' } })
-    expect(r.isError).toBe(true)
-    expect(p.cards).toHaveLength(1)
-    expect(p.cards[0]!.question).toStartWith(OUTSIDE_LINE)
-    expect(posted()).toBe(n0 + 1)
+    expect(r.isError).toBe(false)
+    expect(p.cards).toEqual([])
+    expect(posted()).toBe(n0 + 2)
   })
 
   test('a chat that is gone counts as outside: the change asks', async () => {
@@ -165,13 +156,13 @@ describe('TC-328: outside content asks, whatever the rule', () => {
 })
 
 describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
-  test('the person\'s own connection: three answers; Always allow sets its rule, the next clean chat sends without a card, outside content still asks, Settings turns it back', async () => {
+  test('the person\'s own connection: three answers; Always allow sets its rule, the next chat sends without a card (also after outside content), Settings turns it back', async () => {
     const first = asker('no')
     const n0 = created()
     expect((await turn('alice', { person: first }).call('my_tasks__create_task', { title: 'no' })).isError).toBe(true)
     expect(first.cards).toHaveLength(1)
     expect(first.cards[0]!.options).toEqual(SEND3)
-    expect(first.cards[0]!.note).toContain('Always allow: from now on the AI sends to Tasks without asking')
+    expect(first.cards[0]!.note).toContain('Always allow: from now on Trina sends to Tasks without asking, even after reading web pages or files')
     expect(created()).toBe(n0)
     // Send once: sent, nothing kept
     expect((await turn('alice', { person: asker('yes') }).call('my_tasks__create_task', { title: 'once' })).summary).toContain('confirmed by the user')
@@ -184,14 +175,13 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     expect((await turn('alice', { person: quiet }).call('my_tasks__create_task', { title: 'quiet' })).isError).toBe(false)
     expect(quiet.cards).toEqual([])
     expect(created()).toBe(n0 + 3)
-    // ...but not after something from outside: it asks, says why, offers two answers
+    // ...and after something from outside too
     const p = asker('no')
     const t = turn('alice', { person: p })
     outside(t.chat)
-    expect((await t.call('my_tasks__create_task', { title: 'from a page' })).isError).toBe(true)
-    expect(p.cards[0]!.question).toStartWith(OUTSIDE_LINE)
-    expect(p.cards[0]!.options).toEqual(SEND2)
-    expect(created()).toBe(n0 + 3)
+    expect((await t.call('my_tasks__create_task', { title: 'from a page' })).isError).toBe(false)
+    expect(p.cards).toEqual([])
+    expect(created()).toBe(n0 + 4)
     // the list shows it; "Ask every time" (the form's write rule) turns it back
     expect((await json('alice', `/api/integrations/${tasks.id}`, 'PATCH', { writePolicy: 'ask' })).status).toBe(200)
     const again = asker('no')
@@ -217,18 +207,17 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     const mine = (who: Person) => ((A.json('/api/integrations', { as: who }) as Promise<{ body: { items: any[] } }>).then((r) => r.body.items.find((i) => i.id === teamAsk.id)))
     expect((await mine('alice')).alwaysAllowedByMe).toBe(true)
     expect((await mine('bob')).alwaysAllowedByMe).toBe(false)
-    // outside content, a room read, a scheduled run: it asks (or is refused) as before
+    // outside content and a room read: no card either; a scheduled run is refused as before
     const p = asker('no')
     const t = turn('alice', { person: p })
     outside(t.chat)
-    expect((await t.call('team_teamboard__create_task', { title: 'page' })).isError).toBe(true)
-    expect(p.cards[0]!.options).toEqual(SEND2)
+    expect((await t.call('team_teamboard__create_task', { title: 'page' })).isError).toBe(false)
+    expect(p.cards).toEqual([])
     const seen = asker('no')
-    expect((await turn('alice', { person: seen, roomsSeen: true }).call('team_teamboard__create_task', { title: 'room' })).isError).toBe(true)
-    expect(seen.cards).toHaveLength(1)
-    expect(seen.cards[0]!.options).toEqual(SEND2)
+    expect((await turn('alice', { person: seen, roomsSeen: true }).call('team_teamboard__create_task', { title: 'room' })).isError).toBe(false)
+    expect(seen.cards).toEqual([])
     expect((await turn('alice', { scheduled: true }).call('team_teamboard__create_task', { title: 'run' })).isError).toBe(true)
-    expect(created()).toBe(n0 + 2)
+    expect(created()).toBe(n0 + 4)
     // an admin moves it to another address: her choice no longer counts
     expect((await json('carol', `/api/integrations/${teamAsk.id}`, 'PATCH', { url: `${fake.base}/mcp-open?team=ask-moved` })).status).toBe(200)
     const moved = asker('always')
@@ -246,19 +235,19 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     expect((await json('dana', `/api/integrations/${teamAsk.id}/always-allow`, 'DELETE')).status).toBe(404)
   })
 
-  test('a card shown in a chat that read something from outside offers no Always allow, and says why', async () => {
+  test('a card shown in a chat that read something from outside offers Always allow too (the owner, 2026-11-13)', async () => {
     const p = asker('no')
     const t = turn('alice', { person: p })
     outside(t.chat)
     const n = created()
-    // the two-answer card (Send / Don't send): no Always allow to pick, nothing kept
     expect((await t.call('team_teamboard__create_task', { title: 'page asked' })).isError).toBe(true)
     expect(p.cards).toHaveLength(1)
-    expect(p.cards[0]!.options).toEqual(SEND2)
-    expect(p.cards[0]!.question).toStartWith('This chat has read something from outside (a web page, someone else\'s file, a service\'s answer), so here the AI asks before every change.')
+    expect(p.cards[0]!.options).toEqual(SEND3)
+    expect(p.cards[0]!.question).not.toStartWith(OUTSIDE_LINE)
     expect(created()).toBe(n)
     expect(A.ctx.db.query('SELECT 1 FROM integration_user_allow WHERE integration_id = ?').all(teamAsk.id)).toEqual([])
   })
+
 
   test('the team\'s "never" wins over a member\'s own Always allow', async () => {
     const deny = (await json('carol', '/api/admin/integrations', 'POST', { kind: 'mcp', name: 'Locked board', url: `${fake.base}/mcp-open?team=deny`, auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: ['alice'] } })).body

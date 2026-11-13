@@ -1,4 +1,6 @@
 import { confidentialChat } from "../safe-ops/confidential"
+import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import type { CardAlwaysKind } from '@mycel/shared/api'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -97,7 +99,7 @@ import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../dem
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
-import { auditOnceUse, authorsWrite, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
+import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -2259,6 +2261,17 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
+    // card; a save where more people can see still has its own card (with its own "Always allow")
+    const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
+    if (roomAlways === 'on') {
+      if (need) {
+        const no = await this.askWidening(need, { details, extra: instruction })
+        if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
+      }
+      this.roomAllowed.add(key)
+      return null
+    }
     if (need) {
       const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr('roomsSeenWhy', L)} ` })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
@@ -2270,9 +2283,9 @@ export class TurnExec {
     // there, nothing from outside) does [이번만] cover the folder for the rest of the answer; "always" where a grant is
     // kept (a side chat that read its own room only)
     const coverOnce = coverable && !!target && target.exists && grantsOn(this.rt.db)
-    const always = coverOnce && !!grantRoom
-    // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
-    const askedAt = new Date().toISOString()
+    // "Always allow" here is the person's own for every change after a room read (chat/always-allow.ts), on the first
+    // card, in their own chats and side chats alike; it replaces the room's folder grant ("이 방에서는 항상 허용")
+    const always = roomAlways === 'offer'
     // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
@@ -2282,13 +2295,14 @@ export class TurnExec {
       : tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
     const { value: answer, missing } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
-      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('roomAiConfirmAlways', L), value: 'always' }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
+      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: tr('roomAiConfirmNote', L) } : {}),
+      ...(always ? { buttons: true as const, note: tr('cardAlwaysNote', L) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    if (v === 'allow' || (v === 'always' && always)) {
+    if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
+    if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
       if (target && coverOnce) {
         // [이번만 허용] on such a card: the rest of this answer for this folder, the same kind of calls only
@@ -2297,10 +2311,6 @@ export class TurnExec {
         const folder = target.segs.slice(0, -1)
         const id = folderId(fx, folder)
         if (id) this.roomAnswerAllowed.push({ folder, audience: folderAudience(this.rt.db, rules, folder), id })
-        if (v === 'always' && grantRoom) {
-          try { createGrant(this.rt.db, fx, rules, { userId: this.spec.userId, roomId: grantRoom, folder: folder.join('/'), turnId: this.id, since: askedAt }) }
-          catch (e) { this.rt.log.warn('room grant not saved', { err: e, turn: this.id }) }
-        }
       }
       // edit_files: the yes covers each file's edit of this batch (mcp/protocol.ts runs them as edit calls)
       const b = tool === 'edit_files' && input && typeof input === 'object' ? input as { file_paths?: unknown; old_string?: unknown; new_string?: unknown; replace_all?: unknown } : null
@@ -2736,13 +2746,13 @@ export class TurnExec {
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
-    const { value: answer, missing: none } = await this.askPerson({
+    const { value: answer, missing: none } = await this.askAlways('shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place)
       question: tr(skillUse ? 'sharedSkillConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
-    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
     const yes = answer === 'share' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'share')
     const decision = yes ? 'shared' : scheduled ? 'unattended' : answer === null || answer === undefined ? 'no_answer' : 'declined'
     try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id } }) }
@@ -2952,14 +2962,14 @@ export class TurnExec {
     const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
-    const { value: answer, missing } = await this.askPerson({
+    const { value: answer, missing } = await this.askAlways('save_wider', {
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers) }) + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
-    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    } as TurnRequest & { options: { label: string; value: string }[] }, 'save')
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
       if (!o.binding) {
         const set = this.widenAllowed.get(need.dir) ?? new Set<string>()
@@ -3069,14 +3079,17 @@ export class TurnExec {
     const options = dead
       ? [{ label: st('renameSave', L), value: 'rename' }, ...(same!.fix ? [{ label: st(same!.fix.label, L), value: 'fix' }] : []), { label: st('dont', L), value: 'skip' }]
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
-    const { value: answer, missing } = await this.askPerson({
+    // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
+    // is taken (that card asks for another name)
+    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save')
+    const { value: answer, missing } = await ask({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
-    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    } as TurnRequest & { options: { label: string; value: string }[] })
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
@@ -3172,6 +3185,23 @@ export class TurnExec {
    * closed the card without one (a no). A refusal must not say "the user did not allow this" for a card nobody saw
    * (docs/DECISIONS.md "Refusals say why, who and what next").
    */
+  /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
+   * else the card offers it. */
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string): Promise<CardAnswer> {
+    let missing: CardAnswer['missing'] = null
+    const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
+      const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+      missing = r.missing
+      return r.value
+    })
+    return { value, missing }
+  }
+
+  /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
+  alwaysPlace(): AlwaysPlace {
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted }
+  }
+
   async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<CardAnswer> {
     const value = await this.waitForPerson(request, o)
     // (a test's stand-in turn made with Object.create has no fields: no reason recorded, a plain answer)

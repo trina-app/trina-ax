@@ -610,7 +610,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/ai-allowances` | Signed in | What I allowed the AI in advance (room folders for new files), newest first. |
+| `GET` | `/api/ai-allowances` | Signed in | What I allowed the AI in advance ("Always allow" on a kind of card, room folders for new files), newest first. |
 | `DELETE` | `/api/ai-allowances/:id` | Signed in | Take one of my allowances back (404: not mine or not there). |
 
 ## Owner handover (the lead link's card and the owner's own connections)

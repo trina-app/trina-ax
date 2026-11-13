@@ -9,6 +9,7 @@
 // gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
+import { withAlways } from './always-allow'
 import { z } from 'zod'
 import { SkillFilesInput, uuidv7 } from '@mycel/shared'
 import type { ConfirmDetail, Locale, TurnRequest } from '@mycel/shared/api'
@@ -105,11 +106,12 @@ export function skillFilesTool(exec: TurnExec) {
         ...(plan.files.length ? [{ label: st('fileList', L, { n: String(plan.files.length) }), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }] : []),
       ]
       const yes = a.action === 'copy' ? st('copyYes', L) : a.action === 'rename' ? st('fileYesRename', L) : st('moveYes', L)
-      const answer = await exec.waitForPerson({
+      // "Always allow" for skill file moves, copies and renames (chat/always-allow.ts)
+      const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files', [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: card, multiple: false, allowText: false,
-        options: [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], details,
+        options, details, ...more,
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
       const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
       if (picked !== 'yes') {
         const declined = picked === 'no'

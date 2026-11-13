@@ -767,7 +767,7 @@ describe('the card, the answer, the audit and the restore', () => {
       expect(r.cards).toHaveLength(1)
       const c = r.cards[0]!
       expect(c.origin).toBe('server')
-      expect(c.options?.map((o) => o.value)).toEqual(['trash', 'skip'])
+      expect(c.options?.map((o) => o.value)).toEqual(['trash', '__always', 'skip'])
       expect(c.question).toContain('The AI wants to move 2 items to the trash.')
       expect(c.question).toContain('With what is inside the folders, that is 3 files.')
       expect(c.question).toContain('It includes files made or changed by Bob Lee, Erin Yoo.')
