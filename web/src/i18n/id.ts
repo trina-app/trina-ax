@@ -4320,6 +4320,7 @@ export const id: Record<MessageKey, string> = {
   "slack.admin.reading": "{n} orang mengizinkan membaca",
   "audit.act.slack.read_allowed": "Mengizinkan AI membaca Slack",
   "audit.act.slack.read_ended": "Membaca Slack berakhir",
+  "audit.act.slack.read_scopes": "Izin membaca Slack berubah",
   "audit.act.slack.read_scopes_recheck": "Meminta izin membaca Slack lagi",
   // S — the lead's way becomes a team skill
   "skillShare.drafting": "Sedang disusun jadi skill tim…",

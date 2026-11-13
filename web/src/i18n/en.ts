@@ -4320,6 +4320,7 @@ export const en: Record<MessageKey, string> = {
   "slack.admin.reading": "{n, plural, one {# person allowed reading} other {# people allowed reading}}",
   "audit.act.slack.read_allowed": "Allowed the AI to read Slack",
   "audit.act.slack.read_ended": "Reading Slack ended",
+  "audit.act.slack.read_scopes": "Slack reading permissions changed",
   "audit.act.slack.read_scopes_recheck": "Asked Slack for the reading permissions again",
   // S — the lead's way becomes a team skill
   "skillShare.drafting": "Writing it up as a team skill…",

@@ -4319,6 +4319,7 @@ export const ko = {
   "slack.admin.reading": "{n}명이 읽기 허용",
   "audit.act.slack.read_allowed": "AI의 Slack 읽기 허용",
   "audit.act.slack.read_ended": "Slack 읽기 끝남",
+  "audit.act.slack.read_scopes": "Slack 읽기 권한 상태 바뀜",
   "audit.act.slack.read_scopes_recheck": "Slack 읽기 권한 다시 확인",
   // S — the lead's way becomes a team skill
   "skillShare.drafting": "팀 스킬로 정리하는 중…",

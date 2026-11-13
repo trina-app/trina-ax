@@ -4276,6 +4276,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.admin.reading": "{n, plural, one {#人が読み取りを許可} other {#人が読み取りを許可}}",
   "audit.act.slack.read_allowed": "AIによるSlackの読み取りを許可",
   "audit.act.slack.read_ended": "Slackの読み取りが終了",
+  "audit.act.slack.read_scopes": "Slackの読み取り権限の状態が変わった",
   "audit.act.slack.read_scopes_recheck": "Slackの読み取り権限を再確認",
   // S — the lead's way becomes a team skill
   "skillShare.drafting": "チームのスキルにまとめています…",
