@@ -208,12 +208,13 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                 key={participantKey(x)}
                 onClick={() => add(x)}
                 disabled={added}
+                face
                 icon={<Face x={x} />}
                 name={x.name}
                 meta={sub(x) || undefined}
                 end={
                   <span className="flex shrink-0 items-center gap-2.5 self-center">
-                    {x.members && x.members.length > 0 && <FaceStack people={x.members} count={x.members.length} testId={`participant-faces-${x.subjectId}`} />}
+                    {x.members && x.members.length > 0 && <FaceStack people={x.members} count={x.members.length} size={28} testId={`participant-faces-${x.subjectId}`} />}
                     <span className={clsx('text-meta font-medium', added ? 'text-faint' : 'text-accent-text')}>{added ? t('projects.added') : t('projects.add')}</span>
                   </span>
                 }
@@ -236,7 +237,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const open = opened.has(x.subjectId)
             return (
               <li key={k} className="flex min-h-row-min flex-wrap items-center gap-x-2.5 rounded-lg px-3 py-1.5 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
-                <ListIcon><Face x={x} /></ListIcon>
+                <ListIcon face><Face x={x} /></ListIcon>
                 {/* the name on one line; the title, the group tag and the tag under it (a group's: how many people, and
                     the name opens to list them) */}
                 {inside ? (

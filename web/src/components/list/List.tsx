@@ -19,10 +19,11 @@ import { useFolds } from '../panels/folds'
 export const rowName = ({ unread = false, selected = false }: { unread?: boolean; selected?: boolean } = {}) =>
   clsx('text-row', unread || selected ? 'font-semibold text-ink' : 'font-row-read text-row-read')
 
-/** A row's icon: a bare icon on a computer, a round tile on a phone (index.css --spacing-list-icon, --color-list-icon-bg) */
-export function ListIcon({ children, className }: { children: ReactNode; className?: string }) {
+/** A row's icon: a bare icon on a computer, a round tile on a phone (index.css --spacing-list-icon, --color-list-icon-bg).
+ * `face`: a list of people (the member picker): a box a picture reads in, 28px on a computer (--spacing-list-face) */
+export function ListIcon({ children, className, face }: { children: ReactNode; className?: string; face?: boolean }) {
   return (
-    <span aria-hidden className={clsx('flex size-list-icon shrink-0 items-center justify-center rounded-full bg-list-icon-bg text-muted [&>svg]:size-list-glyph', className)}>
+    <span aria-hidden className={clsx('flex shrink-0 items-center justify-center rounded-full text-muted', face ? 'size-list-face bg-hover' : 'size-list-icon bg-list-icon-bg', '[&>svg]:size-list-glyph', className)}>
       {children}
     </span>
   )
@@ -35,9 +36,9 @@ type RowLink = { [data: `data-${string}`]: string | undefined }
  * ListIcon). `meta`: a second line, small and faint ("나만 · 3시간 전", a notice's time). `end`: what sits at the row's
  * right (a count, a dot, a ›). `selected`: the place on screen (aria-current, a fill); `unread`: semibold in ink.
  * `wrap`: the name may take two lines. `nameTitle`: the whole name on hover when it is cut. `disabled`: a button row
- * that does nothing now (a picker's row already added): no hover fill.
+ * that does nothing now (a picker's row already added): no hover fill. `face`: the icon box of a list of people (ListIcon).
  */
-export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, unread, selected, wrap, disabled, testId, nameTestId, metaTestId, link }: {
+export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link }: {
   to?: string
   state?: unknown
   onClick?: () => void
@@ -50,6 +51,7 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
   selected?: boolean
   wrap?: boolean
   disabled?: boolean
+  face?: boolean
   testId?: string
   nameTestId?: string
   metaTestId?: string
@@ -60,12 +62,12 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 56px)
     'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
     !disabled && 'hover:bg-hover',
-    meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
+    meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',
   )
   const body = (
     <>
-      {icon && <ListIcon className={meta ? 'mt-0.5 max-md:mt-0' : undefined}>{icon}</ListIcon>}
+      {icon && <ListIcon face={face} className={meta ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       <span className="min-w-0 flex-1">
         <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', rowName({ unread, selected }))} title={nameTitle} data-testid={nameTestId}>
           {name}

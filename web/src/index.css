@@ -110,7 +110,8 @@
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
-  --text-list-face: 0.625rem; /* a person's letter on a picture that fills a row's icon box (Avatar size="fill") */
+  --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
+  --text-list-face: 0.75rem; /* a person's letter on a picture that fills that box (Avatar size="fill") */
   --color-list-icon-bg: transparent;
   --color-row-read: var(--c-muted); /* a read row's name */
   --font-weight-row-read: 400;
@@ -252,6 +253,7 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --spacing-row-min: 3.5rem; /* 56px */
     --spacing-list-icon: 2.5rem; /* 40px */
     --spacing-list-glyph: 1.25rem; /* 20px */
+    --spacing-list-face: 2.5rem; /* 40px, as the icon box */
     --text-list-face: 1.125rem; /* 18px */
     --color-list-icon-bg: var(--c-hover);
     --color-row-read: var(--c-ink);
