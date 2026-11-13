@@ -13,7 +13,7 @@ export const connectionLogo = 'size-10 rounded-xl p-2'
 /** the row's own box: the same least height on every list of one screen size */
 const rowBox = 'flex min-h-14 items-center gap-3 py-2 max-md:min-h-16'
 
-export function ConnectionRow({ logo, name, badge, line, lineTone, more, end, onOpen, openLabel, openTestId, whole, testId, data, className, children }: {
+export function ConnectionRow({ logo, name, badge, line, lineTone, wrap, more, end, onOpen, openLabel, openTestId, whole, testId, data, className, children }: {
   logo: ReactNode
   name: ReactNode
   /** beside the name: a small label (Team) */
@@ -21,6 +21,8 @@ export function ConnectionRow({ logo, name, badge, line, lineTone, more, end, on
   /** one line under the name: what it does, the account, who asked; cut to one line */
   line?: ReactNode
   lineTone?: 'muted' | 'warn'
+  /** the name and the line wrap instead of being cut (what a connection may do: every word counts) */
+  wrap?: boolean
   /** more lines under that one, only when they say something (a connection's expiry, what it lacks) */
   more?: ReactNode
   /** the right side: one status or one action (or the few buttons of one choice) */
@@ -43,10 +45,10 @@ export function ConnectionRow({ logo, name, badge, line, lineTone, more, end, on
       {logo}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-row font-medium">{name}</span>
+          <span className={clsx(wrap ? 'break-words' : 'truncate', 'min-w-0 text-row font-medium')}>{name}</span>
           {badge}
         </span>
-        {line && <span className={clsx('mt-0.5 block truncate text-xs', lineTone === 'warn' ? 'text-warn' : 'text-muted')} data-testid={testId ? `${testId}-line` : undefined}>{line}</span>}
+        {line && <span className={clsx('mt-0.5 block text-xs', wrap ? 'break-words' : 'truncate', lineTone === 'warn' ? 'text-warn' : 'text-muted')} data-testid={testId ? `${testId}-line` : undefined}>{line}</span>}
         {more}
       </span>
     </>

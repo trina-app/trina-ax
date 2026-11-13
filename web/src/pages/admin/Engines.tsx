@@ -153,9 +153,8 @@ function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean
 function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   const t = useT()
   const st = engineState(t, e)
-  const navigate = useNavigate()
   return (
-    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} onOpen={() => navigate(`/admin/providers/${e.id}`)}
+    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`}
       lead={<ProviderLogo mark={ENGINE_MARK[e.id]} small />} title={<span className="text-ink">{e.label}</span>}
       chip={<span className="flex items-center gap-3">
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}

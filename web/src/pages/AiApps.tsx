@@ -79,7 +79,7 @@ export default function AiApps() {
           <p className="mb-1 text-xs font-medium text-muted">{t('aiApps.connectedApps')}</p>
           <ul className="divide-y divide-line rounded-xl border border-line">{items.map(item => {
             const app = AI_APPS.find((a) => a.id === (appIdFor(item.clientName) ?? 'other'))
-            return <ConnectionRow key={item.id} testId="connector-item" className="px-3"
+            return <ConnectionRow key={item.id} testId="connector-item" className="px-3" wrap
               logo={app ? <AiAppLogo app={app} className={connectionLogo} /> : <InitialTile name={item.clientName} className={connectionLogo} />}
               name={item.clientName} line={`${t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · ${item.scopes.map(label).join(' · ')}`}
               more={<>
