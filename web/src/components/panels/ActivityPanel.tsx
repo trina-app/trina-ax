@@ -16,6 +16,7 @@ import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
 import { chipOf, chipsFor, inChip, unreadFirst, type ActivityChip } from '../../lib/activityKinds'
 import { listTime } from '../../lib/format'
+import { ACTIVITY_OPENED_KEY } from '../../lib/localData'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
@@ -49,8 +50,7 @@ export function noticeTarget(item: InboxNotification): { to: string; state?: Rec
 }
 
 /** The one notice open on the right, or none: its own view (?n=); else, while 활동 is lit, the notice this entry was
- * opened from (its state names it, or `kept` names it for this page: the rail's 활동 reopening it, the page tidying its
- * address), or, with no name (a link from elsewhere that lit 활동), the only notice that leads to this page. Two notices
+ * opened from (its state names it, or `kept` names it for this page: the rail's 활동 reopening it), or, with no name (a link from elsewhere that lit 활동), the only notice that leads to this page. Two notices
  * can lead to one page (two people joined one project): the page alone then picks none, so at most one row is selected. */
 export function openNotice(
   items: readonly InboxNotification[],
@@ -73,9 +73,41 @@ const namedNotice = (state: unknown): string | null => {
   const v = state && typeof state === 'object' ? (state as Record<string, unknown>)[NOTICE_STATE_KEY] : undefined
   return typeof v === 'string' ? v : null
 }
-/** the notice last opened from here and its page, for this browser tab (as lib/rail.ts railHereKept keeps the place):
- * another page with 활동 lit forgets it */
-let keptNotice: { here: string; id: string } | null = null
+/** the notice last opened from here and its page, for this browser tab (sessionStorage, as lib/rail.ts keeps each
+ * place's page, so the rail's 활동 reopening that page after a reload still names it; signing out clears it): another
+ * page with 활동 lit forgets it */
+type Kept = { here: string; id: string }
+function readKept(): Kept | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(ACTIVITY_OPENED_KEY) ?? 'null') as Partial<Kept> | null
+    return v && typeof v.here === 'string' && typeof v.id === 'string' ? { here: v.here, id: v.id } : null
+  } catch {
+    return null
+  }
+}
+function writeKept(v: Kept | null) {
+  try {
+    if (v) sessionStorage.setItem(ACTIVITY_OPENED_KEY, JSON.stringify(v))
+    else sessionStorage.removeItem(ACTIVITY_OPENED_KEY)
+  } catch {
+    /* not kept: a private window may refuse */
+  }
+}
+/** what is kept, brought up to date with the entry on screen (only while 활동 is lit on a page of its notices) */
+function keptFor(at: { pathname: string; search: string; state?: unknown; lit: string | null }): Kept | null {
+  const kept = readKept()
+  if (at.lit !== 'activity' || at.pathname === '/activity') return kept
+  const named = namedNotice(at.state), here = `${at.pathname}${at.search}`
+  if (named) {
+    if (kept?.here !== here || kept.id !== named) writeKept({ here, id: named })
+    return { here, id: named }
+  }
+  if (kept && kept.here !== here) {
+    writeKept(null)
+    return null
+  }
+  return kept
+}
 
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
@@ -173,12 +205,8 @@ export function ActivityPanel() {
   // (one row at most: openNotice)
   const { pathname, search, state } = useLocation()
   const lit = useRailHere()
-  if (lit === 'activity' && pathname !== '/activity') {
-    const named = namedNotice(state), here = `${pathname}${search}`
-    if (named) keptNotice = { here, id: named }
-    else if (keptNotice?.here !== here) keptNotice = null
-  }
-  const openId = openNotice(items ?? [], { pathname, search, state, lit }, keptNotice)
+  const at = { pathname, search, state, lit }
+  const openId = openNotice(items ?? [], at, keptFor(at))
   const isOpen = (item: InboxNotification) => openId !== null && openId === item.id
 
   // what was unread when this list showed it stays on top while the list is open (read now, its dot goes): a row never

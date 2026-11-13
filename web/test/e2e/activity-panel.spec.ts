@@ -186,14 +186,19 @@ test('two notices to one project: only the one opened is selected, at 1440 and 3
   await two.nth(0).click()
   await expect(two.nth(0)).toHaveAttribute('aria-current', 'page')
   await expect(two.nth(1)).not.toHaveAttribute('aria-current', 'page')
-  // another place and back: 활동 reopens that project with the same notice selected
+  // another place, a reload, and back: 활동 reopens that project with the same notice selected
   await page.getByTestId('rail-files').click()
+  await expect(page.getByTestId('files-panel')).toBeVisible()
+  await page.reload()
   await page.getByTestId('rail-activity').click()
   await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
   await expect(two.nth(0)).toHaveAttribute('aria-current', 'page')
   await expect(two.nth(1)).not.toHaveAttribute('aria-current', 'page')
-  // the same project opened from the rail's 프로젝트: 활동 is not lit, so no notice is selected (the panel is 프로젝트's)
+  // the same project opened from 프로젝트's list: that list's row is selected, 활동 is not lit (its panel is gone)
   await page.getByTestId('rail-projects').click()
+  await page.getByTestId('projects-panel-row').filter({ hasText: 'Acme' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project}$`))
+  await expect(page.getByTestId('rail-projects')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('activity-panel')).toHaveCount(0)
 
   // a phone: 활동 is a page of its own, nothing in it looks selected, and a read notice is never bold

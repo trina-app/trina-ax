@@ -8,6 +8,7 @@ import { InboxNotification, uuidv7, type Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { ActivityPanel, NOTICE_STATE_KEY, noticeTarget, openNotice } from '../../src/components/panels/ActivityPanel'
+import { ACTIVITY_OPENED_KEY } from '../../src/lib/localData'
 import { RAIL_STATE_KEY } from '../../src/lib/rail'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 import { ME } from './rooms-fixtures'
@@ -66,7 +67,10 @@ beforeAll(() => {
     return json({ error: { code: 'not_found', message: url.pathname } }, 404)
   }) as unknown as typeof fetch
 })
-afterEach(() => useSession.setState({ status }))
+afterEach(() => {
+  useSession.setState({ status })
+  sessionStorage.clear()
+})
 afterAll(() => {
   globalThis.fetch = realFetch
   removeDom()
@@ -86,8 +90,6 @@ async function panelAt(at: { pathname: string; state?: unknown }) {
   return m
 }
 
-// first: the panel keeps the notice last opened for its page (a module's memory, as the rail's), so the unnamed case runs
-// before one is opened
 test('the project opened with 활동 lit but no notice named: neither row selected, neither bold (both read)', async () => {
   const m = await panelAt({ pathname: page, state: { [RAIL_STATE_KEY]: 'activity' } })
   try {
@@ -107,6 +109,28 @@ test('two notices to one project, open one: only that row is selected, and only 
     await m.until(() => selectedOf(m)[1], 'the opened row selected')
     expect(selectedOf(m)).toEqual([false, true])
     expect(boldOf(m)).toEqual([false, true])
+  } finally {
+    m.unmount()
+  }
+})
+
+test('after a reload, the rail\'s 활동 reopening the project (no notice named) keeps the one opened: this tab kept it', async () => {
+  sessionStorage.setItem(ACTIVITY_OPENED_KEY, JSON.stringify({ here: page, id: A }))
+  const m = await panelAt({ pathname: page, state: { [RAIL_STATE_KEY]: 'activity' } })
+  try {
+    await m.until(() => selectedOf(m)[0], 'the kept row selected')
+    expect(selectedOf(m)).toEqual([true, false])
+  } finally {
+    m.unmount()
+  }
+})
+
+test('activity lit on another page forgets the kept notice', async () => {
+  sessionStorage.setItem(ACTIVITY_OPENED_KEY, JSON.stringify({ here: page, id: A }))
+  const m = await panelAt({ pathname: '/projects/other', state: { [RAIL_STATE_KEY]: 'activity' } })
+  try {
+    expect(selectedOf(m)).toEqual([false, false])
+    expect(sessionStorage.getItem(ACTIVITY_OPENED_KEY)).toBeNull()
   } finally {
     m.unmount()
   }
