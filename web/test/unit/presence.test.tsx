@@ -99,14 +99,27 @@ describe('this window\'s activity (lib/presence.ts)', () => {
     expect(a.sent).toEqual(['idle', 'active'])
   })
 
-  test('a computer: a hidden page is not idle by itself; 10 minutes on it is; coming back is in use', () => {
+  test('a browser tab: hidden is idle at once (it must not keep the phone quiet); coming back is in use', () => {
     const a = tracker(false)
     a.show(false)
-    a.timers.advance(60_000)
-    expect(a.sent).toEqual([])
+    expect(a.sent).toEqual(['idle'])
     a.timers.advance(IDLE_AFTER_MS)
     expect(a.sent).toEqual(['idle'])
     a.show(true)
+    expect(a.sent).toEqual(['idle', 'active'])
+  })
+
+  test('the desktop app: once it tells about the computer, a hidden page follows the computer, not its visibility; focus does not unlock', () => {
+    const a = tracker(false)
+    a.t.system({ locked: false, idleMs: 0 })
+    a.show(false)
+    expect(a.sent).toEqual([])
+    a.t.system({ locked: true, idleMs: 0 })
+    expect(a.sent).toEqual(['idle'])
+    // a focus or a pointer event while locked changes nothing; the desktop app's unlock does
+    a.t.input()
+    expect(a.t.current).toBe('idle')
+    a.t.system({ locked: false, idleMs: 0 })
     expect(a.sent).toEqual(['idle', 'active'])
   })
 

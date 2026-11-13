@@ -273,6 +273,8 @@ export class Presence {
 
   /** Nothing left to remember: offline, told so, no window (their away setting is read again when they come back). */
   private forget(userId: string, p: Person) {
+    const now = this.clock.now()
+    for (const [w, until] of p.closedInUse) if (until <= now) p.closedInUse.delete(w)
     if (!p.windows.size && p.told === 'offline' && !p.timer && !p.closedInUse.size) this.people.delete(userId)
   }
 

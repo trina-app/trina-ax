@@ -24352,8 +24352,15 @@ default.
 - **The computer's own use (desktop app).** A page sees only its own input: someone in Excel with Trina behind it, or
   in the in-app browser pane, would look away. The desktop app asks Electron `powerMonitor` every 30 s
   (`getSystemIdleState(600)`, `getSystemIdleTime()`) and tells the page (`systemActivity`, bridge optional): the
-  computer's last input counts as the page's; a locked screen is idle at once. A browser tab cannot see the computer:
-  its own input only (known limit). Older desktop apps: their page's own input only.
+  computer's last input counts as the page's; a locked screen is idle at once, also told at once on the system's
+  `lock-screen` / `unlock-screen` events (a focus event while locked does not unlock). A browser tab cannot see the
+  computer: it is in use only while visible and within 10 minutes of its own input; **a hidden tab is idle at once**
+  (it must not keep the phone quiet). This also changes the team's dot for a hidden browser tab ("접속 상태": away 10
+  minutes after the last input before; now at once). Older desktop apps: their page's rule as a browser tab.
+- **A cancelled push does not silence the run.** A room notice holds the next one of its run back while unread (one
+  notice per unread run). A notice whose phone push was cancelled (any `cancelled` phone row) no longer does: the next
+  message makes a new notice, decided afresh, so leaving the computer with an unread DM does not leave the phone silent
+  for the rest of it. The same for an AI chat's finished answers (CHAT_ANSWER_COALESCE_MS).
 - **Right after a start** windows are still reconnecting (presence's 15 s warm-up): a phone push due then waits once
   until the warm-up ends and is decided then.
 - **Never cancelled:** the owner's locked password check (`owner.reauth_locked`, a security warning); a retry (only a
@@ -24367,6 +24374,7 @@ default.
   silent push and a phone app release; the app has only dismiss-all, `mobile/src/push.ts`). The iPhone icon number is
   set by the next push or when the app opens, so it can stay higher while pushes are cancelled.
 - **Tests:** `tests/unit/b-push-away.test.ts` (cancel at Trina, not sent later, away sends, grace, manual away, Always,
-  the caller's own, another person's phone untouched, the start wait), `tests/unit/b-presence.test.ts` (inUse, silence,
+  the caller's own, another person's phone untouched, the start wait, the next unread DM after a cancel, Web Push /
+  retries / the owner's locked password check still go), `tests/unit/b-presence.test.ts` (inUse, silence,
   grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
   `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.

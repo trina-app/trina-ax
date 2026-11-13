@@ -10,8 +10,9 @@
 //   goes out.
 // - In the desktop app the computer's own use counts too (desktop/src/common/system-activity.ts, every 30 s): working
 //   in another app with Trina behind it, or in the in-app browser, is still in use; a locked screen is idle at once.
-//   The same state holds a push to the person's phone while they are at Trina (docs/DECISIONS.md "Phone notifications
-//   when I'm away"). A browser tab cannot see the computer: only its own input counts there.
+//   The same state decides a push to the person's phone (docs/DECISIONS.md "Phone notifications when I'm away": in
+//   use = no phone push). A browser tab cannot see the computer: it is in use only while visible and within 10 minutes
+//   of its own input; a hidden tab is idle at once (it must not keep the phone quiet).
 // - Only a change is sent (input only notes the time, at most once a second), and the current state again after each
 //   hello (the server takes a window that has just connected as in use). Nothing is sent while disconnected.
 import type { WindowActivity } from '@mycel/shared/api'
@@ -33,8 +34,11 @@ export interface ActivityEnv {
 export class ActivityTracker {
   private last: number
   private state: WindowActivity
-  /** the computer's screen is locked (desktop app): idle until the next input */
+  /** the computer's screen is locked (desktop app): idle until the desktop app says it is unlocked (a focus event while
+   * locked changes nothing) */
   private locked = false
+  /** the desktop app tells this page about the computer (system): its word replaces the page's visibility */
+  private hasSystem = false
   private timer: unknown = null
   private stopped = false
 
@@ -49,7 +53,6 @@ export class ActivityTracker {
   /** a pointer, a key, a touch, the wheel, the window's focus */
   input() {
     if (this.stopped) return
-    this.locked = false
     const now = this.env.now()
     if (this.state === 'active' && now - this.last < INPUT_EVERY_MS) return
     this.last = now
@@ -60,6 +63,7 @@ export class ActivityTracker {
    * the window idle at once. Not on a phone (its own rule: visible is in use). */
   system(a: { locked: boolean; idleMs: number }) {
     if (this.stopped || this.env.phone) return
+    this.hasSystem = true
     this.locked = a.locked
     if (!a.locked && Number.isFinite(a.idleMs) && a.idleMs >= 0) this.last = Math.max(this.last, this.env.now() - a.idleMs)
     this.update()
@@ -90,6 +94,8 @@ export class ActivityTracker {
   private compute(): WindowActivity {
     if (this.env.phone) return this.env.visible() ? 'active' : 'idle'
     if (this.locked) return 'idle'
+    // a browser tab (no word from a desktop app): hidden is idle at once
+    if (!this.hasSystem && !this.env.visible()) return 'idle'
     return this.env.now() - this.last >= this.idleMs ? 'idle' : 'active'
   }
 

@@ -127,3 +127,62 @@ test('right after a start: the phone push waits once for the warm-up, then is de
   await p!.tick()
   expect(sent).toHaveLength(1)
 })
+
+test('a cancelled phone push does not silence the rest of the unread run: the next DM, unread, is a new notice and goes when away', async () => {
+  const { nora, mia, dm, send, sent, pr } = await setup()
+  pr.open(nora.id, 'w1')
+  await send(mia.client, dm.id, 'first')
+  await p!.tick()
+  expect(sent).toHaveLength(0)
+  pr.activity(nora.id, 'w1', 'idle')
+  // nora never read the room: before, this second message folded into the first notice and the phone stayed silent
+  await send(mia.client, dm.id, 'second')
+  await p!.tick()
+  expect(sent).toHaveLength(1)
+  expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_notices WHERE user_id = ? AND room_id = ?').get(nora.id, dm.id) as { n: number }).n).toBe(2)
+  // a notice whose push went holds the run back as before: a third message adds none
+  await send(mia.client, dm.id, 'third')
+  await p!.tick()
+  expect(sent).toHaveLength(1)
+})
+
+test('at Trina: Web Push still goes, a retry still goes, the owner\'s locked password check still goes', async () => {
+  const { nora, mia, dm, send, read, sent, pr } = await setup()
+  // Web Push for nora on another session of hers (one push row per session)
+  const e = crypto.createECDH('prime256v1'); e.generateKeys()
+  const keys = { publicKey: e.getPublicKey().toString('base64url'), privateKey: e.getPrivateKey().toString('base64url') }
+  const web: unknown[] = []
+  const phoneSent: NativeSend[] = []
+  await p!.stop()
+  p = new PushService(h.ctx, { config: () => ({ enabled: true, subject: 'mailto:push@example.test', ...keys }), native: () => ({ url: 'https://push.example.test' }),
+    transport: async (i) => { web.push(i.payload); return { statusCode: 201 } }, nativeTransport: async (i) => { phoneSent.push(i); return { statusCode: 200 } } })
+  const second = h.auth.createSession(nora.id, 'web', null)
+  const k = crypto.createECDH('prime256v1'); k.generateKeys()
+  p.subscribe(nora.id, second.id, { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-away', keys: { p256dh: k.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } })
+  await new Promise((r) => setTimeout(r, 5))
+  pr.open(nora.id, 'w1')
+  await send(mia.client, dm.id, 'hi')
+  await p.tick()
+  expect(web).toHaveLength(1)
+  expect(phoneSent).toHaveLength(0)
+  // a retry (the first try failed) is not decided again
+  await read(nora.client)
+  await send(mia.client, dm.id, 'again')
+  // the tick makes the rows (and decides the phone one: cancelled); then it is a retry, as after a failed first try
+  await p.tick()
+  const before = phoneSent.length
+  h.ctx.db.query(`UPDATE room_push_deliveries SET state = 'pending', attempts = 1, next_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second')
+    WHERE subscription_id IN (SELECT id FROM push_subscriptions WHERE kind = 'native') AND notification_id = (SELECT id FROM room_notices WHERE user_id = ? ORDER BY created_at DESC LIMIT 1)`).run(nora.id)
+  await p.tick()
+  expect(phoneSent.length).toBe(before + 1)
+  // the owner's locked password check: never cancelled
+  const owner = h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }
+  const osid = (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(owner.id) as { id: string }).id
+  p.registerDevice(owner.id, osid, { consent: true, platform: 'ios', environment: 'production', token: crypto.randomBytes(32).toString('hex') })
+  await new Promise((r) => setTimeout(r, 5))
+  pr.open(owner.id, 'wo')
+  const { notificationsOf } = await import('../../server/src/notifications/service')
+  notificationsOf(h.ctx).handoverNotice(owner.id, 'owner.reauth_locked', `reauth-test-${Date.now()}`, new Date().toISOString())
+  await p.tick()
+  expect(phoneSent.some((s) => s.payload.code === 'owner.reauth_locked')).toBe(true)
+})

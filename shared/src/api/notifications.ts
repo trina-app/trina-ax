@@ -23,9 +23,9 @@ export const NotificationPreferences = z.object({
   /** a push when an answer in my own AI chat needs me: it finished, failed, or the AI waits for me (a question or a
    * yes/no card) and I am not looking at that chat (docs/DECISIONS.md "AI 답변 알림"; default on). Older servers omit it. */
   chatAnswers: z.boolean().optional(),
-  /** "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): 'away' (default) holds a push to the
-   * phone app while I am using Trina in a window (my computer, or the phone app open in front of me) and sends it once I
-   * am away; 'always' sends it at once. Older servers omit it (they always send at once). */
+  /** "Phone notifications only when I'm away" (docs/DECISIONS.md "Phone notifications when I'm away"): 'away' (default)
+   * cancels a push to the phone app when, at the moment it would go, I am using Trina in a window (the computer showed
+   * it; nothing is sent later); 'always' sends it as before. Older servers omit it (they always send). */
   phoneWhen: z.enum(['away', 'always']).optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>

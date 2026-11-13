@@ -80,6 +80,12 @@ const INBOX = union(NOTICE_TABLES)
 /** An AI chat's answer (chat_answer_notices) is pushed only: the chat list's markers show those chats, so the Inbox
  * neither lists nor counts it (docs/DECISIONS.md "AI 답변 알림"). */
 const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices' && t !== 'chat_answer_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
+/** A notice (alias `n`) whose phone push was cancelled (notifications/away.ts: the person was at Trina; or it was read
+ * or no longer wanted) does not hold the next one of its run back: the next message makes a new notice, decided afresh,
+ * so one cancelled push never silences the phone for the rest of an unread run (docs/DECISIONS.md "Phone notifications
+ * when I'm away"). */
+const NOT_SKIPPED = (deliveries: string) => `NOT EXISTS(SELECT 1 FROM ${deliveries} d JOIN push_subscriptions s ON s.id=d.subscription_id AND s.kind='native' WHERE d.notification_id=n.id AND d.state='cancelled')`
+
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -114,7 +120,7 @@ export class Notifications {
   roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
     const open = this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
     if (open) {
       // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
       // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
@@ -332,7 +338,7 @@ export class Notifications {
       if (!c) return false
       // the chat's seen mark is its creator's (a shared chat keeps one)
       const since = [new Date(now - CHAT_ANSWER_COALESCE_MS).toISOString(), c.user_id === userId ? c.seen_at ?? '' : ''].sort().at(-1)!
-      if (db.query("SELECT 1 FROM chat_answer_notices WHERE user_id=? AND chat_id=? AND kind IN ('done','failed') AND read_at IS NULL AND created_at>? LIMIT 1").get(userId, o.chatId, since)) return false
+      if (db.query(`SELECT 1 FROM chat_answer_notices n WHERE user_id=? AND chat_id=? AND kind IN ('done','failed') AND read_at IS NULL AND created_at>? AND ${NOT_SKIPPED('chat_answer_push_deliveries')} LIMIT 1`).get(userId, o.chatId, since)) return false
     }
     const delay = o.kind === 'waiting' ? CHAT_CARD_PUSH_DELAY_MS : CHAT_ANSWER_PUSH_DELAY_MS
     const r = db.query(`INSERT INTO chat_answer_notices(id,user_id,event_type,source_id,chat_id,kind,created_at,push_at,suppressed) VALUES(?,?,'chat.answer_done',?,?,?,?,?,0)
