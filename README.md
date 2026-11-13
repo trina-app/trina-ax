@@ -38,7 +38,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
-- **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md)
+- **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <details>
 <summary><b>Try it on your computer in 10 minutes</b> (fictional team, AI off)</summary>

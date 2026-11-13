@@ -25,6 +25,22 @@ The checksum is an integrity check, not independent authentication. Review the r
 
 With this Mac's own Claude login (no `--claude-token-file`), the server empties the MCP settings of this macOS user's `~/.claude.json` (user and project MCP servers, `.mcp.json` approvals, and the copies the Claude CLI keeps of the file) at every start and after every AI answer, so that an MCP server an AI turn might plant there can never run outside the sandbox. A new install therefore lists what it would remove (`--check-only` too) and stops. To keep them, install with `--claude-token-file` (in that mode the server never reads or changes `~/.claude.json`) or as another macOS user used only for Trina AX. To let them go, run it again with `--remove-claude-mcp`: the installer saves a copy to `~/TeamAX/config/claude-mcp-backups/` before the server first starts (readable by this macOS user only, never by the AI engine) and stops if it cannot; from then on the server saves a copy before every removal (the activity log names it). Installed offices and automatic updates are not stopped; they keep copies from 0.2.19 on. A reinstall after `office-uninstall.sh` counts as a new install. `~/TeamAX/teamax claude-mcp check` shows what would go, `backups` lists the copies, and `restore <copy>` merges one back without replacing anything, once the server no longer removes them (after switching to `--claude-token-file` and restarting, or after `teamax uninstall-agent`). It first lists every server in full, one escaped line each (command, arguments, env and headers with the values of secret-named ones masked, address), and changes nothing until you run it again with `--yes`: any copy, above all one saved after an AI answer, may hold a server an AI turn planted. `teamax configure --claude-auth local-login` asks the same before leaving the token mode.
 
+## Install with your AI agent
+
+You can let an AI coding agent (Claude Code, Codex) on this Mac do the download, check and install. Copy this prompt:
+
+```text
+Install Trina AX in office mode on this Mac. Follow https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.en.md
+- First check that Claude Code is installed and signed in ("claude auth status"). If it is not, stop and tell me.
+- Download the exact TrinaAX-office-<version>-mac.zip and SHA256SUMS from the latest GitHub release, compare the checksum, unpack, run office-install.sh --check-only, then office-install.sh.
+- Do not build from source. Do not use sudo.
+- If the installer says it would remove MCP settings from ~/.claude.json, stop and ask me before you use --remove-claude-mcp or --claude-token-file.
+- Do not create the owner account. Do not show the setup link or its token in this chat.
+- At the end, run "~/TeamAX/teamax status" and summarize it. Tell me where the installer printed the local setup link.
+```
+
+You create the owner and the team yourself on the setup page.
+
 ## Address and first run
 
 Without tunnel options, use the installer-provided local address to create the owner. LAN clients use `https://<Mac-IP>:8443` after verifying/installing the office CA; `~/TeamAX/teamax card` shows its fingerprint. Downloading a certificate is not enough: compare its fingerprint out of band before trusting it. Test one client first. A local HTTP helper on 8442 distributes the certificate; do not submit credentials there.

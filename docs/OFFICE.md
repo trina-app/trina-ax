@@ -139,6 +139,22 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 열린 페이지를 인쇄(⌘P)합니다. 카드에는 인증서 받는 곳, **인증서 지문**, 데스크 주소가 있습니다. 이 카드는 맥 미니에서 만든
 것이라 네트워크로 바뀔 수 없습니다. 데스크 직원은 인증서를 설치하기 전에 **이 카드의 지문과** 비교합니다.
 
+## AI 에이전트로 설치하기
+
+내려받기·확인·설치는 이 맥의 AI 코딩 에이전트(Claude Code, Codex)에게 맡길 수 있습니다. 아래 프롬프트를 복사해 넣으세요.
+
+```text
+이 맥에 Trina AX를 사무실 모드로 설치해 줘. https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.md 를 따라 해.
+- 먼저 Claude Code가 설치되어 있고 로그인되어 있는지 확인해("claude auth status"). 아니면 멈추고 나에게 알려 줘.
+- 최신 GitHub 릴리스에서 정확한 TrinaAX-office-<버전>-mac.zip과 SHA256SUMS를 받아 체크섬을 비교하고, 푼 다음 office-install.sh --check-only, 그다음 office-install.sh를 실행해.
+- 소스에서 빌드하지 마. sudo를 쓰지 마.
+- 설치기가 ~/.claude.json의 MCP 설정을 지운다고 하면, --remove-claude-mcp나 --claude-token-file을 쓰기 전에 멈추고 나에게 물어봐.
+- owner 계정은 만들지 마. 설정 링크와 토큰을 이 채팅에 보여 주지 마.
+- 마지막에 "~/TeamAX/teamax status"를 실행하고 결과를 요약해 줘. 설치기가 로컬 설정 링크를 어디에 보여 줬는지 알려 줘.
+```
+
+owner와 팀은 설정 화면에서 직접 만드세요.
+
 ## 3. 첫 설정 (팀장 계정)
 
 맥 미니에 열린 페이지(`http://localhost:47830/setup?token=…`; 다시 보려면 `~/TeamAX/teamax setup-link`)에서:
