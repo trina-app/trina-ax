@@ -110,6 +110,10 @@ test('a member makes a team project with a person, then adds one more: the confi
   await b.getByTestId('project-participants-search').click()
   await expect(b.getByTestId('project-participants-results').getByText('영업', { exact: true })).toBeVisible()
   await expect(b.getByTestId('participant-add-user-jiwoo')).toBeVisible()
+  // a member reads no group's people: my group says it is mine; I am listed as already in (추가됨), not to add again
+  await expect(b.locator('[data-testid^="participant-add-group-"]').filter({ hasText: '영업' })).toContainText('영업내 부서')
+  await expect(b.getByTestId('participant-add-user-bob')).toBeDisabled()
+  await expect(b.getByTestId('participant-add-user-bob')).toContainText('추가됨')
   await b.getByTestId('project-participants-search').fill('소라')
   await expect(b.getByTestId('participant-add-user-jiwoo')).toHaveCount(0)
   await b.getByTestId('participant-add-user-sora').click()

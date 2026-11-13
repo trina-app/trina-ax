@@ -75,11 +75,12 @@ describe('a new project', () => {
     // "1 member": nothing about the owner and admins, who see it only as members
     await m.until(() => m.get('project-access-summary').textContent === members(1), 'the line with the count', 2000)
     expect(m.find('project-access-summary-role')).toBeNull()
-    // the search lists everyone who can be added (my group and the people, not me); typing narrows it, titles too
+    // the search lists everyone (my group, said as mine, and the people; me as added); typing narrows it, titles too
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
-    expect(m.find(`participant-add-group-${SALES}`)).not.toBeNull()
-    expect(m.find('participant-add-user-mia')).toBeNull()
+    expect(m.get(`participant-add-group-${SALES}`).textContent).toContain(en('projects.groupMine'))
+    expect(m.get('participant-add-user-mia').hasAttribute('disabled')).toBe(true)
+    expect(m.get('participant-add-user-mia').textContent).toContain(en('projects.added'))
     await m.type('project-participants-search', 'design')
     await m.until(() => !m.find('participant-add-user-bob'), 'narrowed', 2000)
     expect(m.get('participant-add-user-sora').textContent).toContain('Designer')
