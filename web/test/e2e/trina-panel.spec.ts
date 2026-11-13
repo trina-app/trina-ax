@@ -146,18 +146,6 @@ test('the filter in the header shows the filtered history, and Reset brings the 
   await expect(panel(page).getByText('In project')).toBeVisible()
 })
 
-test('with the switch off the old sidebar shows its capped history, unchanged', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await reset(page)
-  await navRail(page, false)
-  await signIn(page)
-  await chat(page, 'Old one')
-  await page.reload()
-  await expect(page.getByTestId('trina-panel')).toHaveCount(0)
-  await expect(page.getByTestId('trina-list')).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: t['sidebar.label'] }).getByTestId('ai-chats-all')).toBeVisible()
-})
-
 test('opened on 대화 or 파일 first, 트리나 already shows its mark for unseen answers (QA: it waited for a visit to 트리나)', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await reset(page)

@@ -28,8 +28,7 @@
 // no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6").
-// With the new navigation's phone tabs (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 ·
-// 나") a phone's `/` is 트리나's list (components/panels/PhoneTrinaHome.tsx) and this page is `/new`: a `/` that carries a
+// On a phone (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") `/` is 트리나's list (components/panels/PhoneTrinaHome.tsx) and this page is `/new`: a `/` that carries a
 // question or a project (a skill's or a file's link, a project's new chat, an old bookmark, a notification) goes there
 // with it, and a computer's `/new` comes back to `/` (lib/newChat.ts homeRoute). An owner landing on the list still
 // goes to the unfinished welcome steps first.
@@ -51,7 +50,6 @@ import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { homeRoute } from '../lib/newChat'
-import { useNavRail } from '../lib/navRail'
 import { PhoneTrinaHome } from '../components/panels/PhoneTrinaHome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { OftenAsked } from '../components/OftenAsked'
@@ -73,7 +71,7 @@ import { Tooltip } from '../components/Tooltip'
 export default function Home() {
   const location = useLocation()
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const route = homeRoute(location.pathname, location.search, phone, useNavRail())
+  const route = homeRoute(location.pathname, location.search, phone)
   if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
   if (route.list) return <TrinaListHome />
   return (
@@ -98,10 +96,9 @@ function HomePage() {
   const navigationType = useRealNavigationType()
   const [params, setParams] = useSearchParams()
   const projectId = params.get('project')
-  // the new navigation: a folder's + ("Ask Trina" in it, `?folder=<id>`) puts the new chat in that folder of mine; an id
-  // that is not one of my chat folders is ignored
-  const rail = useNavRail()
-  const folderAsked = rail && !projectId ? params.get('folder') : null
+  // a folder's + ("Ask Trina" in it, `?folder=<id>`) puts the new chat in that folder of mine; an id that is not one of
+  // my chat folders is ignored
+  const folderAsked = !projectId ? params.get('folder') : null
   const chatFolders = useFolders('chats', !!folderAsked)
   const folder = folderAsked ? chatFolders.find((f) => f.id === folderAsked) ?? null : null
   const prompt = params.get('prompt') ?? undefined

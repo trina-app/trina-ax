@@ -1,67 +1,16 @@
-// The rooms as a list (my rooms by latest activity, a capped top and "더 보기" for the rest by kind) and its rows, moved
-// out of rooms/SidebarRooms.tsx with no change in what it shows (navigation redesign, docs/AGENTS/plan/
-// 20261112-1839-nav-rail.md, phase P0b) so the rail's 대화 panel can draw the same list. The caps are the caller's
-// (`caps`: today's sidebar passes SIDEBAR_ROOM_CAPS). What it holds and why: SidebarRooms.tsx's head comment and
-// docs/DECISIONS.md "Desktop sidebar: rooms first", "Pinned conversations", "Conversations by kind under Show more".
+// A room's row in the 대화 panel and the phone's 대화 tab (panels/RoomsByKind.tsx draws the list by kind), its badge and
+// pin, and the order of the kinds' sections (docs/DECISIONS.md "Pinned conversations", "Conversations by kind under
+// Show more").
 import clsx from 'clsx'
 import { BellOff, Pin } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
-import { useLocale, useT } from '../../i18n'
-import { badgeText, pinnedRooms, roomBadge, roomUnread, shownInLists } from '../../lib/rooms'
-import { useRooms } from '../../store/rooms'
+import { useT } from '../../i18n'
+import { pinnedRooms, roomBadge, roomUnread } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { PresenceText } from '../Presence'
-import { useNavRail } from '../../lib/navRail'
 import { dragRow } from './NavFolders'
-
-/** the whole list opened ("더 보기"), remembered in this browser like the fold */
-const ALL_KEY = 'mycel.sidebar.roomsAll'
-/** rooms shown before "더 보기" (docs/DECISIONS.md "Desktop sidebar: rooms first") */
-export const ROOMS_SHOWN = 5
-/** pinned rooms shown above them before "더 보기" (docs/DECISIONS.md "Pinned conversations"; as the AI chats' pins) */
-export const PINS_SHOWN = 10
-/** A capped list's top: at most `pins` of my pinned rooms, then the `latest` latest of the others (and the room on
- * screen). */
-export interface RoomCaps {
-  pins: number
-  latest: number
-}
-/** today's sidebar */
-export const SIDEBAR_ROOM_CAPS: RoomCaps = { pins: PINS_SHOWN, latest: ROOMS_SHOWN }
-
-const remembered = (key: string, fallback: string) => {
-  try {
-    return localStorage.getItem(key) ?? fallback
-  } catch {
-    return fallback
-  }
-}
-const remember = (key: string, v: string) => {
-  try {
-    localStorage.setItem(key, v)
-  } catch {
-    /* not kept */
-  }
-}
-
-/** The rooms a capped list shows, in their order (latest activity first): the first `n`, and the room on screen if it
- * is not one of them. Nothing else: an unread room further down is counted on "더 보기" (hiddenUnread). */
-export function shownRooms<R extends Pick<Room, 'id'>>(rooms: R[], n: number, openId: string | null): R[] {
-  return rooms.filter((r, i) => i < n || r.id === openId)
-}
-
-/** The sidebar's top rows (rooms by latest activity): my pinned ones first, the most recently pinned first, at most
- * `caps.pins` (PINS_SHOWN), then the `caps.latest` (ROOMS_SHOWN) latest of the others, and the room on screen wherever
- * it is (`openId`). An opened "더 보기" asks without the room on screen (null): it is in its section below, so the top
- * rows stay where they were. */
-export function sidebarRows<R extends Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>>(rooms: R[], openId: string | null, caps: RoomCaps = SIDEBAR_ROOM_CAPS): R[] {
-  const pins = pinnedRooms(rooms)
-  const rest = rooms.filter((r) => !r.pinnedAt)
-  return [...shownRooms(pins, caps.pins, openId), ...shownRooms(rest, caps.latest, openId)]
-}
 
 /** The sections under an opened "더 보기", in this order: team rooms (전체 and the groups' rooms), group chats, DMs. */
 export const ROOM_SECTIONS = ['team', 'group', 'dm'] as const
@@ -87,106 +36,6 @@ export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<
     }
     return { section, rooms: [...pinnedRooms(of), ...others] }
   }).filter((s) => s.rooms.length > 0)
-}
-
-type Unread = Pick<Room, 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread'>>
-/** What the rooms behind "더 보기" hold for me, as one pill like a room's: the unread messages and followed replies of
- * the rooms that are not muted, added, and "@" when one of those mentions me; only when none has any, the muted rooms'
- * (grey, as their own badges are). Null when nothing is unread there. */
-export function hiddenUnread(hidden: Unread[]): { n: number; mentioned: boolean; muted: boolean } | null {
-  for (const muted of [false, true]) {
-    const some = hidden.filter((r) => !!r.muted === muted && roomUnread(r) > 0)
-    if (some.length) return { n: some.reduce((n, r) => n + roomUnread(r), 0), mentioned: some.some((r) => r.mentioned), muted }
-  }
-  return null
-}
-
-/**
- * The list of my rooms (an <ul>): the capped top rows (`caps`), "더 보기 (N)" with what the rest hold for me, which opens
- * them in place by kind, and "모든 대화" to the conversations page. `id` and `hidden` are the fold's (the caller's
- * section title controls it).
- */
-export function RoomsList({ id, hidden: folded, onNavigate, caps = SIDEBAR_ROOM_CAPS }: { id?: string; hidden?: boolean; onNavigate: () => void; caps?: RoomCaps }) {
-  const t = useT()
-  const titleOf = useRoomTitle()
-  const locale = useLocale()
-  const everyRoom = useRooms((s) => s.rooms)
-  const loaded = useRooms((s) => s.loaded)
-  const [all, setAll] = useState(() => remembered(ALL_KEY, 'no') === 'yes')
-  // "접기" pressed while only the room on screen was below the top rows: the button goes ("모든 대화" takes its place),
-  // so the keyboard goes there instead of falling to the page
-  const allRooms = useRef<HTMLAnchorElement>(null)
-  const focusAll = useRef(false)
-  useEffect(() => {
-    if (!focusAll.current) return
-    focusAll.current = false
-    allRooms.current?.focus()
-  })
-  // the room on screen stays in the list (/rooms/:id, and its threads)
-  const openId = /^\/rooms\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
-  // the rooms I hid are in none of the rows, counts or pills here (the one on screen still shows)
-  const rooms = shownInLists(everyRoom, openId)
-  const someHidden = rooms.length < everyRoom.length
-  const showAll = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAll(v))
-  // my pins (at most ten), the five latest of the others and the room on screen; "더 보기 (N)" says what is unread in
-  // the rest
-  const capped = sidebarRows(rooms, openId, caps)
-  const more = rooms.length - capped.length
-  // opened: the same top rows without the room on screen (it is in its section, so a clicked row never moves), then the
-  // rest by kind. "접기" stays while anything is below the top rows, also when that is only the room on screen.
-  const top = sidebarRows(rooms, null, caps)
-  const below = rooms.filter((r) => !top.includes(r))
-  const opened = all && below.length > 0
-  const entry = all ? below.length > 0 : more > 0
-  const hidden = all ? null : hiddenUnread(rooms.filter((r) => !capped.includes(r)))
-  // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
-  const hiddenAsk = !all && rooms.some((r) => r.aiWaits && !capped.includes(r))
-  const rows: ReactNode[] = (opened ? top : capped).map((r) => <RoomRow key={r.id} room={r} onNavigate={onNavigate} />)
-  if (opened)
-    for (const { section, rooms: of } of roomSections(below, titleOf, locale)) {
-      // a quiet label, not a row (no hover, no fold, no count): "더 보기" is the fold already. A heading inside the
-      // list, in an item of its own that is not counted as one, so the fold's aria-controls covers it too.
-      rows.push(
-        <li key={`section-${section}`} role="presentation" data-testid="sidebar-rooms-section" data-section={section}>
-          <h3 className="px-3 pt-4 pb-1 text-micro font-medium text-faint">{t(SECTION_WORD[section])}</h3>
-        </li>,
-        ...of.map((r) => <RoomRow key={r.id} room={r} onNavigate={onNavigate} section={section} />),
-      )
-    }
-  return (
-    <ul id={id} hidden={folded} data-testid="sidebar-rooms-list">
-      {loaded && !everyRoom.length && <li className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</li>}
-      {rows}
-      {entry && (
-        <li>
-          <button type="button" aria-expanded={all} onClick={() => ((focusAll.current = all && more === 0), showAll(!all))} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
-            <span className="truncate">{all ? t('common.less') : t('sidebar.showMore', { n: more })}</span>
-            {(hidden || hiddenAsk) && (
-              <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hiddenAsk ? 'bg-warn font-bold text-canvas' : hidden!.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={!hiddenAsk && hidden?.muted ? '' : undefined} data-ai-waits={hiddenAsk ? '' : undefined}>
-                <span aria-hidden>
-                  {hiddenAsk && (hidden ? '? ' : '?')}
-                  {hidden?.mentioned && '@ '}
-                  {hidden && t('sidebar.moreUnread', { n: badgeText(hidden.n) })}
-                </span>
-                <span className="sr-only">
-                  {[hiddenAsk && t('rooms.aiWaits'), hidden && t('rooms.unread', { n: hidden.n }), hidden?.mentioned && t('rooms.mentionedYou')].filter(Boolean).join(', ')}
-                </span>
-              </span>
-            )}
-          </button>
-        </li>
-      )}
-      {/* nothing behind "더 보기": the entry is still there, to the whole conversations page (its search, every room,
-          the ones I hid); with the rest opened in place, it is there too while some are hidden (only that page has them) */}
-      {(!entry ? everyRoom.length > 0 : all && someHidden) && (
-        <li>
-          <Link ref={allRooms} to="/rooms" onClick={onNavigate} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-all">
-            <span className="truncate">{t('sidebar.allRooms')}</span>
-          </Link>
-        </li>
-      )}
-    </ul>
-  )
 }
 
 /** A room's one badge: "?" in amber while its AI waits on me (a card of my own question; docs/DECISIONS.md "Session
@@ -233,10 +82,9 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
   const title = useRoomTitle()(room)
   const unread = roomUnread(room)
   const menu = useRowMenu()
-  // the new navigation: a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
-  const rail = useNavRail()
+  // a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
   return (
-    <li className="group relative" {...menu.row} {...(rail ? dragRow('rooms', room.id, !room.hidden) : {})} data-testid="sidebar-room-row" data-section={section}>
+    <li className="group relative" {...menu.row} {...dragRow('rooms', room.id, !room.hidden)} data-testid="sidebar-room-row" data-section={section}>
       <NavLink
         to={`/rooms/${room.id}`}
         onClick={(e) => {
@@ -280,7 +128,7 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
         openSignal={menu.openSignal}
         openRequest={menu.openRequest}
         testId="sidebar-room-menu"
-        folders={rail}
+        folders
       />
     </li>
   )

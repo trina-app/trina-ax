@@ -1,6 +1,5 @@
 // 트리나's list in the rail's panel (docs/DECISIONS.md "The Trina list: pinned, folders, projects, other chats"; the
-// navigation plan docs/AGENTS/plan/20261112-1839-nav-rail.md §2.3, phase P2; only while the server's `navRail` switch
-// is on). In this order:
+// navigation plan docs/AGENTS/plan/20261112-1839-nav-rail.md §2.3, phase P2). In this order:
 //   고정 (my pinned chats) · 폴더 · 나만 보여요 (my list folders: made, renamed, ordered and filled with nav/NavFolders.tsx,
 //   phase P4b; a folder's + asks Trina into it) ·
 //   프로젝트 (the projects with my activity in the last 14 days, at most 8) · 모든 프로젝트 (N) and + 새 프로젝트 ·

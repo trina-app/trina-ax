@@ -1,5 +1,5 @@
-// My list folders on screen (docs/DECISIONS.md "List folders on screen", the navigation plan's phase P4b; only while
-// the server's `navRail` switch is on). The parts both lists use, the Trina list (panels/TrinaList.tsx, chat folders)
+// My list folders on screen (docs/DECISIONS.md "List folders on screen", the navigation plan's phase P4b). The
+// parts both lists use, the Trina list (panels/TrinaList.tsx, chat folders)
 // and 대화's (panels/RoomsByKind.tsx, room folders), on a computer's panel and in the phone's lists alike:
 //   - "새 폴더" (NewFolderRow, or the + on the folders' label): a name, then the folder is last in its list;
 //   - a folder's "⋯" (FolderMenu): 이름 바꾸기 · 위로 · 아래로 · 폴더 지우기 (a confirm only when something is in it: only the

@@ -1,9 +1,9 @@
 // The setup row (components/onboarding/SetupRow.tsx, docs/DECISIONS.md "W5 — Onboarding v5"): the owner's one way back
-// to the welcome steps from every page, in the sidebar above Recents (the ☰ drawer on a phone):
+// to the welcome steps from every page, at the top of every panel beside the rail (the 트리나 list on a phone):
 // - "설정 이어서 하기 · n/5" (the steps done; put off is not done) → /welcome, owner only; never on /welcome, once
 //   finished, or hidden; one step left here is named instead ("남은 일: 팀 파일"), the same words as a phone's Home row;
 // - ✕ hides it with an undo toast; while no AI answers, "AI 연결하기" opens the connect dialog, not on Home (its no-AI
-//   card); on a phone not on Home (Home's own quiet row), elsewhere yes;
+//   card); on a phone not on the new chat (/new: Home's own quiet row), elsewhere yes (the 트리나 list, /, among them);
 // - Admin › Home: its own checklist hides while the steps are unfinished; "시작 설정 다시 보기" brings a hidden row back.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -12,7 +12,6 @@ import { GENERAL_DECK_SKILL, type WelcomeProgress, type WelcomeUpdate } from '@m
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SetupRow } from '../../src/components/onboarding/SetupRow'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
-import Sidebar from '../../src/components/Sidebar'
 import { OwnerSetup } from '../../src/pages/admin/OwnerChecklist'
 import { stepTotal } from '../../src/lib/welcome'
 import { useAiAccess } from '../../src/store/aiAccess'
@@ -211,7 +210,7 @@ describe('the setup row', () => {
     } finally { await m.unmount() }
   }, 20_000)
 
-  test('on a computer the row is on Home too (it replaces Home\'s row); on a phone not on Home, elsewhere in the drawer', async () => {
+  test('on a computer the row is on Home too (it replaces Home\'s row); on a phone not on the new chat (/new), elsewhere yes', async () => {
     signIn('owner')
     progress = half()
     let m = await row('/')
@@ -219,7 +218,7 @@ describe('the setup row', () => {
       expect(await stateAt(m)).toBe('resume')
     } finally { await m.unmount() }
     phoneWidth()
-    for (const [path, want] of [['/', null], ['/rooms', 'resume'], ['/c/abc', 'resume']] as const) {
+    for (const [path, want] of [['/new', null], ['/', 'resume'], ['/rooms', 'resume'], ['/c/abc', 'resume']] as const) {
       useWelcome.getState().reset()
       m = await row(path)
       try {
@@ -239,10 +238,10 @@ describe('the setup row', () => {
       await m.until(() => m.find('welcome-resume-text'), 'Home\'s row')
       expect(m.get('welcome-resume-text').textContent).toBe('남은 일: 팀 파일')
     } finally { await m.unmount() }
-    // the drawer (anywhere but Home on a phone): the same words
+    // the row (anywhere but the new chat on a phone): the same words
     m = await row('/c/abc')
     try {
-      await m.until(() => m.find('setup-row-link'), 'the drawer\'s row')
+      await m.until(() => m.find('setup-row-link'), 'the row')
       expect(m.get('setup-row-link').textContent).toBe('남은 일: 팀 파일')
       expect(m.find('setup-row-count')).toBeNull()
     } finally { await m.unmount() }
@@ -253,16 +252,6 @@ describe('the setup row', () => {
     try {
       await m.until(() => m.find('setup-row-link'), 'the row')
       expect(m.get('setup-row-link').textContent).toBe('설정 이어서 하기· 2/5')
-    } finally { await m.unmount() }
-  }, 20_000)
-
-  test('it sits in the sidebar above Recents', async () => {
-    signIn('owner')
-    progress = half()
-    const m = await mount(<MemoryRouter initialEntries={['/c/abc']}><Sidebar /></MemoryRouter>)
-    try {
-      await m.until(() => m.find('setup-row') && m.find('recents-toggle'), 'the sidebar with the row')
-      expect(m.html().indexOf('data-testid="setup-row"')).toBeLessThan(m.html().indexOf('data-testid="recents-toggle"'))
     } finally { await m.unmount() }
   }, 20_000)
 })

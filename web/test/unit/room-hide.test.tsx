@@ -2,9 +2,9 @@
 // - the menu by kind: 알림 설정, 이름 바꾸기 for those who may, 링크 복사, then a group chat's 대화방 나가기, a DM's 대화
 //   숨기기, a team room's and the everyone room's 숨기기, a hidden room's 다시 보이기; 알림 설정 opens the room's levels;
 //   이름 바꾸기 is the info's name field in a prompt; hiding is sent, shown at once and put back when the server refuses;
-// - hidden rooms stay out of the sidebar's five, "더 보기" and its pill, the 대화 tab's count, the one count n and the
-//   room sound; the conversations page lists them under "숨긴 대화 N" with 다시 보이기;
-// - a sidebar row's "⋯" and its right-click; a long press on a row of the 대화 list opens the menu with the room's name
+// - hidden rooms stay out of the lists, the 대화 tab's count, the one count n and the room sound; the conversations page
+//   lists them under "숨긴 대화 N" with 다시 보이기;
+// - a 대화 list row's "⋯" and its right-click; a long press on a row of the 대화 list opens the menu with the room's name
 //   on top (a sheet on a phone), and the finger lifting opens no room.
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -13,7 +13,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import { DialogHost } from '../../src/components/ui'
 import { RoomMenu, roomMenuActions, roomLink } from '../../src/components/rooms/RoomMenu'
-import { hiddenUnread, SidebarRooms } from '../../src/components/rooms/SidebarRooms'
+import { RoomRow } from '../../src/components/nav/RoomsList'
 import { shownInLists, roomWantsMe, totalUnread } from '../../src/lib/rooms'
 import { attentionCount } from '../../src/lib/sessionMarkers'
 import { shouldRing } from '../../src/lib/roomSound'
@@ -223,7 +223,6 @@ describe('hidden rooms count nowhere', () => {
     expect(roomWantsMe(hiddenDm)).toBe(false)
     expect(roomWantsMe(shown)).toBe(true)
     expect(attentionCount([], [hiddenDm, shown]).n).toBe(1)
-    expect(hiddenUnread([shown, hiddenDm].filter((r) => !r.hidden))).toEqual({ n: 2, mentioned: false, muted: false })
     expect(shownInLists([hiddenDm, shown]).map((r) => r.id)).toEqual([shown.id])
     // the room on screen stays in the lists, hidden or not
     expect(shownInLists([hiddenDm, shown], hiddenDm.id)).toHaveLength(2)
@@ -242,35 +241,22 @@ describe('hidden rooms count nowhere', () => {
     } finally { await m.unmount() }
   })
 
-  test('the sidebar: not in the five, not in "더 보기" or its pill; "모든 대화" leads to them, also below an opened list', async () => {
+  test('a row of the 대화 list: its "⋯" named after the room; a right-click opens it', async () => {
     useSession.setState({ status: { kind: 'signed-in', me } } as never)
-    // seven shown rooms (two behind "더 보기", nothing unread) and one hidden with the newest message and unread mentions
-    const list: Room[] = [room({ kind: 'dm', name: null, peers: [CY], hidden: true, unreadCount: 5, mentioned: true, activityAt: at(0) }),
-      ...Array.from({ length: 7 }, (_, i) => room({ name: `방 ${i + 1}`, activityAt: at(i + 1) }))]
-    useRooms.setState({ rooms: list, loaded: true, failed: null })
-    try { localStorage.removeItem('mycel.sidebar.roomsAll') } catch { /* none */ }
-    const m = await mount(<MemoryRouter initialEntries={['/']}><SidebarRooms onNavigate={() => {}} /></MemoryRouter>)
+    const r = room({ name: '방 1', activityAt: at(1) })
+    useRooms.setState({ rooms: [r], loaded: true, failed: null })
+    const m = await mount(<MemoryRouter initialEntries={['/']}><ul><RoomRow room={r} onNavigate={() => {}} /></ul></MemoryRouter>)
     try {
-      expect(body(m).querySelectorAll('[data-testid="sidebar-room"]').map((x) => x.textContent)).toEqual(['방 1', '방 2', '방 3', '방 4', '방 5'])
-      expect(m.get('rooms-more').textContent).toContain(ko('sidebar.showMore', { n: 2 }))
-      expect(m.find('rooms-more-unread')).toBeNull()
-      expect(m.find('rooms-all')).toBeNull()
-      await m.click('rooms-more')
-      expect(body(m).querySelectorAll('[data-testid="sidebar-room"]')).toHaveLength(7)
-      // opened: the hidden one is still not here, and the way to it is
-      expect(m.get('rooms-all').getAttribute('href')).toBe('/rooms')
-      // each row has its "⋯", named after the room; a right-click opens it
-      const row = body(m).querySelectorAll('[data-testid="sidebar-room-row"]')[0]!
+      const row = m.get('sidebar-room-row')
       expect(row.querySelector('[data-testid="sidebar-room-menu"]')!.getAttribute('aria-label')).toBe(ko('rooms.menu.rowLabel', { name: '방 1' }))
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       await m.settle(0)
       row.querySelector('[data-testid="sidebar-room"]')!.dispatchEvent(e)
-      await m.until(() => menuItems(m).length === 4, 'the menu')
+      await m.until(() => menuItems(m).length === 5, 'the menu')
       expect(e.defaultPrevented).toBe(true)
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('navFolders.moveTo'), ko('rooms.menu.hide')])
     } finally {
       await m.unmount()
-      try { localStorage.removeItem('mycel.sidebar.roomsAll') } catch { /* none */ }
     }
   })
 })
@@ -287,6 +273,7 @@ describe('the conversations page', () => {
   )
 
   test('"숨긴 대화 N" at the end, folded; opened: each with 다시 보이기, which is sent and brings the row back', async () => {
+    wide = false
     useSession.setState({ status: { kind: 'signed-in', me } } as never)
     const hid = room({ kind: 'dm', name: null, peers: [CY], hidden: true, groupId: null })
     useRooms.setState({ rooms: [room({ name: '디자인' }), hid], loaded: true, failed: null })

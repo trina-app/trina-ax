@@ -9,7 +9,7 @@
 //    never a replay after a reconnect, a reload or a resync), never for the chat on screen here, after NOTIFY_DELAY_MS
 //    and only if it still holds (the answer is still unseen: no window had it on screen; the card is still open). The
 //    desktop app shows its notification only while the window is not focused (a click opens the chat); the in-app toast
-//    with [열기] only where the sidebar is not visible: below 768 px with the drawer closed. A confidential chat's
+//    with [열기] only where the rail is not on screen: below 768 px. A confidential chat's
 //    notification and toast say neither its title nor the AI's question.
 //  - rooms follow the same rule in the desktop app: a room.message the server marked with my notice (its rule: my level
 //    for the room, quiet hours, one per unread run) and the room's "?" (its AI waits on me), after the same wait and only
@@ -35,7 +35,7 @@ import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
 import { openDeckChat, useDeckBuilds } from './deckBuilds'
 import { useRooms } from './rooms'
-import { toast, useUi } from './ui'
+import { toast } from './ui'
 
 interface SessionMarkersState {
   /** the chat on screen in this window (pages/Chat.tsx), null elsewhere */
@@ -162,8 +162,8 @@ export function openChat(chatId: string) {
   else navigateTo(`/c/${chatId}`)
 }
 
-/** the sidebar is not on screen: below 768 px with the drawer closed (from 768 px up it always shows) */
-const sidebarHidden = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 767.98px)').matches && !useUi.getState().drawerOpen
+/** the rail and its marks are not on screen: below 768 px (from 768 px up the rail always shows) */
+const railHidden = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 767.98px)').matches
 
 function tell(chatId: string, notify: 'card' | 'answer') {
   const c = useChats.getState().chats.find((x) => x.id === chatId)
@@ -177,7 +177,7 @@ function tell(chatId: string, notify: 'card' | 'answer') {
   const body = reasonText(m.reason, t, secret ? undefined : cardQuestion(useChats.getState().requests, chatId))
   // shown by the desktop app only while its window is not focused; one per chat
   desktop()?.notify({ title, body, tag: `chat-${chatId}`, open: `/c/${chatId}` })
-  if (sidebarHidden() && pageVisible()) {
+  if (railHidden() && pageVisible()) {
     const b = useDeckBuilds.getState().builds[chatId]?.[0]
     const cover = !secret && b?.phase === 'done' && b.thumbs && b.slides[0]?.status === 'done' ? slideUrl(b, 0) : undefined
     toast({ level: 'info', text: title, detail: body, image: cover, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => openChat(chatId) } })
@@ -250,7 +250,7 @@ function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const read = why !== 'ai' && told?.read ? told.read : undefined
   desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}`, ...(read ? { read } : {}) })
   // a message rings the room sound here and the phone's own notification there; only the AI's "?" gets a toast
-  if (why === 'ai' && sidebarHidden() && pageVisible()) toast({ level: 'info', text: title, detail: body, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => navigateTo(`/rooms/${roomId}`) } })
+  if (why === 'ai' && railHidden() && pageVisible()) toast({ level: 'info', text: title, detail: body, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => navigateTo(`/rooms/${roomId}`) } })
 }
 
 /** A new room message, before the rooms store applies it: one the server gave me a notice of is told in the desktop app

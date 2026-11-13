@@ -1,14 +1,12 @@
-// A phone's tabs with the new navigation (the server's `navRail` switch on; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 ·
-// 파일 · 나", plan phase P5): 트리나 opens on its list (no ☰) with "트리나에게 묻기" at the bottom, which opens the new chat
+// A phone's tabs (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나", plan phase P5): 트리나 opens on its list (no ☰) with "트리나에게 묻기" at the bottom, which opens the new chat
 // on its own page (/new, no tab bar, ‹ back to the list); every "new chat with something ready" lands on that box with
 // it (a file asked about, a scheduled task's start sentence, /?prompt= and /?project= links); 파일 is the team folder's
-// places; 나 is headed 나 with the team's row, 활동, the status and away; Back stays in each tab. With the switch off the
-// tabs are as before (트리나 · 대화 · 프로젝트 · 나, ☰ on 트리나). Screenshots of each tab at 390, light and dark, go to
+// places; 나 is headed 나 with the team's row, 활동, the status and away; Back stays in each tab. Screenshots of each tab at 390, light and dark, go to
 // SHOTS when it is set.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
-import { navRail, OWNER, reset, signIn } from './helpers'
+import { navRail, OWNER, reset } from './helpers'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -17,10 +15,9 @@ const H = { [CSRF_HEADER]: '1' }
 const MEMBER = { username: 'bob', password: 'bob password 1' }
 const SHOTS = process.env.SHOTS ?? ''
 
-async function start(page: Page, who?: typeof MEMBER, on = true) {
+async function start(page: Page, who?: typeof MEMBER) {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
-  if (!on) { await navRail(page, false); return signIn(page, who) }
   await navRail(page)
   // a phone with the new tabs lands on 트리나's list (no box there: helpers.ts signIn waits for the box)
   await page.goto('/login')
@@ -219,14 +216,4 @@ test('a member\'s 나 has no 팀원 초대 or 관리자; 대화 is unchanged', a
   await tabs(page).getByTestId('tab-chats').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await shot(page, 'chats-tab')
-})
-
-test('with the switch off: 트리나 · 대화 · 프로젝트 · 나, Home is the box with ☰', async ({ page }) => {
-  await start(page, undefined, false)
-  await page.goto('/')
-  await expect(tabs(page).getByTestId('bottom-tab-label')).toHaveText([ai, t['tabs.chats'], t['tabs.projects'], t['tabs.me']])
-  await expect(page.getByTestId('menu-open')).toBeVisible()
-  await expect(page.getByTestId('composer-input')).toBeVisible()
-  await page.goto('/new?prompt=hi')
-  await expect(page).toHaveURL(/\/\?prompt=hi$/)
 })

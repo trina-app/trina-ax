@@ -1,8 +1,7 @@
 // 대화 beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), with the server's `navRail` switch on:
 // every conversation, no "더 보기" cap, by kind: 고정 · 팀 대화방 (전체 first) · 그룹 대화 · 1:1 대화; the rooms I hid are
 // behind one quiet row; 300 rooms are all listed, drawn 200 at a time as the list scrolls (the plan's rendering budget);
-// and on a narrow window (below 812 px) a room's thread is a sheet over the room. With the switch off the sidebar keeps
-// its capped list (sidebar.spec.ts).
+// and on a narrow window (below 812 px) a room's thread is a sheet over the room.
 import { expect, test, type Page } from '@playwright/test'
 import { navRail, reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom, routeRooms, type MockRoomSpec } from './rooms-mock'

@@ -51,7 +51,7 @@ describe('the team root in a fixed order', () => {
 })
 
 describe('the own folder with the new navigation (decision Q4)', () => {
-  test('"내 파일" while the server\'s navRail is on, "내 폴더" otherwise, in every language', () => {
+  test('"내 파일" while the word is files (set at start by the web and the server), "내 폴더" otherwise, in every language', () => {
     try {
       setOwnFolderWord('files')
       expect(folderWords('ko', 'olga').name('users/olga', 'olga')).toBe('내 파일')

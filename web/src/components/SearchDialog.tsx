@@ -24,11 +24,10 @@
 // finds "견적"; shared/src/search-text.ts nameMatch). Rooms and DMs first (a DM stands for its person), then people
 // with no DM: one of those opens the new-DM list with them ticked (components/rooms/PeoplePicker.tsx), so nothing is
 // made until they press its button. Both lists load in the background when no screen has read them yet.
-// A phone has one more type, 대화 (QA TC-256): my rooms, the team's people and the rooms' messages, nothing else. The 대화
-// tab's 🔍 opens search on it (store/ui.ts searchScope; components/PhoneTopBar.tsx); with no text it lists my rooms. A
-// computer's types stay as they were, except with the new navigation (lib/navRail.ts): its 대화 panel's 🔍 opens the same
-// 대화 type, so a computer has it too, and ⌘K finds 프로젝트 (all projects), 사용량 (Usage, no longer in the account menu)
-// and the files by "팀 폴더" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "⌘K aliases").
+// One more type, 대화 (QA TC-256): my rooms, the team's people and the rooms' messages, nothing else. The phone's 대화
+// tab's 🔍 and the computer's 대화 panel's 🔍 open search on it (store/ui.ts searchScope; components/PhoneTopBar.tsx,
+// panels/ChatsPanel.tsx); with no text it lists my rooms. ⌘K also finds 프로젝트 (all projects), 사용량 (Usage, not in
+// the account menu) and the files by "팀 폴더" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "⌘K aliases").
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
 // it opens its message in the room, as a message found does.
@@ -51,7 +50,6 @@ import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
-import { useNavRail } from '../lib/navRail'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
@@ -95,9 +93,9 @@ const AskAi = () => <AiMark place="nav" />
 
 export const SEARCH_TABS = ['all', 'chats', 'projects', 'files', 'skills', 'scheduled', 'mcp'] as const
 export type SearchTab = (typeof SEARCH_TABS)[number]
-/** a phone's types: 대화 too (rooms, people, messages), right after 전체 */
+/** the types: 대화 too (rooms, people, messages), right after 전체 */
 type SearchType = SearchTab | 'rooms'
-export const PHONE_SEARCH_TYPES: readonly SearchType[] = ['all', 'rooms', ...SEARCH_TABS.slice(1)]
+export const SEARCH_TYPES: readonly SearchType[] = ['all', 'rooms', ...SEARCH_TABS.slice(1)]
 const TAB_LABEL: Record<SearchType, MessageKey> = {
   all: 'search.tab.all', rooms: 'search.tab.rooms', chats: 'search.tab.chats', projects: 'search.tab.projects', files: 'search.tab.files',
   skills: 'search.tab.skills', scheduled: 'search.tab.scheduled', mcp: 'search.tab.mcp',
@@ -285,7 +283,6 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const inputRef = useRef<HTMLInputElement>(null)
   const [q, setQ] = useState('')
   const [tab, setTabState] = useState<SearchType>(scope ?? 'all')
-  const navRail = useNavRail()
   // the highlighted row: by its key once arrows or the mouse chose one (results arriving above it do not move it), else
   // the row at `index` (the first; after 메시지 더 보기, where that row was, so the keys go on to the first new message)
   const [sel, setSel] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
@@ -527,13 +524,12 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // the add-by-address form; everyone else to the list of what they can connect (the Google apps also when members
     // may not add their own). "MCP", "Connectors" and "Settings" find it.
     if (m) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: admin && m.personalAllowed ? `${CONNECTORS_HOME}?add=1` : CONNECTORS_HOME, terms: `MCP ${t('integrations.title')} ${t('settings.title')}` })
-    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: navRail ? t('files.root') : undefined })
-    // the new navigation: the old sidebar's 프로젝트 row and the account menu's Usage are found here too
-    if (navRail)
-      list.push(
-        { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
-        { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
-      )
+    list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files', terms: t('files.root') })
+    // 모든 프로젝트 and Usage (in Settings) are found here too
+    list.push(
+      { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
+      { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
+    )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0
     list.push({
@@ -548,7 +544,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin, navRail])
+  }, [mcp, unread, locale, admin])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -684,7 +680,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!row || row.scrollWidth <= row.clientWidth) return
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
-  const types: readonly SearchType[] = phone || navRail ? PHONE_SEARCH_TYPES : SEARCH_TABS
+  const types = SEARCH_TYPES
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
   const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')

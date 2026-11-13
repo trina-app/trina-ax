@@ -19,8 +19,7 @@
 // (트리나에게 허용한 것, 브라우저, 개발 환경 사이트) are one page, 트리나에게 허용한 것, with a part for each that is shown
 // (PHONE_FOLDED; their old addresses open it), every section has no "나에게만 적용" line (all of 나 is just for you),
 // its bar has a place for the section's one action (SettingsBar.tsx: Memory's "+"), and 로그아웃 asks first.
-// With the new navigation's phone tabs (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 ·
-// 파일 · 나") the list is headed "나" (not "설정": the tab says 나) and starts with the team: its logo and name, and for
+// On a phone (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") the list is headed "나" (not "설정": the tab says 나) and starts with the team: its logo and name, and for
 // owners and admins 팀원 초대 and 관리자 (the computer's team menu; 관리자 moves here from the rows under the photo);
 // after the photo, 활동 with its count, the status ("상태 설정") and "자리 비움으로 표시" (the computer's account menu).
 import clsx from 'clsx'
@@ -33,7 +32,6 @@ import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backSta
 import { browserSettingsBridge } from '../../lib/desktop'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
-import { useNavRail } from '../../lib/navRail'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useNoticeUnread } from '../../store/inbox'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
@@ -76,8 +74,6 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const me = useMeStrict()
   // phones (below 768 px, the width of the phone top bar and tabs): the list first, its photo row, no search box
   const phone = useMediaQuery('(max-width: 767.98px)')
-  // the new navigation's phone tabs: this list is the 나 tab, headed 나
-  const meTab = useNavRail()
   const params = useParams()
   const tab = page ? PAGE_SECTION[page] : params.tab
   const location = useLocation()
@@ -177,7 +173,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
             {/* a phone starts on the title, not on a hidden ✕; a computer still starts on its first button */}
             <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none" data-testid="settings-title">
-              {phone && meTab ? t('tabs.me') : t('settings.title')}
+              {phone ? t('tabs.me') : t('settings.title')}
             </h2>
             <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
               <X size={18} />
@@ -255,13 +251,13 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   )
 }
 
-/** The 나 list on a phone: who is signed in (it opens the profile), what needs me (the Activity page with its count, the
- * phone app's notifications when they are off, 관리자 for owners and admins), the sections in their groups (알림, the
+/** The 나 list on a phone: the team (PhoneTeamGroup: 팀원 초대 and 관리자 for owners and admins), who is signed in (it
+ * opens the profile), what needs me (the Activity page with its count, my status and away, the phone app's notifications
+ * when they are off), the sections in their groups (알림, the
  * notification settings, in its own), and 로그아웃. Every row pushes its page, so Back comes back here. */
 function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: React.Ref<HTMLElement> }) {
   const t = useT()
   const me = useMeStrict()
-  const v2 = useNavRail()
   const logout = useLogout()
   // the 나 tab's count (the app's own notices: mentions and thread replies are counted on 대화)
   const inbox = useNoticeUnread()
@@ -271,8 +267,8 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
     if (await confirmDialog({ title: t('settings.logoutConfirm'), confirm: t('auth.logout'), danger: true })) void logout()
   }
   return (
-    <nav ref={navRef} aria-label={v2 ? t('tabs.me') : t('settings.title')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
-      {v2 && <PhoneTeamGroup />}
+    <nav ref={navRef} aria-label={t('tabs.me')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
+      <PhoneTeamGroup />
       <PhoneListGroup testId="settings-me-group">
         <li className="group/row">
           <Link to="/settings/profile" className="flex items-center gap-3 px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2" data-testid="settings-me">
@@ -286,7 +282,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           </Link>
         </li>
       </PhoneListGroup>
-      {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
+      {/* what needs me, first: the Inbox with its count (the same count as on the 나 tab), my status and away */}
       <PhoneListGroup testId="settings-phone-top">
         <PhoneListRow
           icon={<Bell size={16} />}
@@ -300,8 +296,7 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
           ) : undefined}
           testId="settings-inbox"
         />
-        {!v2 && isAdmin(me) && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
-        {v2 && <PhoneStatusRows />}
+        <PhoneStatusRows />
       </PhoneListGroup>
       {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
       <PhonePushLine />

@@ -1,5 +1,5 @@
-// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1; behind the server's
-// `navRail` switch). On top "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0) and 검색 (⌘K),
+// 트리나's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P1). On
+// top "트리나에게 묻기" (a new AI chat, ⇧⌘O; the one word for every AI action, §2.0) and 검색 (⌘K),
 // then the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them
 // the Trina list in its own order with the server's heads (panels/TrinaList.tsx, phase P2: 고정 · 폴더 · 프로젝트 · 모든
 // 프로젝트 · 기타 기록; no five-latest cap, no "모두 보기"), and at its end the quiet rows that were sidebar rows: 예약 작업,
@@ -61,7 +61,7 @@ export function TrinaPanel() {
               </button>
             </Tooltip>
           </div>
-          <HistoryList caps={null} onNavigate={noop} peek={peek} viewState={view} bare />
+          <HistoryList onNavigate={noop} peek={peek} viewState={view} />
         </>
       ) : (
         <TrinaList peek={peek} />

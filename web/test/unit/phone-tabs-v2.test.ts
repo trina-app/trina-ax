@@ -1,22 +1,18 @@
-// The phone's tabs with the new navigation (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 ·
-// 파일 · 나", plan phase P5): which tab an address belongs to, the parents (lib/screens.ts), the stacks of the old 프로젝트
-// tab kept across the switch (knownTab), the new-chat address (lib/newChat.ts newChatPath) and what Home does with its
-// address (homeRoute). With the switch off everything is as before (the old suites: screens.test.ts, phone-nav.test.tsx).
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+// The phone's tabs (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나"): which tab an address belongs to, the
+// parents (lib/screens.ts), the stacks of the old 프로젝트 tab kept across an update (knownTab), the new-chat address
+// (lib/newChat.ts newChatPath) and what Home does with its address (homeRoute).
+import { describe, expect, test } from 'bun:test'
 import { homeRoute, newChatPath } from '../../src/lib/newChat'
 import { chainOf, parentOf, rootTab, sameScreen, screenOf } from '../../src/lib/screens'
 import { knownTab, planFor, type Item } from '../../src/lib/screenHistory'
-import { hidesTabs, isTabNow, phoneTabs, setPhoneTabsV2, tabOf } from '../../src/lib/tabs'
+import { hidesTabs, isTabNow, PHONE_TABS, tabOf } from '../../src/lib/tabs'
 
 const f = (p: string) => `/files?path=${encodeURIComponent(p)}`
 const items = (...ps: string[]): Item[] => ps.map((p, i) => ({ k: `k${i}`, p }))
 
-describe('with the switch on', () => {
-  beforeEach(() => setPhoneTabsV2(true))
-  afterEach(() => setPhoneTabsV2(false))
-
+describe('the tabs', () => {
   test('the four tabs: 트리나 · 대화 · 파일 · 나', () => {
-    expect(phoneTabs()).toEqual(['ai', 'chats', 'files', 'me'])
+    expect(PHONE_TABS).toEqual(['ai', 'chats', 'files', 'me'])
     expect(isTabNow('projects')).toBe(false)
     for (const p of ['/', '/new', '/c/x', '/projects', '/projects/p1', '/projects/p1/files', '/scheduled', '/skills', '/trash']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/files', '/files/view']) expect(tabOf(p)).toBe('files')
@@ -60,9 +56,9 @@ describe('with the switch on', () => {
     expect(planFor(items('/files', f('projects/launch')), { k: 'n', p: f('projects/launch/a') }, 'push').push.map((x) => x.p)).toEqual([f('projects/launch/a')])
   })
 
-  test('an entry of the old 프로젝트 tab (kept across the switch) takes its first screen\'s tab', () => {
-    expect(knownTab({ tab: 'projects', root: { k: 'a', p: '/projects' } })).toBe('ai')
-    expect(knownTab({ tab: 'projects', root: { k: 'a', p: '/files' } })).toBe('files')
+  test('an entry of the old 프로젝트 tab (kept across an update) takes its first screen\'s tab', () => {
+    expect(knownTab({ tab: 'projects' as never, root: { k: 'a', p: '/projects' } })).toBe('ai')
+    expect(knownTab({ tab: 'projects' as never, root: { k: 'a', p: '/files' } })).toBe('files')
     expect(knownTab({ tab: 'files', root: { k: 'a', p: '/files' } })).toBe('files')
   })
 
@@ -75,30 +71,16 @@ describe('with the switch on', () => {
   })
 })
 
-describe('with the switch off: as before', () => {
-  test('프로젝트 is the third tab; the new chat is Home', () => {
-    setPhoneTabsV2(false)
-    expect(phoneTabs()).toEqual(['ai', 'chats', 'projects', 'me'])
-    expect(tabOf('/files')).toBe('projects')
-    expect(tabOf('/projects/p1')).toBe('projects')
-    expect(parentOf('/files')).toBe('/projects')
-    expect(parentOf('/projects')).toBeNull()
-    expect(knownTab({ tab: 'files', root: { k: 'a', p: '/files' } })).toBe('projects')
-    expect(newChatPath({ prompt: 'a' }, true)).toBe('/?prompt=a')
-  })
-})
-
 describe('Home and its address (homeRoute)', () => {
-  test('a phone with the new tabs: / is the list; / with a question or a project goes to /new with it', () => {
-    expect(homeRoute('/', '', true, true)).toEqual({ list: true })
-    expect(homeRoute('/', '?prompt=hi', true, true)).toEqual({ to: '/new?prompt=hi' })
-    expect(homeRoute('/', '?project=p1', true, true)).toEqual({ to: '/new?project=p1' })
-    expect(homeRoute('/new', '?prompt=hi', true, true)).toEqual({ list: false })
+  test('a phone: / is the list; / with a question or a project goes to /new with it', () => {
+    expect(homeRoute('/', '', true)).toEqual({ list: true })
+    expect(homeRoute('/', '?prompt=hi', true)).toEqual({ to: '/new?prompt=hi' })
+    expect(homeRoute('/', '?project=p1', true)).toEqual({ to: '/new?project=p1' })
+    expect(homeRoute('/new', '?prompt=hi', true)).toEqual({ list: false })
   })
-  test('a computer, or the old tabs: /new goes to / with the same query; / is the box', () => {
-    expect(homeRoute('/new', '?prompt=hi', false, true)).toEqual({ to: '/?prompt=hi' })
-    expect(homeRoute('/new', '', true, false)).toEqual({ to: '/' })
-    expect(homeRoute('/', '?prompt=hi', false, true)).toEqual({ list: false })
-    expect(homeRoute('/', '', true, false)).toEqual({ list: false })
+  test('a computer: /new goes to / with the same query; / is the box', () => {
+    expect(homeRoute('/new', '?prompt=hi', false)).toEqual({ to: '/?prompt=hi' })
+    expect(homeRoute('/new', '', false)).toEqual({ to: '/' })
+    expect(homeRoute('/', '?prompt=hi', false)).toEqual({ list: false })
   })
 })

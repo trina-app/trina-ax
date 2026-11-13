@@ -22,7 +22,6 @@ import { intlTag, localDay } from '../lib/format'
 import { badgeText } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
-import { useNavRail } from '../lib/navRail'
 import { useActivityUnread } from '../store/inbox'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -74,16 +73,14 @@ function dayLabel(iso: string, t: T, locale: ReturnType<typeof useLocale>, now =
 const timeOf = (iso: string, locale: ReturnType<typeof useLocale>) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
 /** The page for the address: the conversations' (from 대화) or the whole Activity, each with its own state, so going from one
- * to the other (a tab of the phone's bar) starts afresh. With the new navigation on a computer (lib/navRail.ts, phase
- * P3) 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx): this page is then the notice opened
+ * to the other (a tab of the phone's bar) starts afresh. On a computer 활동's list is the panel beside the rail (components/panels/ActivityPanel.tsx): this page is then the notice opened
  * from it (`?n=<id>`) or, with none, where to look; an old link to the Mentions or Threads tab goes to 대화's
  * 멘션·스레드, where those are now. */
 export default function Activity() {
   const [params] = useSearchParams()
   const chats = activityInChats(params.toString())
   const computer = useMediaQuery('(min-width: 768px)')
-  const rail = useNavRail() && computer
-  if (rail && !chats) {
+  if (computer && !chats) {
     const tab = params.get('tab')
     if (tab === 'mentions' || tab === 'threads') return <Navigate to={`${CHATS_ACTIVITY}&tab=${tab}`} replace />
     // the DMs tab (back on dev with #666): direct and group chats are 대화's own list, its 멘션·스레드 has no DMs tab

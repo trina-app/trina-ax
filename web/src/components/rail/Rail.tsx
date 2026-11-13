@@ -1,8 +1,7 @@
-// The new navigation's rail on computers (768 px and wider; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), behind the
-// server's `navRail` switch (lib/navRail.ts): the team's logo on top (TeamMenu.tsx `rail`: its menu for owners and
-// admins: Invite people, Admin), then four places, each an icon with its name under it (the owner, 2026-11-07: no icon
-// without words): 트리나 · 대화 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx
-// `rail`: status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
+// The rail on computers (768 px and wider; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the team's logo on top
+// (TeamMenu.tsx: its menu for owners and admins: Invite people, Admin), then four places, each an icon with its name under it (the owner, 2026-11-07: no icon
+// without words): 트리나 · 대화 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx:
+// status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
 // the place already lit opens its start. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
 // the photo in order; Up/Down/Home/End move between them too. The rail takes no shortcut of its own.
 import clsx from 'clsx'
@@ -55,7 +54,7 @@ export function Rail({ showList }: { showList: boolean }) {
   }
   return (
     <nav aria-label={t('rail.label')} onKeyDown={onKey} className="flex h-full w-[clamp(72px,4.5rem,88px)] shrink-0 flex-col items-stretch border-r border-line bg-subtle" data-testid="rail">
-      <TeamMenu rail />
+      <TeamMenu />
       <ul className="mt-2 flex flex-col gap-1 px-1.5">
         {RAIL_ITEMS.map((item) => {
           const lit = item === current
@@ -91,7 +90,7 @@ export function Rail({ showList }: { showList: boolean }) {
             </button>
           </Tooltip>
         )}
-        <AccountMenu rail />
+        <AccountMenu />
       </div>
     </nav>
   )

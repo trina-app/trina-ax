@@ -1,18 +1,14 @@
 // @트리나's face in rooms (components/rooms/AiFace.tsx) and Trina's star (components/TrinaStar.tsx): where the product
 // is named after its AI, the star of trina.app on the neutral circle, one gradient per drawing; elsewhere the sparkle on
-// the accent circle. Beside the AI's answers and in the head of an answer shared into a room, on the AI chat's row of
-// the rooms list (not the app icon), never beside people. A button that asks it (the room header, a message's hover bar
+// the accent circle. Beside the AI's answers and in the head of an answer shared into a room, never beside people. A button that asks it (the room header, a message's hover bar
 // and menu, the image viewer, and "트리나에게 묻기" in the sidebar, ⌘K and a phone AI chat's header) has the mark without a
 // circle, drawn larger than the icons beside it. Always decorative.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MemoryRouter } from 'react-router-dom'
 import { PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { TRINA_STAR, TrinaStar } from '../../src/components/TrinaStar'
 import { AiFace, AiFaceInline, AiMark } from '../../src/components/rooms/AiFace'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
-import RoomsPage from '../../src/pages/Rooms'
-import { useRooms } from '../../src/store/rooms'
 import { BEN, ME, message } from './rooms-fixtures'
 
 const count = (html: string, s: string) => html.split(s).length - 1
@@ -106,15 +102,3 @@ test('a room shows the face beside an answer of the AI and in the head of a shar
   expect(count(html, PRODUCT_NAMED_AFTER_AI ? 'data-trina-star' : 'lucide-sparkles')).toBe(2)
 })
 
-test('the rooms list: the AI chat\'s pinned row has the face of rooms, at the 40px of the rooms\' pictures, not the app icon', () => {
-  useRooms.setState({ rooms: [], loaded: true, failed: null })
-  const html = renderToStaticMarkup(<MemoryRouter initialEntries={['/rooms']}><RoomsPage /></MemoryRouter>)
-  // the gradient's id is one per drawing (TrinaStar)
-  const sameIds = (h: string) => h.replace(/trina-star[\w-]*/g, 'trina-star')
-  const row = sameIds(/data-testid="rooms-ai"[^>]*>([\s\S]*?)<\/a>/.exec(html)![1]!)
-  expect(row).toStartWith(sameIds(renderToStaticMarkup(<AiFace size={40} />)))
-  expect(row).toContain('size-10')
-  expect(row).toContain(PRODUCT_NAMED_AFTER_AI ? 'data-trina-star' : 'lucide-sparkles')
-  expect(row).not.toContain('<img')
-  expect(html).not.toContain('favicon.svg')
-})

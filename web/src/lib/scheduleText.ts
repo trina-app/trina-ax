@@ -1,6 +1,5 @@
 // How a scheduled task reads on the Scheduled pages (pages/Scheduled.tsx): its name, its repeat in words, its state and
 // how its last run went. Pure, so the list, the detail page and the tests read the same.
-import { ownFolderWord } from '@mycel/shared'
 import type { Schedule } from '@mycel/shared/api'
 import type { Locale } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
@@ -86,7 +85,7 @@ export const schedulePreview = (s: Schedule) => (s.templateId ? `${s.sourcePath 
 
 /** A place whose content may go into a task's save folder, in words ("내 폴더", "#영업 대화", "groups/marketing/"). */
 export const sourceName = (x: NonNullable<Schedule['saveSources']>[number], t: T) =>
-  x.kind === 'mine' ? t(ownFolderWord() === 'files' ? 'scheduled.sourceMineFiles' : 'scheduled.sourceMine') : x.kind === 'root' ? t('scheduled.sourceRoot') : x.kind === 'room' ? t('scheduled.sourceRoom', { name: x.name ?? '?' }) : `${x.name ?? '?'}/`
+  x.kind === 'mine' ? t('scheduled.sourceMineFiles') : x.kind === 'root' ? t('scheduled.sourceRoot') : x.kind === 'room' ? t('scheduled.sourceRoom', { name: x.name ?? '?' }) : `${x.name ?? '?'}/`
 
 /** The list card's save line, the shape of a template's folders line: "저장: shared/주간보고", or "저장 폴더를 다시 확인해
  *  주세요" when its permission lapsed (server/src/chat/schedule-scope.ts); '' for a task without a save folder. */

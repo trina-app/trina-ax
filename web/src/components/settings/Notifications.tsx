@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ownFolderWord } from '@mycel/shared'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
@@ -136,8 +135,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
     : t('notifications.event.schedule.projectGone')
   // a task whose save folder lapsed: check it again on the Scheduled page (its runs save in the own folder meanwhile)
   if (item.code === 'schedule.failure' && item.saveLapsed) return title
-    ? isolate(locale, ownFolderWord() === 'files' ? 'notifications.event.schedule.saveLapsedNamedFiles' : 'notifications.event.schedule.saveLapsedNamed', { title }, ['title'])
-    : t(ownFolderWord() === 'files' ? 'notifications.event.schedule.saveLapsedFiles' : 'notifications.event.schedule.saveLapsed')
+    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamedFiles', { title }, ['title'])
+    : t('notifications.event.schedule.saveLapsedFiles')
   if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
   if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
     const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'

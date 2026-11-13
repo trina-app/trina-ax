@@ -1,6 +1,5 @@
-// One row of the AI's history and its hover quick view. Moved out of Sidebar.tsx unchanged (navigation redesign,
-// docs/AGENTS/plan/20261112-1839-nav-rail.md, phase P0b) so every list of AI chats draws the same row: the sidebar's
-// history (nav/HistoryList.tsx) today, the rail's Trina panel later.
+// One row of the AI's history and its hover quick view: every list of AI chats draws the same row (the Trina list,
+// panels/TrinaList.tsx, and the filtered history, nav/HistoryList.tsx).
 import clsx from 'clsx'
 import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -20,7 +19,6 @@ import { SharedIcon } from '../chat/SharedChat'
 import { SessionMarker, useChatMarker } from '../chat/ChatState'
 import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
-import { useNavRail } from '../../lib/navRail'
 import { dragRow, useFolderRowItems } from './NavFolders'
 import { useRoomTitle } from '../rooms/RoomIcon'
 
@@ -42,10 +40,9 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
   // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
   const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
   const roomTitle = useRoomTitle()
-  // the new navigation: 폴더로 옮기기 / 폴더에서 빼기 among its items, and a mouse may drag it onto a folder (a project's
-  // chat stays in its project: the item is off and says why; a room's side chat is in no list folder)
-  const rail = useNavRail()
-  const folder = useFolderRowItems({ on: rail && !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId || !!chat.shared, more })
+  // 폴더로 옮기기 / 폴더에서 빼기 among its items, and a mouse may drag it onto a folder (a project's chat stays in its
+  // project: the item is off and says why; a room's side chat is in no list folder)
+  const folder = useFolderRowItems({ on: !chat.sideRoomId, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: !!chat.projectId || !!chat.shared, more })
   const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: folder.items })
 
   return (
@@ -57,7 +54,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNav
       onMouseLeave={peek.hide}
       data-marker={marker?.kind}
       data-pinned={chat.pinnedAt ? '' : undefined}
-      {...(rail ? dragRow('chats', chat.id, !chat.projectId && !chat.shared && !chat.sideRoomId) : {})}
+      {...dragRow('chats', chat.id, !chat.projectId && !chat.shared && !chat.sideRoomId)}
     >
       <NavLink
         to={`/c/${chat.id}`}

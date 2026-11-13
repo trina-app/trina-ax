@@ -10,7 +10,6 @@
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
 // line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
 // ready-made skills the team lacks, unfolded, for owners and admins.
-import { ownFolderWord } from '@mycel/shared'
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -169,7 +168,7 @@ export default function Skills() {
                 {(overview.managedFolders.length > 0 || !shares?.length) && <SuggestionList items={review ?? (overview.managedFolders.length ? null : [])} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
               </>
             )}
-            {current === 'mine' && <SuggestionList items={mine} empty={t(ownFolderWord() === 'files' ? 'skills.noMineFiles' : 'skills.noMine')} testId="mine-list" />}
+            {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMineFiles')} testId="mine-list" />}
             {current === 'changes' && <ChangeList items={changes} />}
           </TabPanel>
         )}

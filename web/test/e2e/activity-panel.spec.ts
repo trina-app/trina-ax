@@ -2,8 +2,7 @@
 // on: the notices that are not conversations on the left (GET /api/notifications?only=notices), chips 전체 · 트리나 · 요청
 // (요청 for the owner and admins only), unread first, the rail's 활동 number the same as the list's unread rows; a notice
 // opens on the right while 활동 stays lit; one with no page of its own opens as itself; mentions and threads are 대화's
-// (one line on top goes there, and an old ?tab=mentions link lands there). With the switch off the Activity page is as it
-// was (activity-tabs.spec.ts and the other Activity suites run with it off).
+// (one line on top goes there, and an old ?tab=mentions link lands there).
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, reset, signIn } from './helpers'
@@ -157,16 +156,4 @@ test('"Mark all as read" reads the notices only; an old ?tab=mentions link goes 
   await page.goto('/activity?tab=dms')
   await expect(page).toHaveURL(/\/activity\?in=chats$/)
   await expect(page.getByTestId('rail-chats')).toHaveAttribute('aria-current', 'page')
-})
-
-test('with the switch off, Activity is the page it was: its tabs, no panel', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 860 })
-  await reset(page)
-  await navRail(page, false)
-  await signIn(page)
-  await page.goto('/activity?tab=mentions')
-  await expect(page.getByTestId('activity-tabs')).toBeVisible()
-  await expect(page.getByTestId('activity-tab-mentions')).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('activity-panel')).toHaveCount(0)
-  await expect(page.getByTestId('rail')).toHaveCount(0)
 })

@@ -1,41 +1,36 @@
-// The new navigation's one switch (AppConfig.navRail; docs/DECISIONS.md "navRail"): on by default since P6, so Me says
-// `navRail: true` to everyone, owner and member alike (one switch per server); the operator's `"navRail": false` in
-// server.json is the kill switch for one release: Me says nothing and every client keeps the old sidebar and tabs.
+// The new navigation's switch is retired (docs/DECISIONS.md "navRail: retired, the old navigation removed"): the rail and
+// the phone tabs 트리나 · 대화 · 파일 · 나 are the only navigation, so Me says nothing about it, and a server.json that
+// still has `"navRail"` (true or false) loads; the key is ignored and listed as obsolete (the start logs it once).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadAppConfig } from '../../server/src/app-config'
 import { WORK } from '../lib/env'
-import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { harness, withOwner, type Harness } from './a-lib'
 
 setDefaultTimeout(60_000)
 let h: Harness
 afterEach(async () => { await h?.close() })
 
-test('on (the default): Me says so to the owner and to a member', async () => {
-  h = await harness('b-nav-rail-on')
+test('Me has no navRail', async () => {
+  h = await harness('b-nav-rail-retired')
   const owner = await withOwner(h)
-  const mia = await addMember(h, owner, { username: 'mia' })
-  expect((await owner.call('GET', '/api/me')).server.navRail).toBe(true)
-  expect((await mia.client.call('GET', '/api/me')).server.navRail).toBe(true)
+  expect((await owner.call('GET', '/api/me')).server).not.toHaveProperty('navRail')
 })
 
-test('off (the operator\'s kill switch): Me has no navRail', async () => {
-  h = await harness('b-nav-rail-off', { navRail: false })
-  const owner = await withOwner(h)
-  expect((await owner.call('GET', '/api/me')).server.navRail).toBeUndefined()
-})
-
-test('server.json: absent or true is on, false is off', () => {
+test('server.json: an old "navRail" key loads and is reported as obsolete', () => {
   const dir = path.join(WORK, 'nav-rail-config')
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
   const load = (extra: object, n: string) => {
     const f = path.join(dir, `server-${n}.json`)
     fs.writeFileSync(f, JSON.stringify({ mode: 'dev', ...extra }))
-    return loadAppConfig({ argv: ['--config', f], env: {} }).navRail
+    return loadAppConfig({ argv: ['--config', f], env: {} })
   }
-  expect(load({}, 'absent')).toBeUndefined()
-  expect(load({ navRail: true }, 'on')).toBeUndefined()
-  expect(load({ navRail: false }, 'off')).toBe(false)
+  expect(load({}, 'absent').obsoleteKeys).toBeUndefined()
+  for (const v of [true, false]) {
+    const cfg = load({ navRail: v }, String(v))
+    expect(cfg.obsoleteKeys).toEqual(['navRail'])
+    expect(cfg).not.toHaveProperty('navRail')
+  }
 })

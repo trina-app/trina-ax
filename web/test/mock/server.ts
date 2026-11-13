@@ -623,7 +623,6 @@ export class MockServer {
     this.deckTier = 'quick'
     this.allConfidential = false
     this.roomAiMentions = true
-    this.navRail = true
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -765,9 +764,6 @@ export class MockServer {
   allConfidential = false
   /** POST /__test/room-ai-mentions {on}: "@트리나" in a room (Me.server.roomAiMentions); on in the mock, off on a real server */
   roomAiMentions = true
-  /** POST /__test/nav-rail {on}: the new navigation (Me.server.navRail); on in the mock as on a real server since P6,
-   * `{ on: false }` for a test of the old sidebar and tabs until P7 removes them (docs/DECISIONS.md "navRail") */
-  navRail = true
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   access(path: string, user: User): 'none' | 'read' | 'write' {
@@ -1351,7 +1347,6 @@ export class MockServer {
         // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions);
         // POST /__test/room-ai-mentions {on: false} turns it off until the next reset
         ...(this.roomAiMentions ? { roomAiMentions: true as const } : {}),
-        ...(this.navRail ? { navRail: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
         // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
@@ -5228,7 +5223,6 @@ export class MockServer {
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
     else if (p === '/__test/room-ai-mentions') this.roomAiMentions = body.on !== false
-    else if (p === '/__test/nav-rail') this.navRail = body.on !== false
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }

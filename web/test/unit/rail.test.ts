@@ -1,4 +1,4 @@
-// The new navigation's rail (lib/rail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1):
+// The rail (lib/rail.ts; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1):
 // - every route of the signed-in app (App.tsx, the routes under <Layout />) has a decision here: one rail place or
 //   none. A route added to App.tsx without one fails this test, so no page is left with nothing lit by mistake;
 // - the places: 트리나 (Home, chats, projects, scheduled tasks, team skills, deleted history, connector consent, the
@@ -10,7 +10,6 @@ import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RAIL_ITEMS, RAIL_ROOT, railHere, railHereKept, railLinkState, railOf, railState, railTarget, rememberRail, useRailMemory, type RailItem } from '../../src/lib/rail'
-import { navRailOn } from '../../src/lib/navRail'
 import { clearLocalData } from '../../src/lib/localData'
 import { installDom } from './dom-host'
 
@@ -168,13 +167,5 @@ describe("a page opened from another place's list (phase P3: a notice's chat ope
     expect(railLinkState('activity', '/c/abc')).toEqual({ rail: 'activity' })
     expect(railLinkState('activity', '/activity?n=1')).toBeUndefined()
     expect(railLinkState('ai', '/c/abc')).toBeUndefined()
-  })
-})
-
-describe('the switch', () => {
-  test('on only when the server says so (Me.server.navRail)', () => {
-    expect(navRailOn(null)).toBe(false)
-    expect(navRailOn({ server: { version: '0', dev: false } } as never)).toBe(false)
-    expect(navRailOn({ server: { version: '0', dev: false, navRail: true } } as never)).toBe(true)
   })
 })
