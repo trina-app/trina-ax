@@ -194,13 +194,14 @@ describe('the tab bar', () => {
   })
 
   // the stores' current state needs a client render (a server render reads their first state)
-  test('one count per kind: unread room messages on 대화 (muted rooms left out), unread Inbox notices on 나', async () => {
+  test('one count per kind: conversations with unread messages on 대화 (muted rooms left out, as the rail), unread Inbox notices on 나', async () => {
     useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
     inboxCount = 4
     const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
     try {
       await m.until(() => m.find('tab-me-unread'), 'the Inbox count')
-      expect(m.get('tab-chats-unread').textContent).toBe(`99+${ko('rooms.unread', { n: 123 })}`)
+      // two conversations, not 123 messages: the rail's number (rail/railBadges.ts chatsMark)
+      expect(m.get('tab-chats-unread').textContent).toBe(`2${ko('rail.unreadRooms', { n: 2 })}`)
       expect(m.get('tab-me-unread').textContent).toBe(`4${ko('notifications.unread', { count: 4 })}`)
       // no count on 트리나 (no AI chat wants me) or 파일
       expect(m.get('tab-ai').textContent).toBe(aiName(ko))
@@ -218,11 +219,11 @@ describe('the tab bar', () => {
       const pill = m.get('tab-chats-unread')
       expect(pill.getAttribute('data-ai-waits')).toBe('')
       expect(pill.className).toContain('bg-warn')
-      expect(pill.textContent).toBe(`?${ko('rooms.aiWaits')}, ${ko('rooms.unread', { n: 3 })}`)
+      expect(pill.textContent).toBe(`?${ko('rooms.aiWaits')}, ${ko('rail.unreadRooms', { n: 1 })}`)
       // the wait ends: the same count as before
       useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 0 })] })
       await m.until(() => m.find('tab-chats-unread')?.getAttribute('data-ai-waits') === null, 'the count back')
-      expect(m.get('tab-chats-unread').textContent).toBe(`3${ko('rooms.unread', { n: 3 })}`)
+      expect(m.get('tab-chats-unread').textContent).toBe(`1${ko('rail.unreadRooms', { n: 1 })}`)
     } finally {
       await m.unmount()
       useRooms.setState({ rooms: [] })

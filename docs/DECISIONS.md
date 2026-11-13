@@ -11797,6 +11797,41 @@ changes. On that path it supersedes P1's "파일 and 활동 open today's pages a
 - Version impact: none while the switch is off (an additive query value and count; no changelog fragment, per
   `changes/README.md`).
 
+## Navigation UX fixes after the final walk (feat/nav-ux-fix-a, 2026-11-13, navigation redesign)
+
+넣을 곳: Team AX core (`web/src/components/BottomTabs.tsx`, `pages/Rooms.tsx`, `components/panels/FilesPanel.tsx`,
+`lib/folderLabels.ts`, `pages/Files.tsx`, `pages/RecentFiles.tsx`, `components/FilePanel.tsx`, i18n), 이유: the app's own
+navigation. From the final UX review of the new navigation (M1, M2, S1, S4, S5, S7). Display only: no API change.
+
+- **One 대화 number on every device (M1).** The phone's 대화 tab used to add up unread messages while the computer's rail
+  counted conversations with something unread (3 on one, 14 on the other). The tab now takes the rail's mark from the
+  same function (`rail/railBadges.ts` `chatsMark`): conversations with unread messages (muted and hidden left out), the
+  amber "?" while a room's AI waits on me, a dot when only a mention or thread notice is unread. `lib/rooms.ts`
+  `totalUnread` is no longer a badge.
+- **People and the AI never share a word, also in English and Spanish (M2).** The people side says "conversation":
+  New conversation (the + in Chats and its dialog), Start conversation, Group conversations, Create group conversation,
+  Search conversations, No conversations yet, Back to conversations, and the people list's limits (es: conversación).
+  The place keeps its short name "Chats" / "Chats" (es): "Conversations" does not fit the 72 px rail. Korean: the room's
+  ✦ side chat's button is 새로 묻기 (it asks the AI again; 새 대화 is the people action), its empty line no longer calls
+  the side chat "이 대화", and the Trina list's filter (and a confidential chat's notification title) is 기밀, not
+  기밀 대화. id and ja already had two words (obrolan/chat, トーク/チャット).
+- **트리나에게 묻기 in the file viewer (S1)**: "Ask {name}" / "{name}에게 묻기" with the AI's name, as everywhere else,
+  also in its tooltip, the download-only reason and the HWP preview's note.
+- **The phone's 대화 list in the computer's order (S4)**: 멘션·스레드 on top, then the panel's sections under their names
+  (`panels/RoomsByKind.tsx` `roomsByKind`): 고정 · my folders · 팀 대화방 (전체 first) · 그룹 대화 · 1:1 대화. A folder with
+  nothing in it is left out on the phone (no empty heading). Someone with no 1:1 or group conversation yet gets one quiet
+  line under the list, "+ 동료에게 새 대화 시작하기", which opens the people list as the top bar's ⊕ does.
+- **One name per place in the Files breadcrumb (S5)** (`lib/folderLabels.ts` `crumbs`): its start is 파일 / Files (the
+  rail's name, not 팀 폴더); 개인 is left out before 내 파일 (one place, not two); my own `projects` folder (where my own
+  projects keep their folders) reads 프로젝트, as the team's does, wherever the web app names a folder or a path
+  (`folderWords` `name`/`path`: titles, back labels, Recent files, toasts). Paths, links, drops and what the AI is told
+  keep the disk path and the shared table (`shared/src/folder-labels.ts` unchanged).
+- **The phone's 파일 lists the computer's places (S7)**: the extra row "팀 폴더 전체" is gone; the 팀 폴더 label itself is
+  the row to tap there (the whole width, 44 px, with a ›).
+- Tests: `web/test/unit/rail-badges.test.tsx` (the rail and the tab give one number for the same rooms),
+  `phone-nav.test.tsx`, `room-hide.test.tsx` (the phone's sections and start line), `folder-labels.test.ts`, `file-body.test.tsx`, `web/test/e2e/phone-tabs-v2.spec.ts`,
+  `team-files.spec.ts`.
+
 ## The rail and its lists: touch, screen readers, widths (feat/nav-rail-polish, 2026-11-13, navigation redesign polish)
 
 넣을 곳: Team AX core (`web/src/components/rail/Rail.tsx`, `web/src/components/panels/`), 이유: the new navigation's

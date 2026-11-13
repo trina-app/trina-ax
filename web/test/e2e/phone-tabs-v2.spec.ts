@@ -143,7 +143,7 @@ test('파일 is the team folder\'s places; a project\'s folder goes back to 파�
   await expect(page.getByTestId('files-back')).toContainText(t['sidebar.files'])
   await page.getByTestId('files-back').click()
   await expect(page.getByTestId('phone-files-home')).toBeVisible()
-  await page.getByTestId('files-panel-team-all').click()
+  await page.getByTestId('files-panel-root').click()
   await expect(page).toHaveURL(/\/files\?team=1$/)
   // a top folder from there: ‹ goes back to the team folder's top, then to 파일
   await page.getByTestId('file-row').filter({ hasText: 'marketing' }).first().click()

@@ -3,12 +3,13 @@
 // group chats), 파일 (the team folder's places), 나 (Settings, opened on its list: 활동 and, for admins, Admin on top).
 // lib/tabs.ts says which tab an address belongs to and which one the app opens on. A hairline above, no frame; the tab
 // on screen in ink and medium weight. Each label stays on one line, cut with "…" when a language's word does not fit a
-// quarter of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): my unread room messages on
-// 대화 (a mention and a followed thread's replies among them), on 나 the unread Inbox notices that are not about a
+// quarter of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): on 대화 the rail's own mark
+// (rail/railBadges.ts chatsMark: how many conversations have something unread, a dot when only a mention/thread notice
+// is, the same number the computer shows), on 나 the unread Inbox notices that are not about a
 // conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
 // the accent for a new answer: store/sessionMarkers.ts). While @트리나 waits on me in a room (Room.aiWaits), 대화's pill
-// is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count is the same and
-// comes back when the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
+// is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count comes back when
+// the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
 // face in rooms and the rail's 트리나) where the product is named after its AI, in its own orange (the owner,
 // 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar still marks where you
@@ -25,14 +26,15 @@ import { Link } from 'react-router-dom'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { useT } from '../i18n'
 import { useRealPath } from '../lib/realPath'
-import { badgeText, totalUnread } from '../lib/rooms'
+import { badgeText } from '../lib/rooms'
 import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
 import { useChats } from '../store/chats'
-import { useNoticeUnread } from '../store/inbox'
+import { useNoticeUnread, useRoomNoticeUnread } from '../store/inbox'
 import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
+import { chatsMark, unreadRooms } from './rail/railBadges'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { TrinaStar } from './TrinaStar'
 
@@ -46,9 +48,12 @@ export function BottomTabs() {
   const t = useT()
   // under the Settings dialog the page below it is what the router shows; the bar marks "나" by the real address
   const path = useRealPath()
-  const unread = useRooms((s) => totalUnread(s.rooms))
-  // a room I hid counts nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
-  const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
+  // 대화's mark is the rail's (one function, so the phone and the computer never show two numbers); a room I hid counts
+  // nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
+  const rooms = useRooms((s) => s.rooms)
+  const roomNotices = useRoomNoticeUnread()
+  const chats = chatsMark(rooms, roomNotices)
+  const unread = unreadRooms(rooms)
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
@@ -82,13 +87,19 @@ export function BottomTabs() {
           ))}
       </TabLink>
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
-        {aiWaits ? (
+        {chats?.kind === 'ask' ? (
           <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
             <span aria-hidden>?</span>
-            <span className="sr-only">{[t('rooms.aiWaits'), unread > 0 && t('rooms.unread', { n: unread })].filter(Boolean).join(', ')}</span>
+            <span className="sr-only">{[t('rooms.aiWaits'), unread > 0 && t('rail.unreadRooms', { n: unread })].filter(Boolean).join(', ')}</span>
           </span>
+        ) : chats?.kind === 'count' ? (
+          <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />
         ) : (
-          unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />
+          chats?.kind === 'dot' && (
+            <span className="absolute -top-0.5 left-1/2 ml-2.5 size-2.5 rounded-full bg-accent ring-2 ring-canvas" data-testid="tab-chats-unread" data-mark="dot">
+              <span className="sr-only">{t('feed.chatsUnread')}</span>
+            </span>
+          )
         )}
       </TabLink>
       <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />

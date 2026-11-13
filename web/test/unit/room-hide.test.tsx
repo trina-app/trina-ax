@@ -237,7 +237,8 @@ describe('hidden rooms count nowhere', () => {
     const m = await mount(<MemoryRouter initialEntries={['/rooms']}><BottomTabs /></MemoryRouter>)
     try {
       expect(m.get('tab-chats-unread').getAttribute('data-ai-waits')).toBeNull()
-      expect(m.get('tab-chats-unread').textContent).toContain('2')
+      // one conversation (the shown one), the hidden one left out
+      expect(m.get('tab-chats-unread').textContent).toStartWith('1')
     } finally { await m.unmount() }
   })
 
@@ -296,6 +297,23 @@ describe('the conversations page', () => {
       await m.unmount()
       try { localStorage.removeItem('mycel.rooms.hiddenOpen') } catch { /* none */ }
     }
+  })
+
+  test('a phone: the panel\'s sections in its order (전체 first); someone with no 1:1 or group yet gets the quiet start line', async () => {
+    wide = false
+    useSession.setState({ status: { kind: 'signed-in', me } } as never)
+    const dm = room({ kind: 'dm', name: null, peers: [CY], groupId: null })
+    useRooms.setState({ rooms: [dm, room({ name: '개발팀' }), room({ kind: 'all', name: null })], loaded: true, failed: null })
+    const m = await mount(page())
+    try {
+      const sections = body(m).querySelectorAll('[data-testid="rooms-section"]')
+      expect(sections.map((x) => x.getAttribute('data-section'))).toEqual(['team', 'dm'])
+      expect(sections[0]!.querySelectorAll('[data-testid="rooms-row"]')).toHaveLength(2)
+      expect(m.find('rooms-start-hint')).toBeNull()
+      useRooms.setState({ rooms: [room({ kind: 'all', name: null })] })
+      await m.until(() => m.find('rooms-start-hint'), 'the start line')
+      expect(m.get('rooms-start-hint').textContent).toBe(ko('rooms.startHint'))
+    } finally { await m.unmount() }
   })
 
   test('a phone: a long press on a row opens its menu with the room\'s name on top; the finger lifting opens no room', async () => {

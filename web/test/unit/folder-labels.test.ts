@@ -63,3 +63,26 @@ describe('the own folder with the new navigation (decision Q4)', () => {
     expect(folderWords('ko', 'olga').name('users/olga', 'olga')).toBe('내 폴더')
   })
 })
+
+describe('one name per place in the Files breadcrumb (nav UX review S5)', () => {
+  test('개인 is left out before 내 파일; my own "projects" is 프로젝트; others\' folders and no user keep their names', () => {
+    try {
+      setOwnFolderWord('files')
+      const w = folderWords('ko', 'olga')
+      expect(w.crumbs('users/olga/projects/런칭')).toEqual([
+        { name: '내 파일', path: 'users/olga' },
+        { name: '프로젝트', path: 'users/olga/projects' },
+        { name: '런칭', path: 'users/olga/projects/런칭' },
+      ])
+      expect(w.name('users/olga/projects', 'projects')).toBe('프로젝트')
+      expect(w.path('users/olga/projects/런칭', ' › ')).toBe('내 파일 › 프로젝트 › 런칭')
+      // someone else's folder: 개인 stays, their "projects" is their folder's own name
+      expect(w.crumbs('users/ben/projects').map((c) => c.name)).toEqual(['개인', 'ben', 'projects'])
+      expect(w.crumbs('projects/런칭').map((c) => c.name)).toEqual(['프로젝트', '런칭'])
+      expect(folderWords('en', null).crumbs('users/olga/projects').map((c) => c.name)).toEqual(['Personal', 'olga', 'projects'])
+      expect(w.crumbs('')).toEqual([])
+    } finally {
+      setOwnFolderWord('folder')
+    }
+  })
+})

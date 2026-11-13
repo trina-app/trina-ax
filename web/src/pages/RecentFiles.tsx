@@ -66,7 +66,7 @@ export default function RecentFiles() {
                         {f.name}
                       </span>
                       <span className="block truncate text-xs text-muted" data-testid="recent-file-where">
-                        {words.path(folder, ' › ') || t('files.root')}
+                        {words.crumbs(folder).map((c) => c.name).join(' › ') || t('files.root')}
                       </span>
                     </span>
                     <time dateTime={f.mtime} className="shrink-0 text-xs text-faint">

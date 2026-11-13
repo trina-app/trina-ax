@@ -2,7 +2,12 @@
 // multi-select with the message limit), team-file chips, sending, and "Ask AI about this" from the file screen.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { DICTS } from '../../src/i18n'
+
+const AI_OFF = DICTS.ko['files.askAiDownloadOnly'].replaceAll('{name}', PRODUCT_NAMED_AFTER_AI ? DICTS.ko['rooms.aiName'] : PRODUCT.shortName)
 
 async function openPicker(page: Page) {
   await page.getByTestId('attach-button').click()
@@ -181,8 +186,8 @@ test('a download-only (generated) file: "Ask AI" and "add to chat" are off with 
   await row.getByTestId('file-menu').click()
   await expect(page.getByTestId('chat-with-file')).toBeDisabled()
   await expect(page.getByTestId('add-to-chat')).toBeDisabled()
-  await expect(page.getByTestId('file-ai-off-reason')).toHaveText("다운로드 전용 파일은 AI가 읽을 수 없어서 'AI에게 묻기'를 쓸 수 없어요.")
-  await expect(page.getByTestId('chat-with-file')).toHaveAccessibleDescription("다운로드 전용 파일은 AI가 읽을 수 없어서 'AI에게 묻기'를 쓸 수 없어요.")
+  await expect(page.getByTestId('file-ai-off-reason')).toHaveText(AI_OFF)
+  await expect(page.getByTestId('chat-with-file')).toHaveAccessibleDescription(AI_OFF)
   // download is still there
   await expect(page.getByRole('menuitem', { name: '내려받기' })).toBeEnabled()
   // the open menu with its reason line passes axe (WCAG 2.2 AA, as in a11y.spec.ts)

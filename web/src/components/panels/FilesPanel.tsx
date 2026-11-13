@@ -7,7 +7,7 @@
 // The same places are the root of a phone's 파일 tab with the new navigation (PhoneFilesHome below; docs/DECISIONS.md
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
 import clsx from 'clsx'
-import { Clock, Folder, FolderOpen, Search, SquareKanban, Trash2, User } from 'lucide-react'
+import { ChevronRight, Clock, Folder, Search, SquareKanban, Trash2, User } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { FileEntry } from '@mycel/shared/api'
@@ -128,14 +128,15 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
       <ul>{row({ key: 'recent', to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}</ul>
       {top !== null && (
         <section aria-labelledby="files-panel-team">
-          {/* the label opens the team folder's top (files kept loose there, every top folder) */}
+          {/* the label opens the team folder's top (files kept loose there, every top folder); a phone has no hover to
+              show it, so there it is a whole-width row with a ›, and the places are the computer's, no extra row */}
           <PanelLabel id="files-panel-team" testId="files-panel-label">
-            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className="rounded hover:text-ink hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center" data-testid="files-panel-root">
+            <Link to={phone ? TEAM_ROOT_ON_PHONE : '/files'} className={clsx('rounded hover:text-ink', phone ? 'flex min-h-11 w-full items-center gap-0.5' : 'hover:underline')} data-testid="files-panel-root">
               {t('filesPanel.team')}
+              {phone && <ChevronRight size={14} aria-hidden />}
             </Link>
           </PanelLabel>
-          {/* a phone has no hover to show that the label opens the team folder: its own row first */}
-          <ul>{(phone ? [{ key: 'team-all', to: TEAM_ROOT_ON_PHONE, label: t('filesPanel.teamAll'), icon: FolderOpen, testId: 'files-panel-team-all' }, ...team] : team).map(row)}</ul>
+          <ul>{team.map(row)}</ul>
         </section>
       )}
       {projectRows.length > 0 && (

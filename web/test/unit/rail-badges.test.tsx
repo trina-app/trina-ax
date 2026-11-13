@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { MemoryRouter } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
+import { BottomTabs } from '../../src/components/BottomTabs'
 import { Rail } from '../../src/components/rail/Rail'
 import { activityMark, aiMark, chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
 import { panelState } from '../../src/components/rail/railPanel'
@@ -113,6 +114,20 @@ describe('Rail', () => {
       expect(m.get('team-menu').tagName.toLowerCase()).toBe('button')
     } finally {
       await m.unmount()
+    }
+  })
+
+  test('the phone\'s 대화 tab shows the rail\'s number for the same rooms (one rule: conversations, not messages)', async () => {
+    const rail = await draw('member', '/files')
+    const tabs = await mount(<MemoryRouter initialEntries={['/files']}><BottomTabs /></MemoryRouter>)
+    try {
+      await tabs.until(() => tabs.find('tab-chats-unread'), 'the 대화 tab counted')
+      const n = rail.get('rail-chats-mark').getAttribute('data-n')
+      expect(n).toBe('2')
+      expect(tabs.get('tab-chats-unread').textContent).toBe(`${n}${ko('rail.unreadRooms', { n: 2 })}`)
+    } finally {
+      await tabs.unmount()
+      await rail.unmount()
     }
   })
 

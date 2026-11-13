@@ -436,8 +436,8 @@ describe('this window: /seen, notifications and toasts', () => {
     dispatch(card(c, '매각 가격을 얼마로 할까요?'))
     dispatch(updated({ ...c, waiting: true }, 'card'))
     await wait(80)
-    expect(notified).toEqual([{ title: '기밀 대화', body: '답을 기다려요', tag: `chat-${c.id}`, open: `/c/${c.id}` }])
-    expect(useUi.getState().toasts[0]).toMatchObject({ text: '기밀 대화', detail: '답을 기다려요' })
+    expect(notified).toEqual([{ title: '기밀', body: '답을 기다려요', tag: `chat-${c.id}`, open: `/c/${c.id}` }])
+    expect(useUi.getState().toasts[0]).toMatchObject({ text: '기밀', detail: '답을 기다려요' })
     expect(JSON.stringify([notified, useUi.getState().toasts])).not.toContain('인수')
   })
 

@@ -7,19 +7,21 @@
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
-// Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come first, all of them, the most recently pinned first,
-// with a pin after the name; then the others by latest activity.
+// The list has the 대화 panel's sections in its order (panels/RoomsByKind.tsx roomsByKind): 고정 (all my pins, the most
+// recently pinned first, a pin after the name), my folders (one with nothing in it is left out here), 팀 대화방 (전체
+// first), 그룹 대화, 1:1 대화, each under its name. Someone with no 1:1 or group conversation yet gets one quiet line
+// under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
 import clsx from 'clsx'
-import { AtSign, BellOff, ChevronDown } from 'lucide-react'
+import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
+import { plainLine, roomUnread } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -28,7 +30,9 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/nav/RoomsList'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { useFolders } from '../components/nav/NavFolders'
+import { roomsByKind } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
@@ -63,8 +67,10 @@ export default function Rooms() {
   // a computer: the 대화 panel beside the page is the list (with its ⊕ 새 대화), so the page says to pick one and keeps
   // only what the panel has not: the hidden conversations
   const computer = useMediaQuery('(min-width: 768px)')
+  const titleOf = useRoomTitle()
+  const locale = useLocale()
+  const folders = useFolders('rooms', !computer)
   if (resuming) return <div className="h-full" />
-  const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
   const hidden = everyRoom.filter((r) => r.hidden)
   if (computer)
     return (
@@ -82,10 +88,30 @@ export default function Rooms() {
       <div className="mx-auto w-full max-w-2xl">
         <ul>
           <ChatsActivityRow className={row} />
-          {rooms.map((r) => (
-            <RoomListRow key={r.id} room={r} className={row} />
-          ))}
         </ul>
+        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, folders)
+          .filter((s) => s.rooms.length > 0)
+          .map((s) => {
+            const key = s.folder ? `folder-${s.folder.id}` : s.key
+            return (
+              <section key={key} aria-labelledby={`rooms-section-${key}`} data-testid="rooms-section" data-section={s.key}>
+                <h2 id={`rooms-section-${key}`} className="truncate px-4 pt-4 pb-1 text-xs font-semibold text-faint sm:px-6">
+                  {s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
+                </h2>
+                <ul>
+                  {s.rooms.map((r) => (
+                    <RoomListRow key={r.id} room={r} className={row} />
+                  ))}
+                </ul>
+              </section>
+            )
+          })}
+        {loaded && !failed && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
+          <button type="button" onClick={() => setPicking(true)} className="mt-2 flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm text-muted hover:text-ink sm:px-6" data-testid="rooms-start-hint">
+            <Plus size={16} aria-hidden />
+            {t('rooms.startHint')}
+          </button>
+        )}
         {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         {!loaded && <Skeleton lines={4} className="px-4 py-4 sm:px-6" />}
         {loaded && !!failed && (
