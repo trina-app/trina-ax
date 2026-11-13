@@ -17749,7 +17749,11 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   quiet line, saving still works. No members picker, no instructions box, no where-question here.
 - **Entry points**: "+ 새 프로젝트" on top of 프로젝트's list (computer panel and phone tab), the Projects page and ⌘K's "New
   project", and a chat's **프로젝트로 옮기기 › + 새 프로젝트**: the chat's title is the name (selected), 만들기 makes it and moves
-  the chat in, the toast has 되돌리기. The move list says who sees each project ("나만", "멤버 4명"), never its folder path;
+  the chat in, the toast has 되돌리기. 되돌리기 moves the chat back and then deletes the project made in that step,
+  with its empty folder, only while it is still as it was made (owner 2026-11-13): mine, still 나만, no chats (anyone's,
+  in the trash too), no files or folders in it, no instructions, no scheduled task (`DELETE /api/projects/:id?ifEmpty=1`,
+  checked again in the deleting transaction; the folder goes by rmdir, so a file saved meanwhile keeps it). Otherwise
+  (409 `project_not_empty`) the project stays, without a word, and a move back that fails leaves it alone. The move list says who sees each project ("나만", "멤버 4명"), never its folder path;
   its hint: "다음 답부터 트리나가 이 프로젝트의 파일과 지침을 봐요." Choosing an existing project still uses 저장, because the
   "프로젝트 멤버와 공유" switch for sharing projects lives in that dialog (left as is).
 - **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
@@ -17760,22 +17764,31 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
   instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
   admins share sees that line instead of the button.
-- **Sharing moves the files** (review M6): the server copies the personal folder into the new `projects/<name>` exactly
-  as before (same checks, same limits, same rollback), points the project there, and then puts the personal folder in
-  **my own trash** as I would (`TeamFiles.remove` as the caller, on a folder in my own space): one copy left, the old one
-  restorable for the trash's days. Only when that folder is the project's alone and was copied whole
-  (`mayTrashSharedOriginal`): exactly `users/<me>/projects/<name>` (an older project elsewhere in my folder may sit on a
-  folder that holds more), no other project on or inside it, no `skills` folder in it, no hidden entry or link, and as
-  many files on disk as the copy took (the copy leaves out links, hidden entries and files it cannot read, which the
-  trash would later lose). Otherwise, or when the trash refuses it, the folder stays and the share still stands; the
-  toast says only that the project is shared. Nothing about who may share changed (creator who may edit,
-  `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in the
-  new folder); before, the old copy answered it.
+- **Sharing moves the files** (review M6; owner 2026-11-13: a move, nothing in the trash). The server makes the new
+  `projects/<name>` with the members' rules first (same checks as before; a taken name steps around it, "-2"), then moves
+  the personal folder onto it in one step (`TeamFiles.moveFolderOnto`, the Files screen's move: the database part and
+  the rename in one transaction, the rename onto the empty folder last). Everything in the folder moves, hidden files,
+  links and a `skills` folder too; nothing goes to the trash and no second copy is left. The files' versions from
+  before stay mine to see (as after any move out of a personal folder: they were saved in my own folder). The
+  files are the members' only from the moment they arrive (the rules were there first); the owner and admins who are
+  not members do not see them. A move that fails changes nothing: the folder, its files and the project stay as they
+  were, and the empty `projects/<name>` goes again. What I had deleted from the folder before stays in my own trash at
+  its old path (trash items do not cross a personal folder's edge, as in any move). A folder that holds another
+  project is refused (409 `project_inside`, before the confirm): that project would land below `projects/<name>`. A
+  move has no copy limits (nothing is duplicated). An older personal project on another folder of mine (not
+  `users/<me>/projects/<name>`) moves that whole folder, as its copy used to share all of it. If the rename went
+  through but its transaction did not commit, the folder is renamed back; the empty `projects/<name>` is only ever
+  removed with rmdir, so nothing that is in it is lost. Before (2026-11-13 morning) the server copied the folder and put the old one in the
+  sharer's trash, where restoring it gave a duplicate. Nothing about who may share changed (creator who may edit,
+  `assertMayCreateTeamProject`). Known: a link in a chat to a file at the old path now opens nothing (the file is in
+  the new folder).
 - Deleting a personal project says "프로젝트만 지워지고 파일은 내 파일 › 프로젝트에 그대로 남아요."
 - Left for later (the plan's phase 2): renaming the folder with the project; clean folder names for long names; one
   transaction for make-and-move.
-- Tests: `tests/security/project-is-folder.test.ts` (the personal folder is in the trash after a share, kept after a
-  refused share, kept with a hidden file or a skills folder), `r1-copy-share` (kept when a link was left out), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
+- Tests: `tests/security/project-share-move.test.ts` (moved with history, nothing in the trash, rules before the files,
+  a failed move changes nothing, a taken name), `project-is-folder.test.ts` (hidden files and skills move too, a folder
+  holding another project is refused, a raced project is refused), `r1-copy-share` (a link moves and still opens
+  nothing), `web/test/unit/project-folders*.test.tsx`, e2e `projects-panel`.
 
 ## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
 
@@ -17789,7 +17802,7 @@ for eight changes, all built:
   the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
   A `folderPath` of `projects/<name>` only names the new folder. Sharing a personal project
   (`POST /api/projects/:id/share`) makes a new `projects/<name>` with the participants chosen and copies the files into it
-  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`); `toParent` is accepted only as `projects` from
+  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`; since 2026-11-13 it moves the folder instead, see "Making a project"); `toParent` is accepted only as `projects` from
   older clients. Pointing a project at another folder stays for admins only, only for a project whose folder is in the
   trash or gone from disk, only to an existing `projects/<name>` no other project uses (nothing is made for it).
 - **Private by rule.** A new project folder gets each participant and the creator `write` and `everyone: none`

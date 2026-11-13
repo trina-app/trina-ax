@@ -2577,6 +2577,17 @@ export class MockServer {
       const p = this.projectFor(c, true)
       if (!this.projectManages(p, c.user)) fail('forbidden', 403, '프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있어요.')
       const under = (k: string) => k === p.folderPath || k.startsWith(p.folderPath + '/')
+      // 되돌리기 after "move to a new project" (server/src/routes/chats.ts stillEmpty): only my own personal project as it
+      // was made, with its empty folder; otherwise 409 project_not_empty
+      if (c.query.ifEmpty === '1' || c.query.ifEmpty === 'true') {
+        const segs = p.folderPath.split('/')
+        const empty = segs.length === 4 && segs[0] === 'users' && segs[1] === c.user.id && segs[2] === 'projects' && p.createdBy?.id === c.user.id && !p.instructions
+          && !this.chats.some((x) => x.projectId === p.id) && ![...this.files.keys()].some((k) => k.startsWith(p.folderPath + '/'))
+        if (!empty) fail('conflict', 409, '이 프로젝트에 대화나 파일이 생겨서 그대로 두었어요.', undefined, { reason: 'project_not_empty' })
+        this.projects = this.projects.filter((x) => x.id !== p.id)
+        this.files.delete(p.folderPath)
+        return undefined
+      }
       if (this.projectMembers.has(p.folderPath) && !p.inTrash) {
         this.trashedProjects.set(p.id, [...this.files.entries()].filter(([k]) => under(k)))
         for (const k of [...this.files.keys()]) if (under(k)) this.files.delete(k)

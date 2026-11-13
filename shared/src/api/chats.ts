@@ -337,6 +337,10 @@ export const DeleteProjectQuery = z.object({
   /** ignored since "Project contents only for members": a team project in projects/<name> whose folder is in place
    * always goes to the trash with its folder (the project stays, `inTrash`, until Restore or a second DELETE) */
   trashFolder: QueryBool.optional(),
+  /** 되돌리기 after "move to a new project": delete only the caller's own personal project that is still as it was made
+   * (no chats, no instructions, no scheduled task, nothing in its folder), with its empty folder; otherwise 409
+   * `project_not_empty` and nothing changes */
+  ifEmpty: QueryBool.optional(),
 })
 /** GET /api/projects and GET /api/projects/:id: `manage=1` (the owner and admins) also answers the team projects the
  * caller manages without being a member (Project.member false, no contents). Without it: projects the caller reads. */
