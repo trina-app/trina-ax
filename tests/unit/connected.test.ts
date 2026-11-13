@@ -90,6 +90,22 @@ describe('mirror', () => {
     // the folder still holds a person's file: it and its rules stay
     expect(h.ctx.db.query("SELECT 1 AS x FROM folders WHERE path = 'connected/nas'").get()).toEqual({ x: 1 })
   })
+  test('a Mac share keeps Korean names decomposed (NFD): folders and files are copied under composed (NFC) names', async () => {
+    const mac = path.join(home, 'MacShare')
+    const dir = '견적서 모음'.normalize('NFD'), file = '한글 견적_1.txt'.normalize('NFD')
+    fs.mkdirSync(path.join(mac, dir), { recursive: true }); fs.writeFileSync(path.join(mac, dir, file), 'content NFD')
+    const c = cf.add({ name: 'macshare', source: mac, actor: 'dion' })
+    const r = await cf.sync(c.id)
+    expect(r).toMatchObject({ copied: 1, files: 1 })
+    const top = fs.readdirSync(path.join(h.team, 'connected', 'macshare'))
+    expect(top).toEqual(['견적서 모음'.normalize('NFC')])
+    expect(top[0]).toBe(top[0]!.normalize('NFC'))
+    const inner = fs.readdirSync(path.join(h.team, 'connected', 'macshare', top[0]!))
+    expect(inner).toEqual(['한글 견적_1.txt'.normalize('NFC')])
+    expect(inner[0]).toBe(inner[0]!.normalize('NFC'))
+    expect(await cf.sync(c.id)).toMatchObject({ copied: 0, updated: 0, removed: 0, files: 1 })
+    expect(cf.remove(c.id, 'dion')).toBe(true)
+  })
   test('a mirror left empty on disconnect disappears with its rules row', async () => {
     const other = path.join(home, 'Other')
     fs.mkdirSync(path.join(other, 'sub'), { recursive: true }); fs.writeFileSync(path.join(other, 'sub', 'a.txt'), 'a')

@@ -23,6 +23,7 @@ import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
+import { MY_PROFILE_CHANGED } from '../auth/profiles'
 import { revokeTeamLinksBy } from '../auth/team-links'
 import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
@@ -177,6 +178,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.role === 'admin') try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: id }) } catch { /* the inbox row ages out */ }
   // the person's open windows ask for their language again (GET /api/me) and switch without a reload
   if (changed.locale !== undefined) ctx.services.realtime.publish(id, LOCALE_CHANGED)
+  // a new role or new groups: their open windows read their account again (the Admin area closes at once, not after a reload)
+  if (changed.role !== undefined || changed.groupIds !== undefined) ctx.services.realtime.publish(id, MY_PROFILE_CHANGED)
   // disabled or enabled again: nothing buffered under the earlier state is replayed (group / rule changes made while
   // the account was disabled never reached afterAccessChange for them)
   if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
