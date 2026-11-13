@@ -24,7 +24,7 @@ import { isAdmin, useMe } from '../store/session'
 import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog } from './ui'
-import { PeopleList, useProjectPeople } from './ProjectPeople'
+import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
@@ -211,6 +211,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
           </p>
         )}
         {!manages && people === null && <Skeleton lines={3} />}
+        {/* a member's list could not be read: say so rather than an empty dialog */}
+        {!manages && people === false && hasPeopleList(project) && <ErrorNote>{t('error.network')}</ErrorNote>}
         {/* the other settings of its folder: those of the folder itself can go (×, undone before the save), those of
             folders inside are shown only; folders inside the caller may not read are counted */}
         {editable && (otherRules.length > 0 || hidden > 0) && (

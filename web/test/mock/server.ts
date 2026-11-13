@@ -2603,7 +2603,7 @@ export class MockServer {
     getProjectPeople: (c) => {
       const p = this.projectFor(c, true)
       if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', undefined, { reason: 'project_personal' })
-      if (!this.projectMembers.has(p.folderPath) && !/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
+      if (!/^projects\/[^/]+$/i.test(p.folderPath)) fail('conflict', 409, '이 프로젝트는 프로젝트 폴더 밖에서 만들어져서 멤버 목록이 없어요.', undefined, { reason: 'project_legacy' })
       const creator = p.createdBy?.id
       const people = this.sharedAudience(p).map((u) => ({ id: u.id, name: u.name, ...(u.id === creator ? { creator: true as const } : {}) }))
         .sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name))

@@ -22,9 +22,10 @@ export const hasPeopleList = (p: Pick<Project, 'folderPath' | 'inTrash'>) => isP
 export function useProjectPeople(p: Pick<Project, 'id' | 'folderPath' | 'inTrash'> | null, version = 0): ProjectPeople | null | false {
   const [people, setPeople] = useState<ProjectPeople | null | false>(null)
   const on = !!p && hasPeopleList(p)
+  // another project: nothing until its list comes; the same one asked again: the faces it has stay meanwhile
+  useEffect(() => { setPeople(null) }, [p?.id])
   useEffect(() => {
-    setPeople(on ? null : false)
-    if (!on) return
+    if (!on) { setPeople(false); return }
     let live = true
     api.call(API.getProjectPeople, { params: { id: p!.id } }).then((r) => live && setPeople(r), () => live && setPeople(false))
     return () => { live = false }
@@ -49,11 +50,12 @@ export function PeopleStack({ people, onOpen, testId }: { people: readonly Proje
   const names = peopleNames(t, people)
   const faces = <FaceStack people={people} count={people.length} shown={FACES_MAX} phoneShown={FACES_MAX} tips testId={testId} />
   if (!onOpen) return faces
-  const label = t('projects.peopleLabel', { names })
   return (
-    // no-tooltip: each face says its name on hover; the button reads all of them
-    <button type="button" onClick={onOpen} aria-label={label} className="-m-1 flex items-center rounded-full p-1 hover:bg-hover pointer-coarse:min-h-11" data-testid={`${testId}-open`}>
+    // no-tooltip: each face says its name on hover; the button's words (for screen readers) name all of them. Its name
+    // is those words, not an aria-label: the letters on the faces would then not match it
+    <button type="button" onClick={onOpen} className="-m-1 flex items-center rounded-full p-1 hover:bg-hover pointer-coarse:min-h-11" data-testid={`${testId}-open`}>
       {faces}
+      <span className="sr-only">{t('projects.peopleLabel', { names })}</span>
     </button>
   )
 }

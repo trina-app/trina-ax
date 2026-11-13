@@ -768,7 +768,10 @@ export const chatsRoutes: RouteModule = {
       const r = projectFor(p, params.id, true)
       if (isPersonalPath(r.folder_path)) fail('conflict', tr('sharedProjectPersonal', locale), { params: { reason: 'project_personal' } })
       if (!isProjectsFolder(r.folder_path)) fail('conflict', tr('projectPeopleLegacy', locale), { params: { reason: 'project_legacy' } })
-      return projectPeople(ctx, r, { manage: mayManage(ctx, p, r) })
+      // the groups: as GET …/access gives its participants (the owner and admins; its creator only while the folder is
+      // theirs to change: an older project on an admin's folder keeps the admin's rules from them)
+      const groups = p.role === 'owner' || p.role === 'admin' || (mayManage(ctx, p, r) && accessEditable(r, ctx.files, p))
+      return projectPeople(ctx, r, { manage: groups })
     })
 
     // change who sees it: the project folder's rules, saved as Admin › Folder permissions saves them

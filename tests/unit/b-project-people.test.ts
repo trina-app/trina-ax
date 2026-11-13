@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type Project } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { oldProject } from '../lib/legacy-project'
+import { legacyProject, oldProject } from '../lib/legacy-project'
 
 setDefaultTimeout(60_000)
 const code = async (p: Promise<unknown>) => { try { await p; return 'ok' } catch (e) { return e instanceof ApiError ? `${e.status} ${e.code}${e.body.params?.reason ? ` ${e.body.params.reason}` : ''}` : String(e) } }
@@ -98,5 +98,21 @@ describe('GET /api/projects/:id/people', () => {
     expect(await code(h.api('bob').call(API.getProjectPeople, { params: { id: gone.id } }))).toBe('404 not_found')
     expect(await code(h.api('alice').call(API.getProjectPeople, { params: { id: gone.id } }))).toBe('404 not_found')
     expect(await h.api('dana').call(API.getProjectPeople, { params: { id: gone.id } })).toEqual({ people: [], groups: [] })
+  })
+  test('a creator whose older project sits on an admin\'s folder gets the people, not the groups the admin chose', async () => {
+    // projects/falcon: alice writes (her own rule), finance reads; the row was not made by the server (folder_made 0)
+    const id = legacyProject(h.ctx.db, h.team, 'alice', { name: 'Falcon', folderPath: 'projects/falcon' })
+    const mine = await h.api('alice').call(API.getProjectPeople, { params: { id } })
+    expect(ids(mine)).toContain('alice')
+    expect(mine.groups).toBeUndefined()
+    expect((await h.api('carol').call(API.getProjectPeople, { params: { id } })).groups?.map((g) => g.id)).toEqual(['finance'])
+  })
+
+  test('an admin who is a member reads it as a member and gets the groups as an admin', async () => {
+    const access = await h.api('alice').call(API.getProjectAccess, { params: { id: both.id } })
+    await h.api('alice').call(API.putProjectParticipants, { params: { id: both.id }, body: { participants: [{ subjectType: 'group', subjectId: 'marketing' }, { subjectType: 'group', subjectId: 'finance' }, { subjectType: 'user', subjectId: 'carol' }], expectedHash: access.rulesHash } })
+    const r = await h.api('carol').call(API.getProjectPeople, { params: { id: both.id } })
+    expect(ids(r)).toEqual(['alice', 'bob', 'carol', 'erin'])
+    expect(r.groups?.map((g) => g.id)).toEqual(['finance', 'marketing'])
   })
 })

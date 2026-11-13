@@ -29,7 +29,7 @@ async function as(browser: Browser, who: { username: string; password: string },
 }
 
 test('the owner: faces under the name and on the 멤버 line; the dialog lists everyone once, groups open to their people', async ({ page }) => {
-  await reset(page)
+  await reset(page, { withAdmin: true })
   await signIn(page)
   const { id, lead } = await seed(page)
   await page.goto(`/projects/${id}`)
@@ -57,7 +57,7 @@ test('the owner: faces under the name and on the 멤버 line; the dialog lists e
 })
 
 test('a member: the faces open the list only, with "나"; a phone shows the faces under the bar', async ({ page, browser }) => {
-  await reset(page)
+  await reset(page, { withAdmin: true })
   await signIn(page)
   const { id } = await seed(page)
   const b = await as(browser, { username: 'bob', password: 'bob password 1' })
