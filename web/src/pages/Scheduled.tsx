@@ -15,10 +15,10 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatElapsed } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
 import { newChatPath } from '../lib/newChat'
-import { optimistic, optimisticPending } from '../lib/optimistic'
+import { optimistic } from '../lib/optimistic'
 import { cardLine, lastRunOf, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runLabel, runReason, runTone, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
-import { putCached, readSchedules, SHARED, useCachedRead } from '../store/listCache'
+import { putCached, readSchedules, scheduleKey, SHARED, useCachedRead } from '../store/listCache'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
@@ -37,7 +37,6 @@ const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn:
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
 /** a task's on / off: its queue (lib/optimistic.ts) */
-const scheduleKey = (id: string) => `schedule:${id}:enabled`
 
 /** The person's own tasks and the team time zone they run in, kept fresh when another screen changes them, when a
  * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
@@ -50,10 +49,8 @@ function useScheduleList() {
   const t = useT(), locale = useLocale()
   // the list as this window last read it (store/listCache.ts, shared with the "paused for review" banner and Search):
   // a visit after the first shows it at once and reads it again behind it
-  // (an on / off still on its way stays as on screen: this read may be from before it)
-  const list = useCachedRead<ScheduleList>(SHARED.schedules, () => readSchedules().then((r) => ({
-    ...r, items: r.items.map((x) => (optimisticPending(scheduleKey(x.id)) ? shown.current?.find((y) => y.id === x.id) ?? x : x)),
-  })))
+  // (an on / off still on its way stays as on screen: readSchedules keeps it for every reader)
+  const list = useCachedRead<ScheduleList>(SHARED.schedules, readSchedules)
   const items = list.data?.items ?? null
   const tz = list.data?.timeZone ?? ''
   const error = list.failed ? errorText(list.failed, locale, t('error.network')) : null

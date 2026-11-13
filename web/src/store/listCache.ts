@@ -17,6 +17,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { api, API } from '../lib/api'
+import { optimisticPending } from '../lib/optimistic'
+import type { Schedule } from '@mycel/shared/api'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useProjects } from './projects'
 import { accessChanged, chatChanged, enginesChanged, filesChanged, integrationsChanged, reloadAsked, schedulesChanged, skillsChanged } from './live'
@@ -150,7 +152,14 @@ export function useCachedRead<T>(key: string | null, read: () => Promise<T>, o: 
 /** The reads more than one screen keeps under one key: Scheduled tasks and its banner and Search; Settings ›
  * Connectors and Search; the person's skills ("/name" order) for Search. */
 export const SHARED = { schedules: 'schedules', integrations: 'integrations:list', skills: 'skills:list' } as const
-export const readSchedules = () => api.call(API.listSchedules)
+/** the key of a task's on / off change (lib/optimistic.ts) */
+export const scheduleKey = (id: string) => `schedule:${id}:enabled`
+/** The tasks, for every reader of the shared list (Scheduled, Search, the banner): a task whose on / off is still on
+ * its way keeps the value the kept list shows, because this answer may be from before the change. */
+export const readSchedules = () => api.call(API.listSchedules).then((r) => {
+  const kept = peekCached<{ items: Schedule[] }>(SHARED.schedules)?.items
+  return { ...r, items: r.items.map((x) => (optimisticPending(scheduleKey(x.id)) ? kept?.find((y) => y.id === x.id) ?? x : x)) }
+})
 export const readIntegrations = () => api.call(API.listIntegrations)
 export const readSkillList = () => api.call(API.listSkills).then((r) => r.items)
 
