@@ -1,6 +1,6 @@
 // Leaving a team project (docs/DECISIONS.md "Leaving a project"; QA TC-1020), at 1440 and 390 px with axe on each
 // screen: Bob, who is in the project through the 영업 group, leaves it from the project page's name menu (a phone: the
-// bar's "···" sheet); one confirm in plain words; he lands on the list without it, his own chat there is his chat now;
+// bar's "···" sheet); one confirm in plain words; he lands on the list without it, his own ("Only me") chat there is his chat now;
 // the owner's members dialog shows the group with "Bob 제외" on its row. The last person in a project sees the item off
 // with what to do instead (the page's menu; on a computer the card's "…" too).
 // SHOT_DIR: where the screenshots go (none without it).
@@ -56,7 +56,8 @@ for (const vp of VIEWPORTS) {
       const gid = await seed(page)
       const id = await project(page, '견적서 제작', [{ subjectType: 'group', subjectId: gid }])
       const b = await asBob(browser)
-      const mine = await b.request.post('/api/chats', { headers: H, data: { title: '내 메모', projectId: id } })
+      // "Only me": a team project's new chat is shared by default, and only private chats move out with the leaver
+      const mine = await b.request.post('/api/chats', { headers: H, data: { title: '내 메모', projectId: id, private: true } })
       expect(mine.ok()).toBeTruthy()
       const chatId = ((await mine.json()) as { id: string }).id
 
