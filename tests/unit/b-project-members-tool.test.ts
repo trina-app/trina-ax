@@ -4,6 +4,8 @@
 // - the names (M2, M3, N3): exact, compact, look-alike and invisible characters fold together across people and groups,
 //   so a look-alike or a same name needs the id; an id must be one of its name's candidates; removal by a part of 2+
 //   characters among the members; one message for "not a member"; no group of someone else's;
+// (a team project's chats are shared by default since 2026-11-13: the person's own chat there starts "Only me",
+// `private`, docs/DECISIONS.md "Team project chats shared by default")
 // - where it runs: refused (refusal()) in a scheduled run, a room, a shared chat, a confidential chat, a chat other
 //   people wrote in, a Slack thread's chat, a limited run, and for a sub-agent; never in the room or shared allowlists,
 //   FILE_TOOLS or the remote connector; at most two cards, none after a no, one at a time;
@@ -81,7 +83,7 @@ const user = (id: string) => ({ subjectType: 'user' as const, subjectId: id })
 /** One answer in a chat of `who` (a new chat of `projectId`, or `chat`); every card answered with `answer` (null: left to
  * close by itself), `meanwhile` run while the first card waits. */
 async function turn(who: string, content: string, o: { projectId?: string; chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
-  const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: { ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.side ? { sideRoomId: o.side } : {}) } })).id
+  const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: { ...(o.projectId ? { projectId: o.projectId, private: true } : {}), ...(o.side ? { sideRoomId: o.side } : {}) } })).id
   const r = await h.api(who).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const cards: Card[] = []
   const seen = new Set<string>()
@@ -235,7 +237,7 @@ describe('where it runs', () => {
 
   test('refused up front everywhere but the person\'s own chat with them there (refusal(): what, why, next)', async () => {
     const p = await project('alice', 'Gate')
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     const exec = (o: Record<string, unknown> = {}, spec: Record<string, unknown> = {}) => ({
       spec: { userId: 'alice', chatId: chat, turnId: uuidv7(), assistantId: uuidv7(), locale: 'en', clientKind: 'web', ...spec },
       room: null, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false,
@@ -271,7 +273,7 @@ describe('where it runs', () => {
 
   test('a Slack thread\'s chat and a sub-agent, through a real answer: refused, no card, nothing changed', async () => {
     const p = await project('alice', 'Slacked')
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     h.ctx.db.query("INSERT INTO slack_threads (team_id, channel_id, thread_ts, user_id, chat_id, created_at) VALUES ('T1', 'C1', '1.1', 'alice', ?, '2026-11-10T00:00:00Z')").run(chat)
     const r = await turn('alice', call({ add: [{ name: 'Bob Lee' }] }), { chat, answer: 'change' })
     expect(r.cards).toEqual([])
@@ -399,7 +401,7 @@ describe('the attacks', () => {
     // this chat's own project: not red
     expect(c.details![0]!.alerts).toBeUndefined()
     // a chat that read rooms (rooms_seen) leads with the same line; a name the person wrote is not red
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
     const seen = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { chat, answer: 'skip' })
     expect(seen.cards).toHaveLength(1)
@@ -595,7 +597,7 @@ describe('the audit and the busy card', () => {
     expect(r.content).toContain('no active person on this team')
     expect(audits(r.turnId).map((a) => [a.outcome, a.reason])).toEqual([['refused', 'unclear']])
     // busy: a stand-in turn with another card open
-    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id } })).id
+    const chat = (await h.api('alice').call(API.createChat, { body: { projectId: p.id, private: true } })).id
     const asked: TurnRequest[] = []
     const exec = {
       spec: { userId: 'alice', chatId: chat, turnId: uuidv7(), assistantId: uuidv7(), locale: 'en', clientKind: 'web' },

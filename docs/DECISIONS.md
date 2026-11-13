@@ -15115,6 +15115,9 @@ be asked again):
   who sees the chat would see what it brings in, and points to **Continue in a chat only you see** in the chat's title
   menu, which opens the project page with a new "Only me" chat's box holding the person's last question (nothing is
   sent until they send it). The button lives in the menu, not in each answer (the AI's words are not matched).
+  What a shared chat never had stays so now that most team project chats are shared: the AI's change of a project's
+  members (`change_project_members`, "a chat of their own") and the other own-chat tools work in an "Only me" chat of
+  the project (or outside it), not in a shared one.
 - **Wording** (English first): "New chats are seen and continued by the project's {n} members." + "Only me"; on: "Only
   you see this chat · your apps and memories work here"; an empty team project: "No chats yet. Ask here and every member
   sees it."; personal → team: "{names} can see and edit this project's files and instructions. Chats started here from
