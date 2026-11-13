@@ -1,15 +1,17 @@
-// Phone type audit (docs/DESIGN-SYSTEM.md "Typography", How to check): signs in to a running team server, opens the
-// screens and overlays a phone reaches at 390×844 (or --width/--height), and records every visible text: its computed
-// font size, line height, weight, the nearest data-testid and its classes. Text under the phone floor is flagged:
-//   body or row text (primary colour) under 15px, a label (text-label) under 14px, meta (text-xs / text-micro, times,
-//   hints, secondary colours) and control text under 13px, code under 13px, and anything under 12px except a badge
-//   (a count or tag: [data-badge], or a test id ending in -unread or -badge) at 11px. An avatar's initial (aria-hidden,
-//   beside the name) is not counted.
-// Writes <out>/audit.csv (one row per distinct text style per view) and <out>/summary.md (counts and the flagged
-// groups). Dev tool, not part of the build.
+// Type audit (docs/DESIGN-SYSTEM.md "Typography", How to check): signs in to a running team server, opens the
+// screens and overlays a phone reaches at 390×844 and a computer at 1440×900 (or --width 390,1440 / one width; the
+// height is 844 below 768px wide and 900 from it, or --height), and records every visible text: its computed font
+// size, line height, weight, the nearest data-testid and its classes. Text under the floor of that width is flagged:
+//   phone (below 768px): body or row text (primary colour) under 15px, a label (text-label) under 14px, meta (text-xs /
+//   text-micro, times, hints, secondary colours) and control text under 13px, code under 13px, and anything under 12px
+//   except a badge (a count or tag: [data-badge], or a test id ending in -unread or -badge) at 11px;
+//   computer: body under 15px, labels, meta and controls under 13px, code under 12px, anything under 12px (badges too).
+//   An avatar's initial (aria-hidden, beside the name) is not counted.
+// Writes <out>/audit.csv (one row per distinct text style per view and width) and <out>/summary.md (counts and the
+// flagged groups, per width). Dev tool, not part of the build.
 //
 //   bun web/scripts/type-audit.ts --base http://127.0.0.1:19100 --user kim --password-file ./owner-pw \
-//     [--member mia --member-password-file ./mia-pw] [--out type-audit] [--width 390 --height 844] [--only drawer,admin]
+//     [--member mia --member-password-file ./mia-pw] [--out type-audit] [--width 390,1440 --height 844] [--only drawer,admin]
 //     [--anon-only] [--file shared/a.txt]
 //
 // Passwords: --password-file / --member-password-file, or TYPE_AUDIT_PASSWORD / TYPE_AUDIT_MEMBER_PASSWORD in the
@@ -27,14 +29,21 @@ const argv = process.argv.slice(2)
 const opt = (name: string, d = '') => { const i = argv.indexOf(`--${name}`); return i >= 0 && argv[i + 1] ? argv[i + 1]! : d }
 const BASE = opt('base', 'http://127.0.0.1:19100').replace(/\/$/, '')
 const OUT = path.resolve(opt('out', path.join(os.tmpdir(), `type-audit-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`)))
-const W = Number(opt('width', '390')), H = Number(opt('height', '844'))
+const WIDTHS = opt('width', '390,1440').split(',').map(Number).filter((n) => n > 0)
+// the width being audited (one pass per width); below 768px is the phone layout (web/src/index.css)
+let W = WIDTHS[0]!, H = 844
+const phone = () => W < 768
+// a phone context (touch) below 768px, a computer's (mouse) from it
+const viewport = () => ({ viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: phone(), isMobile: phone(), locale: 'ko-KR' })
+// what only a phone has: the drawer and the long-press sheets
+const PHONE_ONLY = /(^|:)(drawer|sheet|selected)$/
 const ONLY = opt('only') ? new Set(opt('only').split(',')) : null
 const read = (f: string) => (f ? fs.readFileSync(f, 'utf8').trim() : '')
 const OWNER = { user: opt('user', 'kim'), password: process.env.TYPE_AUDIT_PASSWORD ?? read(opt('password-file')) }
 const MEMBER = opt('member') ? { user: opt('member'), password: process.env.TYPE_AUDIT_MEMBER_PASSWORD ?? read(opt('member-password-file')) } : null
 
 interface Text { size: number; lh: string; weight: string; family: string; tag: string; cls: string; ctx: string; testid: string; text: string; kind: string }
-interface Row extends Text { view: string; route: string; count: number; flag: string }
+interface Row extends Text { width: number; view: string; route: string; count: number; flag: string }
 
 /** In the page: every visible text node under `scope` with its computed style and a guess of what kind of text it is. */
 function collect(scope: string | null): Text[] {
@@ -87,14 +96,17 @@ function collect(scope: string | null): Text[] {
   return out
 }
 
-// the phone floor (docs/DESIGN-SYSTEM.md): body and rows 15, labels 14, meta (times, hints, captions, secondary text)
-// and controls 13, code 13, badges 11. A glyph (an avatar's initial, aria-hidden beside the name) is not text to read.
-const FLOOR: Record<string, number> = { body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
+// the floors (docs/DESIGN-SYSTEM.md): on phones body and rows 15, labels 14, meta (times, hints, captions, secondary
+// text) and controls 13, code 13, badges 11; on computers body and rows 15, labels, meta and controls 13, code and
+// badges 12. A glyph (an avatar's initial, aria-hidden beside the name) is not text to read.
+const PHONE_FLOOR: Record<string, number> = { body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
+const COMPUTER_FLOOR: Record<string, number> = { body: 15, label: 13, meta: 13, control: 13, code: 12, badge: 12, glyph: 0 }
 function flagOf(t: Text): string {
   if (t.kind === 'glyph') return ''
+  const floor = phone() ? PHONE_FLOOR : COMPUTER_FLOOR
   if (t.size < 11) return 'under-11'
   if (t.size < 12 && t.kind !== 'badge') return 'under-12'
-  if (t.size < FLOOR[t.kind]!) return `${t.kind}-under-${FLOOR[t.kind]}`
+  if (t.size < floor[t.kind]!) return `${t.kind}-under-${floor[t.kind]}`
   return ''
 }
 
@@ -113,6 +125,7 @@ const settle = (page: Page, ms = 900) => page.waitForTimeout(ms)
 
 async function view(page: Page, name: string, route: string, opts: { scope?: string; open?: (p: Page) => Promise<unknown>; wait?: string } = {}) {
   if (ONLY && !ONLY.has(name) && !ONLY.has(name.split(':')[0]!)) return
+  if (!phone() && PHONE_ONLY.test(name)) return
   try {
     await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector(opts.wait ?? '#root *', { timeout: 15_000 })
@@ -125,13 +138,13 @@ async function view(page: Page, name: string, route: string, opts: { scope?: str
       const key = `${t.size}|${t.lh}|${t.weight}|${t.cls}|${t.testid}|${t.kind}`
       const r = seen.get(key)
       if (r) r.count++
-      else seen.set(key, { ...t, view: name, route, count: 1, flag: flagOf(t) })
+      else seen.set(key, { ...t, width: W, view: name, route, count: 1, flag: flagOf(t) })
     }
     rows.push(...seen.values())
-    console.log(`${name.padEnd(28)} ${texts.length} texts, ${[...seen.values()].filter((r) => r.flag).length} flagged styles`)
+    console.log(`${W} ${name.padEnd(28)} ${texts.length} texts, ${[...seen.values()].filter((r) => r.flag).length} flagged styles`)
   } catch (e) {
-    skipped.push(`${name} (${route}): ${String(e).split('\n')[0]}`)
-    console.log(`${name.padEnd(28)} skipped: ${String(e).split('\n')[0]}`)
+    skipped.push(`${W}px ${name} (${route}): ${String(e).split('\n')[0]}`)
+    console.log(`${W} ${name.padEnd(28)} skipped: ${String(e).split('\n')[0]}`)
   }
 }
 const click = (sel: string) => async (p: Page) => { await p.locator(sel).first().click({ timeout: 8_000 }) }
@@ -143,7 +156,7 @@ const longPress = (sel: string) => async (p: Page) => {
 }
 
 async function ownerViews(browser: Browser) {
-  const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: true, isMobile: true, locale: 'ko-KR' })
+  const ctx = await browser.newContext(viewport())
   await signIn(ctx, OWNER)
   const page = await ctx.newPage()
   await page.goto(`${BASE}/`)
@@ -240,7 +253,7 @@ async function ownerViews(browser: Browser) {
 }
 
 async function anonViews(browser: Browser) {
-  const ctx = await browser.newContext({ viewport: { width: W, height: H }, hasTouch: true, isMobile: true, locale: 'ko-KR' })
+  const ctx = await browser.newContext(viewport())
   const page = await ctx.newPage()
   await view(page, 'login', '/login', { wait: 'input' })
   await view(page, 'login:error', '/login', { wait: 'input', open: async (p) => { await p.locator('input').first().fill('nobody'); await p.locator('input[type="password"]').first().fill('wrong password 1'); await p.keyboard.press('Enter'); await p.waitForTimeout(800) } })
@@ -255,7 +268,7 @@ async function anonViews(browser: Browser) {
 
 async function memberViews(browser: Browser) {
   if (!MEMBER) return
-  const ctx = await browser.newContext({ viewport: { width: W, height: H }, hasTouch: true, isMobile: true, locale: 'ko-KR' })
+  const ctx = await browser.newContext(viewport())
   await signIn(ctx, MEMBER)
   const page = await ctx.newPage()
   await view(page, 'member:home', '/')
@@ -270,11 +283,15 @@ async function memberViews(browser: Browser) {
 
 const browser = await chromium.launch()
 try {
-  await anonViews(browser)
-  // --anon-only: the signed-out pages alone (a server before its first account shows /setup)
-  if (!argv.includes('--anon-only')) {
-    await ownerViews(browser)
-    await memberViews(browser)
+  for (const w of WIDTHS) {
+    W = w
+    H = Number(opt('height', w < 768 ? '844' : '900'))
+    await anonViews(browser)
+    // --anon-only: the signed-out pages alone (a server before its first account shows /setup)
+    if (!argv.includes('--anon-only')) {
+      await ownerViews(browser)
+      await memberViews(browser)
+    }
   }
 } finally {
   await browser.close()
@@ -282,30 +299,39 @@ try {
 
 fs.mkdirSync(OUT, { recursive: true })
 const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
-const cols: (keyof Row)[] = ['view', 'route', 'flag', 'kind', 'size', 'lh', 'weight', 'family', 'tag', 'testid', 'cls', 'ctx', 'count', 'text']
+const cols: (keyof Row)[] = ['width', 'view', 'route', 'flag', 'kind', 'size', 'lh', 'weight', 'family', 'tag', 'testid', 'cls', 'ctx', 'count', 'text']
 fs.writeFileSync(path.join(OUT, 'audit.csv'), [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n') + '\n')
 
-const flagged = rows.filter((r) => r.flag)
-const byFlag = new Map<string, number>()
-for (const r of flagged) byFlag.set(r.flag, (byFlag.get(r.flag) ?? 0) + r.count)
-const groups = new Map<string, { n: number; views: Set<string>; r: Row }>()
-for (const r of flagged) {
-  const k = `${r.flag}|${r.size}|${r.cls}`
-  const g = groups.get(k) ?? { n: 0, views: new Set<string>(), r }
-  g.n += r.count; g.views.add(r.view); groups.set(k, g)
+// one section per width, each with its own floor
+function section(width: number, rs: Row[]): string[] {
+  const flagged = rs.filter((r) => r.flag)
+  const byFlag = new Map<string, number>()
+  for (const r of flagged) byFlag.set(r.flag, (byFlag.get(r.flag) ?? 0) + r.count)
+  const groups = new Map<string, { n: number; views: Set<string>; r: Row }>()
+  for (const r of flagged) {
+    const k = `${r.flag}|${r.size}|${r.cls}`
+    const g = groups.get(k) ?? { n: 0, views: new Set<string>(), r }
+    g.n += r.count; g.views.add(r.view); groups.set(k, g)
+  }
+  const sizes = new Map<number, number>()
+  for (const r of rs) sizes.set(r.size, (sizes.get(r.size) ?? 0) + r.count)
+  return [
+    `## ${width < 768 ? 'Phone' : 'Computer'} (${width}px wide)`, '',
+    `Views: ${new Set(rs.map((r) => r.view)).size}, text nodes: ${rs.reduce((a, r) => a + r.count, 0)}, distinct styles: ${rs.length}.`,
+    `Flagged text nodes: ${flagged.reduce((a, r) => a + r.count, 0)} (${flagged.length} styles).`, '',
+    '| Rule | Text nodes |', '| --- | --- |', ...[...byFlag].sort((a, b) => b[1] - a[1]).map(([f, n]) => `| ${f} | ${n} |`), '',
+    '| Size (px) | Text nodes |', '| --- | --- |', ...[...sizes].sort((a, b) => a[0] - b[0]).map(([s, n]) => `| ${s} | ${n} |`), '',
+    '### Flagged, grouped by rule, size and classes', '',
+    '| Rule | px | Nodes | Views | Classes | Example |', '| --- | --- | --- | --- | --- | --- |',
+    ...[...groups.values()].sort((a, b) => b.n - a.n).map((g) => `| ${g.r.flag} | ${g.r.size} | ${g.n} | ${[...g.views].slice(0, 4).join(' ')}${g.views.size > 4 ? ` +${g.views.size - 4}` : ''} | \`${(g.r.cls || g.r.ctx).slice(0, 90)}\` | ${g.r.testid ? `[${g.r.testid}] ` : ''}${g.r.text.replace(/\|/g, '/')} |`),
+    '',
+  ]
 }
-const sizes = new Map<number, number>()
-for (const r of rows) sizes.set(r.size, (sizes.get(r.size) ?? 0) + r.count)
+const flagged = rows.filter((r) => r.flag)
 const md = [
-  `# Phone type audit (${W}×${H}) — ${BASE}`, '',
-  `Views: ${new Set(rows.map((r) => r.view)).size}, text nodes: ${rows.reduce((a, r) => a + r.count, 0)}, distinct styles: ${rows.length}.`,
-  `Flagged text nodes: ${flagged.reduce((a, r) => a + r.count, 0)} (${flagged.length} styles).`, '',
-  '| Rule | Text nodes |', '| --- | --- |', ...[...byFlag].sort((a, b) => b[1] - a[1]).map(([f, n]) => `| ${f} | ${n} |`), '',
-  '| Size (px) | Text nodes |', '| --- | --- |', ...[...sizes].sort((a, b) => a[0] - b[0]).map(([s, n]) => `| ${s} | ${n} |`), '',
-  '## Flagged, grouped by rule, size and classes', '',
-  '| Rule | px | Nodes | Views | Classes | Example |', '| --- | --- | --- | --- | --- | --- |',
-  ...[...groups.values()].sort((a, b) => b.n - a.n).map((g) => `| ${g.r.flag} | ${g.r.size} | ${g.n} | ${[...g.views].slice(0, 4).join(' ')}${g.views.size > 4 ? ` +${g.views.size - 4}` : ''} | \`${(g.r.cls || g.r.ctx).slice(0, 90)}\` | ${g.r.testid ? `[${g.r.testid}] ` : ''}${g.r.text.replace(/\|/g, '/')} |`),
-  '', '## Skipped views', '', ...(skipped.length ? skipped.map((s) => `- ${s}`) : ['none']), '',
+  `# Type audit (${WIDTHS.join(', ')}px wide) — ${BASE}`, '',
+  ...WIDTHS.flatMap((w) => section(w, rows.filter((r) => r.width === w))),
+  '## Skipped views', '', ...(skipped.length ? skipped.map((s) => `- ${s}`) : ['none']), '',
 ]
 fs.writeFileSync(path.join(OUT, 'summary.md'), md.join('\n'))
 console.log(`\n${rows.length} styles, ${flagged.length} flagged; ${skipped.length} views skipped → ${OUT}`)

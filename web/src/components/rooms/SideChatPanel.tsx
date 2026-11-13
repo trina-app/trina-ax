@@ -661,7 +661,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             }}
           />
         )}
-        <p className="pt-1.5 text-center text-[11px] text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
+        <p className="pt-1.5 text-center text-micro text-faint in-[.keyboard-open]:hidden" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
     </FileDropZone>
   )

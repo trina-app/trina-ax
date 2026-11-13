@@ -319,11 +319,11 @@ for (const touch of [true, false])
   })
 
 for (const width of [768, 1440])
-  test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 14 px fields`, async ({ page }) => {
+  test(`a computer or tablet keeps its sizes at ${width} px: 36 px buttons and 15 px fields`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/login')
     expect((await page.getByTestId('login-submit').boundingBox())!.height).toBe(36)
-    expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
+    expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('15px')
   })
 
 // measured on dev before the third round's change: computers keep these exactly
