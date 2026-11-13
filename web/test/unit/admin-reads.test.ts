@@ -75,7 +75,7 @@ test('an answer to a request that left before a change is not taken as fresh', a
 
 test('sign-out drops every kept answer, and an answer that arrives after it is thrown away', async () => {
   await readAdmin('users', loadAdminUsers)
-  expect(keptAdminRead('users')).toEqual([])
+  expect(keptAdminRead<unknown[]>('users')).toEqual([])
   resetAdminReads()
   expect(keptAdminRead('users')).toBeUndefined()
   let open!: () => void
@@ -102,7 +102,7 @@ test('a screen\'s own save wins over a read that left before it', async () => {
   putAdminRead('groups', saved)
   open()
   await before
-  expect(keptAdminRead('groups')).toEqual(saved)
+  expect(keptAdminRead<unknown[]>('groups')).toEqual(saved)
 })
 
 test('a screen that opens after a change does not join a read that left before it', async () => {
