@@ -101,10 +101,14 @@ export function useRailHere(): RailItem | null {
   return railHereKept(pathname, search, state)
 }
 
+/** Pages a place lights but never reopens: the owner's setup steps (/welcome) are reached from their setup row, so 트리나
+ * opens the Trina list, not the wizard again (UX review S3). */
+const NOT_KEPT = ['/welcome']
+
 /** The address on screen belongs to a place: kept as what is open there (`state`: the entry's, see railHere). */
 export function rememberRail(pathname: string, search = '', state?: unknown) {
   const item = railHereKept(pathname, search, state)
-  if (!item) return
+  if (!item || NOT_KEPT.some((p) => matchPath(p, pathname))) return
   const to = `${pathname}${search}`
   const { last } = useRailMemory.getState()
   if (last[item] === to) return

@@ -4,8 +4,9 @@
 //   - "새 폴더" (NewFolderRow, or the + on the folders' label): a name, then the folder is last in its list;
 //   - a folder's "⋯" (FolderMenu): 이름 바꾸기 · 위로 · 아래로 · 폴더 지우기 (a confirm only when something is in it: only the
 //     folder goes);
-//   - a row's "폴더로 옮기기" / "폴더에서 빼기" (useFolderRowItems): the first opens a second small menu of my folders and
-//     "새 폴더 만들어 넣기" where the row's "⋯" is. That is the keyboard's way (and a phone's long press); a mouse may also
+//   - a row's "폴더로 옮기기" / "폴더에서 빼기" (useFolderRowItems): the first opens a second small menu of my folders of
+//     the row's kind and "새 폴더 만들어 넣기" where the row's "⋯" is (headed "대화 폴더"; with none of that kind yet,
+//     one quiet line says the other list's folders are separate). That is the keyboard's way (and a phone's long press); a mouse may also
 //     drag a row onto a folder (dragRow, useDropTarget). A project's chat cannot go in a folder: its item is off and the
 //     menu says why under it;
 //   - a folded room folder's one pill (roomFolderPill): the strongest of its rooms, "?" › "@" › how many rooms are unread.
@@ -16,6 +17,7 @@ import { useEffect, useId, useState, type DragEvent, type ReactNode, type RefObj
 import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { aiName } from '../../lib/tabs'
 import { roomUnread } from '../../lib/rooms'
 import { createFolder, deleteFolder, fileChat, fileRoom, foldersOf, moveFolder, nameTaken, renameFolder, useNavFolders, watchNavFolders } from '../../store/navFolders'
 import { toast } from '../../store/ui'
@@ -113,12 +115,18 @@ export function NewFolderButton({ kind }: { kind: NavFolderKind }) {
   )
 }
 
-/** The folders' label's words: "폴더 · 나만 보여요" */
-export function FoldersLabelWords() {
+/** Which list a folder belongs to, in words: "트리나 폴더" (AI chats) or "대화 폴더" (rooms and DMs). The two kinds never
+ * mix (the server keeps them apart), so every place that shows or picks folders names its kind. */
+export function folderKindName(t: T, kind: NavFolderKind): string {
+  return kind === 'chats' ? t('navFolders.kindChats', { name: aiName(t) }) : t('navFolders.kindRooms')
+}
+
+/** The folders' label's words: "트리나 폴더 · 나만 보여요" / "대화 폴더 · 나만 보여요" */
+export function FoldersLabelWords({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   return (
     <>
-      {t('trinaList.folders')} <span className="font-normal">· {t('trinaList.onlyYou')}</span>
+      {folderKindName(t, kind)} <span className="font-normal">· {t('trinaList.onlyYou')}</span>
     </>
   )
 }
@@ -147,6 +155,7 @@ export function FolderMenu({ folder, count, className, buttonClassName }: { fold
 export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: string; folderId?: string | null; blocked?: boolean; more: RefObject<HTMLButtonElement | null> }): { items: MenuItem[]; footer?: ReactNode; picker: ReactNode } {
   const t = useT()
   const footerId = useId()
+  const noneId = useId()
   const folders = useFolders(o.kind, o.on)
   const act = useFolderActions(o.kind)
   const [pick, setPick] = useState(0)
@@ -171,6 +180,8 @@ export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: str
         const f = await act.create()
         if (f) await act.file(o.id, f, current)
       },
+      // none of this kind yet: the line under it says why folders of the other list are not here
+      describedBy: folders.length ? undefined : noneId,
       testId: 'row-folder-pick-new',
     },
   ]
@@ -178,8 +189,10 @@ export function useFolderRowItems(o: { on: boolean; kind: NavFolderKind; id: str
   const picker = pick > 0 && (
     <MenuButton
       label={t('navFolders.moveTo')}
-      heading={t('navFolders.moveTo')}
+      // headed with the kind ("대화 폴더"): only this list's folders are offered
+      heading={folderKindName(t, o.kind)}
       items={choices}
+      footer={folders.length ? undefined : <p id={noneId} className="max-w-60 px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pb-2" data-testid="row-folder-separate">{t(o.kind === 'rooms' ? 'navFolders.separateRooms' : 'navFolders.separateChats', { name: aiName(t) })}</p>}
       openRequest={pick}
       className="absolute right-1.5 bottom-0"
       buttonClassName="hidden!"

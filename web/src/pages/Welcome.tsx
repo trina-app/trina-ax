@@ -35,7 +35,7 @@ import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { aiName } from '../lib/tabs'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -409,8 +409,9 @@ function counting(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean
   return { counted, at: counted.indexOf(step) }
 }
 function progressAt(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean, computer: boolean): { n: number; total: number; step: WelcomeStep } | null {
-  const { counted, at } = counting(progress, step, aiReady, computer)
-  return at < 0 ? null : { n: at + 1, total: counted.length, step }
+  // the setup row says the same number (lib/welcome.ts setupRowWords)
+  const at = stepPosition(progress, step, aiReady, computer)
+  return at && { ...at, step }
 }
 
 /** "1/5 회사 소개 · 2/5 내 스킬 · 3/5 팀 파일 · 4/5 도구 연결 · 5/5 팀원 초대" ("1/6 AI 연결 · …" for an owner who needed

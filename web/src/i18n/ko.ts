@@ -4947,6 +4947,7 @@ export const ko = {
   "viewer.gone": "메시지가 삭제되어 이 파일은 더 이상 볼 수 없어요.",
   // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "팀원 초대",
+  "teamMenu.switch": "다른 팀으로 전환…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "채팅에서 AI가 내 앱과 서비스를 쓸 수 있게 해요.",
   "connectorsPage.addCustom": "직접 커넥터 추가",
@@ -5231,6 +5232,10 @@ export const ko = {
   "navFolders.goesIntoClear": "폴더에 넣지 않기",
   "navFolders.unreadRooms": "안 읽은 대화 {n}개",
   "navFolders.nameInvalid": "이름에 글자나 숫자를 넣어 주세요.",
+  "navFolders.kindChats": "{name} 폴더",
+  "navFolders.kindRooms": "대화 폴더",
+  "navFolders.separateRooms": "대화 폴더는 {name} 폴더와 따로 있어요.",
+  "navFolders.separateChats": "{name} 폴더는 대화 폴더와 따로 있어요.",
   "projects.askHere": "이 프로젝트에서 {name}에게 묻기",
   "activity.inChats": "멘션·스레드는 대화에 있어요",
   "activity.chips": "보기",

@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, base64Size, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -210,6 +210,16 @@ export async function openAppSettings(): Promise<void> {
   // Not awaited: the app answers when it is back, which may be long after the person left for the phone's Settings,
   // and that is no failure. Coming back checks the permission again (lib/mobile-push.ts).
   void request({ ...envelope(config), type: 'open-settings' }, config, 600_000).catch(() => {})
+}
+/** The app can show its own "다른 팀에 연결" screen over this team (change-team-v1): the 나 tab's "다른 팀으로 전환…". */
+export const appChangesTeam = () => !!mobileApp()?.capabilities.includes(CHANGE_TEAM_CAPABILITY)
+export async function changeTeamInApp(): Promise<void> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(CHANGE_TEAM_CAPABILITY)) throw new Error('mobile_unavailable')
+  await request({ ...envelope(config), type: 'change-team' }, config, 30_000)
 }
 /** The app opens the phone's own share sheet with a text (share-text-v1; lib/share.ts): Android's WebView has no
  * navigator.share. */

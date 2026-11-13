@@ -23,13 +23,14 @@
 // owners and admins 팀원 초대 and 관리자 (the computer's team menu; 관리자 moves here from the rows under the photo);
 // after the photo, 활동 with its count, the status ("상태 설정") and "자리 비움으로 표시" (the computer's account menu).
 import clsx from 'clsx'
-import { Bell, ChevronRight, LogOut, Search, Shield, Smile, UserPlus, X } from 'lucide-react'
+import { ArrowLeftRight, Bell, ChevronRight, LogOut, Search, Shield, Smile, UserPlus, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, API, errorText } from '../../lib/api'
 import { useGoBack } from '../../lib/back'
 import { useBackLabel, useKeptScroll, useListUnderPage } from '../../lib/backStack'
 import { browserSettingsBridge } from '../../lib/desktop'
+import { switchTeam, teamSwitchWay } from '../../lib/teamSwitch'
 import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
@@ -314,7 +315,9 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
 }
 
 /** The 나 tab's team (new navigation): the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
- * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자. */
+ * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
+ * phone app (or the desktop app at a phone's width) "다른 팀으로 전환…" for everyone (lib/teamSwitch.ts: the app's own
+ * screen; a plain browser has none). */
 function PhoneTeamGroup() {
   const t = useT()
   const me = useMeStrict()
@@ -328,6 +331,7 @@ function PhoneTeamGroup() {
       </li>
       {admin && <PhoneListRow icon={<UserPlus size={16} />} title={t('teamMenu.invite')} onClick={() => void openTeamInvite(navigate, null)} chevron testId="settings-invite" />}
       {admin && <PhoneListRow icon={<Shield size={16} />} title={t('sidebar.admin')} to="/admin" testId="settings-admin" />}
+      {teamSwitchWay() && <PhoneListRow icon={<ArrowLeftRight size={16} />} title={t('teamMenu.switch')} onClick={switchTeam} chevron testId="settings-switch-team" />}
     </PhoneListGroup>
   )
 }

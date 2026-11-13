@@ -1,6 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
-// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, team list, and
+// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, team list and the teams menu, and
 // Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
@@ -49,6 +49,7 @@ const bridge: DesktopBridge = {
     onChange: on('bridge:focus'),
   },
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
+  teamMenu: () => ipcRenderer.send('bridge:team-menu'),
   setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
   folderProblem: (name) => ipcRenderer.invoke('bridge:folder-problem', String(name)),
   browserSettings: {

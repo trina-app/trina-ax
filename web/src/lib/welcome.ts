@@ -107,7 +107,7 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true, computer
  * Put off is not done. */
 const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
 
-/** "2/5" in the setup row: the counted steps done (the AI step once AI answered). A step put off is not counted: with
+/** The counted steps done (the AI step once AI answered). A step put off is not counted: with
  * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). A phone counts its own. */
 export function doneCount(p: WelcomeProgress | null, aiReady = true, computer = true): number {
   if (!p) return 0
@@ -137,7 +137,20 @@ export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p
   const left = stepsLeft(p, aiReady, computer)
   const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
   if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }
-  return { text: t('setupRow.resume'), count: `${doneCount(p, aiReady, computer)}/${stepTotal(p, aiReady, computer)}` }
+  // the step the row opens, numbered as the steps' own bar numbers it ("1/5 회사 소개"): one number on both (UX review
+  // S3: the row said "0/5" while the bar it opened said "1/5")
+  const step = resumeStep(p, aiReady, computer)
+  const at = step ? stepPosition(p, step, aiReady, computer) : null
+  return { text: t('setupRow.resume'), count: at ? `${at.n}/${at.total}` : `${doneCount(p, aiReady, computer)}/${stepTotal(p, aiReady, computer)}` }
+}
+
+/** Where a step sits in the counted steps, as the steps' bar says it ("1/5 회사 소개"; the AI step goes first while it is
+ * on screen): pages/Welcome.tsx and the setup row read this one number. null: a step not counted (the result). */
+export function stepPosition(p: WelcomeProgress | null, step: WelcomeStep, aiReady = true, computer = true): { n: number; total: number } | null {
+  const list = countedSteps(p, aiReady, computer)
+  const counted: WelcomeStep[] = step === 'ai' && !list.includes('ai') ? ['ai', ...list] : list
+  const at = counted.indexOf(step)
+  return at < 0 ? null : { n: at + 1, total: counted.length }
 }
 
 /** Every team's start (POST /api/onboarding/welcome/team): the team's own group with its brand folder, while either is

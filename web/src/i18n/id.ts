@@ -4947,6 +4947,7 @@ export const id: Record<MessageKey, string> = {
   "viewer.gone": "File ini tidak tersedia lagi: pesannya sudah dihapus.",
   // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Undang orang",
+  "teamMenu.switch": "Ganti tim…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Biarkan AI menggunakan aplikasi dan layanan Anda di chat.",
   "connectorsPage.addCustom": "Tambah konektor sendiri",
@@ -5231,6 +5232,10 @@ export const id: Record<MessageKey, string> = {
   "navFolders.goesIntoClear": "Jangan masukkan ke folder",
   "navFolders.unreadRooms": "{n} percakapan belum dibaca",
   "navFolders.nameInvalid": "Gunakan huruf atau angka dalam nama.",
+  "navFolders.kindChats": "Folder {name}",
+  "navFolders.kindRooms": "Folder obrolan",
+  "navFolders.separateRooms": "Folder obrolan terpisah dari folder {name}.",
+  "navFolders.separateChats": "Folder {name} terpisah dari folder obrolan.",
   "projects.askHere": "Tanya {name} di proyek ini",
   "activity.inChats": "Mention dan thread ada di Obrolan",
   "activity.chips": "Tampilkan",

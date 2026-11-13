@@ -18,8 +18,14 @@ Click your photo at the bottom of the bar on the left. On a phone, open the **�
 | **Settings** | Opens the Settings window, at your profile |
 | **Sign out** | Ends this session |
 
-Your usage is in **Settings › Usage**, and chats you deleted are in **삭제한 기록** (Deleted history) at the end of your
-Trina list.
+Your usage is in **Settings › Usage**, and chats you deleted are in **삭제한 기록** (Deleted history) under your Trina
+list.
+
+### Switching teams
+
+In the desktop app, click your team's logo at the top of the bar on the left and pick **다른 팀으로 전환…** (Switch
+team…): it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **나** tab, under
+your team. In a web browser each team has its own address, so there is nothing to switch.
 
 ## The Settings window
 

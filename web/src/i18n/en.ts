@@ -4947,6 +4947,7 @@ export const en: Record<MessageKey, string> = {
   "viewer.gone": "This file is no longer available: its message was deleted.",
   // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invite people",
+  "teamMenu.switch": "Switch team…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Let the AI use your apps and services in your chats.",
   "connectorsPage.addCustom": "Add custom connector",
@@ -5231,6 +5232,10 @@ export const en: Record<MessageKey, string> = {
   "navFolders.goesIntoClear": "Don't put it in a folder",
   "navFolders.unreadRooms": "{n, plural, one {# conversation with unread messages} other {# conversations with unread messages}}",
   "navFolders.nameInvalid": "Use letters or numbers in the name.",
+  "navFolders.kindChats": "{name} folders",
+  "navFolders.kindRooms": "Conversation folders",
+  "navFolders.separateRooms": "Conversation folders are separate from {name} folders.",
+  "navFolders.separateChats": "{name} folders are separate from conversation folders.",
   "projects.askHere": "Ask {name} in this project",
   "activity.inChats": "Mentions and threads are in Chats",
   "activity.chips": "Show",

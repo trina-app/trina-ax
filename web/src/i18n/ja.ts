@@ -4903,6 +4903,7 @@ export const ja: Record<MessageKey, string> = {
   "viewer.gone": "メッセージが削除されたため、このファイルはもう表示できません。",
   // the team menu on top of the computer's sidebar (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "メンバーを招待",
+  "teamMenu.switch": "別のチームに切り替え…",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "チャットでAIがあなたのアプリやサービスを使えるようにします。",
   "connectorsPage.addCustom": "コネクターを自分で追加",
@@ -5187,6 +5188,10 @@ export const ja: Record<MessageKey, string> = {
   "navFolders.goesIntoClear": "フォルダに入れない",
   "navFolders.unreadRooms": "未読の会話 {n, plural, one {#件} other {#件}}",
   "navFolders.nameInvalid": "名前には文字か数字を入れてください。",
+  "navFolders.kindChats": "{name}のフォルダ",
+  "navFolders.kindRooms": "トークのフォルダ",
+  "navFolders.separateRooms": "トークのフォルダは{name}のフォルダとは別です。",
+  "navFolders.separateChats": "{name}のフォルダはトークのフォルダとは別です。",
   "projects.askHere": "このプロジェクトで{name}に聞く",
   "activity.inChats": "メンションとスレッドはトークにあります",
   "activity.chips": "表示",

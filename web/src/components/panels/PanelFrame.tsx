@@ -11,7 +11,8 @@ import { PANEL_ALWAYS_PX, useRailPanel } from '../rail/railPanel'
 
 export const PANEL_ID = 'rail-panel'
 
-export function PanelFrame({ title, actions, top, children, onScroll, testId }: { title: ReactNode; actions?: ReactNode; top?: ReactNode; children: ReactNode; onScroll?: () => void; testId: string }) {
+/** `bottom`: rows that stay under the list, never scrolled away (트리나's 예약 작업 · 팀 스킬 · 삭제한 기록) */
+export function PanelFrame({ title, actions, top, children, bottom, onScroll, testId }: { title: ReactNode; actions?: ReactNode; top?: ReactNode; children: ReactNode; bottom?: ReactNode; onScroll?: () => void; testId: string }) {
   const t = useT()
   const id = useId()
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
@@ -43,6 +44,7 @@ export function PanelFrame({ title, actions, top, children, onScroll, testId }: 
       >
         {children}
       </div>
+      {bottom && <div className="shrink-0 space-y-0.5 border-t border-line px-2 py-2">{bottom}</div>}
     </nav>
   )
 }
