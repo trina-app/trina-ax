@@ -2145,11 +2145,11 @@ export class MockServer {
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Connected apps › Slack shows a connected app. POST
     // /__test/slack changes any of it (Add to Slack offered, added through the hosting service, removed in Slack, linked)
-    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false, readOffered: false, ...this.slackOver.mine }),
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false, read: false, ...this.slackOver.mine }),
     slackAdmin: () => ({
       mode: 'own', official: false, enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
       state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
-      signIn: false, redirectUrl: null, readScopes: null, userScopes: [], reading: 0, ...this.slackOver.admin,
+      signIn: false, redirectUrl: null, readScopes: null, missingScopes: [], ...this.slackOver.admin,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name, ...((st) => (st ? { statusMessage: st } : {}))(this.liveStatus(u.id)) })) }),
     // my status message (server/src/routes/people.ts): the server's rules; my windows and the team read again

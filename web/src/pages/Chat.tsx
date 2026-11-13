@@ -42,7 +42,7 @@ import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '.
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
-import { useChatActions } from '../components/chat/chatActions'
+import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
@@ -336,14 +336,20 @@ function ChatView({ chatId }: { chatId: string }) {
     onSend(t('chat.limit.message'), []).catch(fail)
   }
 
+  /** the picker shows the new engine / model at once; a refusal puts it back with one toast (lib/optimistic.ts) */
   const onEngine = async (e: EngineChoice) => {
-    try {
-      const c = await api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } })
-      setChat(c)
-      upsertChat(c)
-    } catch (err) {
-      fail(err)
-    }
+    if (!chat) return
+    type Pick = { engine: EngineId; model: string | null; updatedAt: string }
+    await changeChat<Pick>({
+      chat,
+      field: 'engine',
+      from: { engine: chat.engine, model: chat.model, updatedAt: chat.updatedAt },
+      to: { engine: e.engine ?? chat.engine, model: e.model ?? null, updatedAt: new Date().toISOString() },
+      apply: (c, v) => ({ ...c, ...v }),
+      send: () => api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } }),
+      confirmed: (c) => ({ engine: c.engine, model: c.model, updatedAt: c.updatedAt }),
+      onShown: setChat,
+    })
   }
 
   // the person's own words: the place in words (전사 공유 › 영업 › 보고서.md) and "my folder", which the AI is told is
@@ -401,7 +407,7 @@ function ChatView({ chatId }: { chatId: string }) {
               title={title}
               // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
               onPin={() => void actions.togglePin(chat, setChat)}
-              onRename={rights.creator ? () => void actions.rename(chat).then((c) => c && setChat(c)) : undefined}
+              onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
             />
@@ -450,7 +456,7 @@ function ChatView({ chatId }: { chatId: string }) {
       </div>
       <div className="mx-auto w-full max-w-[780px] px-4 pb-[var(--box-bottom)]" data-bottom-bar>
         {chat?.deletedAt ? (
-          <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
+          <TrashedBanner chat={chat} onShown={setChat} />
         ) : readOnly ? (
           <SharedReadOnly />
         ) : (
@@ -510,29 +516,16 @@ function ChatView({ chatId }: { chatId: string }) {
   )
 }
 
-function TrashedBanner({ chat, onRestored }: { chat: Chat; onRestored: (c: Chat) => void }) {
+/** "복원": the chat is back at once (the banner goes, the box comes); a refusal puts it back in the trash with a toast */
+function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
-  const [busy, setBusy] = useState(false)
   const purge = chatPurgeAt(chat.deletedAt!, chatTrashDays(useMeStrict()))
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn">
       <Trash2 size={16} className="shrink-0" aria-hidden />
       <span className="flex-1">{t('chat.inTrash', { date: formatDate(purge, locale) })}</span>
-      <Button
-        size="sm"
-        busy={busy}
-        onClick={async () => {
-          setBusy(true)
-          try {
-            onRestored(await api.call(API.restoreChat, { params: { id: chat.id } }))
-          } catch (e) {
-            toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
+      <Button size="sm" onClick={() => void trashChat(chat, false, { onShown })} data-testid="chat-trash-restore">
         <RotateCcw size={14} aria-hidden /> {t('common.restore')}
       </Button>
     </div>

@@ -1,25 +1,26 @@
 // The Slack app the owner makes in their own workspace (https://docs.slack.dev/reference/app-manifest): an internal app
-// in Socket Mode, so the server needs no public address. Only what the connector uses:
+// in Socket Mode, so the server needs no public address. Only what the connector uses (bot scopes only: no user token
+// scope at all, docs/SLACK.md "Marketplace-safe reading"):
 //   app_mentions:read  @app in a channel                 im:history        messages in the app's DM
 //   chat:write         answers, ephemeral ones included   users:read        the asker's name (the link page, "asked by")
 //   users:read.email   the zero-click link: the Slack      im:write          the one DM telling a Slack account
 //                      account's e-mail is the person's                       which account it was linked to
 //   channels:read, groups:read   whether a channel is shared with another organization, checked again before
-//                                "Post to channel" (conversations.info)
-// The redirect URL: "Sign in with Slack", with which a person proves the Slack account they link AND lets the AI read
-// Slack as them, in one step (OAuth v2 with user scopes, docs/SLACK.md "Reading Slack"). User scopes (the person's own
-// token, kept sealed per person, revoked when they unlink):
-//   channels:history groups:history im:history mpim:history   a thread's or a conversation's messages
-//   channels:read groups:read im:read mpim:read               a conversation's name, a channel found by its name
-//   users:read                                                 the names of who wrote
-//   search:read                                                search.messages
-// The bot itself reads no channel history. No files, no slash command.
+//                                "Post to channel" (conversations.info); the conversations the bot and the person are
+//                                both in (users.conversations), a channel found by its name
+//   channels:history, groups:history   the thread @app was asked in, and the threads and channels the AI reads for a
+//                                person: only conversations the bot was invited to AND the person is in (read.ts)
+// The redirect URL: "Sign in with Slack" (docs.slack.dev "Sign in with Slack"), with which a person proves the Slack
+// account they link; it asks for openid and profile in its own flow, so no user scopes here. Its user token is revoked
+// at once and never kept. No files, no search, no slash command.
 import { PRODUCT } from '@mycel/shared'
-import { SLACK_BROKER_USER_SCOPES } from '@mycel/shared/cloud-protocol'
 
-export const BOT_SCOPES = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
-/** the person's user token's scopes (the same as the official app's, SLACK_BROKER_USER_SCOPES) */
-export const USER_SCOPES = SLACK_BROKER_USER_SCOPES
+export const BOT_SCOPES = ['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'groups:history', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
+/** the bot scopes that only reading needs (a thread, a channel): an app without them still answers, with reading off
+ * until an admin adds them (Admin › Slack "Update Slack permissions") */
+export const READ_BOT_SCOPES = ['channels:history', 'groups:history'] as const
+/** the bot scopes every saved app must have (BOT_SCOPES without the reading ones) */
+export const BASE_BOT_SCOPES = BOT_SCOPES.filter((s) => !(READ_BOT_SCOPES as readonly string[]).includes(s))
 export const BOT_EVENTS = ['app_mention', 'message.im'] as const
 
 /** a bot user name Slack takes: a-z, 0-9, -, _ and . (at most 80) */
@@ -35,8 +36,9 @@ export function slackManifest(name = PRODUCT.displayName, redirectUrl: string | 
       app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
       bot_user: { display_name: botName(app), always_online: true },
     },
-    // user scopes: what "Sign in with Slack" asks each person for (OAuth v2, user_scope), so the AI reads Slack as them
-    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES], user: [...USER_SCOPES] } },
+    // no user scopes: "Sign in with Slack" asks for openid and profile in its own flow (they may not be combined with
+    // others in one OAuth flow, and the manifest's user scopes are asked for when the app is installed)
+    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES] } },
     settings: {
       event_subscriptions: { bot_events: [...BOT_EVENTS] },
       interactivity: { is_enabled: true },

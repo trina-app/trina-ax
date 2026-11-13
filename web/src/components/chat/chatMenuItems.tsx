@@ -35,13 +35,12 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
   // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; a pin for anyone
   const rights = sharedRights(chat, useMeStrict().user.id)
   const linkItem = useChatLinkItem(chat, `${testId}-copy-link`, select)
-  const changed = (c: Chat | null) => c && onChanged?.(c)
   return [
     chat.pinnedAt
       ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-unpin` }
       : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: select(() => actions.togglePin(chat, onChanged)), testId: `${testId}-pin` },
     linkItem,
-    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat).then(changed)), testId: `${testId}-rename` }] : []),
+    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(() => actions.rename(chat, onChanged)), testId: `${testId}-rename` }] : []),
     ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),

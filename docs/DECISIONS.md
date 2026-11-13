@@ -24348,6 +24348,32 @@ under 고정; meanwhile it had already left 최근 기록 for a moment. A room's
   member or someone's access, roles, sign-out of a session, keys, budgets, billing). Those keep their confirm, then
   wait for the server. The audit of the other actions and the batches that apply the helper next are in the PR.
 
+## Optimistic chats, history and list folders (feat/optimistic-chats, 2026-11-13)
+
+Batch A of the audit after "Optimistic changes: the screen first, the server after": the same helper
+(`web/src/lib/optimistic.ts`) for the rest of a Trina chat's own changes and for my list folders.
+- **A chat's values** (`changeChat` in `components/chat/chatActions.ts`, keys `chat:<id>:title|engine|project|folder`):
+  rename, the engine / model picker (pages/Chat.tsx), 프로젝트로 옮기기 (ChatProject.tsx `moveChat`, the dialog closes at
+  once; into a project the chat also leaves its list folder, as the server does) and a list folder
+  (store/navFolders.ts `fileChat`). The new value and the server's stamp (`updatedAt`, now) show at once, so the row goes
+  to the top of 최근 기록 when it is changed, not when the answer lands; a refusal puts both back. The "moved" toast
+  comes with the server's answer. With "프로젝트 멤버와 공유" on, the move still waits (the share widens who sees it).
+- **Trash and back** (`trashChat`, key `chat:<id>:trash`): after the confirm the chat leaves 최근 기록, 고정 and the heads
+  of the groups at once; "삭제했어요" with its 되돌리기 comes with the answer. 복원 (삭제한 기록, the chat's banner) and
+  되돌리기 bring it back at once, unpinned and in no folder, as the server restores it. Deleting forever is not
+  optimistic.
+- **Reads and events from before a change**: the chats store keeps the pending fields of a chat (`keepPending`) and
+  ignores a `chat.updated` of a chat whose trash change is pending; the groups read counts trash changes with the pins
+  and drops pending-trash rows; a list read keeps a chat leaving or coming back as it is on screen.
+- **List folders** (store/navFolders.ts, keys `navfolder:<id>:make|name|delete`, `room:<id>:folder`): a new folder is
+  there at once with a client id (a rename, delete or a room dropped on it waits for the server's id), a rename and a
+  delete show at once (delete: its rooms back in their place; refused, the folder and its rooms come back), a room
+  moves into or out of a folder at once. The folders read reads again when a change was made during it and keeps the
+  pending ones as on screen. store/rooms.ts is not changed: a rooms read or `room.updated` from before a room's folder
+  change gets its folder put back by a subscription in navFolders.ts.
+- Not here: marking a chat seen (left as it is), a project page's own row list on a failed move out of it (it shows the
+  row again only after a reload; pages/Projects.tsx is batch C's).
+
 ## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
 
 Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`
@@ -25102,6 +25128,8 @@ Activity cleared notices one click at a time.
 
 ## Slack: one connect links and allows reading (feat/slack-read-one-connect, 2026-11-13, the owner)
 
+- **Superseded the same day** by "Slack: reading with the bot token only" (below): no user token, no "Allow reading
+  Slack", no search. Kept here as the record of what #674 built.
 - **Why:** the owner tested in real Slack (2026-11-13): after "Connect Trina AX account" the AI could not read any Slack
   message (not even the thread it was asked in), did not know the question came from Slack, and when asked "can you
   see Slack?" offered a "connect card" that does not exist. The owner: "한번에 다 연결이 가능해야해" (everything connects in
@@ -25522,3 +25550,45 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 - **Tests:** `web/test/unit/connector-detail-tools.test.tsx`, `integration-always-allow.test.tsx`; the e2e specs that
   used the row (integrations, connectors-hub, integration-templates, integration-requests, skill-tool-counts, a11y,
   phone-admin-pages).
+
+## Slack: reading with the bot token only (feat/slack-read-bot-token, 2026-11-13, the owner, QA TC-879)
+
+- **Supersedes** "Slack: one connect links and allows reading" (#674, the same day): its user token (xoxp, ten user
+  scopes incl. `search:read`), the OAuth v2 sign-in with `user_scope`, "Allow reading Slack" (Settings, the button in
+  Slack, the link page), `slack_search`, and the hosting service's `signin/read/start` / `signin/read/redeem`.
+- **Why:** the owner wants the official app listable in the Slack Marketplace. Slack's guidelines
+  (https://docs.slack.dev/slack-marketplace/slack-marketplace-app-guidelines-and-requirements and the review guide
+  https://docs.slack.dev/slack-marketplace/slack-marketplace-review-guide): `search:read` is not allowed; user token
+  scopes only when the app acts as the user, and submissions that use them unnecessarily are returned; `*:history` gets
+  an enhanced review for AI apps, each scope must trace to a testable shipped feature; AI apps must not store Slack data
+  (store metadata, pull in real time). Real-time search (`assistant.search.context`,
+  https://docs.slack.dev/apis/web-api/real-time-search-api) is only for listed or internal apps.
+- **Decision: the bot token reads, nothing else.** Bot scopes add `channels:history` and `groups:history` (manifest
+  `BOT_SCOPES`, `SLACK_BROKER_BOT_SCOPES`); user token scopes: none (`SLACK_BROKER_USER_SCOPES = []`). "Sign in with
+  Slack" goes back to OpenID Connect (`openid profile` in its own flow, not mixed with other scopes; its user token
+  revoked at once): it only proves the linked Slack account.
+- **@app in a thread:** the thread is read with the bot token (it was mentioned there, so it is in the channel); the
+  newest-messages/question-last fix, the taint marking, the size bounds (50 messages / 12,000 characters) stay.
+- **The AI's tools** `slack_read_thread`, `slack_read_channel`: only a conversation the bot is a member of AND the
+  linked Slack user is a member of (`users.conversations` with the bot token and `user=`), or the person's DM with the
+  app. Otherwise one plain answer: the app must be invited first (`/invite @app`), or the person is not in it. A channel
+  by name: among the bot's own channels only. Membership: a "yes" kept 2 minutes in memory, a "no" asked again (someone
+  who just joined is not refused for 2 minutes; someone who just left may read for up to 2 minutes, the same as a
+  conversation they saw a minute ago).
+- **No search** until phase 2 (`assistant.search.context` after listing; a TODO in read.ts, no code).
+- **Existing installs:** what Slack lists for the bot token is kept (`slack_config.bot_scopes`, migration 350; at
+  save, install, start, every 10 minutes, `missing_scope`). Without the two scopes the app answers as before, reading is
+  off, and admins see "Update Slack permissions" (own app: add the two bot scopes, reinstall, "I updated them" asks
+  Slack again; official app: Add to Slack again). The two scopes are not required to save tokens or take an install.
+- **Rate limit:** the non-Marketplace limit (1 history read a minute, 15 messages) applies to the official app while
+  it is not listed: `MYCEL_SLACK_OFFICIAL_LISTED=1` (operator, default off) lifts it; a team's own app is internal.
+- **The earlier user tokens:** revoked at Slack (`auth.revoke`, best effort) and deleted by the connector at start, not
+  in migration SQL; migrations only add (docs/WORKPLAN.md), so `slack_user_tokens`, `slack_config.read_scopes` and
+  `slack_signin_flows.kind/method/question` stay unused. `Services.accountHooks` (only for revoking those tokens) is gone.
+- **Storage:** the thread given with a question goes into that turn's instructions only (the launcher deletes the file
+  after the turn) and memory for at most 30 minutes; a resumed engine session is sent where it was asked, not the
+  thread (`TurnToolProvider.context`), because the message is kept in its session. Tool results are part of the
+  chat's engine session (its folder) like any tool result; docs/SLACK.md "What is kept" lists everything kept and a
+  proposal (not built) for dropping old tool results.
+- **Post to channel:** the notice still names Slack messages from another conversation (Post anyway / Cancel).
+- **Migration:** `350_c_slack_bot_reading.sql` (`slack_config.bot_scopes`). 348 was #674's, 349 Google's.

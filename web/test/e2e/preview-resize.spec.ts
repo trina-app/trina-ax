@@ -117,6 +117,9 @@ test('a click on the divider, with no movement, saves nothing and changes nothin
 })
 
 test('dragging over an artifact preview works and the iframe is not reloaded', async ({ page }) => {
+  // wide enough that the panel can grow from its default: at 1360 the chat's 360 px beside the rail and its list (288 px
+  // since the panels' type pass) is already reached there
+  await page.setViewportSize({ width: 1600, height: 900 })
   await reset(page)
   await signIn(page)
   await ask(page, 'make an artifact')

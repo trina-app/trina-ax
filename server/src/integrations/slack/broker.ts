@@ -18,7 +18,7 @@
 import crypto, { type KeyObject } from 'node:crypto'
 import {
   SLACK_BROKER_MAX_BODY_BYTES, SLACK_BROKER_PATHS, SLACK_BROKER_POLL_MAX_WAIT_MS, SLACK_BROKER_SEAL_INFO, SLACK_BROKER_EVENT_ID,
-  parseSlackBrokerInstallInfo, parseSlackBrokerSealedToken, slackBrokerAuthorization, slackBrokerAuthorizeUrl, slackBrokerSealAad, slackBrokerSigningString, slackBrokerUserSealAad,
+  parseSlackBrokerInstallInfo, parseSlackBrokerSealedToken, slackBrokerAuthorization, slackBrokerAuthorizeUrl, slackBrokerSealAad, slackBrokerSigningString,
   type SlackBrokerEvent, type SlackBrokerInstallInfo, type SlackBrokerOp, type SlackBrokerSealedToken,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
@@ -63,15 +63,14 @@ export function sealKeyPair(): { privateKey: KeyObject; sealKey: string } {
   const { privateKey } = crypto.generateKeyPairSync('x25519')
   return { privateKey, sealKey: rawOf(privateKey).toString('base64url') }
 }
-/** Open a sealed bot token (contract "Sealed bot token"); throws when it does not open. `aad`: a user token's
- * (slackBrokerUserSealAad) instead of the bot token's. */
-export function openSealedToken(sealed: SlackBrokerSealedToken, privateKey: KeyObject, installId: string, slackTeamId: string, aad = slackBrokerSealAad(installId, slackTeamId)): string {
+/** Open a sealed bot token (contract "Sealed bot token"); throws when it does not open. */
+export function openSealedToken(sealed: SlackBrokerSealedToken, privateKey: KeyObject, installId: string, slackTeamId: string): string {
   const epk = Buffer.from(sealed.epk, 'base64url')
   const shared = crypto.diffieHellman({ privateKey, publicKey: crypto.createPublicKey({ key: Buffer.concat([X25519_SPKI_PREFIX, epk]), format: 'der', type: 'spki' }) })
   const key = Buffer.from(crypto.hkdfSync('sha256', shared, Buffer.concat([epk, rawOf(privateKey)]), Buffer.from(SLACK_BROKER_SEAL_INFO, 'utf8'), 32))
   const raw = Buffer.from(sealed.ct, 'base64url')
   const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(sealed.iv, 'base64url'))
-  d.setAAD(Buffer.from(aad, 'utf8'))
+  d.setAAD(Buffer.from(slackBrokerSealAad(installId, slackTeamId), 'utf8'))
   d.setAuthTag(raw.subarray(raw.length - 16))
   return Buffer.concat([d.update(raw.subarray(0, raw.length - 16)), d.final()]).toString('utf8')
 }
@@ -80,7 +79,6 @@ export function openSealedToken(sealed: SlackBrokerSealedToken, privateKey: KeyO
 export const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
 
 const BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{10,250}$/
-const USER_TOKEN = /^xoxp-[A-Za-z0-9-]{10,250}$/
 const ID = /^[A-Z0-9]{2,40}$/
 
 export class SlackBrokerClient {
@@ -184,30 +182,6 @@ export class SlackBrokerClient {
     const j = await this.call('signinRedeem', { v: 1, handoff, codeVerifier })
     if (typeof j.slackUserId !== 'string' || !ID.test(j.slackUserId) || typeof j.slackTeamId !== 'string' || !ID.test(j.slackTeamId)) throw new SlackBrokerError('unreachable')
     return { slackUserId: j.slackUserId, slackTeamId: j.slackTeamId }
-  }
-
-  /** "Sign in with Slack" that also lets the AI read Slack (signin/read/start): Slack's OAuth v2 page with user scopes
-   * only. An older hosting service answers 404 (the caller falls back to startSignIn). */
-  async startRead(returnState: string, codeChallenge: string): Promise<string> {
-    const j = await this.call('readStart', { v: 1, returnState, codeChallenge })
-    const url = slackBrokerAuthorizeUrl('read', j.authorizationUrl)
-    if (!url) throw new SlackBrokerError('unreachable')
-    return url
-  }
-
-  /** Who signed in, and their user token (opened here with this request's key; `installId`: the install held here,
-   * part of the seal's additional data). */
-  async redeemRead(handoff: string, codeVerifier: string, installId: string): Promise<{ slackUserId: string; slackTeamId: string; scopes: string[]; userToken: string }> {
-    const k = sealKeyPair()
-    const j = await this.call('readRedeem', { v: 1, handoff, codeVerifier, sealKey: k.sealKey })
-    if (typeof j.slackUserId !== 'string' || !ID.test(j.slackUserId) || typeof j.slackTeamId !== 'string' || !ID.test(j.slackTeamId)) throw new SlackBrokerError('unreachable')
-    const sealed = parseSlackBrokerSealedToken(j.token)
-    const scopes = Array.isArray(j.scopes) ? j.scopes.filter((x: unknown): x is string => typeof x === 'string' && x.length <= 100).slice(0, 100) : []
-    if (!sealed) throw new SlackBrokerError('unreachable')
-    let userToken: string
-    try { userToken = openSealedToken(sealed, k.privateKey, installId, j.slackTeamId, slackBrokerUserSealAad(installId, j.slackTeamId, j.slackUserId)) } catch { throw new SlackBrokerError('unreachable') }
-    if (!USER_TOKEN.test(userToken)) throw new SlackBrokerError('unreachable')
-    return { slackUserId: j.slackUserId, slackTeamId: j.slackTeamId, scopes, userToken }
   }
 }
 
