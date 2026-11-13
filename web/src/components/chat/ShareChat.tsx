@@ -26,8 +26,8 @@ type Ask = Extract<ShareChatResult, { status: 'confirm' }> & { seq: number }
  * folder not in the trash, safe operations off; not gated by any project setting: docs/DECISIONS.md "Team project chats
  * shared by default"). The server checks all of it again, and what the screens cannot know (a scheduled run's chat, a
  * busy one). */
-export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt'>>, project: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
-  !chat.confidential && privateInTeamProject(chat, project) && !safeOps
+export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt' | 'sideRoomId'>>, project: Pick<Project, 'folderPath' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
+  !chat.confidential && !chat.sideRoomId && privateInTeamProject(chat, project) && !safeOps
 
 /** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `ask` (the title menu):
  * the confirm comes first even when nothing applies (its item opens a question, and sharing cannot be undone); the move

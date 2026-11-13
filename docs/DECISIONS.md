@@ -15138,6 +15138,12 @@ be asked again):
   or restore, and at every start. (S2) The shared chat's instructions list everything `SHARED_TOOLS` leaves out and
   always name "Continue in a chat only you see". (S3) A project's box (Home's `?project=`) sends nothing until the
   project is known. Also: the empty team project's "every member sees it" is not shown while safe operations are on.
+- **A room's side chat never joins a project** (an audit by another session, QA TC-1010): a side chat (✦ beside a room)
+  could be moved into a team project and then shared, so a member outside the room read the room's words. `PATCH
+  /api/chats/:id {projectId}` on a side chat is now 400 `side_chat_no_project` with a plain sentence (as `POST
+  /api/chats` already refused one), `POST /api/chats/:id/share` refuses one (409 `side_chat`), and the app offers no move
+  or share for it. Not done here: one an older build already moved and shared stays as it is (none is known; a start-up
+  step could unshare such chats). Test: `tests/unit/b-side-chat-no-project.test.ts` (also QA TC-1011, the count).
 - Tests: `tests/unit/b-team-project-chats-shared.test.ts` (default, lock, 404 body, counts, search, share only by its
   creator, the switch, personal, safe operations, the migration, brought-in chats, the removed member's turn),
   `b-shared-chats`, `b-share-existing-chat`, `b-who-sees`, `permission-matrix` (updated for the setting),

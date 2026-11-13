@@ -11,7 +11,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { NewChatComposer } from '../../src/components/chat/NewChatComposer'
 import { mayShareChat } from '../../src/components/chat/ShareChat'
 import { useCopyChatLink } from '../../src/components/chat/copyChatLink'
-import { isTeamProject, privateInTeamProject } from '../../src/lib/sharedChat'
+import { isTeamProject, privateInTeamProject, sharedRights } from '../../src/lib/sharedChat'
 import { useChats } from '../../src/store/chats'
 import { useProjects } from '../../src/store/projects'
 import { useSession } from '../../src/store/session'
@@ -168,6 +168,11 @@ describe('a private chat in a team project', () => {
     expect(mayShareChat(chat(), project({ inTrash: true }), false)).toBe(false)
     expect(mayShareChat(chat(), project(), true)).toBe(false)
     expect(privateInTeamProject(chat(), project())).toBe(true)
+    // a room's side chat: never moved into a project, never shared (QA TC-1010)
+    const side = chat({ projectId: null, sideRoomId: '01900000-0000-7000-8000-0000000000e1' } as Partial<Chat>)
+    expect(sharedRights(side, 'alice').canMove).toBe(false)
+    expect(sharedRights(chat({ projectId: null }), 'alice').canMove).toBe(true)
+    expect(mayShareChat({ ...chat(), sideRoomId: '01900000-0000-7000-8000-0000000000e1' } as Chat, project(), false)).toBe(false)
   })
 
   test('its copied link says nobody else can open it, with Share with members; a personal chat keeps the old toast', async () => {

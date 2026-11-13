@@ -16,9 +16,10 @@ export interface SharedRights {
   canMove: boolean
 }
 
-export function sharedRights(chat: Pick<Chat, 'shared'> | null | undefined, me: string): SharedRights {
+export function sharedRights(chat: Pick<Chat, 'shared'> & Partial<Pick<Chat, 'sideRoomId'>> | null | undefined, me: string): SharedRights {
   const s = chat?.shared
-  if (!s) return { shared: false, creator: true, canDelete: true, canMove: true }
+  // a room's side chat never goes into a project (the server refuses it: side_chat_no_project, QA TC-1010)
+  if (!s) return { shared: false, creator: true, canDelete: true, canMove: !chat?.sideRoomId }
   return { shared: true, creator: s.by.id === me, canDelete: s.canDelete, canMove: false }
 }
 

@@ -90,6 +90,8 @@ function shareable(ctx: AppContext, rt: ChatRuntime, userId: string, r: ChatRow,
   if (r.room_id || r.deleted_at || r.user_id !== userId || isInternalChat(db, r.id)) return fail('not_found')
   if (r.shared_at) return no('already_shared', 'chatShareAlready')
   if (scheduledRun(db, r)) return no('scheduled_run', 'chatShareScheduled')
+  // a room's side chat holds the room's words; only the room's members may read them (QA TC-1010)
+  if (r.side_room_id) return no('side_chat', 'chatShareSideChat')
   // while safe operations (1A) are on every conversation is confidential, and a shared chat never is
   if (confidentialChat(db, r.id)) return no('safe_ops', 'chatShareSafeOps')
   const project = r.project_id ? rt.store.projectRow(r.project_id) : null

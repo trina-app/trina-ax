@@ -449,6 +449,9 @@ export const chatsRoutes: RouteModule = {
         if (body.projectId !== undefined && body.projectId !== chat.project_id) fail('conflict', tr('sharedChatMove', c.get('locale')), { fields: { 'body.projectId': 'shared_chat_move' }, params: { reason: 'shared_chat_move' } })
       }
       checkChatEngineChange(ctx, auth.user, chat, body, c.get('locale'))
+      // a room's side chat holds the room's words: it never goes into a project (where it could be shared with people
+      // outside the room), as createChat refuses one there (QA TC-1010)
+      if (body.projectId && chat.side_room_id) fail('validation', tr('sideChatNoProject', c.get('locale')), { fields: { 'body.projectId': 'side_chat_no_project' }, params: { reason: 'side_chat_no_project' } })
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
