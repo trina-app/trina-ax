@@ -296,8 +296,6 @@ function registerIpc() {
     Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
   })
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
-  // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
-  // app out of it (a word, never the error's text)
   // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
   // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
   ipcMain.handle('bridge:copy-image', async (e, bytes: unknown) => {
@@ -310,6 +308,8 @@ function registerIpc() {
       return false
     }
   })
+  // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
+  // app out of it (a word, never the error's text)
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go

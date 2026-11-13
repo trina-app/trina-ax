@@ -67,9 +67,10 @@ export function useFileMenu(target: FileMenuTarget | null): { bind: Record<strin
   const [at, setAt] = useState<Point | null>(null)
   const from = useRef<HTMLElement | null>(null)
   const pressAt = useRef<Point | null>(null)
-  const pressedAt = useRef(0)
+  /** a long press opened the menu: the click its finger ends with opens nothing (cleared by the next press) */
+  const pressed = useRef(false)
   const longPress = useLongPress(() => {
-    pressedAt.current = Date.now()
+    pressed.current = true
     setAt(pressAt.current)
     setSignal((n) => n + 1)
   })
@@ -100,6 +101,7 @@ export function useFileMenu(target: FileMenuTarget | null): { bind: Record<strin
           openAt(e.currentTarget, e.target, null)
         },
         onPointerDown: (e: PointerEvent<HTMLElement>) => {
+          pressed.current = false
           from.current = (e.target instanceof Element ? e.target.closest<HTMLElement>('button, a[href], [tabindex]') : null) ?? e.currentTarget
           pressAt.current = { x: e.clientX, y: e.clientY }
           longPress.onPointerDown(e)
@@ -124,7 +126,8 @@ export function useFileMenu(target: FileMenuTarget | null): { bind: Record<strin
     />
   ) : null
   return { bind, menu, on, openAt, guard: (e) => {
-    if (Date.now() - pressedAt.current >= 800) return false
+    if (!pressed.current) return false
+    pressed.current = false
     e.preventDefault()
     return true
   } }

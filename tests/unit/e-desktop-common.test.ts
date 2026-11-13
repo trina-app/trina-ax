@@ -24,7 +24,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
-import { CLIPBOARD_PNG_MAX, clipboardPng, contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
+import { CLIPBOARD_PNG_MAX, CLIPBOARD_PNG_SIDE, clipboardPng, contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -889,16 +889,25 @@ describe('the right-click menu (team page and own screens)', () => {
   // 이미지 복사 through the app (DesktopBridge.copyImage, web/src/lib/copyImage.ts): the PNG bytes the team page read
   // itself, nothing fetched by the app; anything else refused
   test('the clipboard takes only PNG bytes of a sane size from the team page', () => {
-    const png = new Uint8Array(64)
-    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const header = (w: number, h: number) => {
+      const b = new Uint8Array(64)
+      b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      new DataView(b.buffer).setUint32(16, w)
+      new DataView(b.buffer).setUint32(20, h)
+      return b
+    }
+    const png = header(40, 30)
     expect(clipboardPng(png)).toBe(png)
+    // a small file that claims a huge picture is not decoded
+    expect(clipboardPng(header(CLIPBOARD_PNG_SIDE + 1, 10))).toBeNull()
+    expect(clipboardPng(header(10, 0))).toBeNull()
     expect(clipboardPng(png.slice(0, 20))).toBeNull()
     const jpeg = png.slice()
     jpeg.set([0xff, 0xd8, 0xff])
     expect(clipboardPng(jpeg)).toBeNull()
     for (const x of ['iVBORw0KGgo=', [0x89, 0x50], null, undefined, new ArrayBuffer(64), { length: 64 }]) expect(clipboardPng(x)).toBeNull()
     const big = new Uint8Array(CLIPBOARD_PNG_MAX + 1)
-    big.set(png.subarray(0, 8))
+    big.set(png.subarray(0, 24))
     expect(clipboardPng(big)).toBeNull()
     const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
     const handler = main.slice(main.indexOf("ipcMain.handle('bridge:copy-image'"), main.indexOf("ipcMain.handle('bridge:folder-problem'"))

@@ -142,6 +142,13 @@ test("a Files row's right-click opens its ⋯ menu at the pointer, with 링크 �
   expect(Math.abs(m.x - (box.x + 30))).toBeLessThan(2)
   await page.getByTestId('file-copy-link').click()
   expect(await clipboardText(page)).toBe(`${new URL(page.url()).origin}/files/view?path=${encodeURIComponent('marketing/plan.md')}`)
+  // from the keyboard: Shift+F10 on the row's name opens the same menu, with the keyboard in it
+  await name.focus()
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByTestId('file-copy-link')).toBeVisible()
+  await expect(items(page).first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu(page)).toHaveCount(0)
 })
 
 test.describe('phone width', () => {

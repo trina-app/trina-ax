@@ -164,7 +164,7 @@ test('a chip opens its file in the viewer: the page only in the sandbox frame, a
   expect(served).not.toContain('acme-assets.zip')
 })
 
-test("a right-click on a photo reaches the browser's own menu (Copy Image): on the message and on the viewer's original", async ({ page }) => {
+test("a right-click on a photo opens the app's menu; Shift+right-click reaches the browser's own (Copy Image): on the message and on the viewer's original", async ({ page }) => {
   await openRoom(page)
   // registered last on the window: what the app did with the right-click by the time it got there (then no menu here)
   await page.evaluate(() => {
@@ -177,15 +177,20 @@ test("a right-click on a photo reaches the browser's own menu (Copy Image): on t
     })
   })
   const menus = () => page.evaluate(() => (window as unknown as { __menus: { tag: string; src: string; prevented: boolean }[] }).__menus)
-  // the thumbnail: the picture itself under the pointer (nothing covers it), the menu not taken
+  // a plain right-click: the app's own menu (components/FileMenu.tsx); the app took it, so it never reaches the browser
   await page.getByTestId('room-image').locator('img').click({ button: 'right' })
+  await expect(page.getByRole('menu')).toBeVisible()
+  expect(await menus()).toHaveLength(0)
+  await page.keyboard.press('Escape')
+  // with Shift, the thumbnail: the picture itself under the pointer (nothing covers it), the menu not taken
+  await page.getByTestId('room-image').locator('img').click({ button: 'right', modifiers: ['Shift'] })
   await expect.poll(menus).toHaveLength(1)
   expect((await menus())[0]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringContaining(`/files/${id(503)}?thumb=1`) })
   // the image viewer shows the original, read through the room: copying there copies the original
   await page.getByTestId('room-image').click()
   const original = page.getByTestId('image-viewer-original')
   await expect(original).toHaveAttribute('data-state', 'shown')
-  await original.click({ button: 'right' })
+  await original.click({ button: 'right', modifiers: ['Shift'] })
   await expect.poll(menus).toHaveLength(2)
   expect((await menus())[1]).toMatchObject({ tag: 'IMG', prevented: false, src: expect.stringMatching(new RegExp(`/files/${id(503)}$`)) })
 })

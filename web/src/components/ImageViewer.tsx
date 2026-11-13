@@ -579,8 +579,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
     if (e.key !== 'Escape') e.stopPropagation()
     // the picture's menu keeps its own keys (↑ ↓, Esc)
     if (e.target instanceof Element && e.target.closest('[role="menu"]')) return
-    // the menu key or Shift+F10: the picture's menu, in the middle of the stage
-    if (!docMode && fileMenu.on && isMenuKey(e) && stageRef.current) {
+    // the menu key or Shift+F10 on the picture (not in the column's box or on a bar button): its menu, in the middle
+    if (!docMode && fileMenu.on && isMenuKey(e) && stageRef.current && e.target === stageRef.current) {
       e.preventDefault()
       const r = stageRef.current.getBoundingClientRect()
       fileMenu.openAt(stageRef.current, stageRef.current, { x: r.left + r.width / 2, y: r.top + r.height / 2 })

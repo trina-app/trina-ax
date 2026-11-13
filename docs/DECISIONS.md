@@ -25577,7 +25577,8 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
   link, download; no ask: that chat is the place to ask); a Files row, whose right-click opens its existing ⋯ menu at
   the pointer, which gains 이미지 복사 and 링크 복사.
 - **Ways to it**: a right-click; the menu key or Shift+F10 on the focused picture (under it; the viewer: the stage's
-  middle); a long press with a finger (the message's own long-press menu stays for the rest of the message). Esc gives
+  middle); a long press with a finger (the message's own long-press menu stays for the rest of the message; in the image
+  viewer only where the phone reports a long press itself, Android: on an iPhone the viewer's bar has the same actions). Esc gives
   the focus back to the picture. Shift+right-click keeps the browser's own menu (as a room row's right-click does).
 - **링크 복사** is the app's address of the place, never a key or token: a room file the message it was sent in
   (`/rooms/<id>?m=<message>`, a reply at its thread `/rooms/<id>/t/<root>?m=<reply>`), a team file or folder
@@ -25592,7 +25593,7 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
   does not open over them; it still answers text (cut, copy, paste, select all on Mac and Windows: checked, unchanged),
   links and other pictures. 이미지 복사 and the viewer's 복사 hand the PNG bytes to the main process
   (`DesktopBridge.copyImage`, `bridge:copy-image`), which checks the sender (the team page's top frame), takes only
-  PNG bytes up to 64 MB that the system can draw (`clipboardPng`), and writes them with `clipboard.write` (Electron 44
+  PNG bytes up to 64 MB and 16384 px a side (read from the header before decoding) that the system can draw (`clipboardPng`), and writes them with `clipboard.write` (Electron 44
   has no `writeImage`); it fetches nothing. A desktop app from before that writes the async clipboard as before.
   Spell-check suggestions: not added; spell check is off in the team page (`security.ts`, `spellcheck: false`).
 - **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the

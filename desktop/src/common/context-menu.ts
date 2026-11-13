@@ -90,6 +90,9 @@ export function saveableImage(src: string, allowedOrigins: readonly string[]): b
 
 /** The most a picture the team page hands the app for the clipboard may be (bridge:copy-image). */
 export const CLIPBOARD_PNG_MAX = 64 * 1024 * 1024
+/** …and its largest side in pixels, read from its header before the system decodes it (a small file can claim a huge
+ * picture) */
+export const CLIPBOARD_PNG_SIDE = 16384
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 
 /**
@@ -99,5 +102,10 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
  */
 export function clipboardPng(x: unknown): Uint8Array | null {
   if (!(x instanceof Uint8Array) || x.byteLength < 8 + 25 || x.byteLength > CLIPBOARD_PNG_MAX) return null
-  return PNG_SIGNATURE.every((b, i) => x[i] === b) ? x : null
+  if (!PNG_SIGNATURE.every((b, i) => x[i] === b)) return null
+  // the IHDR chunk comes first: its width and height (big-endian) at bytes 16 and 20
+  const v = new DataView(x.buffer, x.byteOffset, x.byteLength)
+  if (String.fromCharCode(x[12]!, x[13]!, x[14]!, x[15]!) !== 'IHDR') return null
+  const w = v.getUint32(16), h = v.getUint32(20)
+  return w > 0 && h > 0 && w <= CLIPBOARD_PNG_SIDE && h <= CLIPBOARD_PNG_SIDE ? x : null
 }
