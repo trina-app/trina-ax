@@ -304,7 +304,7 @@ export function ScheduledList() {
 function Side({ label, children, testId }: { label: string; children: ReactNode; testId: string }) {
   return (
     <section className="py-4 first:pt-0" data-testid={testId}>
-      <h2 className="text-sm font-medium">{label}</h2>
+      <h2 className="text-meta font-medium">{label}</h2>
       <div className="mt-1.5 text-sm text-muted">{children}</div>
     </section>
   )
