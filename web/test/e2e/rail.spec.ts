@@ -127,12 +127,16 @@ test('marks: 대화 counts conversations, 활동 the notices that are not conver
   await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-n', '3')
   await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '3')
   await expect(page.getByTestId('rail-files-mark')).toHaveCount(0)
+  // a screen reader hears the place first, then its mark in words (the number itself is hidden from it)
+  const named = (first: string, then: string) => new RegExp(`^${first}\\s*, ${then}$`)
+  await expect(page.getByTestId('rail-chats')).toHaveAccessibleName(named(t['tabs.chats'], t['rail.unreadRooms'].replace('{n}', '3')))
+  await expect(page.getByTestId('rail-activity')).toHaveAccessibleName(named(t['inbox.title'], t['notifications.unread'].replace('{count}', '3')))
   await openRail(page, 'chats')
   await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity-unread')).toContainText('2')
   // a room's AI waits on me: "?" on 대화
   expect((await page.request.post('/__test/rooms', { data: { rooms: [{ ...rooms[0], aiWaits: true }, ...rooms.slice(1)] } })).ok()).toBeTruthy()
   await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-mark', 'ask')
-  await expect(page.getByTestId('rail-chats-mark')).toContainText(t['rooms.aiWaits'])
+  await expect(page.getByTestId('rail-chats-mark-words')).toContainText(t['rooms.aiWaits'])
 })
 
 for (const w of [1024, 1100] as const)
@@ -237,10 +241,66 @@ test('keyboard: skip links to the page and to the list; Tab goes logo → places
   await expect(page.getByTestId('team-menu')).toBeFocused()
   await page.keyboard.press('ArrowUp')
   await expect(page.getByTestId('account-menu')).toBeFocused()
+  // after the rail, the list, then the page
+  await page.keyboard.press('Tab')
+  await expect(page.locator('#rail-panel :focus')).toHaveCount(1)
+  await page.getByTestId('nav-trash').focus()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('#main :focus')).toHaveCount(1)
   // ⇧⌘O: a new AI chat, 트리나 lit
   await openRail(page, 'files')
   await page.keyboard.press('Control+Shift+O')
   await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+})
+
+test('widths: nothing cut or sideways at 1024–1920, at 150 % browser zoom and at the largest text; the list stays 240–300 px', async ({ page }) => {
+  test.setTimeout(90_000)
+  await start(page, 1440)
+  // [window width, browser zoom (simulated: the page sees the window divided by it), Settings › text size]
+  const cases = [[1024, 1, 'default'], [1100, 1, 'default'], [1280, 1, 'default'], [1440, 1, 'default'], [1920, 1, 'default'], [1440, 1.5, 'default'], [1280, 1.5, 'default'], [1440, 1, 'largest'], [1024, 1, 'largest']] as const
+  for (const [w, zoom, text] of cases) {
+    if (text !== 'default') {
+      await page.evaluate((v) => localStorage.setItem('mycel.textSize', v), text)
+      await page.reload()
+    }
+    await page.setViewportSize({ width: Math.round(w / zoom), height: Math.round(860 / zoom) })
+    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      await openRail(page, item)
+      const m = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: innerWidth, rail: document.querySelector('[data-testid="rail"]')!.getBoundingClientRect().width, panel: document.getElementById('rail-panel')!.getBoundingClientRect().width }))
+      const at = `${w} px × ${zoom}, ${text} text, ${item}`
+      expect(m.doc, at).toBeLessThanOrEqual(m.win)
+      expect(m.rail, at).toBeLessThanOrEqual(88)
+      expect(m.panel, at).toBeGreaterThanOrEqual(240)
+      expect(m.panel, at).toBeLessThanOrEqual(300)
+    }
+  }
+})
+
+test.describe('a touch screen at 1024 px (a tablet across, a touch laptop)', () => {
+  test.use({ hasTouch: true })
+  test('every rail and list target is at least 44 px to tap', async ({ page }) => {
+    await roomWithThread(page)
+    await start(page, 1024)
+    for (const title of ['주간 보고 초안', '회의록 정리']) await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })
+    await page.reload()
+    for (const item of ['ai', 'chats', 'files', 'activity'] as const) {
+      await page.getByTestId(`rail-${item}`).click()
+      await expect(page.getByTestId(`rail-${item}`)).toHaveAttribute('aria-current', 'page')
+      // a control drawn smaller takes taps from a 44 px box around it (its ::after); a chat row's "···" is 28 px on
+      // purpose (it sits on the row's own link; long press opens the same menu)
+      const small = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('[data-testid="rail"] :is(a,button), #rail-panel :is(a,button)')]
+          .filter((e) => e.getAttribute('data-testid') !== 'chat-row-menu')
+          .map((e) => {
+            const r = e.getBoundingClientRect(), after = getComputedStyle(e, '::after')
+            const h = after.content !== 'none' && after.position === 'absolute' ? Math.max(r.height, parseFloat(after.height)) : r.height
+            return { id: e.getAttribute('data-testid') ?? e.textContent?.trim(), w: Math.round(r.width), h: Math.round(h) }
+          })
+          .filter((b) => b.w > 0 && (b.w < 44 || b.h < 44)),
+      )
+      expect(small, item).toEqual([])
+    }
+  })
 })
 
 test('⌘K: 대화 🔍 searches conversations; "프로젝트", "사용량" and "팀 폴더" are found', async ({ page }) => {

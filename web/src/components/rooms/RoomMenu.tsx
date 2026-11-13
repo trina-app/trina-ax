@@ -23,6 +23,7 @@ import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
+import { useFolderRowItems } from '../nav/NavFolders'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
@@ -114,12 +115,16 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
  * header's on a phone (useRoomMenuItems); `dot`: a mark on the button (threads with new replies inside); `buttonRef`:
  * the "⋯" itself (where the keyboard goes back from the header's level menu when the bell is not shown).
  */
-export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null> }) {
+export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef, folders = false }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null>; folders?: boolean }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
   const own = useRef<HTMLButtonElement>(null)
   const more = buttonRef ?? own
-  const items = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone)
+  const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone)
+  // a row of the new navigation's 대화 list (`folders`): 폴더로 옮기기 / 폴더에서 빼기 before the last item (나가기 or
+  // 숨기기); a hidden room has none (it is shown again first, as a pin)
+  const folder = useFolderRowItems({ on: folders && !room.hidden, kind: 'rooms', id: room.id, folderId: room.folderId, more })
+  const items = folder.items.length ? [...base.slice(0, -1), ...folder.items, ...base.slice(-1)] : base
   return (
     <>
       <MenuButton
@@ -139,6 +144,7 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
       />
       {/* a row's own level menu, where its "⋯" opens (the button is the row's "⋯": this one has none) */}
       {!onNotify && <RoomNotifyMenu room={room} bare openRequest={notify} className="absolute right-1.5 bottom-0" focusBack={() => more.current?.focus()} />}
+      {folder.picker}
     </>
   )
 }

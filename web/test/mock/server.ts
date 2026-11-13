@@ -5359,6 +5359,141 @@ export class MockServer {
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
 
+  // ---------------- list folders (server/src/chat/nav-folders.ts) ----------------
+  /** my list folders (each person's own; nobody else's is ever listed, counted or changed: 404) */
+  navFolders: { id: string; userId: string; kind: 'chats' | 'rooms'; name: string; position: number }[] = []
+  /** `${userId}:${chat or room id}` → the folder it is in, for that person */
+  navItems = new Map<string, string>()
+  readonly navFoldersInstalled = this.installNavFolders()
+
+  private installNavFolders() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.navFolders = []
+      this.navItems = new Map()
+      baseReset(o)
+    }
+    const mine = (c: Ctx, kind?: 'chats' | 'rooms') => this.navFolders.filter((f) => f.userId === c.user.id && (!kind || f.kind === kind)).sort((a, b) => a.position - b.position)
+    const folderOf = (c: Ctx, id: string) => this.navFolders.find((f) => f.id === id && f.userId === c.user.id) ?? fail('not_found', 404)
+    const key = (userId: string, id: string) => `${userId}:${id}`
+    const withFolder = <X extends { id: string }>(userId: string, x: X): X & { folderId?: string } => {
+      const f = this.navItems.get(key(userId, x.id))
+      const { folderId: _, ...rest } = x as X & { folderId?: string }
+      return (f ? { ...rest, folderId: f } : rest) as X & { folderId?: string }
+    }
+    const fileable = (x: Chat) => !x.deletedAt && !x.projectId && !x.sideRoomId
+    const inFolder = (c: Ctx, f: { id: string; kind: string }) =>
+      f.kind === 'chats'
+        ? this.chats.filter((x) => fileable(x) && this.navItems.get(key(c.user.id, x.id)) === f.id && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
+        : this.rooms.filter((r) => !r.hidden && this.navItems.get(key(c.user.id, r.id)) === f.id)
+    const newest = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+    const out = (c: Ctx, f: (typeof this.navFolders)[number]) => {
+      const items = f.kind === 'chats' ? newest(inFolder(c, f) as Chat[]) : inFolder(c, f)
+      return { id: f.id, kind: f.kind, name: f.name, position: f.position, count: items.length, top: f.kind === 'chats' ? (items as Chat[]).filter((x) => !x.pinnedAt).slice(0, 3).map((x) => withFolder(c.user.id, x)) : [] }
+    }
+    const changed = (c: Ctx, kind: 'chats' | 'rooms') => this.sharedSend((uid) => (uid === c.user.id ? { type: 'navFolders.changed', data: { kind } } : null))
+    const renumber = (c: Ctx, kind: 'chats' | 'rooms') => mine(c, kind).forEach((f, i) => (f.position = i))
+    const nameKey = (s: string) => s.normalize('NFC').trim().toLowerCase()
+    const checkName = (c: Ctx, kind: 'chats' | 'rooms', name: string, except?: string) => {
+      const n = String(name ?? '').normalize('NFC').trim()
+      if (!n || [...n].length > 40) fail('validation', 400, undefined, { 'body.name': 'invalid' })
+      if (mine(c, kind).some((f) => f.id !== except && nameKey(f.name) === nameKey(n))) fail('conflict', 409, '이미 같은 이름의 폴더가 있어요.', { 'body.name': 'nav_folder_name_taken' }, { reason: 'nav_folder_name_taken' })
+      return n
+    }
+
+    h.listNavFolders = (c) => ({ items: mine(c).map((f) => out(c, f)) })
+    h.createNavFolder = (c) => {
+      const kind = c.body.kind as 'chats' | 'rooms'
+      if (mine(c, kind).length >= 30) fail('conflict', 409, '폴더는 30개까지 만들 수 있어요.', undefined, { reason: 'nav_folders_full' })
+      const f = { id: uuidv7(), userId: c.user.id, kind, name: checkName(c, kind, c.body.name), position: mine(c, kind).length }
+      this.navFolders.push(f)
+      changed(c, kind)
+      return { status: 201, body: out(c, f) }
+    }
+    h.updateNavFolder = (c) => {
+      const f = folderOf(c, c.params.id!)
+      f.name = checkName(c, f.kind, c.body.name, f.id)
+      changed(c, f.kind)
+      return out(c, f)
+    }
+    h.deleteNavFolder = (c) => {
+      const f = folderOf(c, c.params.id!)
+      this.navFolders = this.navFolders.filter((x) => x !== f)
+      for (const [k, v] of [...this.navItems]) if (v === f.id) this.navItems.delete(k)
+      renumber(c, f.kind)
+      changed(c, f.kind)
+      return { status: 204, body: null }
+    }
+    h.orderNavFolders = (c) => {
+      const kind = c.body.kind as 'chats' | 'rooms'
+      const list = mine(c, kind)
+      const ids = (c.body.ids as string[]).filter((id) => list.some((f) => f.id === id))
+      const ordered = [...ids.map((id) => list.find((f) => f.id === id)!), ...list.filter((f) => !ids.includes(f.id))]
+      ordered.forEach((f, i) => (f.position = i))
+      changed(c, kind)
+      return { items: mine(c).map((f) => out(c, f)) }
+    }
+    h.setChatFolder = (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id) ?? fail('not_found', 404)
+      if (chat.projectId) fail('conflict', 409, '프로젝트 기록은 프로젝트 안에 있어요. 폴더에는 넣을 수 없어요.', undefined, { reason: 'folder_project_chat' })
+      const to = c.body.folderId as string | null
+      if (to && folderOf(c, to).kind !== 'chats') fail('not_found', 404)
+      if (to) this.navItems.set(key(c.user.id, chat.id), to)
+      else this.navItems.delete(key(c.user.id, chat.id))
+      const v = withFolder(c.user.id, chat)
+      this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: v } } : null))
+      changed(c, 'chats')
+      return v
+    }
+    h.setRoomFolder = (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      if (room.hidden) fail('conflict', 409, undefined, undefined, { reason: 'room_hidden' })
+      const to = c.body.folderId as string | null
+      if (to && folderOf(c, to).kind !== 'rooms') fail('not_found', 404)
+      if (to) this.navItems.set(key(c.user.id, room.id), to)
+      else this.navItems.delete(key(c.user.id, room.id))
+      changed(c, 'rooms')
+      return withFolder(c.user.id, room)
+    }
+    // each person's copy carries their own folder
+    over('listRooms', (c, base) => {
+      const r = base(c) as { items: Room[] }
+      return { ...r, items: r.items.map((x) => withFolder(c.user.id, x)) }
+    })
+    over('listChats', (c, base) => {
+      const r = base({ ...c, query: { ...c.query, folderId: '' } }) as { items: Chat[]; nextCursor: string | null }
+      let items = r.items.map((x) => withFolder(c.user.id, x))
+      if (c.query.folderId) items = items.filter((x) => x.folderId === c.query.folderId)
+      return { ...r, items }
+    })
+    over('listChatGroups', (c, base) => {
+      const g = base(c) as { pinned: Chat[]; other: { items: Chat[]; nextCursor: string | null }; projects: unknown[] }
+      const filed = (x: Chat) => !!this.navItems.get(key(c.user.id, x.id))
+      return {
+        ...g,
+        pinned: g.pinned.map((x) => withFolder(c.user.id, x)),
+        folders: mine(c, 'chats').map((f) => {
+          const o = out(c, f)
+          return { id: o.id, name: o.name, position: o.position, count: o.count, top: o.top, marked: [] }
+        }),
+        other: { ...g.other, items: g.other.items.filter((x) => !filed(x)) },
+      }
+    })
+    // a room's update carries each person's own folder (rooms/service.ts roomEvent)
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const room = ev.type === 'room.updated' ? (ev.data as { room?: Room | null }).room : null
+      if (!room || ![...this.navItems.keys()].some((k) => k.endsWith(`:${room.id}`))) return basePublish(ev)
+      return this.sharedSend((uid) => ({ ...ev, data: { ...ev.data, room: withFolder(uid, room) } }) as ServerEventInput)
+    }
+    return true
+  }
+
   /** A project the caller reads, or with `manage` one they manage (routes/chats.ts projectFor): else 404, the same
    * answer as no project */
   projectFor(c: Ctx, manage: boolean): Project {
