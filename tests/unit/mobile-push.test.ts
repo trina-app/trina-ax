@@ -4,7 +4,7 @@ import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, startRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
-import { APPEARANCE_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
@@ -286,6 +286,28 @@ test('share-text-v1: the phone\'s share sheet with a bounded text, only with the
   // a sheet that fails says so
   expect((await app([...config.capabilities, SHARE_TEXT_CAPABILITY], async () => { throw new Error('no sheet') })({ text }))?.error).toBe('mobile_operation_failed')
   expect(shared).toEqual([text])
+})
+
+test('change-team-v1: the 나 tab\'s "다른 팀으로 전환…" opens the app\'s own "다른 팀에 연결" screen, only with the capability, at most once in a few seconds', async () => {
+  let shown = 0
+  const app = (capabilities: readonly string[], changeTeam?: () => void) => {
+    const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, undefined, undefined, changeTeam)
+    return (over: object = {}, source = 'https://team.example/settings') => receiver.receive(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'change-team-1', type: 'change-team', ...over }), source)
+  }
+  expect(parseMessage(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'change-team-1', type: 'change-team' }))?.type).toBe('change-team')
+  const send = app([...config.capabilities, CHANGE_TEAM_CAPABILITY], () => { shown++ })
+  expect(await send()).toMatchObject({ ok: true, for: 'change-team' })
+  expect(shown).toBe(1)
+  // again at once: refused (a page cannot keep covering itself with the app's screen)
+  expect((await send())?.ok).toBe(false)
+  // another origin or an old nonce: no answer, no screen
+  expect(await send({}, 'https://evil.example/')).toBeNull()
+  expect(await send({ nonce: 'b'.repeat(64) })).toBeNull()
+  expect(shown).toBe(1)
+  // an app without the capability (today's store builds): refused, and the page shows no row
+  expect((await app(config.capabilities, () => { shown++ })())?.ok).toBe(false)
+  expect((await app([...config.capabilities, CHANGE_TEAM_CAPABILITY])())?.ok).toBe(false)
+  expect(shown).toBe(1)
 })
 
 test('the look: the page says first, the phone before that; insets reach the page as CSS variables, even before it has a root', () => {

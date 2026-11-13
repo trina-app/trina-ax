@@ -1,6 +1,6 @@
 // Settings › Apps install pictures (src/components/settings/InstallPictures.tsx): the installed app's icon in them (the
 // install sheets, the home screen, the Dock or taskbar, the app's window) and the browser's tab are the product's,
-// whatever logo the team has, as the real ones are (the logo shows only in the computer's sidebar header).
+// whatever logo the team has, as the real ones are (the logo shows only at the top of the computer's rail).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Me } from '@mycel/shared/api'
 import { ComputerPictures, InstallPictures } from '../../src/components/settings/InstallPictures'

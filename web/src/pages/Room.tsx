@@ -81,6 +81,9 @@ const NO_PENDING: PendingSend[] = []
 const ROOM_ROW_ID = messageDomId('')
 const ROOM_PLACE_ROWS = `[id^="${ROOM_ROW_ID}"]`
 
+/** the thread or side chat as a sheet over the room (a narrow computer window) */
+const SHEET = 'absolute inset-0 z-20 border-l-0! shadow-xl'
+
 export default function RoomPage() {
   const { roomId = '', messageId } = useParams()
   if (!isUuid7(roomId)) return <RoomNotFound />
@@ -186,6 +189,31 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const moreRef = useRef<HTMLButtonElement>(null)
   // a phone's header: ‹, the name, ✦ and ⋯ only (QA TC-257)
   const wide = useMediaQuery('(min-width: 768px)')
+  // a narrow computer window (below 812 px: the 72 px rail and a room of 420 px beside a 320 px thread do not fit;
+  // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
+  // room, as on a phone, and the room under it waits as it was
+  const roomy = useMediaQuery('(min-width: 812px)')
+  const sheet = wide && !roomy
+  // the sheet over the room (below 812 px): the keyboard goes into it as it opens and back to
+  // where it was in the room as it closes; Esc closes it (not while a menu or dialog of its own is open)
+  const sheetOpen = sheet && !!(threadId || sideOpen)
+  useEffect(() => {
+    if (!sheetOpen) return
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const el = document.querySelector<HTMLElement>('[data-sheet]')
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      e.preventDefault()
+      if (threadId) closeThread()
+      else closeSide()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (before?.isConnected) requestAnimationFrame(() => before.focus({ preventScroll: true }))
+    }
+  }, [sheetOpen, threadId, closeThread, closeSide])
   usePeopleList()
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
@@ -356,9 +384,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const muted = !!room && roomNotify(room).level === 'off'
 
   return (
-    <div className="flex h-full" data-testid="room-page">
+    <div className={clsx('flex h-full', sheet && 'relative')} data-testid="room-page">
     {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
-    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} data-testid="room">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} inert={(sheet && !!(threadId || sideOpen)) || undefined} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4" data-testid="room-header">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -482,11 +510,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     </FileDropZone>
     {/* the room's right column: the thread in the address, else my Trina side chat */}
     {threadId ? (
-      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider="thread">
+      <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet ? undefined : 'thread'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />
       </RoomSideColumn>
     ) : sideOpen ? (
-      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider="side-chat">
+      <RoomSideColumn label={t('sideChat.title', { name: aiName(t) })} testId="room-side-chat" divider={sheet ? undefined : 'side-chat'} className={sheet ? SHEET : undefined} modal={sheet} data-sheet={sheet ? '' : undefined}>
         <SideChatPanel frame={false} key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={closeSide} />
       </RoomSideColumn>
     ) : null}

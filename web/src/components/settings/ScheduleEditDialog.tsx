@@ -159,7 +159,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
               <Button onClick={() => setPicking(true)} className="min-w-0 truncate max-md:min-h-11 max-md:flex-1 max-md:justify-between max-md:border-transparent max-md:bg-subtle" data-testid="schedule-edit-save-pick"><span className="truncate">{saveFolder ?? t('schedules.saveFolderPick')}</span><ChevronRight size={16} className="shrink-0 text-faint md:hidden" aria-hidden /></Button>
               {saveFolder ? (
                 <IconButton label={t('schedules.removeSaveFolder')} onClick={() => { setSaveFolder(null); setNote(null) }} data-testid="schedule-edit-save-remove"><X size={14} /></IconButton>
-              ) : <span className="text-xs text-faint">{t('schedules.saveFolderNone')}</span>}
+              ) : <span className="text-xs text-faint">{t('schedules.saveFolderNoneFiles')}</span>}
             </div>
           </Field>
           {saveFolder && !!s.saveSources?.length && (

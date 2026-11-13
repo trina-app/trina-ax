@@ -9,6 +9,8 @@ import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
+import { useChatGroups } from './store/chatGroups'
+import { useNavFolders } from './store/navFolders'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
 import { useMemberWelcome } from './store/memberWelcome'
@@ -115,6 +117,8 @@ function dropPersonStores() {
   useDeckBuilds.getState().reset()
   useSendQueue.getState().reset()
   useProjects.getState().reset()
+  useChatGroups.getState().reset()
+  useNavFolders.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
   useMemberWelcome.getState().reset()
@@ -248,6 +252,9 @@ function Gate() {
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
+          {/* the new chat on its own page: a phone, where / is 트리나's list (lib/newChat.ts); a
+              computer's goes to / (pages/Home.tsx) */}
+          <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />
@@ -300,7 +307,7 @@ function Gate() {
       </RealPath.Provider>
       {settings.open && (
         <Routes>
-          {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
+          {/* scheduled tasks have their own page (/scheduled): old links (banners, notifications, bookmarks) go there */}
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
           <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
@@ -311,7 +318,7 @@ function Gate() {
               pages under it */}
           <Route path="/settings/connectors/mcp/:integrationId" element={<SettingsDialog onClose={settings.close} page="connector" />} />
           <Route path="/settings/connectors/:id" element={<SettingsDialog onClose={settings.close} page="connector" />} />
-          {/* Connectors was a page of the sidebar until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
+          {/* Connectors was a page of its own until 2026-11-12: its addresses (notices, Slack, mails, bookmarks) lead
               to the same place in Settings, with their query */}
           <Route path="/connectors/*" element={<OldConnectors />} />
           {/* an address under Settings that is none of these (/settings/a/b): the list, never an empty dialog-less page */}

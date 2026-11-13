@@ -1,4 +1,4 @@
-- **Search (⌘K) › Needs attention** now shows the same marks and words as the history in the sidebar: "?" when Trina is
+- **Search (⌘K) › Needs attention** now shows the same marks and words as your Trina list: "?" when Trina is
   waiting for your answer (it said "Answering now"), and a dot when a new answer is there that you have not seen (it was
   missing).
 - **Search › History**: each chat says, in grey on the right, when it was last active and which project it is in.

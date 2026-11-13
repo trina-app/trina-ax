@@ -4,10 +4,10 @@
 // 소개 saves the profile only: its "저장하고 계속" puts the website's pictures and 회사 소개.md into the team's brand
 // folder (POST /api/onboarding/welcome/brand, no AI), and nothing starts by itself: no deck, no chat, no skill (one line
 // under the button says what goes where). 회사 소개 needs AI, so without it the AI step opens in its place, never in
-// front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the sidebar's setup row
+// front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the setup row
 // says "AI 연결하기"). 도구 연결 (components/onboarding/ToolsStep.tsx) is on every team; a phone walks past it and records
 // it as put off. Every step can be put off; the progress is kept on the server (store/welcome.ts), so the steps resume
-// where they stopped, on any device, from the setup row in the sidebar (components/onboarding/SetupRow.tsx) or a
+// where they stopped, on any device, from the setup row at the top of the lists (components/onboarding/SetupRow.tsx) or a
 // landing (W4). The end screen shows once, with one press to make a first result with a skill the team has.
 //
 // Leaving the first step sets up every team once (a group named after the team with its folders, POST
@@ -34,7 +34,8 @@ import { sameScreen, useScreenName } from '../lib/screens'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
+import { aiName } from '../lib/tabs'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, resumeStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -408,8 +409,9 @@ function counting(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean
   return { counted, at: counted.indexOf(step) }
 }
 function progressAt(progress: WelcomeProgress, step: WelcomeStep, aiReady: boolean, computer: boolean): { n: number; total: number; step: WelcomeStep } | null {
-  const { counted, at } = counting(progress, step, aiReady, computer)
-  return at < 0 ? null : { n: at + 1, total: counted.length, step }
+  // the setup row says the same number (lib/welcome.ts setupRowWords)
+  const at = stepPosition(progress, step, aiReady, computer)
+  return at && { ...at, step }
 }
 
 /** "1/5 회사 소개 · 2/5 내 스킬 · 3/5 팀 파일 · 4/5 도구 연결 · 5/5 팀원 초대" ("1/6 AI 연결 · …" for an owner who needed
@@ -787,7 +789,7 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
   const make = aiReady && !own && !!kept
   return (
     <div className="space-y-6" data-testid="welcome-done">
-      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? t(phone ? 'welcome.done.deckPhone' : 'welcome.done.deck', { name: historyName(t) }) : undefined} />
+      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? (phone ? t('welcome.done.deckPhone', { name: aiName(t) }) : t('welcome.done.deck', { name: historyName(t) })) : undefined} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         {!aiReady ? (
           <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />

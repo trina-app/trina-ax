@@ -50,7 +50,7 @@ export const FEATURES: Feature[] = [
 
   // ---------------- AI chat ----------------
   { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
-  { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
+  { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'listChatGroups', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
   { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats and conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
@@ -72,7 +72,7 @@ export const FEATURES: Feature[] = [
   { id: 'projects.home', name: 'A project: its chats, files, rename, delete, restore', area: 'Projects', endpoints: ['getProject', 'updateProject', 'deleteProject', 'restoreProject'], screens: ['/projects/:projectId', '/projects/:projectId/files'] },
   { id: 'projects.members', name: 'Who is in a project', area: 'Projects', endpoints: ['getProjectAccess', 'putProjectParticipants', 'shareProject'] },
   { id: 'projects.update-notice', name: 'Projects become members-only (0.5 update notice)', area: 'Projects', endpoints: ['*ProjectsUpdateNotice'] },
-  { id: 'projects.dev-env', name: 'Dev environment of a project', area: 'Projects', endpoints: ['devEnv', 'devEnvStop', 'devEnvRunStop', 'devEnvActivity', 'myDevEnvRuns', 'stopMyDevEnvRun'] },
+  { id: 'projects.dev-env', name: 'Dev environment of a project', area: 'Projects', endpoints: ['devEnv', 'devEnvStop', 'devEnvRunStop', 'devEnvActivity', 'myDevEnvRuns', 'stopMyDevEnvRun', 'previewMyDevEnvRun'] },
   { id: 'projects.dev-env-sites', name: 'Dev environment sites and full internet', area: 'Projects', endpoints: ['myDevEnvSites', 'removeMyDevEnvSite', 'setMyDevEnvFullInternet'], screens: ['/settings/dev-env-sites'] },
 
   // ---------------- Files ----------------
@@ -139,7 +139,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch'] },
 
   // ---------------- Home ----------------
-  { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/'] },
+  { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },
 
   // ---------------- Settings ----------------
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },

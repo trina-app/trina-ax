@@ -57,7 +57,7 @@ async function run(command: string, o: { limits?: Partial<ScopeLimits>; network?
   const settingsFile = path.join(dp.run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 })
   const exitFile = path.join(dp.logs, `${runId}.exit`), outFile = path.join(dp.logs, `cmd-${runId}.out`)
-  const s = sys.spawn({ runId, id: ID, cwd: DIR1, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work: null }), limits: { ...STARTER, ...o.limits }, exitFile, settingsFile, command, stdoutFile: outFile, stderrFile: outFile })
+  const s = await sys.spawn({ runId, id: ID, cwd: DIR1, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work: null }), limits: { ...STARTER, ...o.limits }, exitFile, settingsFile, command, stdoutFile: outFile, stderrFile: outFile })
   if (o.wait === false) return { runId, code: null, out: '', info: {}, peakMiB: 0, minAvailMiB: 0 }
   let peak = 0, minAvail = memAvailableMiB(), done = false
   const watch = (async () => {

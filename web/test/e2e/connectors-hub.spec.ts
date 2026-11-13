@@ -8,6 +8,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { openSettings } from './nav'
 
 const header = (page: Page) => page.getByTestId('connectors-header')
 /** Discover is on the page under the connections: its heading is there */
@@ -135,8 +136,7 @@ test('Connectors is in Settings, not in the sidebar; the old addresses lead to i
   await signIn(page)
   await page.goto('/admin/connectors')
   await expect(page.getByTestId('nav-connectors')).toHaveCount(0)
-  await page.getByTestId('account-menu').click()
-  await page.getByTestId('account-settings').click()
+  await openSettings(page)
   const settings = page.getByTestId('settings-dialog')
   const item = settings.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true })
   // in the Connections group, first

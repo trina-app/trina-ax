@@ -43,6 +43,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
+import { chatGroups, otherChats } from '../chat/chat-groups'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
@@ -199,9 +200,17 @@ export const chatsRoutes: RouteModule = {
     }
 
     // ---------------- chats ----------------
+    // the Trina list's groups in one read (chat/chat-groups.ts); registered before GET /api/chats/:id
+    kit.handle(API.listChatGroups, ({ auth }) => chatGroups(rt, auth.user.id))
+
     kit.handle(API.listChats, ({ query, auth }) => {
       const me = auth.user.id
       const limit = query.limit ?? 50
+      // the Trina list's other chats, their next pages (chat/chat-groups.ts: the same set as the groups' `other`)
+      if (query.other) {
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
+        return otherChats(rt, me, query.cursor, limit)
+      }
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
@@ -396,7 +405,7 @@ export const chatsRoutes: RouteModule = {
       rt.store.markSeen(chat.id)
       const after = rt.store.chatRow(chat.id)!
       // only a change is told (an answer the mark cannot reach, one dated after the server's clock, is no change: the
-      // windows would ask again and again); a chat in the trash is not in any sidebar (an 'updated' would put it back
+      // windows would ask again and again); a chat in the trash is not in any list (an 'updated' would put it back
       // there). Session markers: docs/DECISIONS.md.
       if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, after)

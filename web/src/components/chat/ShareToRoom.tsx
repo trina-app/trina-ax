@@ -79,7 +79,7 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
   // a phone: the keyboard does not come up over the list before anything is touched
   const touch = useMediaQuery('(pointer: coarse)')
 
-  // the rooms are the sidebar's list; a phone that never opened it reads it here
+  // the rooms are the 대화 list's (store/rooms.ts); read here when they never loaded
   useEffect(() => { if (!loaded) void useRooms.getState().loadRooms() }, [loaded])
   const hits = useMemo(() => matchRooms(rooms, query, title, 50), [rooms, query, title])
   // a room the search no longer shows is not picked (nothing is sent to a room out of sight)
@@ -383,7 +383,7 @@ export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): 
     case 'folder':
       return place.path ? `${place.path.replace(/\/+$/, '')}/` : t('rooms.aiRootFolder')
     case 'mine':
-      return t('shareRoom.placeMine')
+      return t('shareRoom.placeMineFiles')
     case 'service':
       return place.name
     case 'room':

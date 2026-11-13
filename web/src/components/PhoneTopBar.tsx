@@ -1,9 +1,9 @@
 // The phone's top bar (below 768 px): it says where you are and holds one action at most, each in one place.
-//   트리나 (Home):  ☰ the AI's history (검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, 삭제한 기록) · the AI's name
+//   트리나 (/), 파일 (/files…): none here: 트리나's list and 파일's places draw their own bar
+//                    (components/panels/PhoneTrinaHome.tsx, FilesPanel.tsx; pages/Files.tsx), as Admin does
+//   a new chat (/new): ‹ back to the list (or to its project) · the AI's name
 //   대화 (/rooms):   its name · 🔍 search on its rooms, people and messages (SearchDialog's 대화 type) · ⊕ a new
 //                    conversation (the people list)
-//   프로젝트 (/projects): its name and "+" (a new project), no ‹: it is a tab's root (QA TC-255)
-//   the team folder (/files…, under 프로젝트): none (the Files page's own header is the bar)
 //   a page under a tab (팀 스킬, a project, …): ‹ back · the page's name (the page keeps its heading for screen readers
 //                    only, so the name is not said twice), in the bar every phone page uses (phone/PhonePageBar.tsx);
 //                    the page's one action on the right ("+", "Edit": phone/PhoneBarAction.tsx); a detail page that
@@ -12,8 +12,7 @@
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
 // named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
-import clsx from 'clsx'
-import { ChevronLeft, Menu, MessageCirclePlus, Search } from 'lucide-react'
+import { MessageCirclePlus, Search } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
@@ -21,7 +20,6 @@ import { useBackLabel } from '../lib/backStack'
 import { activityInChats, parentOf, rootTab } from '../lib/screens'
 import { stackNow } from '../lib/screenHistory'
 import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
-import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
 import { PhonePageBar } from './phone/PhonePageBar'
@@ -33,61 +31,38 @@ export function PhoneTopBar() {
   const t = useT()
   const navigate = useNavigate()
   const { pathname: path, search } = useLocation()
-  const setDrawer = useUi((s) => s.setDrawer)
   const setSearchOpen = useUi((s) => s.setSearchOpen)
-  const attention = useAttention()
   const tab = tabOf(path)
   const up = parentOf(`${path}${search}`) ?? TAB_ROOT[tab ?? START_TAB]
   const back = useGoBack(up)
   const backLabel = useBackLabel(up, () => null)
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
-  // the team folder draws its own bar (pages/Files.tsx), as Admin does
-  if (hidesTabs(path) || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
-  // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
-  const home = path === '/' && !new URLSearchParams(search).has('project')
+  // 트리나's list and 파일 draw their own bar, as Admin does (/new hides the tab bar, not this bar: its message box is at
+  // the bottom, ‹ goes back to the list)
+  if ((hidesTabs(path) && path !== '/new') || path === '/' || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
   const rooms = path === '/rooms'
   // Activity opened from 대화's 멘션·스레드 row is that row's page (lib/screens.ts CHATS_ACTIVITY)
   const titleKey = path === '/activity' && activityInChats(search) ? 'feed.chats' : pageTitleKey(path)
-  const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
-  // a tab's own list other than these two (프로젝트's) at the bottom of its stack: no ‹, it is where the tab starts (the
-  // list opened on top of another tab's screens, from search, keeps its ‹ back there)
+  const title = path === '/new' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
+  // a tab's own list at the bottom of its stack: no ‹, it is where the tab starts (the list opened on top of another
+  // tab's screens, from search, keeps its ‹ back there)
   const root = !!rootTab(`${path}${search}`) && !stackNow()?.below
-  if (!home && !rooms)
+  if (!rooms)
     return <PhonePageBar onBack={root ? undefined : back} backLabel={backLabel} title={pageTitle ?? title} titleHidden={!!titleKey} action={<PhoneBarSlot />} backTestId="topbar-back" titleTestId="topbar-title" className="md:hidden" />
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
-      {home ? (
-        // a dot when an AI chat in the drawer wants me (session markers: a "?" or a new answer), amber when one is a "?";
-        // the rooms' part of the count is the 대화 tab's own
-        <IconButton label={attention.chats > 0 ? `${t('sidebar.open')} · ${t('marker.chats', { n: attention.chats })}` : t('sidebar.open')} onClick={() => setDrawer(true)} className={clsx(icon, 'relative')} data-testid="menu-open">
-          <Menu size={20} />
-          {attention.chats > 0 && <span className={clsx('absolute top-2 right-2 size-2.5 rounded-full ring-2 ring-canvas', attention.chatAsk ? 'bg-warn' : 'bg-accent')} aria-hidden data-testid="menu-dot" data-ask={attention.chatAsk ? '' : undefined} />}
-        </IconButton>
-      ) : rooms ? (
-        // as wide as the two buttons on the right and the gap between them, so the name stays in the middle
-        <span className="w-23 shrink-0" aria-hidden />
-      ) : (
-        <IconButton label={t('tabs.back')} onClick={back} className={icon} data-testid="topbar-back">
-          <ChevronLeft size={22} />
-        </IconButton>
-      )}
-      {/* a page with its own (screen-reader) heading: the name here is for the eye only */}
-      <span aria-hidden={titleKey ? true : undefined} className="min-w-0 flex-1 truncate text-center text-sm font-semibold" data-testid="topbar-title">
+      {/* as wide as the two buttons on the right and the gap between them, so the name stays in the middle */}
+      <span className="w-23 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-center text-sm font-semibold" data-testid="topbar-title">
         {title}
       </span>
-      {rooms ? (
-        <>
-          <IconButton label={t('rooms.search')} onClick={() => setSearchOpen(true, 'rooms')} className={icon} data-testid="topbar-search">
-            <Search size={20} />
-          </IconButton>
-          <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
-            <MessageCirclePlus size={20} />
-          </IconButton>
-        </>
-      ) : (
-        <span className={icon} aria-hidden />
-      )}
+      <IconButton label={t('rooms.search')} onClick={() => setSearchOpen(true, 'rooms')} className={icon} data-testid="topbar-search">
+        <Search size={20} />
+      </IconButton>
+      <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
+        <MessageCirclePlus size={20} />
+      </IconButton>
     </div>
   )
 }

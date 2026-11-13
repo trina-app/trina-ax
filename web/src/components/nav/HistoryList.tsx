@@ -1,19 +1,15 @@
-// Trina history as one section (its title, the filter and sort menu, the list), moved out of Sidebar.tsx with no
-// change in what it shows (navigation redesign, docs/AGENTS/plan/20261112-1839-nav-rail.md, phase P0b) so the rail's
-// Trina panel can draw the same list. The caps are the caller's (`caps`): the computer's sidebar passes
-// SIDEBAR_HISTORY_CAPS (beside the rooms: my pins, the five latest or the five latest projects with three rows each,
-// "모두 보기" for the rest), the phone's drawer `null` (the whole history). What the list holds and why is in
-// Sidebar.tsx's head comment and docs/DECISIONS.md "Trina history by project", "Pinned chats", "Session markers".
+// Trina history as one list, filtered and sorted (the Trina panel and the phone's 트리나 tab show it while the filter in
+// their header is not at its default; panels/TrinaList.tsx otherwise): my pins first, then the chats by project, by date
+// or in one list, and "더 보기" for the next page. What the list holds and why: docs/DECISIONS.md "Trina history by
+// project", "Pinned chats", "Session markers". The filter's menu (RecentsMenu) and its state (useRecentsView) are here too.
 import clsx from 'clsx'
-import { Check, ChevronRight, ListFilter, Loader2, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, ChevronRight, ListFilter, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { dateBucket, type DateBucket } from '../../lib/format'
-import { aiName } from '../../lib/tabs'
 import { useT, type MessageKey } from '../../i18n'
-import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
+import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
 import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
 import { useProjects } from '../../store/projects'
@@ -21,16 +17,15 @@ import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
 import { MenuButton } from '../rooms/MenuButton'
-import { SidebarSectionTitle, useMediaQuery } from '../ui'
+import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from './ChatItem'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
-
-/** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
- * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": a spinner or a "?" row
+/** How the Trina history is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
+ * every chat in the list (deleted ones are under the 트리나 panel's 삭제한 기록); "Waiting": a spinner or a "?" row
  * (an answer runs or waits its turn, a card waits for the person, an answer failed or paused and was not seen; not a new
  * answer: docs/DECISIONS.md "Session markers"). */
 const VIEW = {
@@ -70,15 +65,6 @@ const rememberedView = (): RecentsView => {
   }
 }
 
-/** This browser remembers whether Recents is open and how it is shown (a private window may refuse: it just forgets). */
-const remembered = <T extends string>(key: string, ok: readonly T[], fallback: T): T => {
-  try {
-    const v = localStorage.getItem(key) as T | null
-    return v && ok.includes(v) ? v : fallback
-  } catch {
-    return fallback
-  }
-}
 const remember = (key: string, v: string) => {
   try {
     localStorage.setItem(key, v)
@@ -86,42 +72,30 @@ const remember = (key: string, v: string) => {
     /* not kept */
   }
 }
-const OPEN_KEY = 'mycel.sidebar.recents'
-const ALL_KEY = 'mycel.sidebar.recentsAll'
-/** a computer: AI chats shown before "모두 보기" (no chat in a project) */
-const LATEST = 5
-/** a computer, the history by project beside the rooms: the latest projects in sight (and the other chats), and the
- * rows of each before its "N more" (docs/DECISIONS.md "Trina history by project") */
-const PROJECTS_SHOWN = 5
-const ROWS_SHOWN = 3
-/** a computer: pinned chats shown above them (the rest are first in "모두 보기") */
-const PINS_SHOWN = 10
 /** my pinned chats, the most recently pinned first (docs/DECISIONS.md "Pinned chats") */
 const pinnedFirst = (list: Chat[]) => list.filter((c) => c.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
 
-
-/** The caps of the history where it shares a column with the rooms (a computer's sidebar): my pins, then the latest
- * chats (no chat in a project) or the latest projects and a few rows of each, the rest behind "모두 보기". */
-export interface HistoryCaps {
-  pins: number
-  latest: number
-  projects: number
-  rows: number
+/** The history's filter and sort (four menus), remembered in this browser as what differs from the default. */
+export function useRecentsView() {
+  const [view, setViewState] = useState<RecentsView>(rememberedView)
+  const setView = useCallback((v: RecentsView) => {
+    setViewState(v)
+    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
+  }, [])
+  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
+  return { view, setView, changed }
 }
-/** today's sidebar beside the rooms (docs/DECISIONS.md "Desktop sidebar: rooms first", "Trina history by project") */
-export const SIDEBAR_HISTORY_CAPS: HistoryCaps = { pins: PINS_SHOWN, latest: LATEST, projects: PROJECTS_SHOWN, rows: ROWS_SHOWN }
+export type RecentsViewState = ReturnType<typeof useRecentsView>
+/** the choices that differ from the default, in words ("Waiting, Title") */
+export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])).join(', ')
+export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
 
 /**
- * The AI's history as one section: its title (it folds), the filter, and the list. `caps`: beside the rooms (a
- * computer's sidebar) the capped list with "모두 보기"; `null`, the whole of it (the phone's drawer). `peek` is the
- * hover quick view of the column it sits in (its scroll hides it).
+ * The whole history as the filter and sort in the panel's header choose it (`viewState`; the list has no title row of
+ * its own). `peek` is the hover quick view of the column it sits in.
  */
-export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | null; onNavigate: () => void; peek: ChatPeek }) {
+export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () => void; peek: ChatPeek; viewState: RecentsViewState }) {
   const t = useT()
-  const capped = !!caps
-  // the whole history opened ("모두 보기"), remembered in this browser like the fold
-  const [allChats, setAllChatsState] = useState(() => remembered(ALL_KEY, ['yes', 'no'] as const, 'no') === 'yes')
-  const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
   // goes to another group (a date, a project) and is made again, as the share right after the move needs
@@ -140,20 +114,14 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
     if (!loaded) void readChats()
   }, [loaded, readChats])
 
-  const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
-  const [view, setViewState] = useState<RecentsView>(rememberedView)
-  const setView = (v: RecentsView) => {
-    setViewState(v)
-    remember(VIEW_KEY, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== DEFAULT_VIEW[k]).map((k) => [k, v[k]]))))
-  }
-  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
+  const { view } = viewState
   const requests = useChats((s) => s.requests)
   // session markers as this window sees them: the chats with a card open here, the chat on screen in a visible window
   const cards = useMemo(() => cardChats(requests), [requests])
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  // the whole history as the filter and sort choose it (the drawer, "모두 보기"): a chat made only to hold attachments (a
-  // file attached, nothing sent yet) is not a conversation yet; pinned chats come first, without a header
-  // (`pinnedRows`), the rest follow by project, by date or in one list
+  // the whole history as the filter and sort choose it: a chat made only to hold attachments (a file attached, nothing
+  // sent yet) is not a conversation yet; pinned chats come first, without a header (`pinnedRows`), the rest follow by
+  // project, by date or in one list
   // before the first read of the project list, a chat with a project counts as in one (the read then sorts it out)
   const listed = useProjects((s) => s.listed)
   const seesProject = useSeesProject()
@@ -168,20 +136,10 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
     const now = Date.now()
     return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject)))
   }, [chats, view, cards, here, inProject])
-  const listId = useId()
-  // a computer: my pinned chats (at most ten), then the five latest of the others and the chat on screen, unless the
-  // whole history is open (or filtered)
-  const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
-  const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
-  const pins = useMemo(() => pinnedFirst(used).filter((c, i) => i < (caps?.pins ?? Infinity) || c.id === openChat), [used, openChat, caps?.pins])
-  const unpinned = useMemo(() => used.filter((c) => !c.pinnedAt), [used])
-  const latest = useMemo(() => [...pins, ...unpinned.filter((c, i) => i < (caps?.latest ?? Infinity) || c.id === openChat)], [unpinned, pins, openChat, caps?.latest])
-  const full = !caps || allChats || changed.length > 0
-  // the history by project (docs/DECISIONS.md "Trina history by project"): beside the rooms the latest projects, a few
-  // rows each; the whole of it in the drawer and in "모두 보기". Without a chat in a project there are no headers: the
-  // plain list (by date in the whole history), as before
-  const byProject = useHistoryGroups(full ? filtered : unpinned, !caps || full ? { open: openChat } : { projects: caps.projects, rows: caps.rows, open: openChat })
-  const grouped = byProject.grouped && (!full || view.group === 'project')
+  // the history by project (docs/DECISIONS.md "Trina history by project"); without a chat in a project there are no
+  // headers: the plain list, by date or in one list
+  const byProject = useHistoryGroups(filtered)
+  const grouped = byProject.grouped && view.group === 'project'
   const dateGroups = useMemo(() => {
     const by = view.group === 'none' ? 'none' : 'date'
     const g = new Map<string, { label: string | null; items: Chat[] }>()
@@ -192,38 +150,11 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
     }
     return [...g.entries()]
   }, [filtered, view.group, view.sort, t])
-  // the hidden chats that need me, counted on "모두 보기" as their rows would show them (session markers: a "?" or a dot,
-  // not a spinner: a chat that runs again shows the spinner); amber when one of them is a "?". By project: the chats of
-  // the projects past the latest ones and the pins past ten (a folded group and a group's "N more" carry their own mark)
-  const hiddenNeeds = useMemo(() => {
-    const hidden = grouped ? [...used.filter((c) => c.pinnedAt && !pins.includes(c)), ...byProject.behind.flatMap((g) => g.chats)] : used.filter((c) => !latest.includes(c))
-    const marks = hidden.map((c) => markerOf(c, { card: cards.has(c.id), here: c.id === here })).filter(needsMe)
-    return { n: marks.length, waiting: marks.some((m) => m!.kind === 'ask') }
-  }, [grouped, used, pins, byProject.behind, latest, cards, here])
   const row = (c: Chat) => <ChatItem key={c.id} chat={c} onNavigate={onNavigate} peek={peek} onMove={setMoving} />
-  const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
-
 
   return (
     <>
-      <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
-        <SidebarSectionTitle open={recentsOpen} onToggle={toggleRecents} controls={listId} testId="recents-toggle">
-          {t('sidebar.aiChats', { name: aiName(t) })}
-        </SidebarSectionTitle>
-        {changed.length > 0 && (
-          <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
-            <span aria-hidden>·</span>
-            <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
-            <Tooltip label={t('sidebar.filter.clear')}>
-              <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
-                <X size={11} aria-hidden />
-              </button>
-            </Tooltip>
-          </span>
-        )}
-        <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
-      </div>
-      <div ref={listRef} id={listId} hidden={!recentsOpen} data-testid="recents-list">
+      <div ref={listRef} data-testid="recents-list">
         {/* the chats, and the projects the person sees for their headers (one read): no flat list first */}
         {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
         {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
@@ -233,45 +164,19 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
             {t('sidebar.filter.none')}
           </p>
         )}
-        {loaded && byProject.ready && !full && !grouped && <ul data-testid="ai-chats-latest">{latest.map(row)}</ul>}
-        {/* by project beside the rooms: my pins as before, then the latest projects (docs/DECISIONS.md "Trina history by project") */}
-        {loaded && byProject.ready && !full && grouped && (
-          <>
-            {pins.length > 0 && (
-              <ul className="mb-2" data-testid="ai-chats-pinned">
-                {pins.map(row)}
-              </ul>
-            )}
-            <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />
-          </>
-        )}
-        {/* always there while there is a history (the owner, 2026-11-07), even when all of it is in sight: the whole
-            history with its filters is behind it */}
-        {!full && used.length > 0 && (
-          <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
-            <span className="truncate">{t('rooms.showAll')}</span>
-            {/* what the hidden chats hold for me, so nothing that needs me is out of sight unannounced */}
-            {hiddenNeeds.n > 0 && (
-              <span className={clsx('ml-auto flex shrink-0 items-center gap-1.5 text-micro font-medium', hiddenNeeds.waiting ? 'text-warn' : 'text-ink')} data-testid="ai-chats-needs">
-                <span className={clsx('size-1.5 rounded-full', hiddenNeeds.waiting ? 'bg-warn' : 'bg-accent')} aria-hidden />
-                {t('sidebar.needsYou', { n: hiddenNeeds.n })}
-              </span>
-            )}
-          </button>
-        )}
-        {full && byProject.ready && pinnedRows.length > 0 && (
+        {byProject.ready && pinnedRows.length > 0 && (
           <ul className="mb-2" data-testid="ai-chats-pinned">
             {pinnedRows.map(row)}
           </ul>
         )}
-        {full && byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
-        {full && byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
+        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
+        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
           <div key={key || 'all'} className="mb-2">
             {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
             <ul>{items.map(row)}</ul>
           </div>
         ))}
-        {full && cursor && (
+        {cursor && (
           <button
             type="button"
             className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
@@ -283,11 +188,6 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
             }}
           >
             {more ? t('common.loading') : t('sidebar.more')}
-          </button>
-        )}
-        {capped && allChats && (
-          <button type="button" onClick={() => setAllChats(false)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-less">
-            {t('common.less')}
           </button>
         )}
       </div>
@@ -316,17 +216,17 @@ export function HistoryList({ caps, onNavigate, peek }: { caps: HistoryCaps | nu
   )
 }
 
-/** Filter and sort beside "Recents", like Claude's: a square button (a dot when something is not at its default) that
+/** Filter and sort in the Trina list's header, like Claude's: a square button (a dot when something is not at its default) that
  * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
- * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
- * place with a way back. A phone (below 768px, the drawer): bottom sheets instead (RecentsSheet). */
-function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+ * menus sit in <body> (the list scrolls and would clip them); on a narrow screen a submenu takes the menu's
+ * place with a way back. A phone (below 768px): bottom sheets instead (RecentsSheet). */
+export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
   return phone ? <RecentsSheet {...props} /> : <RecentsDropdown {...props} />
 }
 
-/** The phone's drawer: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
+/** A phone: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
 function RecentsSheet({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
@@ -462,7 +362,7 @@ function RecentsDropdown({ view, onChange, changed }: { view: RecentsView; onCha
           aria-expanded={open}
           aria-label={t('sidebar.filter')}
           onClick={() => (open ? close(false) : openMenu())}
-          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink', open && 'bg-hover text-ink')}
           data-testid="recents-filter"
         >
           <ListFilter size={15} aria-hidden />

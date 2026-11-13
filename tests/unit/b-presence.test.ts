@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { ClientFrame, ControlFrame, PresenceFrame, ServerFrame, type PresenceState } from '@mycel/shared/api'
 import { Hub } from '../../server/src/realtime/hub'
-import { Presence, PRESENCE_FLUSH_MS, PRESENCE_GRACE_MS, PRESENCE_MIN_GAP_MS, PRESENCE_SETTLE_MS, PRESENCE_WARMUP_MS, startPresence, type PresenceClock } from '../../server/src/realtime/presence'
+import { Presence, PRESENCE_FLUSH_MS, PRESENCE_GRACE_MS, PRESENCE_MIN_GAP_MS, PRESENCE_SETTLE_MS, PRESENCE_SILENT_MS, PRESENCE_WARMUP_MS, startPresence, type PresenceClock } from '../../server/src/realtime/presence'
 import type { RealtimeConn } from '../../server/src/services'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -354,6 +354,58 @@ beforeAll(async () => {
   cho = await addMember(h, owner, { username: 'cho' })
 })
 afterAll(async () => { await h?.close() })
+
+describe('in use, for phone pushes (inUse; notifications/away.ts)', () => {
+  test('a window in use counts; idle (the page said so, a locked desktop says so) does not', () => {
+    const m = machine()
+    expect(m.p.inUse('ana')).toBe(false)
+    m.p.open('ana', 'w1')
+    expect(m.p.inUse('ana')).toBe(true)
+    m.p.activity('ana', 'w1', 'idle')
+    expect(m.p.inUse('ana')).toBe(false)
+    m.p.activity('ana', 'w1', 'active')
+    expect(m.p.inUse('ana')).toBe(true)
+    // several windows: any in use holds (the phone app open in front of them counts like Slack's)
+    m.p.open('ana', 'w2')
+    m.p.activity('ana', 'w1', 'idle')
+    expect(m.p.inUse('ana')).toBe(true)
+  })
+
+  test('a window silent past the cut-off (a computer that slept, its socket not closed yet) does not count; its ping keeps it', () => {
+    const m = machine()
+    m.p.open('ana', 'w1')
+    m.clock.advance(PRESENCE_SILENT_MS - 1000)
+    m.p.seenNow('ana', 'w1')
+    m.clock.advance(PRESENCE_SILENT_MS - 1000)
+    expect(m.p.inUse('ana')).toBe(true)
+    m.clock.advance(2000)
+    expect(m.p.inUse('ana')).toBe(false)
+  })
+
+  test('closed while in use: still in use for the grace (a reload, a Wi-Fi switch); closed after saying idle: not', () => {
+    const m = machine()
+    m.p.open('ana', 'w1')
+    m.p.close('ana', 'w1')
+    expect(m.p.inUse('ana')).toBe(true)
+    m.clock.advance(PRESENCE_GRACE_MS + 10)
+    expect(m.p.inUse('ana')).toBe(false)
+    m.p.open('bob', 'w2')
+    m.p.activity('bob', 'w2', 'idle')
+    m.p.close('bob', 'w2')
+    expect(m.p.inUse('bob')).toBe(false)
+  })
+
+  test('manual away is not in use; the warm-up after a start is told (warmingUntil) and then over', () => {
+    const m = machine({ away: ['ana'] })
+    m.p.open('ana', 'w1')
+    expect(m.p.inUse('ana')).toBe(false)
+    expect(m.p.warmingUntil()).toBeNull()
+    const w = machine({ warmupMs: PRESENCE_WARMUP_MS })
+    expect(w.p.warmingUntil()).toBe(w.clock.now() + PRESENCE_WARMUP_MS)
+    w.clock.advance(PRESENCE_WARMUP_MS + 1)
+    expect(w.p.warmingUntil()).toBeNull()
+  })
+})
 
 describe('the presence frame on the socket', () => {
   test('after hello: the whole list, a control frame without seq, ids and states only; changes reach the others', async () => {

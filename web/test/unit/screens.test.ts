@@ -15,14 +15,14 @@ const plan = (trail: Item[], to: string, kind: 'push' | 'replace' = 'push') => {
 }
 
 describe('the table', () => {
-  test('parents: a tab\'s root has none; pages under ☰ and 나 go to their list', () => {
+  test('parents: a tab\'s root has none; pages under a tab\'s list go to it', () => {
     expect(parentOf('/')).toBeNull()
     expect(parentOf('/rooms')).toBeNull()
-    expect(parentOf('/projects')).toBeNull()
+    expect(parentOf('/files')).toBeNull()
     expect(parentOf('/settings')).toBeNull()
-    // 프로젝트 (QA TC-255): a project and the team folder under the list
-    expect(parentOf('/files')).toBe('/projects')
-    expect(parentOf('/projects/p1')).toBe('/projects')
+    // 모든 프로젝트 and a project are under 트리나's list
+    expect(parentOf('/projects')).toBe('/')
+    expect(parentOf('/projects/p1')).toBe('/')
     expect(parentOf('/?project=p1')).toBe('/projects/p1')
     expect(parentOf('/c/x')).toBe('/')
     // the deleted AI chats stay 트리나's
@@ -56,8 +56,8 @@ describe('the table', () => {
     expect(parentOf(f('groups/leads/회사'))).toBe(f('groups/leads'))
     expect(parentOf(f('groups'))).toBe('/files')
     expect(parentOf(`/files/view?path=${encodeURIComponent('groups/leads/a.txt')}`)).toBe(f('groups/leads'))
-    expect(chainOf(f('groups/leads'))).toEqual(['/projects', '/files', f('groups'), f('groups/leads')])
-    expect(chainOf(`/files/view?path=${encodeURIComponent('groups/a.txt')}`)).toEqual(['/projects', '/files', f('groups'), `/files/view?path=${encodeURIComponent('groups/a.txt')}`])
+    expect(chainOf(f('groups/leads'))).toEqual(['/files', f('groups'), f('groups/leads')])
+    expect(chainOf(`/files/view?path=${encodeURIComponent('groups/a.txt')}`)).toEqual(['/files', f('groups'), `/files/view?path=${encodeURIComponent('groups/a.txt')}`])
     expect(chainOf('/admin/settings/ai')).toEqual(['/settings', '/admin', '/admin/settings', '/admin/settings/ai'])
   })
 
@@ -65,7 +65,7 @@ describe('the table', () => {
     expect(sameScreen('/files', '/files?view=trash')).toBe(false)
     expect(sameScreen('/files?view=trash', `${f('a')}&view=trash`)).toBe(true)
     expect(parentOf('/files?view=trash')).toBe('/files')
-    expect(chainOf(`${f('a')}&view=trash`)).toEqual(['/projects', '/files', `${f('a')}&view=trash`])
+    expect(chainOf(`${f('a')}&view=trash`)).toEqual(['/files', `${f('a')}&view=trash`])
     expect(sameScreen(f('a'), `${f('a')}&select=x&access=1`)).toBe(true)
     expect(sameScreen(f('a'), f('b'))).toBe(false)
     expect(sameScreen('/admin/folders', '/admin/folders?view=people')).toBe(false)
@@ -99,11 +99,11 @@ describe('the table', () => {
     expect(screenOf('/trash').tab).toBe('ai')
     expect(screenOf('/activity').tab).toBe('me')
     expect(screenOf('/welcome').tab).toBeNull()
-    // 프로젝트 (QA TC-255): the list, a project, its new chat and files, the team folder, its Trash and a file
-    for (const p of ['/projects', '/projects/p1', '/?project=p1', '/projects/p1/files', '/files', f('a'), '/files?view=trash', `/files/view?path=${encodeURIComponent('a/b.txt')}`]) expect(screenOf(p).tab).toBe('projects')
-    expect(rootTab('/projects')).toBe('projects')
-    expect(rootTab('/projects?new=1')).toBe('projects')
-    expect(rootTab('/files')).toBeNull()
+    // 트리나: 모든 프로젝트, a project, its new chat and files; 파일: the team folder, its Trash and a file
+    for (const p of ['/projects', '/projects/p1', '/?project=p1', '/projects/p1/files']) expect(screenOf(p).tab).toBe('ai')
+    for (const p of ['/files', f('a'), '/files?view=trash', `/files/view?path=${encodeURIComponent('a/b.txt')}`]) expect(screenOf(p).tab).toBe('files')
+    expect(rootTab('/projects')).toBeNull()
+    expect(rootTab('/files')).toBe('files')
     expect(rootTab('/files?view=trash')).toBeNull()
     expect(rootTab('/?project=p1')).toBeNull()
     expect(rootTab('/settings')).toBe('me')
@@ -201,9 +201,10 @@ describe('a navigation on a phone', () => {
     }
   })
 
-  test('an entry kept from before the 프로젝트 tab (a stack of the old 파일 tab) takes its first entry\'s tab now', () => {
-    expect(knownTab({ tab: 'files' as never, root: { k: 'a', p: '/files' }, trail: items('/files', f('a')) })).toBe('projects')
-    expect(knownTab({ tab: 'files' as never, trail: items('/', '/c/x') })).toBe('ai')
+  test('an entry kept from an older set of tabs (the old 프로젝트 tab) takes its first entry\'s tab now', () => {
+    expect(knownTab({ tab: 'projects' as never, root: { k: 'a', p: '/files' }, trail: items('/files', f('a')) })).toBe('files')
+    expect(knownTab({ tab: 'projects' as never, trail: items('/projects', '/projects/p1') })).toBe('ai')
+    expect(knownTab({ tab: 'projects' as never, trail: items('/', '/c/x') })).toBe('ai')
     expect(knownTab({ tab: 'chats', trail: items('/rooms') })).toBe('chats')
     expect(knownTab({ tab: null, trail: items('/welcome') })).toBeNull()
     // never a name from an object's prototype

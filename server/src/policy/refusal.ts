@@ -151,8 +151,8 @@ const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'ト�
 export const SCREEN = {
   files: (L: Locale) => `the Files screen ("${LABEL.files[L]}")`,
   trash: (L: Locale) => `the Files screen's trash ("${LABEL.files[L]} › ${LABEL.trash[L]}")`,
-  // the connections pages ("MCP" before #289): the person's own are under Settings › Connectors (the main sidebar's
-  // until 2026-11-12), the team's under Admin › Connected apps. `app`: one connection's page there (a Google app's)
+  // the connections pages ("MCP" before #289): the person's own are under Settings › Connectors, the team's under
+  // Admin › Connected apps. `app`: one connection's page there (a Google app's)
   connectors: (L: Locale, app?: string) => app
     ? `Settings › Connectors › ${app} ("${LABEL.settings[L]} › ${LABEL.connectors[L]} › ${app}")`
     : `Settings › Connectors ("${LABEL.settings[L]} › ${LABEL.connectors[L]}")`,

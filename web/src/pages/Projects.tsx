@@ -10,8 +10,8 @@
 // box says who sees a new chat ("나만 봐요" too: docs/DECISIONS.md "Who sees it, always"; while it will be shared, the
 // line opens the members dialog for whoever may change them), and deleting the project says its shared chats go to their
 // creators' trash. My pinned
-// chats there come first, the most recently pinned first, with the sidebar's pin before the title (docs/DECISIONS.md
-// "Pinned chats"). A chat row's "···" has the sidebar row's items by the same rules (components/chat/chatMenuItems.tsx).
+// chats there come first, the most recently pinned first, with the pin before the title, as in the history (docs/DECISIONS.md
+// "Pinned chats"). A chat row's "···" has the history row's items by the same rules (components/chat/chatMenuItems.tsx).
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 멤버 for people who may change
 // its members (the members dialog, without leaving the list), 링크 복사 for everyone. Under its name a card says who
@@ -33,14 +33,13 @@
 // was deleted for good) and 완전히 삭제, and has no name menu there.
 // Phones (below 768 px; QA TC-254, TC-380): the list has "+" in the top bar (components/phone/PhoneBarAction.tsx) and no
 // intro or button in the page, and is a phone list (components/phone/PhoneList.tsx), not cards: one row per project with
-// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. The list is the 프로젝트 tab's
-// root (QA TC-255: no ‹ in its bar), and its last row is always "팀 폴더" (the team folder, /files, a screen of this tab;
-// its Trash is inside it). With no projects (a new team, a member in none) it says what a project is, offers 새 프로젝트
-// (everyone may make one: a personal project, a team one as the team allows, components/ProjectForm.tsx) and keeps the
-// 팀 폴더 row below. A project's page has one bar, "‹ 프로젝트 · name · ···" (the name in the bar's title,
-// the name's menu as the bar's "···" sheet; the big name for screen readers only); its files line is one row that opens
-// the project's files on a screen of the 프로젝트 tab (ProjectFiles below, /projects/:id/files, with no folder path line),
-// so Back returns to the project.
+// its name, who sees it, the card's "···" (44 px; a long press opens it too) and a chevron. The list is 모든 프로젝트, a
+// screen of the 트리나 tab under its list (docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나"); the team folder is the
+// 파일 tab. With no projects (a new team, a member in none) it says what a project is and offers 새 프로젝트 (everyone may
+// make one: a personal project, a team one as the team allows, components/ProjectForm.tsx). A project's page has one
+// bar, "‹ 트리나 · name · ···" (the name in the bar's title, the name's menu as the bar's "···" sheet; the big name for
+// screen readers only); its files line is one row that opens the project's files on a screen of the 트리나 tab
+// (ProjectFiles below, /projects/:id/files, with no folder path line), so Back returns to the project.
 import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Link2, Lock, Pencil, Pin, Plus, ScrollText, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -202,7 +201,7 @@ function useRenameProject() {
 
 /** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
  * it shows on hover and keyboard focus, on a touch screen always. A phone's row (`row`: useRowMenu's signals) has it
- * always, 44 px, before the chevron (as the AI chat rows in ☰ have theirs), and a long press opens it too. */
+ * always, 44 px, before the chevron (as the AI chat rows in the 트리나 tab have theirs), and a long press opens it too. */
 function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: { project: Project; onRenamed: (p: Project) => void; onDeleted: (d: Exclude<Deleted, null>) => void; onMembers: () => void; row?: { openSignal: number; openRequest: number } }) {
   const t = useT()
   const phone = useMediaQuery(PHONE)
@@ -432,10 +431,6 @@ export function ProjectList() {
               {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
             </PhoneListGroup>
           )}
-          {/* the team folder, always the last row (QA TC-255): 프로젝트 › 팀 폴더 reaches every file, with its Trash inside */}
-          <PhoneListGroup testId="projects-team-folder">
-            <PhoneListRow icon={<FolderOpen size={16} />} to="/files" title={t('files.root')} testId="projects-team-folder-row" />
-          </PhoneListGroup>
         </div>
       ) : (
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
@@ -469,7 +464,7 @@ export function ProjectList() {
 
 /** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
  * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
- * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the sidebar row's
+ * has neither. The title gives way first: the faces and the time keep their room. Its "···" holds the history row's
  * items by the same rules (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on
  * a phone. */
 export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat: Chat; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
@@ -804,7 +799,7 @@ function ProjectPage() {
                 )}
               </div>
             ) : (
-              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.newChat')} autoFocus={newChat} />
+              <NewChatComposer projectId={p.id} project={p} onMembers={() => setMembers(true)} placeholder={t('projects.askHere', { name: aiName(t) })} autoFocus={newChat} />
             )}
           </div>
           {(!outside || hasMembers) && (
@@ -873,7 +868,7 @@ function ProjectPage() {
             </aside>
           )}
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
-            {/* the sidebar's name for the AI's history ("트리나 기록"): one name for it on every screen */}
+            {/* the AI's history by its one name ("트리나 기록"), the same on every screen */}
             <h2 id="pj-chats" className="mb-1 text-sm text-muted">
               {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>
@@ -902,7 +897,7 @@ function ProjectPage() {
 export const projectDir = (raw: string | null) => (raw ?? '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/')
 
 /**
- * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 프로젝트 tab under the project's page
+ * A project's files on a phone (QA TC-254): /projects/:id/files, a screen of the 트리나 tab under the project's page
  * (lib/screens.ts), so Back goes up a folder and then to the project, never into the team folder. No folder path line
  * (QA TC-380: "projects/QA 프로젝트" is the server's word for it; the bar names where you are). Its folders open
  * further down here (?dir=, relative to the project's folder); a file opens in the file sheet over it (lib/sidePanel.ts,

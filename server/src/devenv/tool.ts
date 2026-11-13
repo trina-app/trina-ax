@@ -30,7 +30,7 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
-import { placeInLine, previewPortProblem, previewSupported, runProblem, startWaiting } from './srt/runner'
+import { placeInLine, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 
@@ -52,7 +52,11 @@ export type BoxShellInput = z.infer<typeof BoxShellInput>
 
 /** The dev server part of the tool text: with a preview gateway, the person opens the dev server with the Preview
  * button (devenv/preview.ts); without one, only a test with curl in one command works. */
-const devServerText = (preview: boolean) => preview
+/** How the AI starts and tests a dev server. macOS (a Mac team server): one localhost for the whole Mac, and a run may
+ * listen on and reach only its own port, $PORT (srt-mac.mjs); the Preview button is Linux only (port-forward into the
+ * run's network namespace). Linux: each run has its own localhost; with preview the person opens it from the step. */
+const MAC_DEV_SERVER_TEXT = 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port works), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev -- --port $PORT & sleep 5; curl -s localhost:$PORT; kill %1. '
+const devServerText = (preview: boolean) => runPlatform() === 'darwin' ? MAC_DEV_SERVER_TEXT : preview
   ? 'For a dev server use background=true and set port to the port it listens on: the person gets a Preview button on this step and opens the app in their browser. Do not open the app yourself. '
     + 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. '
   : 'For a dev server use background=true. There is no preview link on this server, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '

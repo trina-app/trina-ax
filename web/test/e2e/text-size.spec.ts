@@ -8,6 +8,7 @@ import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { newChatButton, showChats, tabBar } from './nav'
 
 const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
 /** the PATCH that saves the size to the account */
@@ -17,7 +18,7 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   await reset(page)
   await signIn(page)
   expect(await rootSize(page)).toBe('16px')
-  const sidebarText = await page.getByTestId('new-chat').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  const sidebarText = await (await newChatButton(page)).evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
 
   await page.goto('/settings/profile')
   const slider = page.getByRole('slider', { name: ko['settings.textSize'] })
@@ -34,8 +35,8 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   // the page around it follows (rem sizes), not only Settings; the message box under the dialog measured itself again,
   // so its placeholder is not cut
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('new-chat')).toBeVisible()
-  expect(await page.getByTestId('new-chat').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(sidebarText * 1.4, 1)
+  await expect(await newChatButton(page)).toBeVisible()
+  expect(await (await newChatButton(page)).evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(sidebarText * 1.4, 1)
   expect(await page.getByTestId('composer-input').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
 
   await page.reload()
@@ -135,19 +136,18 @@ test.describe('on a 390px phone', () => {
       expect(await sideways(page), path).toEqual([])
     }
     // the phone's tabs keep their names whole
-    for (const tab of ['tab-ai', 'tab-chats', 'tab-projects', 'tab-me']) {
-      const fits = await page.getByTestId(tab).evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
-      expect(fits, tab).toBe(true)
+    await expect(tabBar(page).getByRole('link')).toHaveCount(4)
+    for (const tab of await tabBar(page).getByRole('link').all()) {
+      const fits = await tab.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= window.innerWidth)
+      expect(fits, await tab.getAttribute('data-testid') ?? '').toBe(true)
     }
-    // the drawer
-    await page.goto('/')
-    await page.getByTestId('menu-open').click()
-    await expect(page.getByRole('dialog', { name: ko['sidebar.label'] })).toBeVisible()
-    expect(await sideways(page), 'drawer').toEqual([])
+    // the 트리나 tab's list
+    await showChats(page)
+    expect(await sideways(page), 'trina list').toEqual([])
   })
 })
 
-// the tab bar's labels in the languages with the longest words ("Proyectos", "プロジェクト"; QA TC-255), at the largest
+// the tab bar's labels in the languages with the longest words (QA TC-255; the tabs 트리나 · 대화 · 파일 · 나), at the largest
 // step (140 %) on a 360 px phone: each on one line inside its tab (cut with "…" if it must be), the whole word still
 // the tab's name, nothing past the screen's edge
 test.describe('the tab labels on a 360px phone at 140 %', () => {
@@ -159,11 +159,11 @@ test.describe('the tab labels on a 360px phone at 140 %', () => {
       await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
       await signIn(page)
       await page.goto('/projects')
-      await expect(page.getByTestId('projects-team-folder-row')).toBeVisible()
+      await expect(tabBar(page)).toBeVisible()
       expect(await rootSize(page)).toBe('22.4px')
-      const tabs = page.getByTestId('bottom-tabs')
+      const tabs = tabBar(page)
       await expect(tabs.getByRole('link')).toHaveCount(4)
-      for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-projects', t['tabs.projects']], ['tab-me', t['tabs.me']]] as const) {
+      for (const [id, word] of [['tab-ai', PRODUCT_NAMED_AFTER_AI ? t['rooms.aiName'] : PRODUCT.shortName], ['tab-chats', t['tabs.chats']], ['tab-files', t['sidebar.files']], ['tab-me', t['tabs.me']]] as const) {
         const link = tabs.getByTestId(id)
         // the whole word is the tab's name, however much of it shows
         await expect(link).toHaveAccessibleName(new RegExp(word))

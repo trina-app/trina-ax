@@ -135,8 +135,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
     : t('notifications.event.schedule.projectGone')
   // a task whose save folder lapsed: check it again on the Scheduled page (its runs save in the own folder meanwhile)
   if (item.code === 'schedule.failure' && item.saveLapsed) return title
-    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamed', { title }, ['title'])
-    : t('notifications.event.schedule.saveLapsed')
+    ? isolate(locale, 'notifications.event.schedule.saveLapsedNamedFiles', { title }, ['title'])
+    : t('notifications.event.schedule.saveLapsedFiles')
   if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
   if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
     const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'
@@ -173,7 +173,7 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
-  // counts (store/inbox.ts); a computer, the whole Inbox (as the sidebar)
+  // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole
@@ -246,6 +246,12 @@ export function Notifications() {
       {/* a server from before a preference existed leaves it out: no row for it */}
       {workKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <PrefRow key={key} id={`np-${key}`} title={t(`notifications.${key}`)} desc={t(`notifications.${key}Desc`)}
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
+    </PrefSection>}
+    {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
+        device; a server from before it leaves it out (no row) */}
+    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

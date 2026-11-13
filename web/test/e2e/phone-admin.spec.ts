@@ -5,6 +5,7 @@
 // Back returns to the list instead of leaving Settings. From 768 px Admin is a sidebar (a rail of icons on a tablet).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { openTab } from './nav'
 import { DICTS } from '../../src/i18n'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
@@ -14,7 +15,7 @@ const historyLength = (page: Page) => page.evaluate(() => history.length)
 const scrollTop = (page: Page) => page.getByTestId('admin-content').evaluate((el) => el.scrollTop)
 
 async function openAdmin(page: Page) {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-admin').click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByTestId('admin-phone-root')).toBeVisible()
@@ -106,7 +107,7 @@ test('a pasted address: the page with the lists under it, its query still doing 
 })
 
 test('a link from inside the app (Settings › Usage → Admin › Usage): the list goes under it; Back → list → where it was', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-row-usage').click()
   await expect(page).toHaveURL(/\/settings\/usage$/)
   await page.getByTestId('my-usage-team-link').click()
@@ -149,7 +150,7 @@ test('Folder permissions: By folder ↔ By person adds no history on a phone', a
 })
 
 test('Settings: a section pushes, so Back returns to the list (it left Settings before); its list keeps its place', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await expect(page).toHaveURL(/\/settings$/)
   const menu = page.getByTestId('settings-menu')
   await menu.evaluate((el) => { el.scrollTop = el.scrollHeight })
@@ -176,7 +177,7 @@ test('Settings: a section pushes, so Back returns to the list (it left Settings 
 })
 
 test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, and Back returns there (no list put between)', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-inbox').click()
   await expect(page).toHaveURL(/\/activity$/)
   await page.getByTestId('activity-settings-phone').click()
@@ -190,7 +191,7 @@ test('Settings › Notifications from the Activity page\'s gear: ‹ Activity, a
 })
 
 test('a member: /admin says it is for admins; Back never shows the Admin list', async ({ page }) => {
-  await page.getByTestId('tab-me').click()
+  await openTab(page, 'me')
   await page.getByTestId('settings-logout').click()
   // signing out asks first on a phone
   await page.getByTestId('dialog-confirm').click()

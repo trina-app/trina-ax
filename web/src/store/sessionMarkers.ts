@@ -9,7 +9,7 @@
 //    never a replay after a reconnect, a reload or a resync), never for the chat on screen here, after NOTIFY_DELAY_MS
 //    and only if it still holds (the answer is still unseen: no window had it on screen; the card is still open). The
 //    desktop app shows its notification only while the window is not focused (a click opens the chat); the in-app toast
-//    with [열기] only where the sidebar is not visible: below 768 px with the drawer closed. A confidential chat's
+//    with [열기] only where the rail is not on screen: below 768 px. A confidential chat's
 //    notification and toast say neither its title nor the AI's question.
 //  - rooms follow the same rule in the desktop app: a room.message the server marked with my notice (its rule: my level
 //    for the room, quiet hours, one per unread run) and the room's "?" (its AI waits on me), after the same wait and only
@@ -35,7 +35,7 @@ import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
 import { openDeckChat, useDeckBuilds } from './deckBuilds'
 import { useRooms } from './rooms'
-import { toast, useUi } from './ui'
+import { toast } from './ui'
 
 interface SessionMarkersState {
   /** the chat on screen in this window (pages/Chat.tsx), null elsewhere */
@@ -162,8 +162,8 @@ export function openChat(chatId: string) {
   else navigateTo(`/c/${chatId}`)
 }
 
-/** the sidebar is not on screen: below 768 px with the drawer closed (from 768 px up it always shows) */
-const sidebarHidden = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 767.98px)').matches && !useUi.getState().drawerOpen
+/** the rail and its marks are not on screen: below 768 px (from 768 px up the rail always shows) */
+const railHidden = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 767.98px)').matches
 
 function tell(chatId: string, notify: 'card' | 'answer') {
   const c = useChats.getState().chats.find((x) => x.id === chatId)
@@ -177,7 +177,7 @@ function tell(chatId: string, notify: 'card' | 'answer') {
   const body = reasonText(m.reason, t, secret ? undefined : cardQuestion(useChats.getState().requests, chatId))
   // shown by the desktop app only while its window is not focused; one per chat
   desktop()?.notify({ title, body, tag: `chat-${chatId}`, open: `/c/${chatId}` })
-  if (sidebarHidden() && pageVisible()) {
+  if (railHidden() && pageVisible()) {
     const b = useDeckBuilds.getState().builds[chatId]?.[0]
     const cover = !secret && b?.phase === 'done' && b.thumbs && b.slides[0]?.status === 'done' ? slideUrl(b, 0) : undefined
     toast({ level: 'info', text: title, detail: body, image: cover, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => openChat(chatId) } })
@@ -377,7 +377,7 @@ export const currentCount = () => {
   return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), threadReplies: rooms.alerts?.threadReplies ?? true })
 }
 
-/** n, whether any is a "?", the AI chats' part (tab title, phone ☰ dot) and other unread rooms; re-renders when the
+/** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
  * inputs change */
 export function useAttention(): ReturnType<typeof attentionCount> {
   const chats = useChats((s) => s.chats)
@@ -386,4 +386,17 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const threadReplies = useRooms((s) => s.alerts?.threadReplies ?? true)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
   return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), threadReplies }), [chats, rooms, here, requests, threadReplies])
+}
+
+/** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's
+ * order, from the same chats and rules as 트리나's rail mark (useAttention): the rail's "?" and the Trina list's
+ * "답을 기다려요 N" row open the first one, so a waiting chat never sits out of sight under the project groups. */
+export function waitingChats(chats: readonly Chat[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): Chat[] {
+  return chats.filter((c) => markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })?.kind === 'ask')
+}
+export function useWaitingChats(): Chat[] {
+  const chats = useChats((s) => s.chats)
+  const requests = useChats((s) => s.requests)
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  return useMemo(() => waitingChats(chats, { here, cards: cardChats(requests) }), [chats, requests, here])
 }

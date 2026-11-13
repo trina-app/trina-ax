@@ -3,7 +3,7 @@
 // from File → Add to Dock). The pictures are drawn with HTML so their words follow the five languages and their colours
 // follow the theme; they repeat what the caption says, so screen readers skip them. They show this team's own address
 // and the product's icon in the tab, the page and as the installed app's icon, as the real ones are (a team logo shows
-// only in the computer's sidebar header; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). iOS 26:
+// only at the top of the computer's rail; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). iOS 26:
 // Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
 // (older systems and the other Safari layouts show it in the toolbar: the caption says so).
 import { ChevronLeft, ChevronRight, Minus, MonitorDown, MoreHorizontal, MoreVertical, Share, Square, SquarePlus, X } from 'lucide-react'

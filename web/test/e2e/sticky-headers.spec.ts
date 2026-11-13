@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
+import { navTop } from './nav'
 
 const t = DICTS.en
 const WIDE = { width: 1360, height: 560 }
@@ -141,7 +142,7 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
       expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(size.height)
       // what stays put is still whole: the sidebar's first item (wide) or the phone's top bar, and the Admin menu
       if (size.width >= 768) {
-        const first = (await page.getByTestId('new-chat').boundingBox())!
+        const first = (await navTop(page).boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
         expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       } else {

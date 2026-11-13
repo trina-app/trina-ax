@@ -6,9 +6,9 @@ export type Preferences = Required<NotificationPreferences>
 type Row = {
   schedule_success: number; schedule_failure: number; connection_reconnect: number; skill_suggestions: number; room_messages: number
   room_level: string; room_thread_replies: number; message_preview: number; quiet_on: number; quiet_start: number; quiet_end: number; quiet_weekends: number
-  chat_answers: number
+  chat_answers: number; phone_when: string
 }
-const COLS = 'schedule_success, schedule_failure, connection_reconnect, skill_suggestions, room_messages, room_level, room_thread_replies, message_preview, quiet_on, quiet_start, quiet_end, quiet_weekends, chat_answers'
+const COLS = 'schedule_success, schedule_failure, connection_reconnect, skill_suggestions, room_messages, room_level, room_thread_replies, message_preview, quiet_on, quiet_start, quiet_end, quiet_weekends, chat_answers, phone_when'
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 const mins = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5))
 
@@ -25,7 +25,7 @@ export function preferencesOf(row: Row | null): Preferences {
   return {
     scheduleSuccess: row ? !!row.schedule_success : true, scheduleFailure: row ? !!row.schedule_failure : true, connectionReconnect: row ? !!row.connection_reconnect : true, skillSuggestions: row ? !!row.skill_suggestions : true,
     roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : true, messagePreview: row ? !!row.message_preview : true, quietHours,
-    chatAnswers: row ? !!row.chat_answers : true,
+    chatAnswers: row ? !!row.chat_answers : true, phoneWhen: row?.phone_when === 'always' ? 'always' : 'away',
   }
 }
 export function getPreferences(db: Database, userId: string): Preferences {
@@ -46,12 +46,12 @@ export function getPreferencesOf(db: Database, userIds: readonly string[]): Map<
 export function savePreferences(db: Database, userId: string, patch: Partial<NotificationPreferences>): Preferences {
   const before = getPreferences(db, userId)
   const level: RoomNotifyDefault = patch.roomLevel ?? (patch.roomMessages === false ? 'none' : patch.roomMessages === true && before.roomLevel === 'none' ? 'direct' : before.roomLevel)
-  const p: Preferences = { ...before, ...patch, roomLevel: level, roomMessages: level !== 'none', quietHours: patch.quietHours ?? before.quietHours, roomThreadReplies: patch.roomThreadReplies ?? before.roomThreadReplies, messagePreview: patch.messagePreview ?? before.messagePreview, chatAnswers: patch.chatAnswers ?? before.chatAnswers }
-  db.query(`INSERT INTO notification_preferences(user_id,${COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  const p: Preferences = { ...before, ...patch, roomLevel: level, roomMessages: level !== 'none', quietHours: patch.quietHours ?? before.quietHours, roomThreadReplies: patch.roomThreadReplies ?? before.roomThreadReplies, messagePreview: patch.messagePreview ?? before.messagePreview, chatAnswers: patch.chatAnswers ?? before.chatAnswers, phoneWhen: patch.phoneWhen ?? before.phoneWhen }
+  db.query(`INSERT INTO notification_preferences(user_id,${COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET schedule_success=excluded.schedule_success,schedule_failure=excluded.schedule_failure,connection_reconnect=excluded.connection_reconnect,skill_suggestions=excluded.skill_suggestions,room_messages=excluded.room_messages,
-    room_level=excluded.room_level,room_thread_replies=excluded.room_thread_replies,message_preview=excluded.message_preview,quiet_on=excluded.quiet_on,quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,quiet_weekends=excluded.quiet_weekends,chat_answers=excluded.chat_answers`)
+    room_level=excluded.room_level,room_thread_replies=excluded.room_thread_replies,message_preview=excluded.message_preview,quiet_on=excluded.quiet_on,quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,quiet_weekends=excluded.quiet_weekends,chat_answers=excluded.chat_answers,phone_when=excluded.phone_when`)
     .run(userId, Number(p.scheduleSuccess), Number(p.scheduleFailure), Number(p.connectionReconnect), Number(p.skillSuggestions), Number(level !== 'none'),
-      level, Number(p.roomThreadReplies), Number(p.messagePreview), Number(p.quietHours.on), mins(p.quietHours.start), mins(p.quietHours.end), Number(p.quietHours.weekends), Number(p.chatAnswers))
+      level, Number(p.roomThreadReplies), Number(p.messagePreview), Number(p.quietHours.on), mins(p.quietHours.start), mins(p.quietHours.end), Number(p.quietHours.weekends), Number(p.chatAnswers), p.phoneWhen)
   return p
 }
 /** Did a change touch what decides room alerts (the app reloads its rooms then: each one's level, the quiet hours, the

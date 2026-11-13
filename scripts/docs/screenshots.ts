@@ -10,7 +10,9 @@
 //
 // Shots with `mock` show states a development server cannot reach, such as Slack added through the hosting service:
 // they run against the web e2e mock server instead (made-up team "Acme", owner olga), which sets each state through
-// its test control, and only with --mock (the others need the demo seed's data and are left out then):
+// its test control, and only with --mock. Shots with `mockToo` run with --mock too, on the made-up files and scheduled
+// tasks MOCK_SEED adds (the navigation's own shots: the rail and its lists look the same on either server); the others
+// need the demo seed's data and are left out then:
 //
 //   bun run build:web && bun web/test/mock/serve.ts      (in another terminal; port 19143, another with MOCK_PORT=…)
 //   DOCS_SHOT_PASSWORD=… bun scripts/docs/screenshots.ts --url http://127.0.0.1:19143 --mock [--only slack]
@@ -19,7 +21,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { ROOT } from './site'
 
-type Locator = { fill(v: string): Promise<void>; first(): Locator; screenshot(o: Record<string, unknown>): Promise<Buffer>; click(o?: Record<string, unknown>): Promise<void>; waitFor(o?: Record<string, unknown>): Promise<void>; boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> }
+type Locator = { fill(v: string): Promise<void>; first(): Locator; getByText(t: string | RegExp, o?: Record<string, unknown>): Locator; screenshot(o: Record<string, unknown>): Promise<Buffer>; click(o?: Record<string, unknown>): Promise<void>; waitFor(o?: Record<string, unknown>): Promise<void>; boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> }
 type Page = {
   goto(url: string): Promise<unknown>; locator(s: string): Locator; getByRole(r: string, o?: Record<string, unknown>): Locator; getByText(t: string | RegExp, o?: Record<string, unknown>): Locator
   screenshot(o: Record<string, unknown>): Promise<Buffer>; waitForTimeout(ms: number): Promise<void>; waitForLoadState(s: string): Promise<void>
@@ -47,6 +49,8 @@ interface Shot {
   /** the web e2e mock server's Slack state for this shot (POST /__test/slack: SlackAdmin and MySlack fields over a
    * connected own app); such a shot runs only with --mock */
   mock?: { admin?: Record<string, unknown>; mine?: Record<string, unknown> }
+  /** also taken with --mock, on MOCK_SEED's data */
+  mockToo?: boolean
 }
 
 const click = (sel: string) => async (p: Page) => { await p.locator(sel).first().click(); await p.waitForTimeout(400) }
@@ -54,11 +58,19 @@ const click = (sel: string) => async (p: Page) => { await p.locator(sel).first()
 const SLACK_NEW = { mode: 'own', official: true, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0 }
 /** Slack added through the hosting service, connected (no own app's links or https line) */
 const SLACK_ADDED = { ...SLACK_NEW, mode: 'official', enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', state: 'connected', signIn: true }
+/** What --mock adds after its reset, in English, for the `mockToo` shots: a team glossary in shared/ and two scheduled
+ * tasks (the mock's test controls /__test/file and /__test/schedule) */
+const MOCK_SEED: [string, Record<string, unknown>][] = [
+  ['file', { path: 'shared/team-glossary.md', text: '# Team glossary\n\n| Term | Meaning |\n|---|---|\n| Lead | One request from the website, phone or email |\n| Contract | Signed. A quote alone is not a contract |\n| Asset | One image, video or line of copy for an ad |\n| Conversion | Ad clicks that became a lead |\n| Q4 | October 1 to December 31 |\n' }],
+  ['file', { path: 'shared/meeting-notes/2026-11-10.md', text: '# Weekly meeting\n' }],
+  ['schedule', { title: 'Weekly summary', prompt: 'Every Monday, read last week\'s notes in shared/meeting-notes and write a summary to my files.', repeat: 'weekly' }],
+  ['schedule', { title: 'Daily file index', prompt: 'Every morning, list the new files in shared and suggest where they belong.', repeat: 'daily' }],
+]
 const SHOTS: Shot[] = [
   { file: 'quickstart/sign-in', path: '/login', signedOut: true, crop: 'form >> xpath=..', pad: 24 },
-  { file: 'quickstart/files-glossary', path: '/files', prepare: async (p) => {
-    await p.getByText('shared', { exact: true }).first().click(); await p.waitForTimeout(500)
-    await p.getByText(/용어집/).first().click(); await p.waitForTimeout(800)
+  // the shared folder, its glossary open beside it (the 파일 list's 팀 폴더 has shared too)
+  { file: 'quickstart/files-glossary', path: '/files?path=shared', mockToo: true, prepare: async (p) => {
+    await p.locator('main').getByText(/용어집|glossary/i).first().click(); await p.waitForTimeout(800)
   } },
   { file: 'chats/home', path: '/', crop: 'main' },
   { file: 'chats/project', path: '/projects', prepare: async (p) => { await p.locator('main a[href^="/projects/"]').first().click(); await p.waitForTimeout(800) }, crop: 'main' },
@@ -71,20 +83,20 @@ const SHOTS: Shot[] = [
   { file: 'mcp/add', path: '/settings/integrations', prepare: async (p) => {
     await p.locator('[data-testid="connector-add"]').first().click(); await p.waitForTimeout(700)
   }, crop: '[role="dialog"]:not([data-testid="settings-dialog"]) >> nth=-1' },
-  { file: 'scheduled/list', path: '/scheduled' },
+  { file: 'scheduled/list', path: '/scheduled', mockToo: true },
   { file: 'scheduled/task', path: '/scheduled', prepare: async (p) => { await p.locator('main a[href^="/scheduled/"]').first().click(); await p.waitForTimeout(800) }, crop: 'main' },
   { file: 'scheduled/new-task', path: '/scheduled', prepare: async (p) => { await p.getByRole('button', { name: /New task/ }).first().click(); await p.waitForTimeout(400) }, crop: 'main', },
-  { file: 'scheduled/list-phone', path: '/scheduled', phone: true },
+  { file: 'scheduled/list-phone', path: '/scheduled', phone: true, mockToo: true },
   { file: 'usage/mine', path: '/settings/usage', crop: '[data-testid="settings-dialog"]' },
   { file: 'usage/team', path: '/admin/usage', crop: 'main' },
-  { file: 'admin/home', path: '/admin' },
+  { file: 'admin/home', path: '/admin', mockToo: true },
   { file: 'admin/engines', path: '/admin/engines', crop: 'main' },
   { file: 'admin/engines-open', path: '/admin/engines', prepare: click('[data-testid="engine-open"]'), crop: '[data-testid="engine-card"]', pad: 16 },
   { file: 'admin/activity-log', path: '/admin/audit', crop: 'main' },
-  { file: 'settings/account-menu', path: '/', prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]', pad: 24 },
+  { file: 'settings/account-menu', path: '/', mockToo: true, prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]', pad: 24 },
   { file: 'settings/settings', path: '/settings/profile', crop: '[data-testid="settings-dialog"]' },
   { file: 'settings/settings-phone', path: '/settings/profile', phone: true },
-  { file: 'search/palette', path: '/', prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(600) }, crop: '[data-testid="search-palette"]' },
+  { file: 'search/palette', path: '/', mockToo: true, prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(600) }, crop: '[data-testid="search-palette"]' },
   // Slack (docs/site/use/slack.md), from the mock server (--mock): the hosting service serves it, workspace "Acme"
   { file: 'slack/connected-apps', path: '/admin/connectors', mock: { admin: SLACK_NEW }, prepare: async (p) => {
     await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'center' }), '[data-testid="connector-card"][data-id="slack"]'); await p.waitForTimeout(400)
@@ -154,10 +166,13 @@ async function main() {
   }
   const signedOut = await contextFor(false, true)
   // the mock server: its seeded team in English, before anyone signs in (a reset ends every session)
-  if (o.mock) await control(signedOut, 'reset', { teamLocale: 'en', usersFollowTeam: true })
+  if (o.mock) {
+    await control(signedOut, 'reset', { teamLocale: 'en', usersFollowTeam: true })
+    for (const [what, data] of MOCK_SEED) await control(signedOut, what, data)
+  }
   const encoder = await signedOut.newPage()
   const failed: string[] = []
-  const todo = SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock === o.mock)
+  const todo = SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && (!!x.mock === o.mock || (o.mock && !!x.mockToo)))
   // the --only of a mock shot without --mock (or the other way round) takes nothing: say so
   if (!todo.length) console.error(`No shot to take${o.only ? ` for --only ${o.only}` : ''}${SHOTS.some((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock !== o.mock) ? (o.mock ? ': these shots need a development server, without --mock' : ': these shots need --mock and the web e2e mock server') : ''}`)
   for (const s of todo) {

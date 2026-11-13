@@ -198,11 +198,10 @@ export const AppConfigFile = z.object({
    * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
    * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
   handoverSafe: z.boolean().optional(),
-  /** The new navigation (docs/AGENTS/plan/20261112-1839-nav-rail.md; docs/DECISIONS.md "navRail: the new navigation
-   * behind one server switch"): a labeled icon rail on computers and the tabs 트리나 · 대화 · 파일 · 나 on phones,
-   * built phase by phase. Off by default until every phase is in; true turns on both layouts at once for everyone on this
-   * server (no per-browser switch, so nobody sees half of it). */
-  navRail: z.boolean().optional(),
+  /** obsolete: the switch of the new navigation (docs/DECISIONS.md "navRail: the new navigation behind one server
+   * switch"), retired: the rail and the phone tabs 트리나 · 대화 · 파일 · 나 are the only navigation. Accepted with any
+   * value and ignored, so a file written for an older version still loads; the start logs it once (OBSOLETE_KEYS). */
+  navRail: z.unknown().optional(),
   /** The file list (server/src/file-list/; docs/CONFIGURATION.md): `{ "enabled": false }` turns it off on this server
    * (no nightly reading by the AI, no _FILES.md lists, no line about them in the AI's instructions). Absent: on; the team
    * has no switch (docs/DECISIONS.md "File list: always on"). */
@@ -265,8 +264,6 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** see AppConfigFile.handoverSafe; absent = off */
   handoverSafe?: boolean
-  /** see AppConfigFile.navRail; absent = off */
-  navRail?: boolean
   /** see AppConfigFile.fileList; absent = on (the team has no switch) */
   fileList?: { enabled?: boolean; maxFilesPerRun?: number; maxTokensPerRun?: number }
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
@@ -281,6 +278,7 @@ export interface AppConfig {
 /** Config file keys older versions read and this one ignores, with why, for the start's log line. */
 export const OBSOLETE_KEYS: Readonly<Record<string, string>> = {
   knowledgeGraph: 'the knowledge graph was removed; the AI finds files with list, glob, grep and read',
+  navRail: 'the new navigation is the only one now; the switch does nothing',
   roomAiMentions: 'asking the AI with an @mention in rooms was removed; people ask it in the side chat beside a room',
 }
 
@@ -378,7 +376,6 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
-    ...(f.navRail ? { navRail: true } : {}),
     ...(f.fileList ? { fileList: f.fileList } : {}),
     ...(demo ? { demo } : {}),
     ...(obsolete.length ? { obsoleteKeys: obsolete } : {}),

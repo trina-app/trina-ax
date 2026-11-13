@@ -1,5 +1,5 @@
 // The setup row (docs/DECISIONS.md "W5 — Onboarding v5"): the owner's one way back to the welcome steps from every
-// page, one line in the sidebar above Recents (Sidebar.tsx mounts it; on a phone it is in the ☰ drawer). While the steps
+// page, one line at the top of each list panel (on a phone: the 트리나 and 파일 tabs' lists). While the steps
 // are unfinished and not hidden: "설정 이어서 하기 · 2/5" (or, with one step left, "남은 일: 도구 연결"), which opens /welcome
 // at the step it resumes on; while no AI answers the owner: "AI 연결하기", which opens the same connect dialog as every
 // other "AI 연결하기" (ConnectAi.tsx).
@@ -7,7 +7,7 @@
 // whose own quiet row under the message box says the same (WelcomeResume); on a computer it replaces that row. ✕ hides
 // it (the row's `dismissedAt`) with an undo toast; Admin › Home's "시작 설정 다시 보기" brings it back. The rules are
 // lib/welcome.ts setupRowState; the words and counts are the steps' own (setupRowWords: the same as Home's row). Five
-// steps since 도구 연결 (docs/DECISIONS.md "W6"; six with AI 연결); in the ☰ drawer of a phone 도구 연결 is not named or
+// steps since 도구 연결 (docs/DECISIONS.md "W6"; six with AI 연결); on a phone 도구 연결 is not named or
 // resumed (a phone walks past it), but it still counts.
 import { Sparkles, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -22,7 +22,7 @@ import { useMediaQuery } from '../ui'
 import { ConnectAiButton } from './ConnectAi'
 import { Tooltip } from '../Tooltip'
 
-/** a phone (the drawer): the same query as the steps' own */
+/** a phone: the same query as the steps' own */
 const PHONE = '(max-width: 767.98px)'
 /** the progress is read again on a page change at most this often (another tab, a share applied on its own page) */
 const FRESH_MS = 5000
@@ -52,7 +52,8 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
     void w.load(w.loaded).catch(() => {})
   }, [owner, pathname, open])
   if (!owner || !loaded) return null
-  const state = setupRowState(progress, { path: pathname, aiReady, computer })
+  // a phone: the new chat is /new, and / is 트리나's list, where this row is the top row
+  const state = setupRowState(progress, { path: pathname, aiReady, computer, home: !computer ? pathname === '/new' : pathname === '/' })
   if (state === 'hidden') return null
   const hide = () => {
     void useWelcome.getState().update({ dismissed: true }).then(

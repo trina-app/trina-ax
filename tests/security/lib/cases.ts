@@ -21,7 +21,7 @@ import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
-import { NAV_FOLDER_SPECS } from './nav-folders-cases'
+import { NAV_FOLDER_CANARY, NAV_FOLDER_SPECS } from './nav-folders-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -173,6 +173,12 @@ export const SPECS: Record<string, Spec> = {
   // ---- chats (own only) ----
   listChats: { build: (c) => c.get('/api/chats'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s chat list shows alice's chat`) } },
+  // the Trina list's groups (chat/chat-groups.ts): my own list only, never alice's chat or her folder's name
+  listChatGroups: { build: (c) => c.get('/api/chats/groups'), scope: 'self',
+    check: (r, w, who) => {
+      if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s Trina list shows alice's chat`)
+      if (who !== 'memberIn' && r.text.includes(NAV_FOLDER_CANARY)) throw new Error(`${who}'s Trina list shows alice's folder`)
+    } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
   // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
   chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',

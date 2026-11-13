@@ -8,9 +8,8 @@ import { GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, WELCOM
 import type { MessageKey, Params } from '../i18n'
 import { aiName } from './tabs'
 
-/** Where the deck's chat of a row from before is listed (docs/DECISIONS.md "W6": decks started on v6.1 or earlier), as
- * the sidebar names that list: the sidebar heading's own message (`sidebar.aiChats` with the AI's name, "트리나 기록",
- * Sidebar.tsx), never words of our own. */
+/** Where the deck's chat of a row from before is listed (docs/DECISIONS.md "W6": decks started on v6.1 or earlier), by
+ * the history's own name (`sidebar.aiChats` with the AI's name, "트리나 기록"), never words of our own. */
 export const historyName = (t: (key: MessageKey, params?: Params) => string): string => t('sidebar.aiChats', { name: aiName(t) })
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
@@ -107,7 +106,7 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true, computer
  * Put off is not done. */
 const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
 
-/** "2/5" in the setup row: the counted steps done (the AI step once AI answered). A step put off is not counted: with
+/** The counted steps done (the AI step once AI answered). A step put off is not counted: with
  * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). A phone counts its own. */
 export function doneCount(p: WelcomeProgress | null, aiReady = true, computer = true): number {
   if (!p) return 0
@@ -130,14 +129,27 @@ export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true, comp
 /** A step by its name on the progress bar ("팀 파일"). */
 const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
 
-/** The words of the way back to the steps, one rule for the sidebar's (and the ☰ drawer's) setup row and a phone Home's
+/** The words of the way back to the steps, one rule for the lists' setup row (components/onboarding/SetupRow.tsx) and a phone Home's
  * quiet row, so the two agree: one step left here, it is named ("남은 일: 팀 파일", no count); else "설정 이어서 하기"
  * with "n/5", the steps done. */
 export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p: WelcomeProgress | null, aiReady = true, computer = true): { text: string; count: string | null } {
   const left = stepsLeft(p, aiReady, computer)
   const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
   if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }
-  return { text: t('setupRow.resume'), count: `${doneCount(p, aiReady, computer)}/${stepTotal(p, aiReady, computer)}` }
+  // the step the row opens, numbered as the steps' own bar numbers it ("1/5 회사 소개"): one number on both (UX review
+  // S3: the row said "0/5" while the bar it opened said "1/5")
+  const step = resumeStep(p, aiReady, computer)
+  const at = step ? stepPosition(p, step, aiReady, computer) : null
+  return { text: t('setupRow.resume'), count: at ? `${at.n}/${at.total}` : `${doneCount(p, aiReady, computer)}/${stepTotal(p, aiReady, computer)}` }
+}
+
+/** Where a step sits in the counted steps, as the steps' bar says it ("1/5 회사 소개"; the AI step goes first while it is
+ * on screen): pages/Welcome.tsx and the setup row read this one number. null: a step not counted (the result). */
+export function stepPosition(p: WelcomeProgress | null, step: WelcomeStep, aiReady = true, computer = true): { n: number; total: number } | null {
+  const list = countedSteps(p, aiReady, computer)
+  const counted: WelcomeStep[] = step === 'ai' && !list.includes('ai') ? ['ai', ...list] : list
+  const at = counted.indexOf(step)
+  return at < 0 ? null : { n: at + 1, total: counted.length }
 }
 
 /** Every team's start (POST /api/onboarding/welcome/team): the team's own group with its brand folder, while either is
@@ -172,9 +184,10 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
  * hides on Home, whose own quiet row under the message box says the same; on a computer it replaces that row.
  * `aiReady`: AI answers the owner (or not known yet).
  */
-export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean }): 'hidden' | 'resume' | 'ai' {
+export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' {
   if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'
-  const home = o.path === '/'
+  // `home`: the new-chat page is on screen (Home, `/`; on a phone `/new`, `/` being the list)
+  const home = o.home ?? o.path === '/'
   if (!o.aiReady) return home ? 'hidden' : 'ai'
   return home && !o.computer ? 'hidden' : 'resume'
 }

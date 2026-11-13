@@ -132,7 +132,7 @@ describe('the ‹ label', () => {
     expect(label('/settings/notifications', '/admin', 3, '/settings')).toBe('Notifications')
   })
 
-  test('‹ alone: somewhere without a name here (Admin opened from ☰ › Search on Home), or the same page', () => {
+  test('‹ alone: somewhere without a name here (Admin opened from search on Home), or the same page', () => {
     expect(label('/', '/admin', 3, '/settings')).toBeNull()
     expect(label('/c/1', '/admin', 3, '/settings')).toBeNull()
     // Folder permissions' rule editor and its way back add history inside one page

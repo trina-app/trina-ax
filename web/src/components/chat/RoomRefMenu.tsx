@@ -30,7 +30,7 @@ export function useRoomRefMenu({ text, setText, input, initial = [], enabled = t
   const lastCaret = useRef<number | null>(null)
   const at = useMemo(() => (caret === null ? null : roomRefAt(text, caret)), [text, caret])
   const wanted = roomMenuWanted({ enabled, at, closedFor, text })
-  // the rooms are the sidebar's list; read once when "#" is typed before it ever loaded (a phone opens no sidebar)
+  // the rooms are the 대화 list's (store/rooms.ts); read once when "#" is typed before it ever loaded
   useEffect(() => { if (wanted && !rooms.length) void loadRooms().catch(() => {}) }, [wanted, rooms.length, loadRooms])
   const hits = useMemo(() => (wanted ? matchRooms(rooms, at!.query, title, 50) : []), [wanted, rooms, at, title])
   const open = hits.length > 0

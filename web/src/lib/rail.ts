@@ -1,5 +1,4 @@
-// The new navigation's left rail on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1; behind the server's
-// `navRail` switch, lib/navRail.ts). Four places, in the order of the phone's tabs: 트리나 (the AI: Home, its chats,
+// The left rail on computers (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1). Four places, in the order of the phone's tabs: 트리나 (the AI: Home, its chats,
 // projects, scheduled tasks, team skills, deleted history), 대화 (rooms, DMs, group chats and their 멘션·스레드), 파일 and
 // 활동. Every address of the app belongs to one place or to none (Admin, the Slack pages, an unknown address): the rail
 // lights that place. Settings is a dialog over a page, so the caller asks with the page under it (App.tsx
@@ -7,7 +6,7 @@
 // opens the last AI chat again, back to 대화 the last room. Pure but for that small memory; every route of App.tsx is
 // checked in test/unit/rail.test.ts. Started from the 11-13 draft (branch wip/rail-draft), changed to the plan's four
 // places (no 프로젝트 place: projects are in 트리나's list).
-import { matchPath } from 'react-router-dom'
+import { matchPath, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { RAIL_LAST_KEY } from './localData'
 import { activityInChats } from './screens'
@@ -16,8 +15,8 @@ export type RailItem = 'ai' | 'chats' | 'files' | 'activity'
 /** the rail's order, top to bottom: the phone's tabs 1–3, then 활동 (the phone has it under 나) */
 export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'files', 'activity']
 
-/** where a place starts (its first visit, or a press on the place already lit) */
-export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files', activity: '/activity' }
+/** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 */
+export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', files: '/files?view=recent', activity: '/activity' }
 
 /** The routes of App.tsx (under <Layout />) that belong to a place, as App.tsx writes them; any other address (Admin,
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
@@ -68,10 +67,48 @@ export const useRailMemory = create<{ last: Partial<Record<RailItem, string>>; r
   },
 }))
 
-/** The address on screen belongs to a place: kept as what is open there. */
-export function rememberRail(pathname: string, search = '') {
-  const item = railOf(pathname, search)
-  if (!item) return
+/** The history entry's own place, when a page was opened from a place's list for another place's page: 활동's list opens
+ * a notice's chat, project or scheduled task on the right while 활동 stays lit. Kept in the entry's state
+ * (`{ rail: 'activity' }`), so Back and Forward keep it; a link followed inside that page lights the page's own place. */
+export const RAIL_STATE_KEY = 'rail'
+export function railState(state: unknown): RailItem | null {
+  const v = state && typeof state === 'object' ? (state as Record<string, unknown>)[RAIL_STATE_KEY] : null
+  return typeof v === 'string' && (RAIL_ITEMS as readonly string[]).includes(v) ? (v as RailItem) : null
+}
+
+/** The place lit for an entry: the place its state names (an address that belongs to a place: never Admin or an unknown
+ * address), else the address's own (railOf). */
+export function railHere(pathname: string, search = '', state?: unknown): RailItem | null {
+  const own = railOf(pathname, search)
+  return own ? railState(state) ?? own : null
+}
+
+/** The place an entry's state named stays while the page tidies its own address in place (a closed dialog drops ?new=1
+ * with a replace that carries no state): the same path keeps it; another path lights its own place. */
+let kept: { path: string; item: RailItem } | null = null
+export function railHereKept(pathname: string, search = '', state?: unknown): RailItem | null {
+  const named = railState(state)
+  const item = railHere(pathname, search, state)
+  if (named && item === named) kept = { path: pathname, item }
+  else if (kept && kept.path === pathname && railOf(pathname, search)) return kept.item
+  else kept = null
+  return item
+}
+
+/** The place lit for the entry on screen (railHereKept with the router's location). */
+export function useRailHere(): RailItem | null {
+  const { pathname, search, state } = useLocation()
+  return railHereKept(pathname, search, state)
+}
+
+/** Pages a place lights but never reopens: the owner's setup steps (/welcome) are reached from their setup row, so 트리나
+ * opens the Trina list, not the wizard again (UX review S3). */
+const NOT_KEPT = ['/welcome']
+
+/** The address on screen belongs to a place: kept as what is open there (`state`: the entry's, see railHere). */
+export function rememberRail(pathname: string, search = '', state?: unknown) {
+  const item = railHereKept(pathname, search, state)
+  if (!item || NOT_KEPT.some((p) => matchPath(p, pathname))) return
   const to = `${pathname}${search}`
   const { last } = useRailMemory.getState()
   if (last[item] === to) return
@@ -85,4 +122,11 @@ export function rememberRail(pathname: string, search = '') {
 export function railTarget(item: RailItem, current: RailItem | null, last: Partial<Record<RailItem, string>>): string {
   if (item === current) return RAIL_ROOT[item]
   return last[item] ?? RAIL_ROOT[item]
+}
+
+/** The state a press on a place carries to its target: the place itself, when what was open there belongs to another
+ * place's address (a notice's chat kept as what is open in 활동), so 활동 is what lights again. */
+export function railLinkState(item: RailItem, to: string): { [RAIL_STATE_KEY]: RailItem } | undefined {
+  const u = new URL(to, 'http://x')
+  return railOf(u.pathname, u.search) === item ? undefined : { [RAIL_STATE_KEY]: item }
 }

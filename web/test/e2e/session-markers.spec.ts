@@ -6,9 +6,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { chatFilterClear, navChatList, navChatRow, navRoomLinks, openChatFilter, openNewChat, phoneAiMark, showChats, showRooms, tabMark } from './nav'
 
-/** the row in the sidebar on screen (the wide one, or the phone's drawer) */
-const rowOf = (page: Page, id: string, inDrawer = false) => (inDrawer ? page.locator('[data-drawer]') : page).getByTestId('recents-list').locator('li', { has: page.locator(`a[href="/c/${id}"]`) }).first()
+/** the chat's row in the AI's history on screen (the sidebar or the 트리나 panel; on a phone the drawer or the 트리나 tab) */
+const rowOf = (page: Page, id: string) => navChatRow(page, { id })
 const idOf = (page: Page) => new URL(page.url()).pathname.split('/')[2]!
 
 /** send from Home (a new chat) and leave it for Home again before the answer ends; its chat id */
@@ -18,7 +19,7 @@ async function startAndLeave(page: Page, text: string): Promise<string> {
   await page.getByTestId('send').click()
   await expect(page).toHaveURL(/\/c\//)
   const id = idOf(page)
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(page).toHaveURL(/\/$/)
   return id
 }
@@ -77,25 +78,24 @@ test('"?" for a card and for a failed answer; the filter shows them and the runn
   const asked = idOf(page)
   // on screen: the card's "?" stays (it waits on me until answered), named by the AI's question
   await expect(rowOf(page, asked).getByRole('img', { name: '어느 분기를 볼까요?' })).toBeVisible()
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(rowOf(page, failed).getByRole('img', { name: '멈췄어요: 오류' })).toBeVisible({ timeout: 20_000 })
   await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('recents-list').getByTestId('chat-marker')).toHaveCount(3)
+  await expect(navChatList(page).getByTestId('chat-marker')).toHaveCount(3)
   // the title counts chats (3), each once
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
   await expect(page).toHaveTitle(/^[^(]/)
   // "답변 중이거나 내 답을 기다림"
-  await page.getByTestId('recents-head').hover()
-  await page.getByTestId('recents-filter').click()
+  await openChatFilter(page)
   await page.getByTestId('recents-view-status').click()
   await page.getByTestId('recents-status-waiting').click()
   await page.keyboard.press('Escape')
   await expect(rowOf(page, asked)).toHaveCount(1)
   await expect(rowOf(page, failed)).toHaveCount(1)
   await expect(rowOf(page, done)).toHaveCount(0)
-  await page.getByTestId('recents-filter-clear').click()
+  await chatFilterClear(page).click()
   // the failed one opened: its "?" goes (a card's would stay)
   await rowOf(page, failed).getByRole('link').click()
   await expect(rowOf(page, failed).getByTestId('chat-marker')).toHaveCount(0)
@@ -111,7 +111,7 @@ test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the c
   await page.getByTestId('send').click()
   await expect(page.getByTestId('ask-card')).toBeVisible()
   const asked = idOf(page)
-  await page.getByTestId('new-chat').click()
+  await openNewChat(page)
   await expect(rowOf(page, done).getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   const sideAsk = rowOf(page, asked).getByTestId('marker-ask')
   await expect(sideAsk).toBeVisible()
@@ -148,8 +148,8 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
     { ...base, id: uuidv7(), kind: 'all', name: null, groupId: null, peers: [peer], unreadCount: 1, mentioned: true },
   ]
   expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
-  const list = page.getByTestId('sidebar-rooms-list')
-  const badge = (name: string) => list.getByTestId('sidebar-room').filter({ hasText: name }).getByTestId('room-unread')
+  await showRooms(page)
+  const badge = (name: string) => navRoomLinks(page).filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
   await expect(badge('마케팅팀')).toHaveText(/^12/)
   await expect(badge('영업팀')).toContainText('@')
@@ -162,9 +162,8 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
   // the drawer only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('18')
-  await expect(page.getByTestId('menu-open')).toBeVisible()
-  await expect(page.getByTestId('menu-dot')).toHaveCount(0)
+  await expect(tabMark(page, 'chats')).toContainText('18')
+  await expect(phoneAiMark(page)).toHaveCount(0)
 })
 
 test.describe('a phone (390 px)', () => {
@@ -182,13 +181,13 @@ test.describe('a phone (390 px)', () => {
     // the answer ends while the chat is not on screen: after the wait, one toast with [열기]; the ☰ dot lights (accent)
     const toast = page.getByTestId('toast').filter({ hasText: '새 답' })
     await expect(toast).toBeVisible({ timeout: 25_000 })
-    await expect(page.getByTestId('menu-dot')).toBeVisible()
-    await expect(page.getByTestId('menu-dot')).not.toHaveAttribute('data-ask', '')
+    await expect(phoneAiMark(page)).toBeVisible()
+    await expect(phoneAiMark(page)).not.toHaveAttribute('data-ask', '')
     // Home lists no chats (the drawer has them: QA TC-253)
     await expect(page.getByTestId('home-recents')).toHaveCount(0)
     // the drawer: the dot left of the always-shown "···"
-    await page.getByTestId('menu-open').click()
-    const row = rowOf(page, id, true)
+    await showChats(page)
+    const row = rowOf(page, id)
     await expect(row.getByTestId('marker-new')).toBeVisible()
     const [m, b] = [await row.getByTestId('chat-marker').locator('[role="img"]').boundingBox(), await row.getByRole('button', { name: '기록 메뉴' }).boundingBox()]
     expect(m!.x + m!.width).toBeLessThanOrEqual(b!.x + 4)
@@ -198,6 +197,6 @@ test.describe('a phone (390 px)', () => {
     await toast.getByTestId('toast-action').click()
     await expect(page).toHaveURL(new RegExp(`/c/${id}$`))
     await page.getByTestId('chat-back').click()
-    await expect(page.getByTestId('menu-dot')).toHaveCount(0)
+    await expect(phoneAiMark(page)).toHaveCount(0)
   })
 })

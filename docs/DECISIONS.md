@@ -11474,6 +11474,38 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
   in a chat, a room and a page, from inside and from outside).
 - Version impact: **minor** (a new phone navigation; no API change).
 
+## Phone tabs: 트리나 · 대화 · 파일 · 나 (feat/nav-rail-p5, 2026-11-13, navigation redesign P5)
+
+넣을 곳: Team AX core (`web/src/lib/tabs.ts`, `lib/screens.ts`, `lib/newChat.ts`, `components/BottomTabs.tsx`,
+`components/panels/PhoneTrinaHome.tsx`, `components/panels/FilesPanel.tsx` `PhoneFilesHome`,
+`components/settings/SettingsDialog.tsx`), 이유: the phone app is the web app in a web view. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.2 (decisions Q1–Q3, approved by the owner 2026-11-13). Only while the
+server's `navRail` switch is on; with it off the phone is exactly as in the entries above and below. On that path it
+reverses QA TC-255 option D (프로젝트 as the third tab) and "Phones: Home like the AI apps" (Home as 트리나's root).
+
+- **Tabs: 트리나 · 대화 · 파일 · 나**, the computer rail's first three places by name and order; 활동 stays in 나
+  (four tabs). Start tab 트리나, as before.
+- **트리나 is the list first (option B)**: the computer's Trina list (고정 · 폴더 · 프로젝트 · 모든 프로젝트 · 기타 기록,
+  then 예약 작업 · 팀 스킬 · 삭제한 기록), the owner's setup row on top, a bar with 🔍 and the filter (no status chips).
+  Above the list, the one card Home had on top while it waits (the owner's lead link card, an invited person's
+  welcome card, the no-AI card for anyone but the owner, whose setup row says it). "트리나에게 묻기" floats at the bottom right and opens the new chat at **`/new`** (no tab bar, ‹ back to the list).
+  The AI chats' mark that was on ☰ is on the 트리나 tab. The ☰ drawer is gone: its rows are in this list and in 나.
+- **New chat with something ready keeps landing on the box**: `newChatPath()` gives `/new` on such a phone and `/`
+  elsewhere; files asked about, a scheduled task's start sentence, a skill's or a file's question and ⇧⌘O use it. A
+  `/` that carries `?prompt=` or `?project=` (old links, bookmarks, notifications) goes to `/new` with it; a
+  computer's `/new` goes to `/`. A draft left in the box does **not** send `/` to `/new`: the list would be out of reach.
+- **Projects are 트리나's**: a group opens its project, 모든 프로젝트 lists them all; both have ‹ back to the list. A
+  project's new chat is under the project. The projects list has no 팀 폴더 row any more.
+- **파일 is the team folder's places** (as the computer's 파일 list): 최근 파일, the team's top folders, the project
+  folders, 내 파일, 휴지통. A place's own folder goes back to 파일 (not to the projects/ or users/ folder above it). The
+  team folder's own top (files kept loose there) is `/files?team=1`, its own first row "팀 폴더 전체" (a phone has no
+  hover to show the label is a link), because `/files` is the places here; links that mean "put files in the team
+  folder" go there (`teamFolderPath()`). No upload button on the places: a folder's ⊕ uploads into that folder.
+- **나** is headed 나 (not 설정): the team's logo and name with 팀원 초대 and 관리자 for owners and admins (관리자 moves
+  here from under the photo), the photo row, 활동 with its count, the status and "자리 비움으로 표시" (new on phones).
+- **Back per tab** as before; the stacks keep their own key (`mycel.tabStacks.v3`), and an entry of the old 프로젝트 tab
+  takes its first screen's tab (a project → 트리나, the team folder → 파일).
+
 ## Desktop sidebar: rooms first (feat/phone-nav, 2026-11-06)
 
 넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`, `chat/ChatState.tsx`; the chat list's
@@ -11564,7 +11596,7 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 `roomAiMentions`. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` (approved by the owner 2026-11-13: "ux 검수하고 바로
 시작해서 끝까지 해줘"; committed here).
 
-- **One switch per server, off by default.** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
+- **One switch per server, off by default until P6 (below).** `"navRail": true` in `server.json` → `Me.server.navRail: true` →
   `useNavRail()`. It turns on both new layouts at once (the computer's rail and the phone's tabs 트리나 · 대화 · 파일 · 나)
   for everyone on that server. No per-browser override: a server is all old or all new, so nobody sees a rail on the
   computer and the old tabs on the phone (the references' main risk: KakaoTalk 2025, Discord 2026).
@@ -11582,7 +11614,51 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   reset); e2e helpers `navRail(page)` and `openRail(page, item)`.
 - Tests: `tests/unit/b-nav-rail-flag.test.ts` (Me off/on, server.json), `web/test/unit/rail.test.ts`,
   `web/test/e2e/nav-rail-flag.spec.ts`.
-- Version impact: none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+- Version impact (before P6): none while off (an additive config key and Me field; no changelog fragment, per `changes/README.md`).
+- **On by default since P6** (feat/nav-rail-p6-on, 2026-11-13, owner: finish the redesign now): absent = on, so every
+  server shows the rail and the new phone tabs; `"navRail": false` in `server.json` is the kill switch for one release
+  (Me then has no `navRail` and the web draws the old sidebar and tabs), and P7 removes it with the old path. The wire
+  stays `Me.server.navRail: z.literal(true).optional()`: a web app older than the server still reads "on" from it, and
+  the server's `AppConfig.navRail` is `false` only when the file says so. The mock follows (on after every reset;
+  `POST /__test/nav-rail {on:false}` for the old layout). User docs, the phone's "company profile" line (the 트리나 tab,
+  no ☰), `docs/DESIGN-SYSTEM.md` and the docs screenshots (`scripts/docs/screenshots.ts`: the navigation's shots also
+  run with `--mock`, `mockToo`, on English made-up files and tasks) changed with it; one `changes/nav-rail.md` fragment
+  for the whole redesign (named after the redesign, not the branch: one note for all its phases). The push and
+  notification hints that said "Inbox" / 알림함 say Activity / 활동, the place's name on the rail. Tests:
+  `tests/unit/b-nav-rail-flag.test.ts` (on by default, `false` off). Version impact: minor (visible navigation change).
+
+## navRail: retired, the old navigation removed (feat/nav-rail-p7, 2026-11-13, navigation redesign P7)
+
+넣을 곳: Team AX core (`web/src/`, `server/src/app-config.ts`), 이유: clean-up of the previous entry's last phase. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §5 (P7; the owner, 2026-11-13: finish the redesign now). The rail on
+computers and the tabs 트리나 · 대화 · 파일 · 나 on phones are the only navigation.
+
+- **Removed from the web:** the 280 px sidebar (`Sidebar.tsx`, its menu rows, `rooms/SidebarRooms.tsx`), the phone's ☰
+  drawer and its state (`store/ui.ts drawerOpen`, Esc's drawer step), the old phone tabs (프로젝트 as the third tab, its
+  팀 폴더 row, the `.v2` stacks), Admin's second sidebar (its 88 px icon rail below 1024 px: the Admin menu is the
+  240 px list at every computer width), the five-latest / "더 보기" / "모두 보기" caps of the rooms and the AI history
+  (`RoomsList`, `HistoryList` caps, `capGroups`), the computer's full-page 대화 list and Files tabs, and every other
+  branch that ran only with the switch off. `web/src/lib/navRail.ts` is gone; nothing reads the switch.
+- **"내 파일" everywhere.** The web and the server both set the own folder's word to `files` at start
+  (`setOwnFolderWord`), so the AI and the screen say "내 파일"; the strings for "내 폴더" that only the old path showed
+  are deleted. `shared/src/folder-labels.ts` keeps "folder" as its default for the tests that read the older name.
+- **The server key stays, ignored.** `"navRail"` in `server.json` (true or false) still loads, so an older file never
+  stops a start; it is listed in `OBSOLETE_KEYS` and the start logs one warning, like `knowledgeGraph`. `Me.server.navRail`
+  is gone (web and server ship together). The mock's `POST /__test/nav-rail` is gone; the e2e helper `navRail(page)`
+  does nothing until the suites drop the call.
+- **Old addresses keep working** (plan §3): `/projects…` opens in 트리나, `/new` on a computer and `/` with `?prompt=`,
+  `?project=` or `?folder=` on a phone go to the composer, `/activity?tab=mentions|threads|dms` goes to 대화's 멘션·스레드,
+  `/files?view=trash` is 파일's trash, `/settings/*` and `/connectors/*` as before. The old caps' and folds' keys
+  (`mycel.sidebar.rooms`, `roomsAll`, `recents`, `recentsAll`) are left unread in browsers (the filter's
+  `mycel.sidebar.historyView` and the groups' `historyFolded` are still the Trina list's); old `.v2` phone stacks are cleared at sign-out and an old 프로젝트 entry takes its first
+  screen's tab.
+- Tests: the old sidebar's unit suite went; what it covered that stays (the team menu, a chat row's "…", pinning) is
+  `web/test/unit/nav-menus.test.tsx`. `tests/unit/b-nav-rail-flag.test.ts` now checks the key is ignored.
+  `web/test/e2e/nav-rail-flag.spec.ts` went. The old e2e specs moved to the new helpers (web/test/e2e/nav.ts) in
+  feat/nav-rail-p6, or went where they tested only the old layout (`sidebar`, `phone-nav`, `history-by-project`,
+  `phone-projects-tab`: rail, panel and phone-tabs-v2 specs cover the same behaviour); the keys only they named
+  (`sidebar.label`, `sidebar.open`, `tabs.projects`, `rooms.showAll`, `sidebar.showMore`, `sidebar.allRooms`, `sidebar.moreUnread`) are gone in all five
+  languages.
 
 ## Computers: an icon rail with labels, one list at a time (feat/nav-rail-p1, 2026-11-13, navigation redesign P1)
 
@@ -11620,6 +11696,195 @@ under it) and W5 (the setup row is at the top of every list panel).
   window, phones (their tabs are phase P5).
 - Tests: `web/test/unit/rail-badges.test.tsx`, `web/test/e2e/rail.spec.ts` (1440, 1280, 1100, 1024; owner and member),
   `web/test/e2e/nav-rail-flag.spec.ts` (the rail only while on).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
+
+
+## 트리나 opens the list, not the setup steps; one step number (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S3)
+
+넣을 곳: Team AX core (`web/src/lib/rail.ts`, `web/src/lib/welcome.ts`), 이유: the rail above and W5's setup row. An owner
+with the setup unfinished lands on `/welcome` once per tab (W4); the rail kept it as 트리나's last page, so every later
+press on 트리나 opened "What is your company website?" instead of the chats.
+
+- `/welcome` is never kept as a place's last page: 트리나 opens the Trina list (or the chat open there before). The
+  setup row on every panel stays the way to the steps.
+- **One number**: the setup row's count is the step it opens, as the steps' own bar numbers it ("설정 이어서 하기 · 1/5"
+  opens "1/5 회사 소개"); it said "0/5" (the steps done) beside the bar's "1/5". `stepPosition` serves both. With one
+  step left the row still names it ("남은 일: 팀 파일"). Amends W5's "2/5 = the steps done". Known edge: with only
+  put-off steps left the row opens the earliest and says its number ("1/5" after "3/5"), as the bar does there.
+- Tests: `web/test/unit/rail.test.ts`, `web/test/unit/welcome.test.tsx`, `web/test/unit/setup-row.test.tsx`.
+## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
+
+넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,
+`web/src/components/panels/TrinaList.tsx`, `web/src/store/chatGroups.ts`), 이유: the AI history is core chat UI. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.3 and §4.7 (approved by the owner 2026-11-13). Only while the server's
+`navRail` switch is on; with it off the sidebar's history is unchanged. On that path it supersedes the caps of "Trina
+history by project" (five projects, the five latest, "모두 보기") and the P1 panel's 프로젝트 row.
+
+- **Order**: 고정 · 트리나 폴더 · 나만 보여요 · 프로젝트 · 모든 프로젝트 (N) · 기타 기록, then 예약 작업 · 팀 스킬 · 삭제한 기록.
+  Each chat shows in one place: pinned › one of my folders › its project › other. Folders show read-only (their name,
+  rows, count); making, renaming and filling them is phase P4b.
+- **Projects**: groups only for projects I can see with my activity in the last 14 days, at most 8, newest first; the
+  rest are behind "모든 프로젝트 (N)" (N = every project I can see). A group with no activity of mine for 7 days starts
+  folded; a fold I choose wins after that (`mycel.trina.groupFolds.<user id>`). Three rows, then "N개 더 보기" opens the
+  group in place (pages of `GET /api/chats?projectId=`, only my list's chats: mine and the shared ones I wrote in). The
+  header uses a board icon (`SquareKanban`), not a folder: a project is not one of my folders. Its name opens the
+  project (트리나 stays lit); + is "'<project>'에서 트리나에게 묻기", and the project page's box says "이 프로젝트에서
+  트리나에게 묻기" (flag on only). "+ 새 프로젝트" sits on the 프로젝트 label, or as a quiet row when no group shows.
+- **No project group** (a member who never uses projects): no 프로젝트 label, the history's label is **"기록"**, not
+  "기타 기록" (which only makes sense under project groups).
+- **Heads from the server**: `GET /api/chats/groups` returns my pins, my chat folders and the project groups, each with
+  `count`, the first three rows and `marked` (the chats of the group that show a session marker now, with what the
+  marker is made of, so a folded header or "N개 더 보기" shows the strongest mark of rows not loaded), `projectsMore`, and
+  page 1 of the other chats (next pages `GET /api/chats?other=1`). Nothing is counted from the pages a window happens to
+  have loaded. Same set as my chat list: no room session, no server draft, a shared chat only while I see its project, a
+  chat made only to hold attachments left out. A project I cannot see now is never named (my own chats in it are with
+  the other chats); nobody else's folders. The page reads it again 0.6 s after a chat change (`chat.updated`), on
+  `navFolders.changed` (now dispatched), on a server reload and an access change, and on focus after a minute; rows use
+  the chats store's live copy when it has one.
+- **Filter**: the button sits in the panel's header (always visible). Anything not at the default shows the whole
+  history filtered as before (the loaded chats and "더 보기") under one line naming the choices and a reset ✕.
+- **트리나's rail mark from the start** (QA on dev 85c5d1deb): the rail reads the chat list itself, so a window that
+  opens on 대화, 파일 or 활동 shows 트리나's "?" or dot for unseen answers at once; before, only 트리나's list read it.
+- **Removed** on this path: the five-latest cap and "모두 보기" / "접기", the 프로젝트 quiet row of P1.
+- My chats in a project outside the 8 are not repeated under 기타 기록: they are in that project, behind "모든
+  프로젝트" (the plan's rule). N counts the projects I can read; the owner or an admin may see more on that page (the
+  team projects they only manage).
+- Opening a group's "N개 더 보기" pages `GET /api/chats?projectId=` and keeps my list's chats; a page of only other
+  people's shared chats adds no row (the button stays, with the same count). A new read of the groups reads an opened
+  group's first page again and closes the other chats' extra pages, so no row is lost or shown twice.
+- Decided without the owner: "모든 프로젝트" hides when I can see no project; "+ 새 프로젝트" opens `/projects?new=1`
+  (the existing form); "N개 더 보기" pages in place rather than opening the project.
+- Tests: `tests/unit/b-chat-groups.test.ts`, `tests/security/chat-groups.test.ts`, the permission matrix case
+  `listChatGroups`, `web/test/e2e/trina-panel.spec.ts`.
+- Version impact: none while the switch is off (an additive endpoint and query flag; no changelog fragment, per
+  `changes/README.md`).
+
+
+## A waiting chat never sinks below the fold (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S2)
+
+넣을 곳: Team AX core (`panels/TrinaList.tsx`, `panels/TrinaPanel.tsx`, `rail/Rail.tsx`, `store/sessionMarkers.ts`), 이유:
+the Trina list above. The walk: a member with six projects saw the rail's "?" but the waiting chat sat under "기타 기록",
+out of sight at 1440×900; 삭제한 기록 needed a scroll for anyone with projects.
+
+- **The rail's 트리나 with "?"** opens the first chat that waits on me (one not on screen), wherever it sits; without a
+  "?" it opens what was open there, as any place. Only from another place: the lit 트리나 opens its start (the waiting
+  row is there), so two waiting chats never make a loop. The list scrolls the open chat's row into sight (the least scroll).
+- **"? 답을 기다려요 N"**: one quiet row on top of the Trina list (computer panel and phone tab) while any chat waits; it
+  opens the first. No card. It counts the questions and cards that wait for my answer; a stopped run keeps its "?" on
+  its row and on the rail. The rail's "?" uses the rail's own rule (`waitingChats`: rows that show "?", from the same chats
+  and markers as `useAttention`), so the row, the rail and the rows agree.
+- **예약 작업 · 팀 스킬 · 삭제한 기록** stay pinned under the list on a computer (`PanelFrame` `bottom`), never scrolled
+  away; leaner than a header menu, which is the filter's. A phone keeps them at the list's end: a pinned block would sit
+  under the "트리나에게 묻기" button and take a sixth of the screen.
+- Tests: `web/test/unit/nav-folders.test.tsx` ("chats that wait on me"), `web/test/e2e/trina-panel.spec.ts`.
+## 활동, 파일 and 대화 as lists beside the rail (feat/nav-rail-rest, 2026-11-13, navigation redesign P3)
+
+넣을 곳: Team AX core (`web/src/components/panels/{ActivityPanel,FilesPanel,RoomsByKind}.tsx`, `pages/Activity.tsx`,
+`pages/RecentFiles.tsx`, `pages/Room.tsx`; `server/src/notifications/service.ts` `only=notices`;
+`shared/src/folder-labels.ts`), 이유: the app's own navigation. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.1,
+§3 and decision Q4 (approved by the owner 2026-11-13). Only while the server's `navRail` switch is on; with it off nothing
+changes. On that path it supersedes P1's "파일 and 활동 open today's pages at full width" and its capped rooms list.
+
+- **Activity: notices that are not conversations.** 활동's list holds the app's own notices only (`GET
+  /api/notifications?only=notices`); mentions and thread replies are 대화's 멘션·스레드, and one quiet line on top ("멘션·
+  스레드는 대화에 있어요 ›") goes there. Chips **전체 · 트리나 · 요청** (`web/src/lib/activityKinds.ts`): 트리나 = a
+  scheduled task's run or a project job; 요청 = something waiting for my answer or hand (a skill to review, an ask to add an
+  app or connect the AI, an account deletion, a connection or shared Drive to sign in to again, skills to merge), shown to
+  the owner and admins only. Unread first, newest first, then the read ones under "읽음"; a row read while the list is open
+  keeps its place (its dot goes), so nothing jumps from under the pointer. The rail's 활동 number is the server's
+  `noticeUnreadCount` (new, additive), the same as the list's dots. "Mark all as read" (header, while something is unread,
+  under 전체 only: a chip never reads what it hides) reads those notices only (`only=notices`); the gear opens Settings ›
+  Notifications. A mention or thread reply in a room I muted counts on neither 대화 nor 활동 (its room row keeps its grey
+  count): muting is the person's choice to stay quiet; before, it counted in the Inbox.
+- **A notice opens on the right while 활동 stays lit**: its chat, project, scheduled tasks or setup page, opened with the
+  history entry's state `{ rail: 'activity' }` (`lib/rail.ts` `railHere`), so Back, Forward and a press on 활동 later keep
+  활동 lit; the page tidying its own address in place (a closed dialog dropping `?members=1`) keeps it; a link followed
+  inside that page lights the page's own place. Rows are links, so they also open in a new tab. A notice with no page of its own, or with what only
+  its own view shows (a handover's buttons, a job's log, an ask to add an app), opens as itself at `/activity?n=<id>`.
+  Opening a notice reads it. `/activity` with nothing picked says how many are unread and where mentions are. An old
+  `/activity?tab=mentions|threads` link goes to `/activity?in=chats&tab=…` (대화's 멘션·스레드, its tabs unchanged), and
+  `?tab=dms` (the DMs tab #666 brought back on the old page) to 멘션·스레드 too: DMs are 대화's own list.
+- **파일**: 최근 파일 (`/files?view=recent`, `GET /api/files/recent`, newest first with the folder each is in), 팀 폴더 (the
+  team folder's top folders, in the Files order, without projects/ and users/; the label opens the team folder's top),
+  프로젝트 폴더 (projects I can see, by name; the board icon), then **내 파일** and 휴지통. The deepest place the open folder
+  or file is in is marked. 파일's start (a first press, or a press on it lit) is 최근 파일. The Files page drops its 팀 폴더
+  / 휴지통 tabs on this path (the trash is a place on the list) and its visible "파일" title (the list says it; the
+  breadcrumbs say where), except 휴지통's.
+- **"내 폴더" → "내 파일"** (decision Q4): one switch for the whole server (`setOwnFolderWord`, set from `navRail` at the
+  server's start and from `GET /api/me` in the web app), so the Files screen, the list, the scheduled tasks' "my files",
+  the "save it in my files" prompts, the hints that name it (scheduled tasks' save folder, team skills, "add files"), the
+  AI's step and share places and what the AI is told about `users/<id>/` use the same word (a `…Files` key next to each
+  old one; the switch picks). `place-words` treats "내 파일" as a place word only while it is the name in use.
+- **대화 uncapped**: every conversation, by kind: 고정 (all my pins) · 팀 대화방 (전체 first, by name) · 그룹 대화 · 1:1 대화
+  (latest first); no "더 보기" or "모든 대화"; the rooms I hid are behind one quiet row "숨긴 대화 N" (to `/rooms`, where they
+  are). Rendering budget: each section is skipped by the browser while off screen (`content-visibility: auto`), and past
+  200 rows the rest is drawn 200 at a time as the list nears its end (the room on screen is always drawn); 300 rooms are
+  measured in `chats-panel.spec.ts`. It is incremental drawing, not a full virtual list: simpler, and enough at the sizes
+  teams have.
+- **Below 812 px** (72 rail + 740 for a room with its thread) a room's thread or ✦ side chat is a sheet over the room, as
+  on a phone: a modal dialog with the keyboard in it, closed by its ✕ or Esc (focus goes back to the room); the room
+  under it is inert until it closes. From 812 px the P1 rule holds (the list folds below 1052 px).
+- Left out on purpose: an Upload button in 파일's header (the folder's own toolbar has it, next to where the file goes;
+  one button, not two). Folders in 대화 come with P4b.
+- Tests: `web/test/unit/rail-panels-p3.test.ts`, `rail.test.ts` (entry state), `folder-labels.test.ts`,
+  `tests/unit/b-rooms-inbox.test.ts` (`only=notices`), `web/test/e2e/activity-panel.spec.ts`, `files-panel.spec.ts`,
+  `chats-panel.spec.ts`.
+- Version impact: none while the switch is off (an additive query value and count; no changelog fragment, per
+  `changes/README.md`).
+
+## Navigation UX fixes after the final walk (feat/nav-ux-fix-a, 2026-11-13, navigation redesign)
+
+넣을 곳: Team AX core (`web/src/components/BottomTabs.tsx`, `pages/Rooms.tsx`, `components/panels/FilesPanel.tsx`,
+`lib/folderLabels.ts`, `pages/Files.tsx`, `pages/RecentFiles.tsx`, `components/FilePanel.tsx`, i18n), 이유: the app's own
+navigation. From the final UX review of the new navigation (M1, M2, S1, S4, S5, S7). Display only: no API change.
+
+- **One 대화 number on every device (M1).** The phone's 대화 tab used to add up unread messages while the computer's rail
+  counted conversations with something unread (3 on one, 14 on the other). The tab now takes the rail's mark from the
+  same function (`rail/railBadges.ts` `chatsMark`): conversations with unread messages (muted and hidden left out), the
+  amber "?" while a room's AI waits on me, a dot when only a mention or thread notice is unread. `lib/rooms.ts`
+  `totalUnread` is no longer a badge.
+- **People and the AI never share a word, also in English and Spanish (M2).** The people side says "conversation":
+  New conversation (the + in Chats and its dialog), Start conversation, Group conversations, Create group conversation,
+  Search conversations, No conversations yet, Back to conversations, and the people list's limits (es: conversación).
+  The place keeps its short name "Chats" / "Chats" (es): "Conversations" does not fit the 72 px rail. Korean: the room's
+  ✦ side chat's button is 새로 묻기 (it asks the AI again; 새 대화 is the people action), its empty line no longer calls
+  the side chat "이 대화", and the Trina list's filter (and a confidential chat's notification title) is 기밀, not
+  기밀 대화. id and ja already had two words (obrolan/chat, トーク/チャット).
+- **트리나에게 묻기 in the file viewer (S1)**: "Ask {name}" / "{name}에게 묻기" with the AI's name, as everywhere else,
+  also in its tooltip, the download-only reason and the HWP preview's note.
+- **The phone's 대화 list in the computer's order (S4)**: 멘션·스레드 on top, then the panel's sections under their names
+  (`panels/RoomsByKind.tsx` `roomsByKind`): 고정 · my folders · 팀 대화방 (전체 first) · 그룹 대화 · 1:1 대화. A folder with
+  nothing in it is left out on the phone (no empty heading). Someone with no 1:1 or group conversation yet gets one quiet
+  line under the list, "+ 동료에게 새 대화 시작하기", which opens the people list as the top bar's ⊕ does.
+- **One name per place in the Files breadcrumb (S5)** (`lib/folderLabels.ts` `crumbs`): its start is 파일 / Files (the
+  rail's name, not 팀 폴더); 개인 is left out before 내 파일 (one place, not two); my own `projects` folder (where my own
+  projects keep their folders) reads 프로젝트, as the team's does, wherever the web app names a folder or a path
+  (`folderWords` `name`/`path`: titles, back labels, Recent files, toasts). Paths, links, drops and what the AI is told
+  keep the disk path and the shared table (`shared/src/folder-labels.ts` unchanged).
+- **The phone's 파일 lists the computer's places (S7)**: the extra row "팀 폴더 전체" is gone; the 팀 폴더 label itself is
+  the row to tap there (the whole width, 44 px, with a ›).
+- Tests: `web/test/unit/rail-badges.test.tsx` (the rail and the tab give one number for the same rooms),
+  `phone-nav.test.tsx`, `room-hide.test.tsx` (the phone's sections and start line), `folder-labels.test.ts`, `file-body.test.tsx`, `web/test/e2e/phone-tabs-v2.spec.ts`,
+  `team-files.spec.ts`.
+
+## The rail and its lists: touch, screen readers, widths (feat/nav-rail-polish, 2026-11-13, navigation redesign polish)
+
+넣을 곳: Team AX core (`web/src/components/rail/Rail.tsx`, `web/src/components/panels/`), 이유: the new navigation's
+accessibility. Plan §6 "what stays working" (Electron, keyboard, accessibility, widths). Only while the server's `navRail`
+switch is on.
+
+- **Touch screens** (`pointer: coarse`: a tablet across, a touch laptop): the list panels' targets are 44 px to tap, as
+  the rail's already were: the header buttons, the panel rows and the list's rows (chats, rooms, folders) grow to 44 px;
+  활동's chips keep their look and take taps from a 44 px box around them. A mouse keeps the 36 px rows. A chat row's
+  "···" stays 28 px (it sits on the row's own link, as decided for phones; long press opens the same menu).
+- **A place's mark is said after its name**: "대화, 안 읽은 대화 3개", not "안 읽은 대화 3개 대화". The number stays hidden
+  from screen readers; the words follow the label.
+- Checked, nothing to change: the Electron window (the normal OS title bar and traffic lights above the rail, 900–1440
+  px, ⌘K, ⇧⌘O, ⌘1–9 switching teams, a notification's click lighting the right place), axe in light and dark on all four
+  lists, the tab order rail → list → page, the skip links, and widths 1024–1920, 150 % browser zoom (simulated by the
+  page width) and the largest text (no sideways scroll; the list stays 240–300 px).
+- Tests: `web/test/e2e/rail.spec.ts` (widths, touch targets, mark names, Tab into the list and the page),
+  `web/test/e2e/a11y.spec.ts` (the rail and its four lists, light and dark).
 - Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
 
 ## Session markers (feat/session-status-v2, 2026-11-07)
@@ -17694,6 +17959,65 @@ Slack's sections, that only they see. This entry is the server half: tables, rul
   Left as is: names are unique by NFC + lower case, not NFKC (as the plan says).
 - Version impact: **minor** (new endpoints, additive fields and an additive migration).
 
+## List folders on screen (feat/nav-rail-p4b, 2026-11-13, navigation redesign P4b)
+
+넣을 곳: Team AX core (`web/src/components/nav/NavFolders.tsx`, `web/src/store/navFolders.ts`, the Trina list
+`panels/TrinaList.tsx`, 대화's `panels/RoomsByKind.tsx`, the row menus `nav/ChatItem.tsx` and `rooms/RoomMenu.tsx`), 이유:
+the lists they sort are core. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §4.6, phase P4b (approved by the owner
+2026-11-13). Only while the server's `navRail` switch is on; with it off no folder shows and `/api/nav-folders` is never
+read. The server half is the entry above.
+
+- **Making them**: "새 폴더" is the + on the "트리나 폴더 · 나만 보여요" / "대화 폴더 · 나만 보여요" label, or, before the first folder, one quiet row (beside
+  "+ 새 프로젝트" in the Trina list; at the end of 대화's). A name dialog checks 1–40 characters and a name I already use
+  (any letter case) before the server does.
+- **A folder's header**: its name with ▾ folds it (remembered per person in this browser, as project groups); its "⋯"
+  has 이름 바꾸기 · 위로 · 아래로 · 폴더 지우기 (the first has no 위로, the last no 아래로: two items instead of drag-to-order,
+  the same for a keyboard and a finger). Deleting asks first only when something is in it ("폴더만 지워져요. 안의 기록은
+  목록에 그대로 있어요."). A Trina folder's header also has + "'<folder>'에서 트리나에게 묻기": Home with `?folder=<id>` says
+  "'<folder>' 폴더에 넣어요" (✕ undoes it) and the first message's chat is filed there before it opens.
+  **This reverses the plan's "no + on folder headers" (UX review N2)**: the owner's brief for P4b asked for it, like the
+  project groups' + and Claude Code's groups.
+- **Filling them**: a row's "⋯" (a right-click, a phone's long press) has **폴더로 옮기기**, which opens a second small menu
+  where the row's "⋯" is: my folders (the current one ticked) and "새 폴더 만들어 넣기"; and **폴더에서 빼기** while it is in
+  one. A toast says where it went. This is the keyboard's way. With a mouse a row may also be **dragged onto a folder**
+  (HTML drag and drop; the row says its kind in the drag's type, so a folder only takes its own kind and a project chat
+  carries nothing). **This brings drag forward from "a follow-up"** (plan §4.6), also at the owner's brief; the menu
+  stays the way that works everywhere.
+- **A project's chat** (and a shared one): 폴더로 옮기기 is shown but off, and the menu says why under it ("프로젝트
+  기록은 폴더에 넣을 수 없어요. 프로젝트 안에 있어요."), read out with the item. A room hidden by me has no folder item
+  (the server refuses it; show it first), as pins.
+- **대화**: room folders are sections between 고정 and 팀 대화방, a room in one place only (pinned › its folder › its kind; a
+  folder id that is not one of mine is ignored). A folded room folder keeps one pill, the strongest of its rooms: "?"
+  (its AI waits on me) › "@" (an unread mention) › how many rooms have unread messages; muted rooms are left out, as the
+  대화 count leaves them; the room on screen stays drawn in a folded folder. A folded Trina folder keeps its strongest
+  session marker, as project groups.
+- **Empty folder**: one short line, "아직 비어 있어요" (the P2 line ran to three lines in a 240 px panel).
+- **Phones**: 트리나's tab draws the same Trina list (P5), so the same folders show there; below 768 px a folder header's
+  + and "⋯" always show and the row menus are sheets (a long press, or the row's "⋯"). A folder's + goes through
+  `newChatPath({ folder })`: `/new?folder=<id>` on a phone with the new tabs, `/?folder=<id>` elsewhere (`homeRoute` sends
+  a phone's `/?folder=` to `/new` like `?project=`).
+- Fixed on the way: a row's menu in 대화 was cut off at its section's edge (`content-visibility: auto` contains paint), so
+  a section is drawn plainly while one of its menus is open.
+- Tests: `web/test/unit/nav-folders.test.tsx`, `web/test/e2e/nav-folders.spec.ts` (make, rename, reorder, delete; keyboard
+  and drag; in and out; the project chat's reason; a folder's +; room folders and the pill; another person signing in in
+  the same window sees none of them; the switch off shows and reads nothing).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
+
+
+## Two kinds of list folders, said where they show (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review M3)
+
+넣을 곳: Team AX core (`web/src/components/nav/NavFolders.tsx`), 이유: the folders above. The owner decided: folders belong to
+the list they are made in. 트리나's folders hold AI chats, 대화's hold rooms and DMs, as the server keeps them apart. The
+final UX walk found the dead end: a folder just made in 트리나 was missing from a room's "폴더로 옮기기", with no reason
+given, and both labels read "폴더 · 나만 보여요", as if one set.
+
+- **Labels**: "트리나 폴더 · 나만 보여요" in the Trina list, "대화 폴더 · 나만 보여요" in 대화 (en "Trina folders" /
+  "Chat folders", as the tab is "Chats"; id, ja, es alike). The AI's name comes from the edition (`aiName`).
+- **A row's "폴더로 옮기기"** opens a small menu headed with its kind ("대화 폴더"): that list's folders and "새 폴더 만들어
+  넣기". With none of that kind yet, one quiet line under it: "대화 폴더는 트리나 폴더와 따로 있어요." (the reverse for a
+  chat), read out with "새 폴더 만들어 넣기".
+- Not done: one folder set for both lists (the review's first option), and pre-filling the new folder's name.
+- Tests: `web/test/unit/nav-folders.test.tsx` (the kind names and the line in five languages), `web/test/e2e/nav-folders.spec.ts`.
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
 
 Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
@@ -19748,6 +20072,28 @@ logo's header (28 px).
   and the 나 tab), `goal-card.test.tsx` (an admin who is not the owner gets the dialog), and the specs that went to Admin
   through the row (`admin.spec.ts`, `admin-home.spec.ts`) or measured the 20 px logo (`team-icon.spec.ts`).
 - Version impact: **minor** (a visible change to the sidebar; no API or data change).
+
+## Switching teams from the logo menu and 나 (feat/nav-ux-fix-b, 2026-11-13, navigation redesign UX review S6)
+
+넣을 곳: Team AX core (`web/src/components/TeamMenu.tsx`, `web/src/lib/teamSwitch.ts`, the 나 tab in
+`settings/SettingsDialog.tsx`), the desktop app (`desktop/src/main/main.ts`, `preload/app.ts`,
+`shared/src/desktop-bridge.ts` `teamMenu`) and the phone app (`mobile/src/protocol.ts` `change-team-v1`,
+`mobile/src/bridge.ts`, `mobile/App.tsx`), 이유: the app's own navigation. The walk found no way to switch teams in the new
+navigation: only the OS menu (⌘1–9) in the desktop app and the signed-out page's footer on a phone. Slack and KakaoTalk
+users look under the workspace logo.
+
+- **Desktop app**: the logo menu ends with "다른 팀으로 전환…" / "Switch team…" **for every role**, so a member's logo is
+  a menu button there too (it holds that one item). It opens the app's own menu under the pointer: the OS 팀 menu's list,
+  the open team ticked, ⌘1–9, then "팀 목록…". The app draws it, so the team page never learns the person's other teams
+  (`teamMenu()` takes nothing and returns nothing). An app before this addition opens its team list (`openTeams`).
+- **Phone app**: the 나 tab's team group has "다른 팀으로 전환…", which opens the app's own "다른 팀에 연결" screen over the
+  team, the one the signed-out footer opens (the team stays until another answered and the person said yes). New
+  optional capability `change-team-v1`; the app takes it at most once in three seconds. An app without it: no row. The
+  phone app holds one team at a time, so there is no list to show.
+- **A plain browser** (computer or phone) is one team per address: no item, no row; a member's logo stays a logo.
+- Tests: `web/test/unit/nav-menus.test.tsx` (member and owner, with and without `teamMenu`), `tests/unit/mobile-push.test.ts`
+  (`change-team-v1`: the capability, origin, nonce and the three-second limit).
+- Version impact: minor (a visible item; an optional bridge method and capability, no API change).
 ## 정보가 새는 곳 셋 — a member's dry run, the delete card, the matrix coverage (fix/access-info-leaks, 2026-11-10)
 
 - **Why:** a plan review found three places where a member learns what their permissions do not show them. Each was
@@ -23998,6 +24344,83 @@ section 5. Linux only (macOS will use the shared localhost).
   counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
 - **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
   (mode 640), and the Files API lists it and serves it (VM check P6).
+## Dev environment on a Mac team server (feat/devenv-srt-macos, 2026-11-12, owner)
+
+Owner (pras), 2026-11-12: the dev environment runs on srt only, also on a team's own Mac mini (self-host, one team;
+more teams on one machine stay on Linux). Option A: srt's own macOS sandbox (Seatbelt, `sandbox-exec`), not a Linux VM.
+A Linux VM (Apple Virtualization, the macOS 26 container) is the later option when a customer needs Linux-level
+isolation on a Mac. Office mode (no sudo) has no dev environment.
+
+- **A dev account per run, never the server's.** macOS lets a process read the argv and the environment of every
+  process of its own uid (KERN_PROCARGS2; a sandbox cannot block it, see "KERN_PROCARGS2" above). So a run is never the
+  server account and never the engine account `_axagent`. The installer makes a pool of hidden role accounts
+  `_axdev1..N` (default 8, group `_axdev`, made with dscl like `_axserver`: no password, no login, home `/var/empty`),
+  and a run takes a free one (one uid for one run at a time, `system-mac.ts`). One uid per run, not one for all runs:
+  KERN_PROCARGS2 would show one run's command and environment to another person's run, `ulimit -u` counts per uid, and
+  the clean-up (every process of the uid) is exact also for a process that left its session.
+- **Switching uid: sudoers, the polkit rule of the Mac.** `/etc/sudoers.d/<id>-devenv`: the server account may run
+  `/opt/trina/devenv/run-wrap-mac` as a dev account with its environment (`SETENV`), nothing else (checked with
+  `visudo -c`, and the installer checks that `/bin/sh` and root are refused). `!use_pty`. The run is started in a
+  session of its own, so launchd does not end it with the server's job: a server restart or update keeps runs.
+- **run-wrap-mac in place of the scope.** As the dev account: refuses a slot that has processes; `ulimit -u` (the run's
+  own process limit, the uid's), `-n 4096`, `-f 4 GiB`, no core files, nice 10; a watchdog (its own process, outside
+  the sandbox, which a run cannot signal) adds up the RSS of the uid each second and ends the run over its memory limit
+  (`.oom`) or over its time (`.timeout`), and ends the biggest slot when all slots together are over the pool (half of
+  the Mac's memory); at the end it ends every process of the uid. Signals go to the pids `ps -U` lists, never to `-1`:
+  as the dev account `kill -1` also hits the sudo that started it, and sudo then stops or ends itself. The top process
+  (whose parent is sudo) never gets SIGSTOP: sudo sees its command stop and stops itself for good (both seen on the Mac
+  mini). Limits: per run the team's limits cut to the pool; processes per run `(kern.maxproc - 1200) / slots` (the Mac's
+  process table, 4000, is shared with everything else).
+- **localhost is the whole Mac's.** srt's `allowLocalBinding: true` allows a connection to every localhost port (the
+  server's API, the model proxy, other runs). The runner writes `false`; `srt-mac.mjs` (srt's CLI, installed as
+  `mac.mjs`) adds to srt's profile only the run's own port (`$PORT`, slot i has 47900+i): bind and accept on it,
+  connect to it on localhost. It also denies `kern.proc.all` (the list of every process). It parses srt's command and
+  fails closed on any other shape (a new srt version). pf adds a second layer: the dev accounts never reach the
+  server's ports, on any address, and nothing outside the Mac reaches a run's port.
+- **Preview.** The server reaches a run's dev server on `127.0.0.1:<port>` directly (`previewTarget`). Linux needs the
+  port-forward of section 5 of the design; neither has a preview link yet.
+- **Files.** The server owns `team/` (mode 700). An inherited ACL on `team/` and `devenv/` gives the dev group and the
+  server account read and write there; srt's settings decide what one run may open. A file the server moves in from
+  elsewhere has no inherited entry, so the runner adds the ACL again to the run's writable folders before each run
+  (`chmod -R +a` adds nothing that is there).
+  The entry has `writesecurity` (no `chown`): a run must be able to change the mode of a file it may write that another
+  account owns (the server, or an earlier run's dev account); without it Python's `shutil.copy`, `cp -p` and `rsync -a`
+  over such a file end in EPERM (Mac mini, 2026-11-12: a run could not save over `users/pras/chart.png`). The right also
+  covers the file's ACL. Checked with srt: Seatbelt refuses mode and ACL changes outside the run's writable folders
+  (`shared/`, the team root, `users/`), and `team/` and `users/` stay closed to every other account of the Mac, so a
+  wider entry a run puts on its own files reaches no one new. Not chosen: copying the mode only when it is ours (not in
+  our hands: the AI's tools do the copy), or the server taking files over after each run (a run would still fail on a
+  file the server owns, such as an upload).
+- **The person's own folder (Mac mini, 2026-11-12).** srt's Seatbelt profile writes a deny that lies inside an allowed
+  folder after the allows, so it wins over a deeper allow (bwrap: the deepest rule wins). With users/ hidden as a whole,
+  an admin's run (the team root is readable) could not read or write her own `users/<id>`: `ls` and `cp` gave EPERM and
+  a copied file stayed empty. On macOS the settings hide every other person's folder by name instead (a folder made in
+  users/ during a run is empty and hidden from the next run; the names in users/ are visible to an admin's run, as the
+  members list shows them), and the Linux-only `writeInRead` rule (a denyRead on a writable folder inside a read-only one,
+  for bwrap's mounts) is not used: on macOS it hid that folder.
+- **The other groups of a dev account (Mac mini, 2026-11-12).** `id _axdev5` also lists 701/702
+  `com.apple.sharepoint.group.*` (File Sharing: one per shared folder) and 100 `_lpoperator` (printing). Nobody adds the
+  account to them: they name `everyone` and `localaccounts` as nested groups, so every local account is in them,
+  `_axserver` and `_axagent` too, and the installer cannot take an account out. They give a run no reach: SMB, AFP and
+  CUPS are network or Unix-socket services, and Seatbelt allows a run no localhost port but its proxy and its own port
+  and no Unix socket; the shared folders are under `/Users`, which is hidden; a dev account has no password (`*`), so it
+  cannot sign in to a share (a share with guest access is open to anyone on the network anyway).
+- **Host lists.** A run reads `/usr`, `/bin`, `/sbin`, `/System`, the dyld cache, the time zones, the Command Line
+  Tools, `/opt/homebrew`, `/opt/trina` and a few `/etc` files; `/`, `/Users`, `/Volumes`, `/Library` (the base folder,
+  the server's logs), `/private/var`, `/private/etc` and the rest are hidden (`MAC_*` in `config.ts`).
+- **Runtimes.** A run installs libraries into the project or its home (npm, pip), never system programs. So the
+  installer puts node 22.23.4 and Python 3.13.17 (python-build-standalone, pinned with sha256 in the one list) in
+  `/opt/trina`. git, make and cc are Apple's Command Line Tools (not pinned); without them a run has no git. No ffmpeg,
+  chromium, bun or socat from Trina on a Mac.
+- **Weaker than Linux (written down, owner agreed):** memory is RSS sampled once a second (no cgroup: a fast burst can
+  go over for up to a second, and memory macOS compressed or swapped out is not counted); no CPU quota (nice only); no
+  network namespace (Seatbelt rules and pf in place of it); a run can still ask for one pid at a time (`kern.proc.pid`:
+  name and uid, which any Mac user sees with `ps`), not its argv or environment; the dev accounts share one group, so a file a run makes world-readable is readable by the other dev accounts (outside
+  srt, which a run cannot leave, nothing reads it).
+- Tests: `tests/unit/dev-env-srt-mac.test.ts` (the macOS settings, the Seatbelt rules with a real `sandbox-exec`, the
+  watchdog and clean-up of run-wrap-mac, the macOS system against a fake Mac), the attack checks
+  `tests/macos/srt-attack-mac.sh` on a test install of the Mac mini (macOS 26.2, 2026-11-12).
+- Version impact: **minor** (a new platform for the dev environment; Linux does not change).
 ## Setup 팀 파일: the AI proposes folders — 시작 설정의 팀 파일, AI가 폴더를 제안한다 (feat/setup-files-organize, 2026-11-12, product owner)
 
 넣을 곳: trina-ax core (`server/src/onboarding/files-organize.ts`, `files-organize-ai.ts`, `file-rank.ts`,
@@ -24390,3 +24813,56 @@ Activity cleared notices one click at a time.
 - **Tests:** the room-AI-only tests went (b-rooms-ai*, b-room-ai-grants, room-ai unit and e2e specs, their security
   cases); the side chat's grant cases stay in b-chat-rooms-fewer-cards. Settings › 트리나에게 허용한 것 and the admin
   switch are in web/test/e2e/ai-allowances.spec.ts.
+
+## Phone notifications when I'm away — no phone push while I'm at Trina (feat/push-when-away, 2026-11-13, product owner)
+
+넣을 곳: trina-ax core (`server/src/notifications/away.ts`, `server/src/notifications/push-service.ts`,
+`server/src/realtime/presence.ts`, `server/src/realtime/hub.ts`, `server/src/notifications/preferences.ts`,
+`server/migrations/290_b_push_phone_when.sql`, `shared/src/api/notifications.ts`, `shared/src/desktop-bridge.ts`,
+`desktop/src/common/system-activity.ts`, `desktop/src/main/app-window.ts`, `desktop/src/preload/app.ts`,
+`web/src/lib/presence.ts`, `web/src/components/settings/Notifications.tsx`), 이유: the owner: "메세지나 알림이 오면,
+데스크탑앱에도 울리고, 내 폰에서도 울려" — look at Slack and Discord, then "ㄱㄱ". Plan and review in the session
+scratchpad (push-when-inactive-plan.md); the owner then questioned a catch-up cap, and the design became Slack's plain
+default.
+
+- **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
+  no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
+  while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
+  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  the computer's own notification are unchanged.
+- **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
+  heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
+  open; the page pings every 20 s, the relay has no pings of its own, Bun closes idle sockets after 120 s), or a window
+  closed while in use within the 30 s grace (a reload, a Wi-Fi switch, a relay reconnect; any window opening again
+  ends it). Not when the person set themselves away (manual away sends). Any Trina window counts, the phone app's too
+  while open in front of them (it goes idle when hidden), as Slack counts any active client.
+- **The computer's own use (desktop app).** A page sees only its own input: someone in Excel with Trina behind it, or
+  in the in-app browser pane, would look away. The desktop app asks Electron `powerMonitor` every 30 s
+  (`getSystemIdleState(600)`, `getSystemIdleTime()`) and tells the page (`systemActivity`, bridge optional): the
+  computer's last input counts as the page's; a locked screen is idle at once, also told at once on the system's
+  `lock-screen` / `unlock-screen` events (a focus event while locked does not unlock). A browser tab cannot see the
+  computer: it is in use only while visible and within 10 minutes of its own input; **a hidden tab is idle at once**
+  (it must not keep the phone quiet). This also changes the team's dot for a hidden browser tab ("접속 상태": away 10
+  minutes after the last input before; now at once). Older desktop apps: their page's rule as a browser tab.
+- **A cancelled push does not silence the run.** A room notice holds the next one of its run back while unread (one
+  notice per unread run). A notice whose phone push was cancelled (any `cancelled` phone row) no longer does: the next
+  message makes a new notice, decided afresh, so leaving the computer with an unread DM does not leave the phone silent
+  for the rest of it. The same for an AI chat's finished answers (CHAT_ANSWER_COALESCE_MS).
+- **Right after a start** windows are still reconnecting (presence's 15 s warm-up): a phone push due then waits once
+  until the warm-up ends and is decided then.
+- **Never cancelled:** the owner's locked password check (`owner.reauth_locked`, a security warning); a retry (only a
+  first try is decided); Web Push (`web` rows: a browser's own channel).
+- **The setting.** Settings › Notifications, its own section "Phone" (the person's preference, for every device, not
+  "this device"): "Phone notifications only when I'm away", on by default; off = `always` (today's behaviour). Stored as
+  `notification_preferences.phone_when` ('away' | 'always', migration 290, additive, min_compatible_reader 1), sent as
+  `NotificationPreferences.phoneWhen` (optional: older servers omit it and the app shows no row). Only the caller's own
+  (the existing PATCH /api/notification-preferences).
+- **Not in this build:** clearing a phone notification already delivered when it is read on the computer (needs a
+  silent push and a phone app release; the app has only dismiss-all, `mobile/src/push.ts`). The iPhone icon number is
+  set by the next push or when the app opens, so it can stay higher while pushes are cancelled.
+- **Tests:** `tests/unit/b-push-away.test.ts` (cancel at Trina, not sent later, away sends, grace, manual away, Always,
+  the caller's own, another person's phone untouched, the start wait, the next unread DM after a cancel, Web Push /
+  retries / the owner's locked password check still go), `tests/unit/b-presence.test.ts` (inUse, silence,
+  grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
+  `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.
