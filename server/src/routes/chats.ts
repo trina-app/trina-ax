@@ -80,6 +80,21 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProjec
 /** Manage without reading (docs/DECISIONS.md "Project contents only for members"): see it, its members, rename,
  * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
 const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
+
+/** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
+ * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
+ * scheduled task or dev environment job on it, and nothing in its folder. */
+function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT): boolean {
+  const segs = r.folder_path.split('/')
+  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
+  if (r.created_by !== me || r.instructions !== '' || r.trashed_with !== null) return false
+  if (ctx.db.query('SELECT 1 FROM chats WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  if (ctx.db.query('SELECT 1 FROM schedules WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  // a job or dev server of its dev environment
+  if (ctx.db.query('SELECT 1 FROM dev_env_jobs WHERE project_id = ? LIMIT 1').get(r.id) || ctx.db.query('SELECT 1 FROM dev_env_runs WHERE project_id = ? LIMIT 1').get(r.id)) return false
+  try { return fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).length === 0 } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' }
+}
+
 /** a folder made for a request goes again when a later step of it fails: nothing half-made stays behind */
 const removeMade = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
 
@@ -1024,20 +1039,6 @@ export const chatsRoutes: RouteModule = {
       if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
     })
   },
-}
-
-/** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
- * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
- * scheduled task or dev environment job on it, and nothing in its folder. */
-function stillEmpty(ctx: AppContext, me: string, r: ProjectRowT): boolean {
-  const segs = r.folder_path.split('/')
-  if (segs.length !== 4 || segs[0] !== 'users' || segs[1] !== me || segs[2] !== 'projects' || !segs[3]) return false
-  if (r.created_by !== me || r.instructions !== '' || r.trashed_with !== null) return false
-  if (ctx.db.query('SELECT 1 FROM chats WHERE project_id = ? LIMIT 1').get(r.id)) return false
-  if (ctx.db.query('SELECT 1 FROM schedules WHERE project_id = ? LIMIT 1').get(r.id)) return false
-  // a job or dev server of its dev environment
-  if (ctx.db.query('SELECT 1 FROM dev_env_jobs WHERE project_id = ? LIMIT 1').get(r.id) || ctx.db.query('SELECT 1 FROM dev_env_runs WHERE project_id = ? LIMIT 1').get(r.id)) return false
-  try { return fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).length === 0 } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' }
 }
 
 /** Sharing a personal project may put its old folder in the trash (routes above, shareProject) only when that folder is
