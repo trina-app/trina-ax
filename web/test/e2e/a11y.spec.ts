@@ -3,7 +3,6 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, openRail, reset, signIn, adv, choose } from './helpers'
-import { newChatButton } from './nav'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -102,8 +101,8 @@ test.describe('home focus on touch devices', () => {
     await example.tap()
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
-    // a phone starts a new chat from the 트리나 tab: its list first, then 트리나에게 묻기 (nav rail, #673)
-    await (await newChatButton(page)).tap()
+    // a phone starts a new chat from the 트리나 tab, Home itself again (#683: the tab as before the redesign)
+    await page.getByTestId('tab-ai').tap()
     await expect(input).toBeVisible()
     await expect(input).not.toBeFocused()
   })

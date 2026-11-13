@@ -117,8 +117,8 @@ for (const width of [1440, 390] as const) {
       await expect(dialog).toContainText('카드뉴스')
       await dialog.getByRole('button', { name: '닫기' }).first().click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      // (a phone's new chat is /new: its / is 트리나's list)
-      await expect(page).toHaveURL(phone ? /\/new$/ : /\/$/)
+      // (Home, a phone's 트리나 tab too)
+      await expect(page).toHaveURL(/\/$/)
       await expect(block(page)).toBeVisible()
       // 예시: the viewer with the example; Esc back
       await rows.nth(1).getByTestId('team-prepared-example').click()
@@ -134,7 +134,7 @@ for (const width of [1440, 390] as const) {
       await page.keyboard.type('!')
       await expect(box).toHaveValue(`${asked}!`)
       await expect(page.getByTestId('composer-waits')).toHaveCount(0)
-      await expect(page).toHaveURL(phone ? /\/new$/ : /\/$/)
+      await expect(page).toHaveURL(/\/$/)
       // 팀 스킬 1개 더 › 팀 스킬
       await block(page).getByTestId('team-prepared-more').click()
       await expect(page).toHaveURL(/\/skills$/)

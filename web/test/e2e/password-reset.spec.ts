@@ -5,7 +5,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { phoneTrinaHome } from './nav'
+import { phoneHome } from './nav'
 
 const t = DICTS.en
 const NEW_PASSWORD = 'river stone 4417'
@@ -84,7 +84,7 @@ test('a phone: the form fits the width and its button is in reach', async ({ pag
   expect(box.x + box.width).toBeLessThanOrEqual(390)
   expect(box.height).toBeGreaterThanOrEqual(40)
   await submit.click()
-  // signed in: the phone's first tab (트리나's list, or 대화 when the app opens there)
-  await expect(phoneTrinaHome(bob).or(bob.getByTestId('rooms-page'))).toBeVisible()
+  // signed in: the phone's first tab (트리나's Home with its ☰, or 대화 when the app opens there)
+  await expect(phoneHome(bob).or(bob.getByTestId('rooms-page'))).toBeVisible()
   await ctx.close()
 })
