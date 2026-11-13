@@ -189,7 +189,7 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
       data-primary={v.primary ?? undefined}
     >
       {/* phones: a small heading over the one row */}
-      <h2 id={`${ids}-title`} className="mb-1 text-sm font-semibold max-md:mb-0 max-md:pb-1.5 max-md:text-xs max-md:font-normal max-md:text-muted">{heading}</h2>
+      <h2 id={`${ids}-title`} className="mb-1 text-list-head font-semibold text-list-head-ink max-md:mb-0 max-md:pb-1.5">{heading}</h2>
       {phone && (v.rows.length > 0 || v.files) && (
         <SuggestionRow testId="team-prepared-rows">
           {v.rows.map((s, i) => {

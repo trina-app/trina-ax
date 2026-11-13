@@ -59,7 +59,7 @@ export default function PhoneRoot({ groups }: { groups: PhoneMenuGroup[] }) {
   return (
     <div className="pb-8" data-testid="admin-phone-root">
       <header className="px-4 pt-4">
-        <h1 className="flex items-start gap-2.5 text-xl leading-7 font-semibold tracking-tight" data-testid="admin-title">
+        <h1 className="flex items-start gap-2.5 text-title font-semibold tracking-tight" data-testid="admin-title">
           <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="mt-0.5 size-7 shrink-0 rounded-md object-cover" data-testid="admin-team-logo" />
           <span className="line-clamp-2 min-w-0 break-words">{t('admin.teamTitle', { team: me.team.name })}</span>
         </h1>

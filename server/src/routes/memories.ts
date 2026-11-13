@@ -133,6 +133,8 @@ export const memoriesRoutes: RouteModule = {
       const r = rt.schedules.runNow(auth.user.id, params.id, new Date(), c.get('locale'))
       return { schedule: scheduleOut(r.row), chatId: r.chatId }
     })
+    // the task page's "Runs": its run history, newest first (chat/schedules.ts runs), only for its owner
+    kit.handle(API.listScheduleRuns, ({ params, query, auth }) => rt.schedules.runs(auth.user.id, params.id, query) ?? fail('not_found'))
     kit.handle(API.scheduleEditCard, ({ c, params, body, auth }) => editCard(ctx, rt, auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.editSchedule, ({ c, params, body, auth }) => scheduleOut(body.kind === 'task'
       ? saveTask(ctx, rt, auth.user.id, params.id, body, c.get('locale'))

@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
@@ -14,6 +15,7 @@ import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
 import { hidesTabs } from '../../lib/tabs'
 import { Button, ErrorNote, Switch, confirmDialog, useMediaQuery } from '../ui'
+import { settingDesc, settingName } from './SettingRow'
 
 /** What a browser's push failure says (Settings › Notifications and the web ask, components/WebPushAsk.tsx): the reason
  * in plain words (lib/push.ts pushFailure), never the generic "check your connection and try again" when that cannot
@@ -171,9 +173,9 @@ export function PushNotifications() {
   // change did not work ("다시 시도" only where trying again can help: the team server could not be reached or had a
   // passing fault)
   const notes = <>
-    {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
-    {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
-    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
+    {!app && settings?.configured && <p className="mt-2 text-xs text-faint">{t('push.description')}</p>}
+    {badgeHint && <p className="mt-2 text-xs text-faint" data-testid="push-badge-hint">{t(badgeHint)}</p>}
+    {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
     {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
   </>
   if (narrow && here) {
@@ -181,8 +183,8 @@ export function PushNotifications() {
       <div data-testid="push-notifications" data-phone="">
         <div className="flex items-start gap-4 py-3.5">
           <div className="min-w-0 flex-1">
-            <label htmlFor="np-push-here" className="text-sm font-medium text-ink">{t('push.thisDevice')}</label>
-            {status && <p id="np-push-here-desc" className="mt-0.5 text-sm text-muted">{status}</p>}
+            <label htmlFor="np-push-here" className={settingName}>{t('push.thisDevice')}</label>
+            {status && <p id="np-push-here-desc" className={clsx('mt-0.5', settingDesc)}>{status}</p>}
           </div>
           <div className="shrink-0 pt-0.5">
             <Switch id="np-push-here" external describedBy="np-push-here-desc" checked={here.on} disabled={here.disabled} label={t('push.thisDevice')}
@@ -203,8 +205,8 @@ export function PushNotifications() {
     <div className="py-3.5" data-testid="push-notifications">
       <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm font-medium text-ink">{t('push.title')}</h4>
-          {status && <p className="mt-0.5 text-sm text-muted">{status}</p>}
+          <h4 className={settingName}>{t('push.title')}</h4>
+          {status && <p className={clsx('mt-0.5', settingDesc)}>{status}</p>}
         </div>
         {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
       </div>

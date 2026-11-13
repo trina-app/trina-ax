@@ -26,13 +26,14 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd } from './barActions'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 export default function Groups() {
   const t = useT()
   const locale = useLocale()
   const actOk = useActionOk()
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   const connections = useLoad(loadConnections)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [query, setQuery] = useState('')
@@ -64,7 +65,7 @@ export default function Groups() {
       <>
         <div className="-mx-4" data-testid="group-page">
           <div className="px-4">
-            <h2 className="text-lg font-semibold break-words text-ink">{group.name}</h2>
+            <h2 className="text-title font-semibold break-words text-ink">{group.name}</h2>
             {group.description && <p className="mt-0.5 text-sm text-muted">{group.description}</p>}
           </div>
           <PhoneListGroup title={`${t('groups.members')} · ${t('groups.memberCount', { n: group.memberIds.length })}`} labelId="group-page-members" testId="group-page-members">

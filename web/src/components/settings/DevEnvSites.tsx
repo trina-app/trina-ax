@@ -50,7 +50,7 @@ export function DevEnvSites({ part = false }: { part?: boolean }) {
   return (
     <section className={clsx('space-y-5', part && 'border-t border-line pt-5')} data-testid="dev-env-sites" data-part={part ? '' : undefined}>
       <div>
-        {part ? <h3 className="text-sm font-semibold">{t('settings.devEnvSites')}</h3> : <h2 className="text-base font-semibold">{t('settings.devEnvSites')}</h2>}
+        {part ? <h3 className="text-title-sm font-semibold">{t('settings.devEnvSites')}</h3> : <h2 className="text-title font-semibold">{t('settings.devEnvSites')}</h2>}
         <p className="mt-1 text-sm text-muted">{t('devEnvSites.intro')}</p>
       </div>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
@@ -59,7 +59,7 @@ export function DevEnvSites({ part = false }: { part?: boolean }) {
       {r?.state === 'on' && (
         <>
           <div>
-            <h3 className="mb-2 text-sm font-semibold">{t('devEnvSites.mine', { count: r.sites.length, max: r.maxSites })}</h3>
+            <h3 className="mb-2 text-title-sm font-semibold">{t('devEnvSites.mine', { count: r.sites.length, max: r.maxSites })}</h3>
             {!r.sites.length && <p className="text-sm text-muted" data-testid="dev-env-sites-empty">{t('devEnvSites.empty')}</p>}
             <ul className="divide-y divide-line" data-testid="dev-env-sites-list">
               {r.sites.map((s) => (

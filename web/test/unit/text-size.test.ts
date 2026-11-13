@@ -136,6 +136,8 @@ describe('on the page and in the account', () => {
     useSession.getState().signedIn(me('small'))
     expect(root()).toBe('140%')
     expect(storedTextSize()).toBe('largest')
+    // (the save goes out a moment after the pick: lib/optimistic.ts sends each change after the one before it)
+    await new Promise((r) => setTimeout(r, 0))
     answer(Response.json(me('largest')))
     await saving
     // saved: the account's size counts again
@@ -172,9 +174,13 @@ describe('on the page and in the account', () => {
     globalThis.fetch = (() => new Promise<Response>((ok, no) => { answers.push((r) => (r instanceof Error ? no(r) : ok(r))) })) as unknown as typeof fetch
     const first = useSession.getState().setTextSize('small')
     const second = useSession.getState().setTextSize('largest')
+    // one save at a time, in the order of the picks (lib/optimistic.ts): the later one goes out after the earlier one
+    await new Promise((r) => setTimeout(r, 0))
     answers[0]!(new TypeError('Failed to fetch'))
-    await expect(first).rejects.toThrow()
+    // an older pick refused under a newer one says nothing (only the newest is reported)
+    expect(await first).toBeUndefined()
     expect(root()).toBe('140%')
+    await new Promise((r) => setTimeout(r, 0))
     answers[1]!(Response.json(me('largest')))
     await second
     expect(root()).toBe('140%')

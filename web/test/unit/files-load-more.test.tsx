@@ -9,6 +9,7 @@ import { useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import Files from '../../src/pages/Files'
 import { installDom, mount, removeDom, type FakeElement } from './dom-host'
+import { useListCache } from '../../src/store/listCache'
 
 const me = {
   user: { id: 'mina', username: 'mina', name: '김민아', email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
@@ -57,6 +58,8 @@ afterAll(() => {
 })
 beforeEach(() => {
   calls.length = 0
+  // each test starts from a first visit (store/listCache.ts keeps the last lists)
+  useListCache.getState().reset()
   release = null
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
 })

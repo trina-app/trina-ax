@@ -10,6 +10,7 @@
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
+import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
@@ -122,8 +123,8 @@ function OnComputer({ text, testId, className = 'mt-4' }: { text: string; testId
   const t = useT()
   return (
     <div className={className} data-testid={testId}>
-      <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
-      <p className="mt-1 text-sm text-muted">{text}</p>
+      <p className={settingName}>{t('admin.onComputer')}</p>
+      <p className={clsx('mt-0.5', settingDesc)}>{text}</p>
     </div>
   )
 }

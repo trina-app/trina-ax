@@ -16,6 +16,7 @@ import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOO
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, Modal, confirmDialog } from '../ui'
 import { useSignInFlow, type SignInOps } from '../settings/DriveConnection'
 import { CardMenu } from './AppConnectorCard'
@@ -42,9 +43,12 @@ export type GoogleAppFlowState = ReturnType<typeof useGoogleAppFlow>
  * server has none, an older server), one sign-in per app, Settings and Disconnect. Kept by the Connectors layout so a +
  * on a card can open Google during the click and the app's page shows the same sign-in.
  */
+const GOOGLE_APPS_KEY = 'connectors:googleApps'
 export function useGoogleApps() {
   const t = useT()
-  const [apps, setApps] = useState<GoogleAppView[] | null>(null)
+  // as this window last had them (store/listCache.ts): Connectors shows them at once on a visit after the first
+  const [apps, setApps] = useState<GoogleAppView[] | null>(() => peekCached<GoogleAppView[]>(GOOGLE_APPS_KEY) ?? null)
+  useEffect(() => { if (apps) rememberCached(GOOGLE_APPS_KEY, apps) }, [apps])
   const [busy, setBusy] = useState<GoogleAppId | null>(null)
   const life = useRef(0)
   const load = useCallback(async () => {

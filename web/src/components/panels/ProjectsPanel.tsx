@@ -87,7 +87,7 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
   const lit = matchPath('/projects/:projectId/*', pathname)?.params.projectId ?? chatProject
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
-  if (!projects.length) return <p className="px-3 py-2 text-row text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
+  if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
   const team = projects.filter((p) => !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (

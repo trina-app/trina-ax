@@ -175,7 +175,12 @@ describe('Add me', () => {
       await m.until(() => m.find('project-files'), 'the files', 2000)
       expect(m.find('project-instructions')).not.toBeNull()
       expect(m.find('project-members-only')).toBeNull()
-      expect(m.get('project-summary').textContent).toBe('Contracts only.')
+      // the instructions show once, in Instructions, and no copy of them under the name (QA TC-980)
+      const times = () => m.container.textContent!.split('Contracts only.').length - 1
+      expect(m.find('project-summary')).toBeNull()
+      expect(times()).toBe(0)
+      await m.click('project-instructions-toggle')
+      expect(times()).toBe(1)
     } finally { await m.unmount() }
   })
 

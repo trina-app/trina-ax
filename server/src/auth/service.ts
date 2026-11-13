@@ -33,6 +33,7 @@ import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
+import { mediaKeyOf } from './media-key'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -249,6 +250,7 @@ export class AuthService implements SessionService {
     if (!u) return fail('unauthorized')
     const s = this.db.query('SELECT id, client, expires_at, temp_login FROM sessions WHERE id = ?').get(sessionId) as { id: string; client: ClientKind; expires_at: string; temp_login: number } | null
     if (!s) return fail('unauthorized')
+    const mediaKey = mediaKeyOf(this.db, s.id)
     const groups = this.db.query('SELECT g.id, g.name FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY g.name').all(userId) as { id: string; name: string }[]
     const settings = getTeamSettings(this.db)
     // an own default engine / model counts only while the person may pick (Admin > AI engines)
@@ -272,7 +274,7 @@ export class AuthService implements SessionService {
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, projectCreators: settings.projectCreators, ...(address ? { address } : {}) },
-      session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
+      session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,

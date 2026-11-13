@@ -63,7 +63,7 @@ export default function ConnectorConsent() {
   // is longer than a 1280x720 window or a phone (QA TC-168)
   return <div className="flex h-full flex-col overflow-y-auto [scroll-padding-bottom:6rem]" data-testid="connector-consent-scroll">
   <section className="mx-auto w-full max-w-2xl space-y-5 p-6 pb-0" data-testid="connector-consent">
-    <div><h1 className="text-xl font-semibold">{t('connectors.consentTitle')}</h1><p className="mt-2 text-sm text-muted">{t('connectors.consentDescription')}</p></div>
+    <div><h1 className="text-title font-semibold">{t('connectors.consentTitle')}</h1><p className="mt-2 text-sm text-muted">{t('connectors.consentDescription')}</p></div>
     {error && <ErrorNote>{error}</ErrorNote>}
     {!request && !error && <Skeleton lines={4} />}
     {request && <>

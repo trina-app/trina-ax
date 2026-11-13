@@ -63,7 +63,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-ink">{t('welcome.tools.title')}</h2>
+        <h2 className="text-display font-semibold text-ink">{t('welcome.tools.title')}</h2>
         <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { ai: aiName(t), where: connectorsPlace(t) })}</p>
       </div>
       <div className="space-y-4">

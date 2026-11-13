@@ -69,10 +69,24 @@ export async function storeSafeError(res: Response, store = noPurchaseLinks()): 
   headers.delete('content-length')
   return new Response(JSON.stringify(fixed), { status: res.status, statusText: res.statusText, headers })
 }
-// uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
-const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => storeSafeError(await fetch(input, inWindow(init)))) as typeof fetch
 
-export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })
+const writeListeners = new Set<() => void>()
+/** Told when a request of this window that may change something on the server (any method but GET and HEAD) is over,
+ * answered or not: what was read before may be old now (store/adminPeople.ts). Returns the unsubscribe. */
+export function onApiWrite(fn: () => void): () => void {
+  writeListeners.add(fn)
+  return () => { writeListeners.delete(fn) }
+}
+const afterWrite = async <R,>(init: RequestInit | undefined, run: () => Promise<R>): Promise<R> => {
+  const m = (init?.method ?? 'GET').toUpperCase()
+  if (m === 'GET' || m === 'HEAD') return run()
+  try { return await run() } finally { for (const fn of writeListeners) fn() }
+}
+
+// uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
+const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => storeSafeError(await fetch(input, inWindow(init))))) as typeof fetch
+
+export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => afterWrite(init, () => xhrFetch(input, inWindow(init), onSent)) })
 export { API, ApiError }
 
 /** Network-level failure (offline, relay dropped, DNS): worth retrying, unlike an ApiError. */
@@ -134,10 +148,19 @@ export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal
   return readBounded(res, max, o)
 }
 
+/** This sign-in's media key (Me.session.mediaKey; App.tsx keeps it in step with the session), or null. */
+let mediaKey: string | null = null
+export function setMediaKey(k: string | null) {
+  mediaKey = k
+}
+
 /** URL of a file sent in a room (the member check on every read): `download` as an attachment, `thumb` an image's small
- * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). */
+ * preview. Inline, a page or script type comes as text with a sandbox CSP (never a page of this origin). A thumbnail
+ * carries this sign-in's media key, so this browser keeps it for this sign-in only (a room file never changes;
+ * server/src/auth/media-key.ts); the next person on this browser gets other addresses. Only a thumbnail: it is only
+ * ever an <img>, never an address a link opens (which would stay in the browser's history). */
 export function roomFileUrl(roomId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
-  return api.url(API.roomFile, { params: { id: roomId, fileId }, query })
+  return api.url(API.roomFile, { params: { id: roomId, fileId }, query: query.thumb && !query.download && mediaKey ? { ...query, k: mediaKey } : query })
 }
 
 /** A room file's bytes for the preview panel, never more than `max` (readBounded; `truncate`: a text preview's start). */

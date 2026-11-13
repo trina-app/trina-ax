@@ -324,7 +324,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onLate
     return (
       <div className="space-y-4" data-testid="skill-review" data-status="applied">
         <div className={frame}>
-          <h3 ref={heading} tabIndex={-1} className={clsx('pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad)} data-testid="skills-done">{t('welcome.skills.done')}</h3>
+          <h3 ref={heading} tabIndex={-1} className={clsx('pt-3 pb-1 text-title-sm font-semibold text-ink outline-none', pad)} data-testid="skills-done">{t('welcome.skills.done')}</h3>
           <ul>
             {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={i === 0} pad={pad} inSetup={inSetup} />)}
             {share.rule?.path && (
@@ -459,7 +459,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onLate
       </div>
       <fieldset className={clsx('min-w-0', frame)} disabled={applying}>
         <legend className="sr-only">{t('welcome.skills.listLabel')}</legend>
-        <h3 ref={heading} tabIndex={-1} className={clsx('flex items-center gap-2 pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad, !recommended.length && 'sr-only')} data-testid="skills-recommended">
+        <h3 ref={heading} tabIndex={-1} className={clsx('flex items-center gap-2 pt-3 pb-1 text-title-sm font-semibold text-ink outline-none', pad, !recommended.length && 'sr-only')} data-testid="skills-recommended">
           {t('welcome.skills.recommended', { n: recommended.length })}
           <Badge tone="accent"><Sparkles size={12} aria-hidden />{t('welcome.skills.recommendedChip')}</Badge>
         </h3>

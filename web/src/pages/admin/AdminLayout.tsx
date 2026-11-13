@@ -172,7 +172,7 @@ export function AdminOnly() {
   return (
     // the layout already has the <main> landmark; the heading is an h1 like on other pages (App.tsx NotFound)
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="admin-only">
-      <h1 className="text-lg font-semibold text-balance text-ink">{t('admin.onlyAdmins.title')}</h1>
+      <h1 className="text-display font-semibold text-balance text-ink">{t('admin.onlyAdmins.title')}</h1>
       <p className="max-w-md text-sm text-balance text-muted">{t('admin.onlyAdmins.hint')}</p>
       <Link to="/" replace className="mt-3 text-sm font-medium text-accent-text underline" data-testid="admin-only-home">
         {t('notFound.home')}

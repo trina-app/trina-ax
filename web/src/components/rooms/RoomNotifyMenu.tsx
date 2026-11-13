@@ -6,10 +6,8 @@
 // the menu only), and neither has the room header on a phone (QA TC-257: ⋯ › 알림 설정 is the one way there).
 import { Bell, BellOff } from 'lucide-react'
 import { roomLevel, type Room, type RoomNotifyLevel } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
-import { useLocale, useT } from '../../i18n'
+import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
-import { toast } from '../../store/ui'
 import { MenuButton } from './MenuButton'
 
 /** The room's notify fields, also from an older server (muted only). */
@@ -20,12 +18,12 @@ export function roomNotify(room: Pick<Room, 'kind' | 'muted' | 'notify'>): NonNu
 }
 
 export function RoomNotifyMenu({ room, openRequest = 0, bare = false, className, focusBack }: { room: Room; openRequest?: number; bare?: boolean; className?: string; focusBack?: () => void }) {
-  const t = useT(), locale = useLocale()
+  const t = useT()
   const n = roomNotify(room)
-  const choose = async (level: RoomNotifyLevel | null) => {
+  // on screen at once; a failure puts it back with its own toast (store/rooms.ts setNotifyLevel)
+  const choose = (level: RoomNotifyLevel | null) => {
     if (level === n.own) return
-    try { await useRooms.getState().setNotifyLevel(room.id, level) }
-    catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
+    void useRooms.getState().setNotifyLevel(room.id, level)
   }
   const word = (l: RoomNotifyLevel) => t(`rooms.notify.${l}`)
   return (
@@ -40,8 +38,8 @@ export function RoomNotifyMenu({ room, openRequest = 0, bare = false, className,
       focusBack={focusBack}
       testId={bare ? 'room-notify-row' : 'room-notify'}
       items={[
-        { label: t('rooms.notify.default'), hint: `· ${word(n.byDefault)}`, checked: n.own === null, onSelect: () => void choose(null), testId: 'room-notify-default' },
-        ...(['all', 'mentions', 'off'] as const).map((l) => ({ label: word(l), checked: n.own === l, onSelect: () => void choose(l), testId: `room-notify-${l}` })),
+        { label: t('rooms.notify.default'), hint: `· ${word(n.byDefault)}`, checked: n.own === null, onSelect: () => choose(null), testId: 'room-notify-default' },
+        ...(['all', 'mentions', 'off'] as const).map((l) => ({ label: word(l), checked: n.own === l, onSelect: () => choose(l), testId: `room-notify-${l}` })),
       ]}
     />
   )

@@ -2,7 +2,7 @@
 // or listed service with open requests: its logo and name, who asked ("Alice and 2 others asked"), Add (the usual setup:
 // a Google one's page, a listed service's "Connect for the team") and Dismiss (closes the requests; nobody is told, they
 // may ask again). Nothing when nobody asked, or on an older server.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, isGoogleRequestable, type RequestableService, type TeamServiceRequest } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { builtInLogo, requestableName } from '../../lib/googleApps'
@@ -18,13 +18,20 @@ const logoOf = (s: RequestableService) => {
   return c ? connectorLogo(c) : '/favicon.svg'
 }
 
-/** The open requests, read again when `version` changes (a connection was added). */
+/** The open requests, read again when `version` changes (a connection was added). `undefined` is "not known yet": the
+ * first known version is not a change (the page's own list arriving read them twice). */
 export function useMemberAsks(version: unknown) {
   const [items, setItems] = useState<TeamServiceRequest[]>([])
   const load = useCallback(async () => {
     try { setItems((await api.call(API.teamServiceRequests)).items) } catch { setItems([]) }
   }, [])
-  useEffect(() => { void load() }, [load, version])
+  const seen = useRef<{ v: unknown } | null>(null)
+  useEffect(() => {
+    const before = seen.current
+    seen.current = { v: version }
+    if (before && before.v === undefined && version !== undefined) return
+    void load()
+  }, [load, version])
   return { items, setItems, reload: load }
 }
 
@@ -45,7 +52,7 @@ export function MemberAsks({ asks, onAdd }: { asks: ReturnType<typeof useMemberA
   }
   return (
     <section aria-labelledby="member-asks-title" data-testid="member-asks">
-      <h3 id="member-asks-title" className="mb-1 text-sm font-semibold text-ink">{t('serviceRequest.admin.title')}</h3>
+      <h3 id="member-asks-title" className="mb-1 text-title-sm font-semibold text-ink">{t('serviceRequest.admin.title')}</h3>
       <ul className="-mx-2 divide-y divide-line">
         {asks.items.map((r) => {
           const name = requestableName(r.service)
@@ -54,7 +61,7 @@ export function MemberAsks({ asks, onAdd }: { asks: ReturnType<typeof useMemberA
             <li key={r.service} className="flex flex-wrap items-center gap-3 px-2 py-2.5" data-testid="member-ask" data-service={r.service}>
               <LogoTile src={logoOf(r.service)} className="size-9" />
               <span className="min-w-0 flex-[1_1_10rem]">
-                <span className="block truncate text-sm font-medium">{name}</span>
+                <span className="block truncate text-row font-medium">{name}</span>
                 <span className="block truncate text-xs text-muted" title={r.askers.map((a) => a.name).join(', ')}>{who}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end">

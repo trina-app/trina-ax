@@ -325,6 +325,69 @@ export function isNoticeIndex(dist: string, urlPath: string): boolean {
   } catch { return false }
 }
 
+// ---------------- compressed copies and revalidation (docs/DECISIONS.md "First load: compressed files, one language, formatting on demand") ----------------
+/**
+ * The files the web build keeps a compressed copy of, next to the file (web/scripts/compress-dist.ts writes `<file>.br`
+ * and `<file>.gz` for these, once per build, and imports this list; tests/unit/d-web-compress.test.ts).
+ */
+export const COMPRESSIBLE = /\.(?:js|mjs|cjs|css|html|svg|json|webmanifest|map|txt|md|xml|wasm|ttf|otf|ico)$/i
+/** files the build never compresses: the notice folder (scripts/release-notices.ts writes it again in a bundle) */
+export const NOT_COMPRESSED_DIRS = ['licenses']
+
+type Encoding = 'br' | 'gzip'
+const COPY_STALE_MS = 60_000
+/** What the browser takes, best first: Brotli, then gzip (Chrome sends `br` only over https; on a LAN address it is
+ * gzip). A coding with q=0 is refused, `*` stands for any coding not named. */
+export function acceptedEncodings(header: string | null): Encoding[] {
+  if (!header) return []
+  const q = new Map<string, number>()
+  for (const part of header.split(',')) {
+    const [name, ...params] = part.trim().toLowerCase().split(';')
+    if (!name) continue
+    const qp = params.map((x) => x.trim()).find((x) => x.startsWith('q='))
+    const v = qp ? Number(qp.slice(2)) : 1
+    q.set(name, Number.isFinite(v) ? v : 0)
+  }
+  const ok = (e: string) => (q.get(e) ?? (e === 'gzip' ? q.get('x-gzip') : undefined) ?? q.get('*') ?? 0) > 0
+  return (['br', 'gzip'] as const).filter(ok)
+}
+
+/** The served file's validator: its size and time, and the coding (each coding is its own representation). */
+const etagOf = (st: fs.Stats, enc: Encoding | null) => `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}${enc ? '-' + enc : ''}"`
+const notModified = (req: Request, etag: string) => !!req.headers.get('if-none-match')?.split(',').some((t) => t.trim().replace(/^W\//, '') === etag)
+
+/**
+ * A static file of the build as the browser asked for it: the build's compressed copy when the browser takes one
+ * (Content-Encoding, Vary: Accept-Encoding), an ETag and Last-Modified on every file, and 304 for a revalidation that
+ * matches (index.html, sw.js and the manifest are no-cache: each visit asks, and gets a few hundred bytes back, not the
+ * file again).
+ */
+function staticResponse(req: Request, file: string, rel: string): Response {
+  const st = fs.statSync(file)
+  let served = file
+  let enc: Encoding | null = null
+  const compressible = COMPRESSIBLE.test(file) && !NOT_COMPRESSED_DIRS.some((d) => rel === d || rel.startsWith(d + '/'))
+  if (compressible) {
+    for (const e of acceptedEncodings(req.headers.get('accept-encoding'))) {
+      const copy = `${file}.${e === 'br' ? 'br' : 'gz'}`
+      try {
+        // a copy older than its file by more than a minute is of an earlier version (the file was changed by hand
+        // after the build): the file goes out as it is. A bundle copies both in any order, seconds apart at most
+        const c = fs.statSync(copy)
+        if (c.isFile() && c.mtimeMs + COPY_STALE_MS >= st.mtimeMs) { served = copy; enc = e; break }
+      } catch { /* no copy of this coding: a build without compress-dist (bun run build:app), or a small file */ }
+    }
+  }
+  const headers = new Headers({ etag: etagOf(st, enc), 'last-modified': st.mtime.toUTCString() })
+  if (compressible) headers.set('vary', 'Accept-Encoding')
+  if (enc) {
+    headers.set('content-encoding', enc)
+    headers.set('content-type', Bun.file(file).type)
+  }
+  if (notModified(req, headers.get('etag')!)) return new Response(null, { status: 304, headers })
+  return new Response(Bun.file(served), { headers })
+}
+
 /** The handler behind GET * (also used by the web client's mock server in its end-to-end tests). */
 export function serveWeb(req: Request, o: WebOptions): Response | null {
   const url = new URL(req.url)
@@ -347,9 +410,11 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
     return new Response(`${PRODUCT.displayName}: web app missing (${root})`, { status: 500 })
   }
 
-  const file = p === '/' || p === '/index.html' ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
+  // the compressed copies are sent in place of their file, never as files of their own
+  const copyOfFile = /\.(?:br|gz)$/i.test(p) && COMPRESSIBLE.test(p.replace(/\.(?:br|gz)$/i, ''))
+  const file = p === '/' || p === '/index.html' || copyOfFile ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
   if (file) {
-    const res = new Response(Bun.file(file))
+    const res = staticResponse(req, file, path.relative(fs.realpathSync(root), file).split(path.sep).join('/'))
     const h = res.headers
     if (p.startsWith('/assets/')) h.set('cache-control', 'public, max-age=31536000, immutable')
     else if (p.startsWith('/vendor/')) {
@@ -386,7 +451,10 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
     if (banner) return new Response(withBanner(index, banner), { headers })
   }
   // the app shell as built: its icon links are the product's, also with a team logo set
-  return new Response(Bun.file(index), { headers })
+  const shell = staticResponse(req, index, 'index.html')
+  for (const [k, v] of Object.entries(headers)) shell.headers.set(k, v)
+  if (headers.vary) shell.headers.set('vary', 'Accept-Encoding, User-Agent')
+  return shell
 }
 
 /** index.html with the banner, kept until the file changes (a new build: its size or time differs) */

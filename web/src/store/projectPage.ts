@@ -1,11 +1,12 @@
 // A project's page as this window last showed it (docs/DECISIONS.md "Folders, project pages and file previews open at
-// once"): the project (GET /api/projects/:id?manage=1) and its chats (GET /api/chats?projectId=…), by project id. Going
-// back to the page shows them at once and the page reads both again behind it; its files come from store/teamFiles.ts.
+// once"): the project (GET /api/projects/:id?manage=1), its chats (GET /api/chats?projectId=…) and who is in it (GET
+// /api/projects/:id/people: the faces under its name), by project id. Going back to the page shows them at once and the
+// page reads them again behind it; its files come from store/teamFiles.ts.
 // Chat events keep the kept chats current while the page is not on screen (the same change the page makes). An access
 // change or a live connection that could not resume drops everything (who is a member may have changed); sign-out and
 // another person signing in empty it (App.tsx dropPersonStores).
 import { create } from 'zustand'
-import type { Chat, Project } from '@mycel/shared/api'
+import type { Chat, Project, ProjectPeople } from '@mycel/shared/api'
 import { accessChanged, chatChanged, filesChanged, reloadAsked } from './live'
 
 /** how many project pages stay (the one seen longest ago goes first) */
@@ -36,6 +37,8 @@ export interface KeptProjectPage {
   project: Project
   /** null: not read yet when the page was left */
   chats: Chat[] | null
+  /** who is in it (components/ProjectPeople.tsx); absent: not read, or no such list */
+  people?: ProjectPeople
 }
 
 interface ProjectPageState {
@@ -44,6 +47,8 @@ interface ProjectPageState {
   keep: (id: string, page: KeptProjectPage) => void
   /** gone, or not mine to see any more */
   drop: (id: string) => void
+  /** who is in a kept page's project, read now (undefined: there is no list); nothing for a page not kept */
+  keepPeople: (id: string, people: ProjectPeople | undefined) => void
   reset: () => void
 }
 
@@ -51,8 +56,10 @@ export const useProjectPage = create<ProjectPageState>((set) => ({
   pages: {},
   keep: (id, page) => set((s) => {
     const next = { ...s.pages }
+    // (its people stay: they are read apart, keepPeople)
+    const people = 'people' in page ? page.people : s.pages[id]?.people
     delete next[id]
-    next[id] = page
+    next[id] = people ? { ...page, people } : page
     const keys = Object.keys(next)
     for (const k of keys.slice(0, Math.max(0, keys.length - KEPT_PAGES))) delete next[k]
     return { pages: next }
@@ -62,6 +69,12 @@ export const useProjectPage = create<ProjectPageState>((set) => ({
     const next = { ...s.pages }
     delete next[id]
     return { pages: next }
+  }),
+  keepPeople: (id, people) => set((s) => {
+    const page = s.pages[id]
+    if (!page || page.people === people) return s
+    const { people: _, ...rest } = page
+    return { pages: { ...s.pages, [id]: people ? { ...rest, people } : rest } }
   }),
   reset: () => {
     moved.clear()

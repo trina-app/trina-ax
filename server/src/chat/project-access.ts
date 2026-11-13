@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
-import type { AudienceSplit, FolderRuleInput, Locale, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant } from '@mycel/shared/api'
+import type { AudienceSplit, FolderRuleInput, Locale, ProjectAccess, ProjectAccessPreview, ProjectOtherRule, ProjectParticipant, ProjectPeople, ProjectPerson } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
@@ -117,9 +117,15 @@ export function makeProjectFolder(ctx: AppContext, o: { id: string; name: string
   return { path: made.path, abs: path.join(root, ...made.path.split('/')) }
 }
 
-/** Take a folder made by makeProjectFolder away again (its folders row and rules too). Call outside a transaction. */
-export function unmakeProjectFolder(ctx: AppContext, made: { path: string; abs: string }): void {
-  try { fs.rmSync(made.abs, { recursive: true, force: true }) } catch {}
+/** Take a folder made by makeProjectFolder away again (its folders row and rules too). Call outside a transaction.
+ * `onlyEmpty` (sharing a personal project, whose files may have been moved into it): only while the folder is empty;
+ * otherwise folder, row and rules all stay, so whatever is in it stays the members' alone. */
+export function unmakeProjectFolder(ctx: AppContext, made: { path: string; abs: string }, o: { onlyEmpty?: boolean } = {}): void {
+  if (o.onlyEmpty) {
+    try { fs.rmdirSync(made.abs) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { ctx.log.warn('project folder kept after a failed share: not empty', { path: made.path }); return }
+    }
+  } else try { fs.rmSync(made.abs, { recursive: true, force: true }) } catch {}
   const f = getFolderByPath(ctx.db, made.path)
   if (f) ctx.db.transaction(() => { ctx.db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(f.id); ctx.db.query('DELETE FROM folders WHERE id = ?').run(f.id) })()
 }
@@ -205,6 +211,37 @@ export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): Pro
     }
   }
   return { editable, participants, otherRules, rulesHash: rulesHash(rules), people, ...(hidden.size ? { otherRulesHidden: hidden.size } : {}) }
+}
+
+/**
+ * GET /api/projects/:id/people: who is in a team project in projects/<name> (the caller was checked before: a member, or
+ * someone who manages it). Its people are its audience (who reads its folder now: in projects/ that is its members
+ * only, the owner and admins too only as members), each once, with their photo; the creator first, then by name.
+ * `groups` (each group a rule of its own folder lets in, with the people of the list in it) only when `manage`: whoever
+ * manages it reads those rules in GET …/access anyway; a member is not told which groups an admin chose.
+ */
+export function projectPeople(ctx: AppContext, r: ProjectRow, o: { manage: boolean }): ProjectPeople {
+  const db = ctx.db
+  const ids = new Audiences(db, ctx.files).of(r)
+  const there = new Set(ids)
+  const rows = ids.length
+    ? db.query(`SELECT u.id, u.name, p.avatar_version FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id WHERE u.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; avatar_version: number | null }[]
+    : []
+  const people: ProjectPerson[] = rows.map((x) => ({ id: x.id, name: x.name, ...(x.avatar_version ? { avatarVersion: x.avatar_version } : {}), ...(x.id === r.created_by ? { creator: true as const } : {}) }))
+  people.sort((a, b) => Number(!!b.creator) - Number(!!a.creator) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  if (!o.manage) return { people }
+  const row = getFolderByPath(db, r.folder_path)
+  const groupIds = [...new Set((row ? rulesOf(db, row.id) : []).filter((x) => x.subjectType === 'group' && x.access !== 'none' && x.subjectId).map((x) => x.subjectId!))]
+  const order = new Map(people.map((x, i) => [x.id, i]))
+  const groups = groupIds.flatMap((id) => {
+    const g = db.query('SELECT name FROM groups WHERE id = ?').get(id) as { name: string } | null
+    if (!g) return []
+    const inside = (db.query('SELECT user_id FROM group_members WHERE group_id = ?').all(id) as { user_id: string }[]).map((x) => x.user_id).filter((u) => there.has(u))
+    inside.sort((a, b) => order.get(a)! - order.get(b)!)
+    return [{ id, name: g.name, people: inside }]
+  })
+  groups.sort((a, b) => a.name.localeCompare(b.name))
+  return { people, groups }
 }
 
 /** At most this many entries are looked at when the widening confirm counts a project's files. */

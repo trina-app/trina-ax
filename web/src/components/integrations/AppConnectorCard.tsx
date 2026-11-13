@@ -21,7 +21,7 @@ export function AppConnectorCard({ logo, name, line, lineTone, action, children,
       <div className="flex items-start gap-3">
         {logo}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{name}</span>
+          <span className="block truncate text-row font-medium">{name}</span>
           <span className={`mt-0.5 block truncate text-xs ${lineTone === 'warn' ? 'text-warn' : 'text-muted'}`} data-testid={`${testId}-line`}>{line}</span>
         </span>
         {action && <span className="flex shrink-0 items-center gap-1">{action}</span>}

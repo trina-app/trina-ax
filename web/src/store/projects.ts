@@ -11,9 +11,13 @@
 // projects they manage without being members), in the server's order, as last read. Going back to the page shows it at
 // once and reads it again behind it (docs/DECISIONS.md "Projects and Files lists open at once"); a save or a delete here
 // changes it in place (put, drop).
+//
+// A rename, the trash and a restore made here show at once (`showProject`, `hideProject`; lib/optimistic.ts keys
+// `project:<id>:name|trash`): a list read answered while one is on its way keeps what is on screen (`keepPendingProject`).
 import { create } from 'zustand'
 import type { Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { optimisticPending } from '../lib/optimistic'
 
 interface ProjectsState {
   byId: Record<string, Project>
@@ -96,7 +100,7 @@ export function readProjectList(o: { minAgeMs?: number; covers?: readonly string
     (r) => {
       if (mine !== generation) return
       done(true)
-      useProjects.getState().put(...r.items)
+      useProjects.getState().put(...r.items.map((p) => keepPendingProject(p)))
       useProjects.setState({ listed: new Set(r.items.map((p) => p.id)) })
     },
     // nothing known: every chat is with the other chats (no name is ever guessed)
@@ -140,8 +144,14 @@ export function readManagedList(o: { fresh?: boolean } = {}): Promise<void> {
         managedAgain = true
         return
       }
-      useProjects.getState().put(...r.items)
-      useProjects.setState({ managed: r.items })
+      // a rename or the trash still on its way stays as on screen (this answer may be from before it)
+      const managed = useProjects.getState().managed
+      const items = r.items.flatMap((p) => {
+        if (optimisticPending(`project:${p.id}:trash`) && managed && !managed.some((x) => x.id === p.id)) return []
+        return [keepPendingProject(p)]
+      })
+      useProjects.getState().put(...items)
+      useProjects.setState({ managed: items })
     },
   ).finally(() => {
     if (managedRead === read) managedRead = null
@@ -158,4 +168,35 @@ export function readManagedList(o: { fresh?: boolean } = {}): Promise<void> {
       throw e
     },
   )
+}
+
+/** A project as the server sent it, with what a change made here and still on its way shows instead (its name, its
+ * trash state): `onScreen` is the copy on screen (by default the store's). */
+export function keepPendingProject(p: Project, onScreen: Project | null | undefined = useProjects.getState().byId[p.id]): Project {
+  if (!onScreen || onScreen.id !== p.id) return p
+  const name = optimisticPending(`project:${p.id}:name`)
+  const trash = optimisticPending(`project:${p.id}:trash`)
+  if (!name && !trash) return p
+  return { ...p, ...(name ? { name: onScreen.name } : {}), ...(trash ? { inTrash: onScreen.inTrash, member: onScreen.member } : {}) }
+}
+
+/** A change made here, on screen at once wherever the project is named or listed (a read of the list on its way may be
+ * from before it: it reads again). */
+export function showProject(p: Project) {
+  managedEdits++
+  useProjects.getState().put(p)
+}
+
+/** Off the Projects page's list at once (in the trash for someone who does not keep it there); `at` its place, for
+ * `unhideProject` when the server refuses. */
+export function hideProject(id: string): number {
+  const at = useProjects.getState().managed?.findIndex((p) => p.id === id) ?? -1
+  useProjects.getState().setManaged((xs) => xs.filter((p) => p.id !== id))
+  return at
+}
+
+/** Back on the list in its place (`at`, from hideProject) and in the store. */
+export function unhideProject(p: Project, at: number) {
+  useProjects.getState().setManaged((xs) => (xs.some((x) => x.id === p.id) ? xs : at < 0 ? [...xs, p] : [...xs.slice(0, at), p, ...xs.slice(at)]))
+  showProject(p)
 }

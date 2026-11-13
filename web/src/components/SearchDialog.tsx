@@ -69,6 +69,9 @@ import { RoomIcon, useRoomTitle } from './rooms/RoomIcon'
 import { useAvatarOf, usePeopleList } from '../store/people'
 import { useRooms } from '../store/rooms'
 import { useChats } from '../store/chats'
+import { useInboxUnread } from '../store/inbox'
+import { readIntegrations, readSchedules, readSkillList, SHARED, useCachedRead } from '../store/listCache'
+import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
 
@@ -226,19 +229,20 @@ export function roomsAndPeople(rooms: readonly Room[], people: readonly Person[]
   return found.sort((a, b) => isPerson(a) - isPerson(b) || a.rank - b.rank || b.at.localeCompare(a.at) || a.name.localeCompare(b.name)).slice(0, few).map((x) => x.item)
 }
 
-/** The lists Search reads once when it opens; null while loading, 'error' when one could not be read. */
-function useList<T>(load: () => Promise<T>): T | null | 'error' {
-  const [v, setV] = useState<T | null | 'error'>(null)
-  useEffect(() => {
-    let live = true
-    load().then((x) => live && setV(x), () => live && setV('error'))
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return v
+/** How long a list Search read stays good for the next time it opens: a list read that recently shows as it is,
+ * without asking the server again (the realtime changes that touch one mark it stale: store/listCache.ts). */
+export const SEARCH_LIST_AGE_MS = 30_000
+
+/** A list Search shows (store/listCache.ts): what this window last read at once, read again when it opens unless that
+ * read is recent (`always`: read again on every open, for lists no realtime change marks stale: a task the AI made, a
+ * connection added on another device); null while nothing was read yet, 'error' when it could not be read and nothing
+ * was kept. */
+function useList<T>(key: string, load: () => Promise<T>, o: { always?: boolean } = {}): T | null | 'error' {
+  const { data, failed } = useCachedRead<T>(key, load, { minAgeMs: o.always ? undefined : SEARCH_LIST_AGE_MS })
+  return data !== undefined ? data : failed ? 'error' : null
 }
+const readRecent = () => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items)
+const readProjects = () => api.call(API.listProjects).then((r) => r.items)
 const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
 
 /** The project search was opened in (QA TC-421): a project's page (its files too) or a chat in a project; null anywhere
@@ -308,12 +312,17 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // Esc closes an open row menu first, then the dialog
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
-  const recent = useList(() => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items))
-  const projects = useList(() => api.call(API.listProjects).then((r) => r.items))
-  const skills = useList<Skill[]>(() => api.call(API.listSkills).then((r) => r.items))
-  const schedules = useList(() => api.call(API.listSchedules).then((r) => r.items))
-  const mcp = useList(() => api.call(API.listIntegrations))
-  const unread = useList(() => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => r.unreadCount))
+  const recent = useList('search:recent', readRecent)
+  // the project list as Search last read it, with each project's name as this window knows it now (a rename here)
+  const projectsRead = useList('search:projects', readProjects)
+  const projectsById = useProjects((s) => s.byId)
+  const projects = useMemo(() => (Array.isArray(projectsRead) ? projectsRead.map((p) => projectsById[p.id] ?? p) : projectsRead), [projectsRead, projectsById])
+  const skills = useList<Skill[]>(SHARED.skills, readSkillList)
+  const scheduleList = useList(SHARED.schedules, readSchedules, { always: true })
+  const schedules = useMemo(() => (scheduleList && scheduleList !== 'error' ? scheduleList.items : scheduleList), [scheduleList])
+  const mcp = useList(SHARED.integrations, readIntegrations, { always: true })
+  // the window's own unread count (the rail's), not a read of its own
+  const unread = useInboxUnread()
   const admin = isAdmin(useMe())
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
@@ -531,7 +540,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
     )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
-    const n = ok(unread) ?? 0
+    const n = unread
     list.push({
       key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/activity', terms: `${t('inbox.title')} ${t('notifications.title')}`,
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,

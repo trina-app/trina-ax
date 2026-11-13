@@ -22,6 +22,7 @@ import { SettingRow, useLoad } from '../../pages/admin/common'
 import { CardMenu } from './AppConnectorCard'
 import { AccessPicker } from './IntegrationDialog'
 import { DriveLogo } from './DriveConnector'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 
@@ -100,8 +101,8 @@ function foldersLine(t: ReturnType<typeof useT>, s: Pick<DriveShare, 'folders' |
 export function DriveAdminSettings({ onStatus }: { onStatus: (s: DriveAdminStatus) => void }) {
   const t = useT()
   const shares = useLoad(async () => (await api.call(API.listDriveShares)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   const [dialog, setDialog] = useState<{ share?: DriveShare; reconnect?: boolean } | null>(null)
   const refresh = async () => {
     void shares.reload()

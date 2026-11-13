@@ -86,12 +86,12 @@ export function PhoneChoiceRow<T extends string>({ title, desc, more, below, val
         className="w-full" buttonClassName="w-full !rounded-lg !p-0 text-left" testId={testId} buttonRef={button}
         icon={
           <span className="flex min-h-12 w-full min-w-0 items-center gap-3">
-            <span className="min-w-0 flex-1 text-sm font-medium text-ink">{title}</span>{' '}
+            <span className="min-w-0 flex-1 text-row font-medium text-ink">{title}</span>{' '}
             <span className="max-w-[55%] shrink-0 truncate text-sm text-muted" data-testid={testId ? `${testId}-value` : undefined}>{current}</span>
             <ChevronRight size={16} className="-mr-1 shrink-0 text-faint" aria-hidden />
           </span>
         } />
-      {desc && <p id={descId} className="-mt-2 cursor-pointer pb-1 text-sm text-muted" onClick={() => button.current?.click()}>{desc}</p>}
+      {desc && <p id={descId} className="-mt-2 cursor-pointer pb-1 text-meta text-muted" onClick={() => button.current?.click()}>{desc}</p>}
       {more && (
         <>
           <button type="button" aria-expanded={open} className="touch-hit text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>

@@ -18,14 +18,14 @@ import {
   ACTIVITY_KINDS, ACTIVITY_RANGES, NO_FILTERS, dayLabel, filtersActive, groupActivity, inSentence, matchesQuery, pathQuery,
   rangeBounds, readFilters, writeFilters, type ActivityFilters, type ActivityKind, type ActivityRun,
 } from '../../lib/activity'
-import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
+import { currentLocale, hasMessage, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader, useMediaQuery } from '../../components/ui'
 import { PhoneFilters } from '../../components/PhoneFilters'
-import { useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { useAdminUsers } from '../../store/adminPeople'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
-const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
+const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
 
 export default function Audit() {
   const t = useT()
@@ -33,7 +33,7 @@ export default function Audit() {
   const [params, setParams] = useSearchParams()
   const f = readFilters(params)
   const set = (patch: Partial<ActivityFilters>) => setParams((p) => writeFilters({ ...readFilters(p), ...patch }), { replace: true })
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const users = useAdminUsers()
   const [items, setItems] = useState<AuditEntry[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -155,7 +155,7 @@ export default function Audit() {
   const search = (
     <label className={clsx(ctl, 'flex min-w-0 flex-1 items-center gap-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent sm:min-w-48')}>
       <Search size={14} className="shrink-0 text-faint" aria-hidden />
-      <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+      <input type="search" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
     </label>
   )
 
@@ -170,7 +170,7 @@ export default function Audit() {
             <div className={clsx(ctl, 'flex w-full min-w-0 items-center pr-0 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11')} data-testid="activity-search-field">
               <label className="flex min-w-0 flex-1 items-center gap-2 self-stretch">
                 <Search size={14} className="shrink-0 text-faint" aria-hidden />
-                <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+                <input type="search" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
               </label>
               <span className="-my-px flex shrink-0">
                 <PhoneFilters icon active={(f.kind ? 1 : 0) + (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0)} testId="activity-more">
@@ -186,7 +186,7 @@ export default function Audit() {
       ) : (
         <StickyHeader className="-mt-3 mb-1 py-3" testId="activity-header">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">{t('admin.audit')}</h2>
+            <h2 className="text-title font-semibold tracking-tight">{t('admin.audit')}</h2>
             <p className="text-xs text-faint">{t('audit.desc')}</p>
             {active && clearButton}
           </div>
@@ -462,7 +462,7 @@ export function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
     return words?.[currentLocale()] ?? e.action
   }
   const key = e.source === 'file' ? `audit.file.${e.action}` : `audit.act.${e.action}`
-  return key in DICTS.ko ? t(key as MessageKey) : e.action
+  return hasMessage(key) ? t(key) : e.action
 }
 
 /** Tool calls: whether the call was refused (permission) or failed. */

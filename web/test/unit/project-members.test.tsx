@@ -113,12 +113,15 @@ describe('the members now', () => {
     await m.click('participant-undo-user-sora')
     expect(state(m, 'participant-user-sora')).toBe('member')
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
-    // the search never offers someone already in, or a fixed one
+    // the search lists someone already in, or a fixed one, as added: it cannot be added again
     await m.click('project-participants-search')
     await m.until(() => m.find('participant-add-user-bob'), 'the people to add', 2000)
-    expect(m.find('participant-add-user-sora')).toBeNull()
-    expect(m.find('participant-add-user-jiwoo')).toBeNull()
-    expect(m.find('participant-add-user-mia')).toBeNull()
+    for (const id of ['sora', 'jiwoo', 'mia']) {
+      expect(m.get(`participant-add-user-${id}`).hasAttribute('disabled')).toBe(true)
+      expect(m.get(`participant-add-user-${id}`).textContent).toContain(en('projects.added'))
+    }
+    expect(m.get('participant-add-user-bob').hasAttribute('disabled')).toBe(false)
+    expect(m.get('participant-add-user-bob').textContent).toContain(en('projects.add'))
     await m.click('participant-add-user-bob')
     await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
     expect(state(m, 'participant-user-bob')).toBe('new')
@@ -338,7 +341,8 @@ describe('a project not changed here', () => {
     }
     for (const role of ['admin', 'member'] as const) {
       signedIn(role)
-      const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'shared/acme' })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+      // (its creator no longer changes them: the member reads that an admin does)
+      const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'shared/acme', creatorChangesMembers: false })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
       const line = await m.until(() => m.find('project-members-locked'), 'the line', 2000)
       expect(line.textContent).toBe(role === 'admin' ? en('projects.legacyNote') : en('projects.membersByAdmins'))
       // no folder path in the words
@@ -477,6 +481,48 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     expect(translate('ko', 'projects.othersSee')).toBe('이 사람들은 파일과 채팅을 보게 돼요.')
     expect(box.textContent).not.toContain(en('projects.widenFiles', { n: 0 }))
     expect(box.querySelectorAll('li').length).toBe(1)
+    await m.unmount()
+  })
+})
+
+describe('who is in it (docs/DECISIONS.md "Who is in a project, by face")', () => {
+  const PEOPLE_IN = { people: [{ id: 'mia', name: 'Mia', creator: true }, { id: 'bob', name: 'Bob' }, { id: 'sora', name: 'Sora', avatarVersion: 7 }], groups: [{ id: 'g-leads', name: 'Leads', people: ['bob', 'sora'] }] }
+
+  test('whoever manages it: each person once with the creator and "You" marked; a group row opens to its people', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access({ participants: [{ subjectType: 'user', subjectId: 'mia', name: 'Mia', creator: true }, { subjectType: 'group', subjectId: 'g-leads', name: 'Leads' }] })),
+      [`GET /api/projects/${P1}/people`]: () => json(200, PEOPLE_IN),
+      'POST /api/projects/access-preview': () => json(200, preview()),
+    }
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ canManage: true })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('project-people'), 'the list of people', 2000)
+    expect(m.get('project-people-count').textContent).toBe(en('projects.peopleIn', { n: 3 }))
+    expect(m.get('project-person-tag-mia').textContent).toBe(`${en('projects.creatorTag')} · ${en('projects.youTag')}`)
+    expect(m.find('project-person-tag-bob')).toBeNull()
+    expect(m.get('project-person-sora').querySelector('img')!.getAttribute('src')).toContain('/api/people/sora/avatar')
+    const toggle = await m.until(() => m.find('participant-group-toggle-g-leads'), 'the group row', 2000)
+    expect(toggle.textContent).toContain(en('projects.groupCount', { n: 2 }))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    await m.click(toggle)
+    expect(m.get('participant-group-toggle-g-leads').getAttribute('aria-expanded')).toBe('true')
+    expect(m.get('participant-group-people-g-leads').textContent).toContain('Bob')
+    expect(m.get('participant-group-people-g-leads').textContent).toContain('Sora')
+    await m.unmount()
+  })
+
+  test('a member who does not manage it: the list only, no read of its participants, 닫기', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/people`]: () => json(200, { people: PEOPLE_IN.people }),
+    }
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ canManage: false, membersEditable: false })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('project-people'), 'the list of people', 2000)
+    expect(calls(`GET /api/projects/${P1}/access`)).toHaveLength(0)
+    expect(m.find('project-participants')).toBeNull()
+    expect(m.get('project-members-locked').textContent).toBe(en('projects.membersByCreator', { name: 'Mia' }))
     await m.unmount()
   })
 })

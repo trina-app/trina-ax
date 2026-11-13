@@ -63,7 +63,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                   <PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
-                      <span className="truncate font-medium text-ink">{name}</span>
+                      <span className="truncate text-row font-medium text-ink">{name}</span>
                       <StatusEmoji userId={user.id} tap className="self-center" />
                       <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}
@@ -95,24 +95,17 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
  * server's name (a team room's group, the everyone room's word, a group chat's members). */
 function NameRow({ room }: { room: Room }) {
   const t = useT()
-  const locale = useLocale()
   const title = useRoomTitle()(room)
   const fallback = useNameFallback()(room)
   const [draft, setDraft] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const save = async () => {
-    if (draft === null || busy) return
+  // the new name shows at once; a failure puts the old one back with its own toast (store/rooms.ts rename) and opens
+  // the field again with the name typed (unless it was opened again meanwhile)
+  const save = () => {
+    if (draft === null) return
     const next = draft.trim()
-    if (next === (room.name ?? '')) return setDraft(null)
-    setBusy(true)
-    try {
-      await useRooms.getState().rename(room.id, next || null)
-      setDraft(null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(false)
-    }
+    setDraft(null)
+    if (next === (room.name ?? '')) return
+    void useRooms.getState().rename(room.id, next || null).then((ok) => { if (!ok) setDraft((d) => d ?? next) })
   }
   if (draft === null)
     return (
@@ -126,7 +119,7 @@ function NameRow({ room }: { room: Room }) {
       className="px-5 py-3 max-sm:px-4"
       onSubmit={(e) => {
         e.preventDefault()
-        void save()
+        save()
       }}
     >
       <label className="block">
@@ -153,7 +146,7 @@ function NameRow({ room }: { room: Room }) {
         <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
           {t('common.cancel')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" busy={busy} data-testid="room-name-save">
+        <Button size="sm" variant="primary" type="submit" data-testid="room-name-save">
           {t('common.save')}
         </Button>
       </div>

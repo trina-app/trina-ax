@@ -16,6 +16,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
@@ -28,6 +29,10 @@ import { enginesChanged } from '../../store/live'
 import { technicalEngineState } from './plain'
 import { useAdminBar } from './phoneBar'
 
+/** an engine's on / off: its queue (lib/optimistic.ts) */
+const engineKey = (id: EngineId) => `engine:${id}:enabled`
+const ENGINE_KEYS = (k: string) => k.startsWith('engine:')
+
 export default function Engines() {
   const t = useT()
   const me = useMeStrict()
@@ -38,7 +43,8 @@ export default function Engines() {
   // a connection added, signed in (also in the browser), checked or removed, here or in another window: the engines'
   // state again (the server dropped its last check), and the accounts list with it when another window changed it
   const reloadEngines = state.reload, reloadAccounts = tc.state.reload
-  useEffect(() => enginesChanged.on(() => { void reloadEngines(); void reloadAccounts() }), [reloadEngines, reloadAccounts])
+  // (not while a switch is on its way: its answer is the newer list, and this read may be from before it)
+  useEffect(() => enginesChanged.on(() => { if (!optimisticPendingKeys(ENGINE_KEYS).length) void reloadEngines(); void reloadAccounts() }), [reloadEngines, reloadAccounts])
   const [checking, setChecking] = useState<EngineId | null>(null)
   const phone = useMediaQuery('(max-width: 767.98px)')
 
@@ -48,9 +54,20 @@ export default function Engines() {
     setChecking(null)
     if (r && state.data) state.setData({ ...state.data, engines: state.data.engines.map((e) => (e.id === id ? r : e)) })
   }
+  // on / off shows at once (lib/optimistic.ts): switching an engine off stops no turn that is running (routes/admin.ts
+  // updateEngines; the next turns use the team default); a refusal puts the switch back with one toast
   const toggle = async (id: EngineId, enabled: boolean) => {
-    const r = await act(() => api.call(API.updateEngines, { body: { enabled: { [id]: enabled } } }))
-    if (r) state.setData(r)
+    const was = state.data?.engines.find((e) => e.id === id)
+    if (!was) return
+    const put = (v: boolean) => state.setData((d) => (d ? { ...d, engines: d.engines.map((e) => (e.id === id ? { ...e, enabled: v } : e)) } : d))
+    await optimistic({
+      key: engineKey(id), from: was.enabled, to: enabled,
+      show: put,
+      send: () => api.call(API.updateEngines, { body: { enabled: { [id]: enabled } } }),
+      confirmed: (r) => r.engines.find((e) => e.id === id)?.enabled ?? enabled,
+      // the server's whole answer, but with another engine's switch still on its way as on screen
+      settle: (r) => state.setData((d) => ({ ...r, engines: r.engines.map((e) => (e.id !== id && optimisticPending(engineKey(e.id)) ? d?.engines.find((x) => x.id === e.id) ?? e : e)) })),
+    })
   }
   // a phone: the engine whose page this is (/admin/providers/<id>); an id this server does not have: the list
   const sub = useParams().sub
@@ -139,7 +156,7 @@ function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
     <li>
       <Link to={`/admin/providers/${e.id}`} className="flex min-h-12 items-center gap-3 py-2 text-sm -outline-offset-2 hover:bg-hover" data-testid="engine-row" data-engine={e.id} data-look={look || undefined}>
         <ProviderLogo mark={ENGINE_MARK[e.id]} small />
-        <span className="min-w-0 flex-1 truncate font-medium text-ink">{e.label}</span>
+        <span className="min-w-0 flex-1 truncate text-row font-medium text-ink">{e.label}</span>
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}
         <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
       </Link>
@@ -260,7 +277,7 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   }
   return (
     <div className="rounded-xl border border-line p-4">
-      <h4 className="text-sm font-medium">{t('engines.api.title')}</h4>
+      <h4 className="text-title-sm font-semibold">{t('engines.api.title')}</h4>
       <p className="mt-0.5 mb-3 text-xs text-muted">{t('engines.api.desc')}</p>
       {form && (
         <div className="grid gap-3 sm:grid-cols-2" data-testid="api-engine-form">

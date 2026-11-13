@@ -124,10 +124,10 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, classNam
                 </label>
               )}
               <label htmlFor={went ? undefined : id} className={clsx('min-w-0 flex-1', !went && 'cursor-pointer')}>
-                <span className="block text-sm font-medium break-words text-ink" data-testid="skill-pack-title">{s.title}</span>
-                {went ? <span className="mt-0.5 block text-label text-muted">{t('skillPack.inNow')}</span>
-                  : why ? <span className="mt-0.5 flex items-center gap-1 text-label text-muted"><CircleAlert size={13} className="shrink-0 text-faint" aria-hidden />{why}</span>
-                  : s.description && <span className="mt-0.5 block text-label text-muted" data-testid="skill-pack-line">{s.description}</span>}
+                <span className="block text-row font-medium break-words text-ink" data-testid="skill-pack-title">{s.title}</span>
+                {went ? <span className="mt-0.5 block text-meta text-muted">{t('skillPack.inNow')}</span>
+                  : why ? <span className="mt-0.5 flex items-center gap-1 text-meta text-muted"><CircleAlert size={13} className="shrink-0 text-faint" aria-hidden />{why}</span>
+                  : s.description && <span className="mt-0.5 block text-meta text-muted" data-testid="skill-pack-line">{s.description}</span>}
               </label>
               <button
                 ref={(el) => { if (el) buttons.current.set(s.name, el); else buttons.current.delete(s.name) }}

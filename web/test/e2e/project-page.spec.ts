@@ -31,8 +31,12 @@ test('the box on a project page starts a chat in the project, which is then list
   const id = await newProject(page)
   await page.goto(`/projects/${id}`)
   await expect(page.getByRole('heading', { level: 1, name: 'Launch' })).toBeVisible()
-  // the instructions as one quiet line under the name, without their markdown
-  await expect(page.getByTestId('project-summary')).toHaveText('Answer in short bullet points.')
+  // the instructions show once, in Instructions; no copy of them under the name (QA TC-980)
+  await expect(page.getByTestId('project-summary')).toHaveCount(0)
+  await expect(page.getByText('Answer in short bullet points.')).toHaveCount(0)
+  await page.getByTestId('project-instructions-toggle').click()
+  await expect(page.getByText('Answer in short bullet points.')).toHaveCount(1)
+  await page.getByTestId('project-instructions-toggle').click()
   await expect(page.getByTestId('project-chats-empty')).toHaveText('아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.')
   // a new project: my chats outside projects can come in from here
   await expect(page.getByTestId('project-import')).toBeVisible()
@@ -89,7 +93,7 @@ test('instructions and files open in place; edit and delete are in the menu on t
   await expect(menu).toBeFocused()
   // a click outside closes it too
   await menu.click()
-  await page.getByTestId('project-summary').click()
+  await page.getByRole('heading', { level: 1, name: 'Launch' }).first().click()
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   await menu.click()
@@ -190,7 +194,10 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     // a member's page now: the box, the instructions, the files
     await expect(page.getByTestId('composer-input')).toBeVisible()
     await expect(block).toHaveCount(0)
-    await expect(page.getByTestId('project-summary')).toHaveText('Contracts only.')
+    // the instructions once, in Instructions, and no copy of them under the name (QA TC-980)
+    await expect(page.getByTestId('project-summary')).toHaveCount(0)
+    await page.getByTestId('project-instructions-toggle').click()
+    await expect(page.getByText('Contracts only.')).toHaveCount(1)
     if (vp.size.width < 768) {
       // a phone: the files row opens the project's files on a screen of its own (QA TC-254), Back comes here
       await page.getByTestId('project-files-open').click()

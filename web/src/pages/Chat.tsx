@@ -362,7 +362,7 @@ function ChatView({ chatId }: { chatId: string }) {
   if (loadError && isApiError(loadError, 'not_found'))
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
-        <EmptyState title={t('chat.notFound')}>
+        <EmptyState screen title={t('chat.notFound')}>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}

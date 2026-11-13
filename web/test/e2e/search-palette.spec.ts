@@ -119,6 +119,8 @@ test('actions run the existing flows, and a chat row has its menu (Alt+Enter, Es
   await page.keyboard.press('Escape')
 
   await page.goto('/')
+  // ⌘K before the app has mounted goes nowhere (a fresh load): wait for the page, as the History test does
+  await expect(page.getByTestId('composer-input')).toBeVisible()
   await open(page)
   // the 기록 type (after 대화방·사람)
   await page.keyboard.press('ArrowRight')

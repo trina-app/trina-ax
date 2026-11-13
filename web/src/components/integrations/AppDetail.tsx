@@ -86,8 +86,8 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
             <LogoTile src={logo} className="size-14 rounded-2xl p-2.5" />
             <div className="min-w-0 flex-[1_1_12rem]">
               {/* a phone: the name wraps, never cut (QA TC-266); the state and ⋯ go on their own line under it */}
-              <Title ref={titleRef} id={titleId} tabIndex={inSettings ? -1 : undefined} className="text-2xl font-semibold tracking-tight break-words outline-none">{name}</Title>
-              <p className="mt-0.5 text-sm text-muted" data-testid="app-by">{byLine}</p>
+              <Title ref={titleRef} id={titleId} tabIndex={inSettings ? -1 : undefined} className="text-display font-semibold tracking-tight break-words outline-none">{name}</Title>
+              <p className="mt-0.5 text-meta text-muted" data-testid="app-by">{byLine}</p>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button:first-child]:flex-1" data-testid="app-actions">{actions}</div>}
           </div>
@@ -105,7 +105,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
 
         {(tools.length > 0 || toolsNote) && (
           <section aria-labelledby={toolsId}>
-            <ToolsTitle id={toolsId} className="mb-2.5 text-sm font-semibold">{t('gapps.tools')}</ToolsTitle>
+            <ToolsTitle id={toolsId} className="mb-2.5 text-title-sm font-semibold">{t('gapps.tools')}</ToolsTitle>
             {tools.length > 0 && <ul className="flex flex-wrap gap-2" data-testid="app-tools">
               {tools.map((x) => {
                 // what it does, and that it changes things: the tooltip on hover and on keyboard focus (the chip takes

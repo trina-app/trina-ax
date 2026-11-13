@@ -41,7 +41,7 @@ import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
-import TeamAiSettings from './TeamAiSettings'
+import TeamAiSettings, { preloadTeamAi } from './TeamAiSettings'
 import FileListSettings from './FileList'
 
 export default function TeamSettingsPage() {
@@ -58,6 +58,8 @@ export default function TeamSettingsPage() {
   const list = phone && !group
   const shows = (id: string) => !phone || group?.id === id
   const state = useLoad(() => api.call(API.settings))
+  // a computer shows the AI groups below once the settings are in: their reads start now, beside this one
+  useEffect(() => { if (!phone) preloadTeamAi() }, [phone])
   // an office Mac only: what runs while the update window is empty (UpdateWindowField); no other server is asked
   const office = useLoad(async () => (me.server.features?.officeUpdate ? api.call(API.officeUpdateStatus) : null))
   const [f, setF] = useState<TeamSettings | null>(null)
@@ -426,7 +428,7 @@ export function TeamIconRow() {
                   background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
                 <figure key={scheme} className="m-0 min-w-0" data-testid={`team-icon-preview-${scheme}`}>
-                  <div className={clsx('flex items-center gap-2 rounded-xl border px-3.5 py-3 text-[0.9375rem] font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
+                  <div className={clsx('flex items-center gap-2 rounded-xl border px-3.5 py-3 text-sm font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
                     <img src={logoSrc} alt="" width={20} height={20} className="size-5 shrink-0 rounded-md object-cover" data-testid="team-icon-preview-logo" />
                     <span className="truncate">{me.team.name}</span>
                   </div>

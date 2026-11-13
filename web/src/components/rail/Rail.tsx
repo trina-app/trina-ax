@@ -14,6 +14,7 @@ import { RAIL_ITEMS, railLinkState, railTarget, useRailHere, useRailMemory, type
 import { aiName } from '../../lib/tabs'
 import { useActivityUnread, useRoomNoticeUnread } from '../../store/inbox'
 import { useChats } from '../../store/chats'
+import { loadChatList } from '../../lib/chatListLoad'
 import { useRooms } from '../../store/rooms'
 import { useAttention, useWaitingChats } from '../../store/sessionMarkers'
 import { AiTabIcon } from '../BottomTabs'
@@ -32,10 +33,9 @@ export function Rail({ showList }: { showList: boolean }) {
   // 트리나's mark counts the AI chats of the chat list: read it here, whichever place opens first (대화, 파일, 활동), not
   // only when 트리나's list mounts (QA: eight unseen answers showed no mark until 트리나 was visited)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
-  const loadChats = useChats((s) => s.loadChats)
   useEffect(() => {
-    if (!chatsLoaded) void loadChats(true).catch(() => {})
-  }, [chatsLoaded, loadChats])
+    if (!chatsLoaded) void loadChatList().catch(() => {})
+  }, [chatsLoaded])
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const notices = useActivityUnread()

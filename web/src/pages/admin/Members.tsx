@@ -55,6 +55,7 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
+import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -75,9 +76,9 @@ export default function Members() {
   const act = useAction()
   const actOk = useActionOk()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
-  const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
-  const invites = useLoad(async () => (await api.call(API.listInvites)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsersNoAi()
+  const invites = useAdminRead('invites', loadAdminInvites)
+  const groups = useAdminGroups()
   // the team's AI connections: the delete confirmation names those only the person may use (ai-assignees.ts)
   const connections = useLoad(loadConnections)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -241,7 +242,7 @@ export default function Members() {
     return (
       <div className="-mx-4" data-testid="member-page" data-user={u.username}>
         <div className="px-4">
-          <h2 className="text-lg font-semibold break-words text-ink">{u.name}</h2>
+          <h2 className="text-title font-semibold break-words text-ink">{u.name}</h2>
           <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
           {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} /></div>
@@ -426,7 +427,7 @@ export default function Members() {
           popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
       {(!!teamLink.data?.link || !!invites.data?.length) && (
         <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
-          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-sm font-semibold">
+          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-title-sm font-semibold">
             {t('members.invites')}
           </h2>
           <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('members.invitesDesc')}</OneLine>
