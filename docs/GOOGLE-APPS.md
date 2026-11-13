@@ -130,8 +130,9 @@ saves its people.
 - **Removing it** deletes its tokens, rule and members' Always allow at once. Google revokes a whole grant, so it is
   asked only when the admin who signed it in has no other Google sign-in here **and no sign-in of anyone here uses the
   same Google account** (matched by the address confirmed at sign-in: a person's own app, another shared app, a Drive
-  connection or a Drive share). The same check guards a person's own Disconnect (apps or Drive) and stopping a Drive
-  share, so removing one never ends another person's connection.
+  connection or a Drive share). The same check guards a person's own Disconnect (apps or Drive) and every end of a
+  Drive share (stopped, ended at 팀장 넘기기, or stopped because its admin left or was demoted), so removing one never
+  ends another person's connection.
 - **A new one never replaces another admin's.** The dialog completes with `create: true` (409 `team_exists` when
   another admin connected one meanwhile), and closing it removes only the connection it made (`?id=`). 팀장 넘기기 lists
   it (`team_sign_ins`, `team_connection`) like other team sign-ins.

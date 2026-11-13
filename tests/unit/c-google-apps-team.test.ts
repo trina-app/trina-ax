@@ -17,6 +17,9 @@ import { integrationToolProvider } from '../../server/src/integrations/connectio
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { usersOf } from '../../server/src/integrations/connections/store'
 import { readScope } from '../../server/src/chat/read-scope'
+import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
+import { endShareSignIn, stopShare } from '../../server/src/integrations/google-drive/share-admin'
+import { SHARE_CONTEXT } from '../../server/src/integrations/google-drive/shares'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
 
@@ -308,4 +311,47 @@ test('a dialog that makes a new shared account never replaces or removes one ano
   expect((await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team?id=someone-elses')).body).toEqual({ removed: false, revocation: 'not_needed' })
   expect(teamId()).toBe(danas)
   expect((await send('carol', 'DELETE', `/api/admin/google-apps/gmail/team?id=${danas}`)).body.removed).toBe(true)
+})
+
+test('the Drive side: a Drive share ended at handover, by its admin leaving or stopped, and a personal Drive, never revoke an account a shared app uses', async () => {
+  const drive = googleDriveOf(A.ctx, { config: null, fetch: google.fetch })
+  const now = new Date().toISOString(), later = new Date(Date.now() + 3600_000).toISOString()
+  const account = JSON.stringify({ subject: 'perm-1', name: 'Team box', email: 'teambox@acme.example' })
+  const tokens = (n: string) => ({ accessToken: `CANARY-drive-access-${n}`, refreshToken: `CANARY-drive-refresh-${n}`, expiresAt: Date.now() + 3600_000 })
+  const makeShare = (id: string, owner: string) => {
+    const sealed = drive.store.seal(SHARE_CONTEXT, id, tokens(id))
+    A.ctx.db.query(`INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, status, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, 'k', ?, '[]', ?, ?, 'connected', ?, ?, ?)`).run(id, `Share ${id}`, owner, account, sealed.enc, sealed.keyVersion, later, now, now)
+  }
+  // the team's Gmail is the same Google account (and, through the hosting service, the same grant)
+  await connectTeam('carol', 'gmail', 'teambox')
+  // handover: the owner's Drive share ends; the shared Gmail is not revoked with it
+  makeShare('s1', 'dana')
+  expect(await endShareSignIn(A.ctx, 'dana', 's1')).toBe('not_needed')
+  // its admin is no longer an admin: the share stops, no revoke
+  makeShare('s2', 'erin')
+  expect(drive.checkShareOwners()).toBeGreaterThan(0)
+  // stopped by an admin: no revoke
+  makeShare('s3', 'carol')
+  expect((await stopShare(A.ctx, 'carol', 's3')).revocation).toBe('not_needed')
+  // a person's own Drive on the same account, disconnected: no revoke
+  const d = drive.store.seal('bob', 'd1', tokens('d1'))
+  A.ctx.db.query(`INSERT INTO drive_connections (id, user_id, config_key, account, scopes, secret_enc, key_version, status, expires_at, created_at, updated_at)
+    VALUES ('d1', 'bob', 'k', ?, '[]', ?, ?, 'connected', ?, ?, ?)`).run(account, d.enc, d.keyVersion, later, now, now)
+  expect((await drive.disconnect('bob')).revocation).toBe('not_needed')
+  await Bun.sleep(50)
+  expect(google.revoked).toEqual([])
+  expect(apps.teamView('gmail')!.status).toBe('connected')
+  // once nothing else here uses the account, stopping a share asks Google
+  await send('carol', 'DELETE', '/api/admin/google-apps/gmail/team')
+  google.revoked = []
+  makeShare('s4', 'carol')
+  expect((await stopShare(A.ctx, 'carol', 's4')).revocation).toBe('revoked')
+  expect(google.revoked).toEqual(['CANARY-drive-refresh-s4'])
+})
+
+test('a dialog removing what it made leaves another admin\'s sign-in under way alone', async () => {
+  const f = await apps.authorize('dana', 'dana-session', 'gmail', 'team')
+  expect((await apps.removeTeam('carol', 'gmail', 'not-there')).removed).toBe(false)
+  expect((A.ctx.db.query('SELECT state FROM google_app_flows WHERE id=?').get(f.flowId) as { state: string }).state).toBe('pending')
 })

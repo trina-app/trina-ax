@@ -513,7 +513,8 @@ export class GoogleApps {
   async removeTeam(user: string, app: GoogleAppId, onlyId?: string): Promise<{ removed: boolean; revocation: 'revoked' | 'unavailable' | 'not_needed' }> {
     this.admin(user)
     const found = this.teamRow(app)
-    if (found && onlyId !== undefined && found.id !== onlyId) return { removed: false, revocation: 'not_needed' }
+    // a dialog removing what it made: nothing else, not even another admin's sign-in under way
+    if (onlyId !== undefined && found?.id !== onlyId) return { removed: false, revocation: 'not_needed' }
     const row = found
     const signer = row ? (this.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(row.id) as { user_id: string } | null)?.user_id ?? null : null
     const secret = row ? this.secretOf(row) : null

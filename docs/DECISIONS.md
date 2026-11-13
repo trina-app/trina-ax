@@ -25315,7 +25315,8 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   mailbox; kept consistent with every other team connection and the owner's "Always allow means done".
 - **The admin who signed it in** is recorded in `team_sign_ins` so 팀장 넘기기 lists it. It stays when that admin leaves
   (a shared mailbox is the team's, unlike a Drive share of an admin's own Drive). Revocation at Google: Google revokes a whole
-  grant, so removing the shared account, a person's own Disconnect (apps or Drive) and stopping a Drive share ask Google
+  grant, so removing the shared account, a person's own Disconnect (apps or Drive) and every end of a Drive share (stopped,
+  ended at 팀장 넘기기, its admin gone) ask Google
   only when neither the same person keeps another Google sign-in here nor anyone's sign-in here uses the same Google
   account (`store.ts googleAccountInUse`, matched by the confirmed address; an unknown address counts as in use). Found
   in review: a member's own Gmail on the team's mailbox account, disconnected, would have ended the shared one for

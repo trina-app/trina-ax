@@ -317,7 +317,8 @@ export class GoogleDrive {
       this.abort(`share:${r.id}`)
       audit(db, { actor: null, action: 'drive.share_owner_gone', target: r.id })
       notifyDriveShareReconnect(this.ctx, r.id, `${r.id}.v${r.version + 1}`)
-      void this.revoke(token)
+      // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account
+      if (!googleAccountInUse(db, googleEmailOf(r.account), { share: r.id })) void this.revoke(token)
     }
     return gone.length
   }

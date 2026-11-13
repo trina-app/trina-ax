@@ -166,6 +166,8 @@ export async function endShareSignIn(ctx: AppContext, actor: string, id: string)
   ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
   svc.abort(`share:${id}`)
   notifyDriveShareReconnect(ctx, id, `${id}.v${r.version + 1}`)
+  // Google revokes the whole grant: not while anyone's sign-in here uses the same Google account (a shared Gmail …)
+  if (googleAccountInUse(ctx.db, googleEmailOf(r.account), { share: id })) return 'not_needed'
   const first = await svc.revoke(token).catch(() => 'unavailable' as const)
   return first === 'unavailable' ? await svc.revoke(token).catch(() => 'unavailable' as const) : first
 }
