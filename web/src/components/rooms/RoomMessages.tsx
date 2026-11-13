@@ -32,7 +32,7 @@
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
 import { Copy, Download, FileText, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
@@ -59,8 +59,12 @@ import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
 import { StatusEmoji } from '../StatusMessage'
-import { useViewerItem, ViewerMeta } from '../ImageViewer'
-import { roomFileItem, roomItem } from '../../lib/imageViewer'
+import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
+import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
+import { itemImage, itemLink } from '../../lib/fileMenu'
+import { askTrinaInRoom, fileSeed } from '../../lib/sideChatAsk'
+import { useFileMenu } from '../FileMenu'
+import type { SideSeed } from './SideChatPanel'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
 
@@ -140,8 +144,11 @@ export const HIGHLIGHT_MS = 2400
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
+  // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
+  // file too, in the same side chat (the room page's, or the image viewer's column: `onAskFile`)
+  const askFile = useMemo(() => (onAskTrina ? (fileId: string, name: string) => void (onAskFile ? onAskFile(fileSeed(fileId, name)) : askTrinaInRoom(roomId, fileSeed(fileId, name))) : null), [onAskTrina, onAskFile, roomId])
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
   const [editing, setEditing] = useState<string | null>(null)
@@ -180,6 +187,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const where = useViewerWhere(roomId)
 
   return (
+    <AskFile.Provider value={askFile}>
     <ViewerMeta where={where}>
     <div ref={list} data-testid="room-messages" onCopy={copyMessages}>
       {runs.map((run, i) => {
@@ -245,7 +253,18 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
       )}
     </div>
     </ViewerMeta>
+    </AskFile.Provider>
   )
+}
+
+/** 트리나에게 묻기 about a file of the list (RoomMessages `askFile`); null: this list asks nothing */
+const AskFile = createContext<((fileId: string, name: string) => void) | null>(null)
+
+/** The right-click menu of a picture or file under a message (components/FileMenu.tsx): 이미지 복사 (a picture),
+ * 링크 복사 (its message), 내려받기, 트리나에게 묻기 where the list asks. */
+function useRoomFileMenu(f: RoomFile, item: ViewerItem) {
+  const ask = useContext(AskFile)
+  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, ask: ask ? () => ask(f.id, f.name) : null })
 }
 
 /** Where the room's pictures and files were sent, for the viewer's bar: "#마케팅에서", "디자인 리뷰에서", "벤 님과의 1:1
@@ -374,7 +393,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
       data-visibility={m.visibility}
-      {...(menuOn ? longPress : {})}
+      {...(menuOn ? { ...longPress, onPointerDown: (e: React.PointerEvent) => !(e.target as Element).closest?.('[data-own-menu]') && longPress.onPointerDown(e) } : {})}
     >
       {/* a reply sent to the room too: in the timeline it says it belongs to a thread (a tap opens it); in the thread it
           says it went to the room as well */}
@@ -539,13 +558,18 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
 /** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
 function RoomPicture({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
-  const viewer = useViewerItem((meta) => roomItem(roomId, f, meta))
+  const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
   return (
-    <Tooltip label={t('rooms.openImage', { name: f.name })}>
-      <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
-        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
-      </button>
-    </Tooltip>
+    <>
+      <Tooltip label={t('rooms.openImage', { name: f.name })}>
+        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
+          <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+        </button>
+      </Tooltip>
+      {fileMenu.menu}
+    </>
   )
 }
 
@@ -559,12 +583,15 @@ function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
-  const viewer = useViewerItem((meta) => roomFileItem(roomId, f, me, meta))
+  const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()))
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
   const opens = roomFileOpens(f, me)
   return (
-    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name}>
-      <button type="button" ref={viewer.ref} onClick={viewer.open} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
+      {fileMenu.menu}
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>

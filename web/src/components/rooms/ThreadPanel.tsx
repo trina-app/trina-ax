@@ -24,6 +24,7 @@ import { ErrorNote, IconButton, Skeleton } from '../ui'
 import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
 import { RoomSideColumn } from './RoomSideColumn'
+import type { SideSeed } from './SideChatPanel'
 import { ImageGroup } from '../ImageViewer'
 import { FileDropZone } from '../FileDropZone'
 
@@ -35,7 +36,7 @@ const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
  * false: the column around it is the caller's (RoomSideColumn). `alone`: `rootId` is a message without a thread, shown
  * by itself. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, onAskFile, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const key = placeKey(roomId, rootId)
@@ -146,7 +147,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
             <ImageGroup>
               {!root && view?.loading && <Skeleton lines={3} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useRooms.getState().loadThread(roomId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
-              {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" onAskTrina={onAskTrina} highlight={highlight} />}
+              {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" onAskTrina={onAskTrina} onAskFile={onAskFile} highlight={highlight} />}
               {root && !alone && (
                 <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="thread-count">
                   {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
@@ -154,7 +155,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
                 </div>
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} dayBefore={root?.createdAt ?? null} highlight={highlight} />
+              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} onAskFile={onAskFile} dayBefore={root?.createdAt ?? null} highlight={highlight} />
             </ImageGroup>
           )}
         </div>

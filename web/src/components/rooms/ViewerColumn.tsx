@@ -126,6 +126,7 @@ export function ViewerColumn({ place, state, onAsk, onThread, onHide, sheet = fa
           meId={meId}
           onClose={onHide}
           onAskTrina={(m: RoomMessage) => onAsk(messageSeed(m, name))}
+          onAskFile={onAsk}
           highlight={messageId !== rootId ? messageId : null}
           closeX={sheet}
         />

@@ -17,7 +17,9 @@
 //   viewer closes. The result is a toast, and is said inside the dialog too (a screen reader may not read outside it).
 // - Esc, ✕, a click on the backdrop, a swipe down and Back close it; focus goes back to the picture that opened it.
 // - It is on the team page itself (a portal on <body>, never a frame): the desktop app's 이미지 복사 copies the original,
-//   which is then the only picture under the pointer.
+//   which is then the only picture under the pointer. A right-click on the picture itself opens the app's own menu
+//   (components/FileMenu.tsx: 이미지 복사, 링크 복사, 내려받기, 트리나에게 묻기; also the menu key and Shift+F10), so
+//   the desktop app's menu answers only around it and with Shift.
 // - Files sent in a room, DM, group chat or thread open here too, from their chip's name (docs/DECISIONS.md "The room
 //   file viewer"): a document on the document stage (components/ViewerDocument.tsx: FileBody, the side panel's body, in
 //   a reading column that scrolls; or the file's card), in the same list as the pictures. The bar then also says where
@@ -42,12 +44,14 @@ import { closeImageViewer, closeViewerSheet, getViewerSheet, openImageViewer, op
 import { fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
-import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
+import { canCopyImage, COPY_FAILED, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
+import { isMenuKey, itemLink } from '../lib/fileMenu'
+import { useFileMenu } from './FileMenu'
 import { previewKind } from '../lib/preview'
 import { clientKind } from '../lib/desktop'
 import { formatDateTime } from '../lib/format'
 import { aiName } from '../lib/tabs'
-import { useLocale, useT, type MessageKey } from '../i18n'
+import { useLocale, useT } from '../i18n'
 import { useAvatarOf, useNameOf } from '../store/people'
 import { findMessage, roomFileGone, useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
@@ -84,6 +88,9 @@ export function ViewerMeta({ sender, at, where, messageId, rootId, threadable, c
   const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place, ...(message ? { messageId: message } : {}), ...(root ? { rootId: root } : {}), ...(canThread !== undefined ? { threadable: canThread } : {}) }), [kind, user, when, place, message, root, canThread])
   return <MetaContext.Provider value={value}>{children}</MetaContext.Provider>
 }
+
+/** The message's who, when and where around this element (ViewerMeta), as useViewerItem reads it. */
+export const useViewerMeta = () => useContext(MetaContext)
 
 /** A picture that opens the viewer: `ref` goes on the element clicked (focus comes back to it), `open` on its click.
  * `make` builds the picture from its message's who and when; null: this is no picture (nothing is registered). */
@@ -193,7 +200,6 @@ function textSelectedIn(root: HTMLElement | null): boolean {
   return !!root && !!sel && !sel.isCollapsed && !!sel.toString().trim() && !!sel.anchorNode && root.contains(sel.anchorNode)
 }
 
-const COPY_FAILED: Record<Exclude<CopyFailure, 'cancelled'>, MessageKey> = { denied: 'viewer.copyDenied', tooBig: 'viewer.copyTooBig', notLoaded: 'viewer.copyNotLoaded', failed: 'viewer.copyError' }
 
 type Gesture =
   | { kind: 'press'; touch: boolean; start: Point; view: View | null; zoomed: boolean; last: Point; lastT: number; vx: number; vy: number }
@@ -350,6 +356,17 @@ function Viewer({ open }: { open: ViewerOpen }) {
     })
   }
 
+  // a right-click on the picture (the menu key, Shift+F10): the app's menu (components/FileMenu.tsx) with what the bar has
+  // for it: 이미지 복사 (the picture drawn here), 링크 복사 (its message, or the team file), 내려받기, 트리나에게 묻기. A
+  // document keeps the browser's own menu (its text)
+  const fileMenu = useFileMenu(docMode ? null : {
+    name: item.name,
+    copyImage: copyOn ? copy : null,
+    link: gone ? null : itemLink(item),
+    download: item.download && !gone && missing !== item.key ? item.download : null,
+    ask: askable ? () => askTrina(stageRef.current!) : null,
+  })
+
   const [bars, setBars] = useState(true)
   const [swipe, setSwipe] = useState<{ dx: number; dy: number } | null>(null)
 
@@ -408,10 +425,15 @@ function Viewer({ open }: { open: ViewerOpen }) {
     gesture.current = { kind: 'press', touch: e.pointerType === 'touch', start: at, view: L.v, zoomed: L.zoomed, last: at, lastT: e.timeStamp, vx: 0, vy: 0 }
   }
   /** a menu opened (a long press, a right-click that came as a press): whatever the hand was doing ends */
-  const onContextMenu = () => {
+  const onContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     pointers.current.clear()
     gesture.current = { kind: 'idle' }
     setSwipe(null)
+    // on the picture: its menu; beside it, or with Shift, the browser's (or the desktop app's) own
+    const L = live.current
+    if (e.shiftKey || e.defaultPrevented || !fileMenu.on || !L.v || !L.natural || !onPicture(L.v, L.natural, pointOf(e))) return
+    e.preventDefault()
+    fileMenu.openAt(e.currentTarget, e.currentTarget, { x: e.clientX, y: e.clientY })
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -555,6 +577,15 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     // the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait until it is closed; Esc goes on to the focus trap
     if (e.key !== 'Escape') e.stopPropagation()
+    // the picture's menu keeps its own keys (↑ ↓, Esc)
+    if (e.target instanceof Element && e.target.closest('[role="menu"]')) return
+    // the menu key or Shift+F10: the picture's menu, in the middle of the stage
+    if (!docMode && fileMenu.on && isMenuKey(e) && stageRef.current) {
+      e.preventDefault()
+      const r = stageRef.current.getBoundingClientRect()
+      fileMenu.openAt(stageRef.current, stageRef.current, { x: r.left + r.width / 2, y: r.top + r.height / 2 })
+      return
+    }
     // the column's own keys: its boxes, its menus, its list (Esc still goes on to close the viewer when nothing in it took
     // it)
     if (e.target instanceof Element && e.target.closest('[data-viewer-column]')) return
@@ -843,6 +874,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
       )}
       <p className="sr-only" aria-live="polite">{count ? `${item.name}, ${count}` : item.name}</p>
       <p className="sr-only" role="status" data-testid="image-viewer-said">{said}</p>
+      {/* the picture's right-click menu: inside the dialog, so the keyboard stays in it */}
+      {fileMenu.menu}
     </div>
   )
 }

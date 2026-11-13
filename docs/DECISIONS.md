@@ -25559,3 +25559,42 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   proposal (not built) for dropping old tool results.
 - **Post to channel:** the notice still names Slack messages from another conversation (Post anyway / Cancel).
 - **Migration:** `350_c_slack_bot_reading.sql` (`slack_config.bot_scopes`). 348 was #674's, 349 Google's.
+
+## A right-click menu on pictures and files (feat/context-menus, 2026-11-13)
+
+The owner: in the desktop app a right-click on a picture (the full-screen viewer, a thumbnail in a room or a thread)
+did nothing they could use, though it looks like it should copy; Slack shows Share file…, Copy image, Copy file link,
+Download, Save for later. Placement: Team AX core (`web/src/components/FileMenu.tsx`, `web/src/lib/fileMenu.ts`, the
+desktop bridge's optional `copyImage`); no API, setting or data change.
+
+- **The menu** is the app's own (`rooms/MenuButton.tsx`, the look of every other menu; a bottom sheet below 768 px),
+  opened at the pointer (its top left there, moved in near an edge; a scroll closes it). Items, in Slack's order, only
+  what applies (`fileMenuActions`, unit-tested): **이미지 복사** (pictures, where the page can put a picture on the
+  clipboard), **링크 복사**, **내려받기**, **트리나에게 이 파일 묻기** (where the list already asks about a message:
+  the room page's side chat, or the image viewer's column).
+- **Where**: a room's, DM's, group chat's or thread's picture and file chip; the image viewer's picture (only on the
+  picture itself: beside it, and a document's text, keep the browser's menu); an AI chat's attachment (copy image, copy
+  link, download; no ask: that chat is the place to ask); a Files row, whose right-click opens its existing ⋯ menu at
+  the pointer, which gains 이미지 복사 and 링크 복사.
+- **Ways to it**: a right-click; the menu key or Shift+F10 on the focused picture (under it; the viewer: the stage's
+  middle); a long press with a finger (the message's own long-press menu stays for the rest of the message). Esc gives
+  the focus back to the picture. Shift+right-click keeps the browser's own menu (as a room row's right-click does).
+- **링크 복사** is the app's address of the place, never a key or token: a room file the message it was sent in
+  (`/rooms/<id>?m=<message>`, a reply at its thread `/rooms/<id>/t/<root>?m=<reply>`), a team file or folder
+  `/files/view?path=…`. Someone who cannot open the room or the file gets the usual not-found or sign-in page; the toast
+  says only people who can see it can open it.
+- **이미지 복사** reads the picture only through the app's own `/api/` file routes on the page's own address
+  (`ownFileAddress`: the room file with its member check, the team file with its access check, a HEIC photo as the
+  server's JPEG), the requests the page makes to show it; any other address is never fetched. The original when the
+  browser can draw it, else the thumbnail (the toast says so). The viewer copies what it drew, as its 복사 does.
+  No new public address.
+- **The desktop app**: the page takes these right-clicks, so the app's native menu (`desktop/src/main/context-menu.ts`)
+  does not open over them; it still answers text (cut, copy, paste, select all on Mac and Windows: checked, unchanged),
+  links and other pictures. 이미지 복사 and the viewer's 복사 hand the PNG bytes to the main process
+  (`DesktopBridge.copyImage`, `bridge:copy-image`), which checks the sender (the team page's top frame), takes only
+  PNG bytes up to 64 MB that the system can draw (`clipboardPng`), and writes them with `clipboard.write` (Electron 44
+  has no `writeImage`); it fetches nothing. A desktop app from before that writes the async clipboard as before.
+  Spell-check suggestions: not added; spell check is off in the team page (`security.ts`, `spellcheck: false`).
+- **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the
+  only share is an AI answer to a room, `chat/ShareToRoom.tsx`); building one is its own task. "Save for later" has no
+  counterpart.
