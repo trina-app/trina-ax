@@ -1,6 +1,6 @@
 // How a scheduled task reads on the Scheduled pages (pages/Scheduled.tsx): its name, its repeat in words, its state and
 // how its last run went. Pure, so the list, the detail page and the tests read the same.
-import type { Schedule } from '@mycel/shared/api'
+import type { Schedule, ScheduleRun } from '@mycel/shared/api'
 import type { Locale } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
@@ -75,6 +75,31 @@ export const outcomeReason = (s: Schedule, t: T) =>
   s.lastOutcome === 'needs_key' ? t('scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
     : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduled.reason.members_only')
     : s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
+
+/** A run of the task page's "Runs" list in words: its state ("Succeeded", "Running", "Not run") and, for one that did
+ *  not succeed, why in one short line (a failed run's own error line when the server has one). */
+export const runLabel = (r: ScheduleRun, t: T) =>
+  r.status === 'running' ? t('scheduled.run.running')
+    : r.status in RUN_STATE ? t(RUN_STATE[r.status as keyof typeof RUN_STATE]!)
+    : t('scheduled.run.skipped')
+export const runReason = (r: ScheduleRun, t: T, o: { membersOnly?: boolean } = {}) => {
+  if (r.status === 'running' || r.status === 'done') return ''
+  if (r.status === 'error' && r.error) return r.error
+  if (r.status === 'needs_key') return r.needName ? t('scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
+  if (r.status === 'project_gone' && o.membersOnly) return t('scheduled.runReason.members_only')
+  return t(`scheduled.runReason.${r.status}` as MessageKey)
+}
+/** The dot's tone of a run (a success is green, problems amber, the rest red); null while it runs. */
+export const runTone = (r: ScheduleRun): Tone | 'ok' | null =>
+  r.status === 'running' ? null : r.status === 'done' ? 'ok' : outcomeTone(r.status)
+
+/** A task's last run as one row (a server without the run history): what the Schedule itself says of it. */
+export function lastRunOf(s: Schedule): ScheduleRun | null {
+  const status = s.running ? 'running' as const : s.lastOutcome
+  if (!status) return null
+  // while one runs, the time the Schedule has is the run before it's
+  return { id: `last-${s.id}`, status, startedAt: s.running ? '' : s.lastOutcomeAt ?? s.lastRunAt ?? '', endedAt: null, chatId: s.lastChatId, error: null, needName: s.lastNeed?.name ?? null }
+}
 
 /** The card's dim line, like Claude's: "Paused · Weekdays (Mon–Fri) at 09:00". The last result has its own line under
  *  it (outcomeLabel), so a long repeat never cuts it off. */

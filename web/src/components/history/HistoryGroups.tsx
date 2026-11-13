@@ -14,7 +14,8 @@
 //   gone (store/projects.ts `drop`) leaves at once.
 import clsx from 'clsx'
 import { ChevronDown, FolderKanban, Plus } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { foldRuns } from '../nav/TaskRunsRow'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { groupByProject, hasProjects, strongestMark, type HistoryGroup } from '../../lib/historyGroups'
@@ -135,17 +136,17 @@ export function useHistoryGroups(chats: readonly Chat[]) {
 
 /** The groups, each with its header and its rows (`row`: the caller's row, the same as a plain list's). `onNavigate`:
  * called when a header leads to a project. */
-export function HistoryGroups({ state, row, onNavigate }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; onNavigate: () => void }) {
+export function HistoryGroups({ state, row, pool, onNavigate }: { state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void }) {
   return (
     <div data-testid="history-groups">
       {state.shown.map((g) => (
-        <Group key={g.key} group={g} state={state} row={row} onNavigate={onNavigate} />
+        <Group key={g.key} group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} />
       ))}
     </div>
   )
 }
 
-function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; onNavigate: () => void }) {
+function Group({ group, state, row, pool, onNavigate }: { group: HistoryGroup; state: HistoryGroupsState; row: (c: Chat) => ReactNode; pool?: readonly Chat[]; onNavigate: () => void }) {
   const t = useT()
   const navigate = useNavigate()
   const listId = useId()
@@ -210,7 +211,7 @@ function Group({ group, state, row, onNavigate }: { group: HistoryGroup; state: 
         )}
       </div>
       <ul id={listId} hidden={folded} data-testid="history-group-rows">
-        {!folded && group.chats.map((c) => <Fragment key={c.id}>{row(c)}</Fragment>)}
+        {!folded && foldRuns(group.chats, row, { pool })}
       </ul>
     </div>
   )

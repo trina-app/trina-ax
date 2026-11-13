@@ -36,6 +36,8 @@ import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
 
+/** One entry of a task's run history (Schedules.runs; shared/src/api/schedules.ts ScheduleRun). */
+export type ScheduleRunItem = { id: string; status: 'running' | LastOutcome; startedAt: string; endedAt: string | null; chatId: string | null; error: string | null; needName?: string }
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
@@ -302,6 +304,40 @@ export class Schedules {
     if (row.code !== 'done') return { outcome: row.code, at: row.at, ...(membersOnly ? { membersOnly: true as const } : {}) }
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
     return { outcome: outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error', at: row.at }
+  }
+
+  /** The run history of one of the person's own tasks (the task page's "Runs"), newest first: each run (its turn, with
+   *  its result as lastResult reads it, its start, end and chat while that is still there) and each occurrence that did
+   *  not run (schedule_outcomes, the template and project skips). Only the task's owner: another person, an admin
+   *  included, gets null (the route answers not_found, as for every other own-task call). Keyset paged: `cursor` is the
+   *  last row's "<time>|<id>" from the page before. */
+  runs(userId: string, id: string, o: { cursor?: string; limit?: number } = {}): { items: ScheduleRunItem[]; nextCursor: string | null } | null {
+    if (!this.get(userId, id)) return null
+    const limit = Math.min(Math.max(o.limit ?? 10, 1), 100)
+    const cur = /^([^|]{1,40})\|([^|]{1,80})$/.exec(o.cursor ?? '')
+    const at = cur?.[1] ?? null, after = cur?.[2] ?? null
+    const rows = this.db.query(`SELECT * FROM (
+      SELECT t.id, t.status code, t.run_outcome, t.started_at at, t.ended_at ended, c.id chat, t.error, NULL need FROM turns t
+        LEFT JOIN chats c ON c.id = t.chat_id AND c.user_id = t.user_id AND c.deleted_at IS NULL
+        WHERE t.schedule_id=? AND t.user_id=?
+      UNION ALL SELECT id, code, NULL, created_at, NULL, NULL, NULL, NULL FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
+      UNION ALL SELECT id, 'needs_key', NULL, created_at, NULL, NULL, NULL, template_name FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
+      UNION ALL SELECT id, 'project_gone', NULL, created_at, NULL, NULL, NULL, NULL FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
+    ) WHERE (? IS NULL OR at < ? OR (at = ? AND id < ?)) ORDER BY at DESC, id DESC LIMIT ?`)
+      .all(id, userId, id, userId, id, userId, id, userId, at, at, at, after, limit + 1) as { id: string; code: string; run_outcome: string | null; at: string; ended: string | null; chat: string | null; error: string | null; need: string | null }[]
+    const items = rows.slice(0, limit).map((r): ScheduleRunItem => {
+      let status: ScheduleRunItem['status']
+      if (r.code === 'queued' || r.code === 'running') status = 'running'
+      else if (r.code === 'done') {
+        const out = storedRunOutcome({ status: 'done', run_outcome: r.run_outcome })
+        status = out === 'succeeded' ? 'done' : out === 'problems' ? 'problems' : 'error'
+      } else status = r.code as ScheduleRunItem['status']
+      // a failed run's error as its chat showed it (chat/i18n.ts engineError, in the owner's language): one short line
+      const error = status === 'error' && r.error ? (r.error.split('\n').find((l) => l.trim())?.trim().slice(0, 200) ?? null) : null
+      return { id: r.id, status, startedAt: r.at, endedAt: r.ended, chatId: r.chat, error, ...(r.need !== null ? { needName: r.need } : {}) }
+    })
+    const last = rows.length > limit ? items[items.length - 1] : undefined
+    return { items, nextCursor: last ? `${last.startedAt}|${last.id}` : null }
   }
 
   /** The newest run or skipped occurrence of a task; without its project skips when `projectSkips` is false. */

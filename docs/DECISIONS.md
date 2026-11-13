@@ -5070,6 +5070,33 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   the edit card's long-query listing, binding, connections, field checks, project access, one-time re-arm, unconfirmed
   tasks, templates; pause/resume audit); `tests/security` (the three routes, own only); `web/test/e2e/schedules.spec.ts`.
 
+## Scheduled runs: a run history on the task page, and the runs fold in Recent (feat/scheduled-run-history, 2026-11-13, product owner)
+
+- **Why.** The task page showed only "Last run": earlier runs were nowhere on it. Every run makes its own chat
+  ("<task> · <date>"), so a daily task filled 트리나's 최근 기록 with a row a day.
+- **Runs** (`GET /api/schedules/:id/runs`, `chat/schedules.ts runs`). Nothing new is stored: the history is the task's
+  turns (`turns.schedule_id`, each with its chat) and its skipped occurrences (`schedule_outcomes`, the template and
+  project skips), newest first, keyset paged (`cursor` = the last row's `<time>|<id>`; 10 by default, at most 100). A run's
+  status is read as `lastResult` reads the last one (`done` only for a clean success, `problems`, `error`, `stopped`,
+  `interrupted`), `running` while queued or running, or why an occurrence did not run. `chatId` only while the chat is
+  there and not in the trash; a failed run's `error` is the first line of its error as its chat showed it (in the owner's
+  language, at most 200 characters). Only the task's owner: anyone else, an admin included, gets 404, as for every other
+  own-task call.
+- **The page.** "Last run" is now "Runs" (실행 기록): a shared `ListRow` per run with its dot, date and time, how long
+  it took, a short reason for one that did not succeed, and "Open" to its chat; a skipped occurrence is a row that opens
+  nothing. 10, then "Show more". A run of it now is the live first row (the list is read again when the task's own last
+  run changes). The longer next step ("…then use Run now") is said once under the list, for the newest run only, and a
+  key it needed keeps its connect link. A server without the history shows the one last run the task knows.
+- **Fold in Recent.** A run chat says which own task it is a run of (`Chat.schedule`: the task's id, title, template and
+  this run's outcome; only for the task's owner, from the chat's scheduled turn; none once the task is deleted, so its
+  runs are ordinary chats again). 최근 기록, the phone drawer's history (by date or by project) and a project's chat list
+  draw the runs of one task as one row (`components/nav/TaskRunsRow.tsx`), where its newest run is: the task's name with
+  a clock, the newest run's time, a red dot when it failed (amber for problems, the spinner while one runs), semibold
+  while any run has an answer not seen yet. It opens the task page; each run there opens its chat, which marks it seen.
+  Folding is in the web app only: Search, the task page and a pinned run (고정) still show the run chats themselves.
+- Tests: `tests/unit/schedule-runs.test.ts`, `web/test/unit/scheduled-view.test.tsx`, `web/test/unit/task-runs-row.test.tsx`,
+  `web/test/e2e/schedule-runs.spec.ts`.
+
 ## Turn single tools of a connection off (feat/small-batch-11-01, 2026-11-01)
 
 - **Like Claude's connector tool switches.** Each tool of an MCP connection has a switch in its tool list

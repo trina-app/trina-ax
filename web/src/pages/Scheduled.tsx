@@ -10,12 +10,12 @@ import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../lib/connectors'
-import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
+import type { Project, Schedule, ScheduleReviewCard, ScheduleRun } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { formatDateTime, formatRelative } from '../lib/format'
+import { formatDateTime, formatElapsed } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
 import { newChatPath } from '../lib/newChat'
-import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, lastRunOf, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runLabel, runReason, runTone, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
@@ -29,6 +29,7 @@ import { MenuButton } from '../components/rooms/MenuButton'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn, useMediaQuery } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+import { ListHeading, ListRow } from '../components/list/List'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
@@ -308,9 +309,105 @@ function Side({ label, children, testId }: { label: string; children: ReactNode;
   )
 }
 
+/** The task page's run history: the first page, the pages "Show more" added, and whether there are more. */
+export type RunsState = { items: ScheduleRun[] | null; more: boolean; busy: boolean; failed: boolean; onMore: () => void }
+
+const RUNS_PAGE = 10
+
+/** A task's runs (GET /api/schedules/:id/runs), newest first: the first 10, more with "Show more"; read again when the
+ * task's own last run changes (a run starts, ends, or "Run now"), keeping as many rows as were shown. */
+function useScheduleRuns(s: Schedule | null): RunsState {
+  const t = useT(), locale = useLocale()
+  const [items, setItems] = useState<ScheduleRun[] | null>(null)
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const shown = useRef(RUNS_PAGE)
+  const life = useRef(0)
+  const id = s?.id ?? null
+  const key = s ? `${s.id}|${s.running ? 1 : 0}|${s.lastChatId ?? ''}|${s.lastOutcomeAt ?? ''}|${s.lastOutcome ?? ''}` : null
+  useEffect(() => { shown.current = RUNS_PAGE; setItems(null); setCursor(null) }, [id])
+  useEffect(() => {
+    if (!id) return
+    const generation = ++life.current
+    api.call(API.listScheduleRuns, { params: { id }, query: { limit: Math.min(shown.current, 100) } }).then((r) => {
+      if (generation !== life.current) return
+      setItems(r.items); setCursor(r.nextCursor); setFailed(false)
+    }, () => { if (generation === life.current) setFailed(true) })
+  }, [id, key])
+  const onMore = () => {
+    if (!id || !cursor || busy) return
+    const generation = life.current
+    setBusy(true)
+    api.call(API.listScheduleRuns, { params: { id }, query: { cursor, limit: RUNS_PAGE } }).then((r) => {
+      if (generation !== life.current) return
+      setItems((cur) => { const next = [...(cur ?? []), ...r.items.filter((x) => !cur?.some((y) => y.id === x.id))]; shown.current = next.length; return next })
+      setCursor(r.nextCursor)
+    }, (e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })).finally(() => setBusy(false))
+  }
+  return { items, more: !!cursor, busy, failed, onMore }
+}
+
+/** The runs under the task's "Runs" heading: a row each, with its dot, date and time, how long it took and, for one
+ * that did not succeed, why; the row opens its chat ("Open"). A run of it now is the live first row. */
+function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsState }) {
+  const t = useT(), locale = useLocale()
+  const last = lastRunOf(s)
+  const items = runs?.items && !runs.failed ? runs.items : last ? [last] : []
+  // a run started a moment ago that the history has not got yet (it is read again when the task changes)
+  const list = s.running && !items.some((r) => r.status === 'running') && last ? [last, ...items] : items
+  if (!list.length) return runs && !runs.items && !runs.failed ? <Skeleton lines={2} /> : <p className="mt-2 text-meta text-faint">{t('scheduled.noRuns')}</p>
+  const newest = list[0]!
+  // the newest row is the run the task's own last result is about (not one the server leaves out of it, TC-360)
+  const next = !s.running && newest.status === s.lastOutcome ? outcomeReason(s, t) : ''
+  return (
+    <>
+      <ul className="mt-1 -mx-3">
+        {list.map((r, i) => {
+          const tone = runTone(r)
+          const took = r.endedAt && r.startedAt ? formatElapsed(Date.parse(r.endedAt) - Date.parse(r.startedAt), locale) : ''
+          const reason = runReason(r, t, { membersOnly: i === 0 && s.lastOutcome === 'project_gone' && !!s.lastMembersOnly })
+          const meta = [runLabel(r, t), took].filter(Boolean).join(' · ')
+          return (
+            <ListRow key={r.id} to={r.chatId ? `/c/${r.chatId}` : undefined} testId={r.chatId ? 'schedule-run-link' : 'schedule-run'}
+              link={{ 'data-outcome': r.status, 'data-run': r.id }}
+              name={
+                // the dot in the name's line (not a row icon: on a phone that is a 40px tile)
+                <span className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden className={clsx('size-2 shrink-0 rounded-full', tone ? DOT[tone] : 'bg-accent motion-safe:animate-pulse')} />
+                  {r.startedAt ? <time dateTime={r.startedAt} className="truncate">{formatDateTime(r.startedAt, locale, tz || undefined)}</time> : <span className="truncate">{runLabel(r, t)}</span>}
+                </span>
+              }
+              meta={
+                <span className={clsx(tone && tone !== 'ok' && TEXT[tone])} title={reason || undefined}>
+                  {meta}
+                  {reason && <span data-testid="schedule-outcome-reason"> · {reason}</span>}
+                </span>
+              }
+              end={r.chatId ? <span className="shrink-0 self-center text-meta text-accent-text">{t('scheduled.openRun')}</span> : undefined} />
+          )
+        })}
+      </ul>
+      {/* what to do about the last run that did not succeed ("…then use Run now"), once, not on every row */}
+      {next && <p className="mt-1 text-meta text-muted" data-testid="schedule-next-step">{next}</p>}
+      {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
+      {newest.status === 'needs_key' && s.lastOutcome === 'needs_key' && s.lastNeed && (
+        <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-meta text-accent-text hover:underline" data-testid="schedule-connect-template">
+          {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
+        </Link>
+      )}
+      {runs?.more && !runs.failed && (
+        <Button size="sm" variant="ghost" className="mt-2" busy={runs.busy} onClick={runs.onMore} data-testid="schedule-runs-more">{t('scheduled.showMoreRuns')}</Button>
+      )}
+    </>
+  )
+}
+
 /** One task: the part the page draws (exported for tests). The actions are absent where they are not offered. */
-export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onReview, review }: {
+export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onReview, review, runs }: {
   s: Schedule; tz: string | null
+  /** its run history (useScheduleRuns); without it (a test, an older server) the one last run the task knows */
+  runs?: RunsState
   /** the project it runs in, when it has one and it can be read */
   project?: Pick<Project, 'id' | 'name'> | null
   onToggle: () => void
@@ -343,28 +440,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
   const long = !s.templateId && (s.prompt.length > 180 || s.prompt.split('\n').length > 3)
   const ran = s.lastRunAt || s.lastChatId || s.running
-  const reason = s.running ? '' : outcomeReason(s, t)
   // when the last run ended (a "Run now" run too: it moves only lastChatId); older servers: the last run at its time
   const lastAt = s.lastOutcomeAt ?? s.lastRunAt
-  // The API keeps only the last run (lastChatId, lastOutcome, lastOutcomeAt, running), so the section shows that one run
-  // under its heading: how it went and when ("Succeeded · 2 minutes ago", or "Running"), why in plain words, and a link
-  // to its chat.
-  const runState = runStateLabel(s, t)
-  const tone = s.running || s.lastOutcome === 'done' ? null : s.lastOutcome ? outcomeTone(s.lastOutcome) : null
-  const runLine = (
-    <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-1.5 text-sm text-ink" data-testid="schedule-outcome" data-outcome={s.running ? 'running' : s.lastOutcome ?? undefined}>
-        {(s.running || s.lastOutcome) && <span className={clsx('size-2 shrink-0 rounded-full', s.running ? 'bg-accent' : DOT[s.lastOutcome === 'done' ? 'ok' : outcomeTone(s.lastOutcome)])} aria-hidden />}
-        <span className="min-w-0">
-          {runState && <span className={clsx(tone && TEXT[tone])}>{runState}</span>}
-          {runState && !s.running && lastAt && <span className="text-muted" aria-hidden> · </span>}
-          {!s.running && lastAt && <time dateTime={lastAt} title={when(lastAt)} className="text-muted">{formatRelative(lastAt, locale)}</time>}
-        </span>
-      </span>
-      {reason && <span className="mt-1 block text-xs text-muted" data-testid="schedule-outcome-reason">{reason}</span>}
-      {s.lastChatId && <span className="mt-1 block text-xs text-accent-text">{t(s.running ? 'schedules.openRun' : 'scheduled.openResult')}</span>}
-    </span>
-  )
   return (
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
@@ -421,26 +498,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
       {/* phone: what it is first, then its runs; wide: the runs on the left, what it is beside them */}
       <div className="mt-8 grid gap-x-12 gap-y-8 border-t border-line pt-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-labelledby={`${base}-history`} className="order-2 min-w-0 lg:order-1" data-testid="schedule-history">
-          <h2 id={`${base}-history`} className="text-sm font-medium">{t('scheduled.lastRunTitle')}</h2>
-          {ran ? (
-            <ul className="mt-2 divide-y divide-line">
-              <li>
-                {s.lastChatId ? (
-                  <Link to={`/c/${s.lastChatId}`} className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-hover" data-testid="schedule-run-link">{runLine}</Link>
-                ) : (
-                  <div className="flex items-center gap-3 py-2.5">{runLine}</div>
-                )}
-                {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
-                {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`${CONNECTORS_HOME}?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
-                    {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
-                  </Link>
-                )}
-              </li>
-            </ul>
-          ) : (
-            <p className="mt-2 text-sm text-faint">{t('scheduled.noRuns')}</p>
-          )}
+          <ListHeading as="h2" id={`${base}-history`}>{t('scheduled.runsTitle')}</ListHeading>
+          <RunList s={s} tz={tz} runs={runs} />
         </section>
         <div className="order-1 min-w-0 divide-y divide-line lg:order-2">
           <Side label={t('schedules.field.prompt')} testId="schedule-instructions">
@@ -501,6 +560,7 @@ export function ScheduledTask() {
   const location = useLocation()
   const { items, tz, error, load, replace, drop, life } = useScheduleList()
   const s = items?.find((x) => x.id === id) ?? null
+  const runs = useScheduleRuns(s)
   const [projects, setProjects] = useState<Project[] | null>(null)
   useEffect(() => {
     let live = true
@@ -630,7 +690,7 @@ export function ScheduledTask() {
           </EmptyState>
         )}
         {s && (
-          <ScheduleView s={s} tz={tz || null} project={project} running={running}
+          <ScheduleView s={s} tz={tz || null} project={project} running={running} runs={runs}
             onToggle={() => void toggle(s)} onRunNow={() => void runNow(s)} onReview={() => void openReview(s)}
             review={review ? <AskCard key={review.request.requestId} req={review} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} /> : undefined} />
         )}

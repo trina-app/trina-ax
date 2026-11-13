@@ -21,6 +21,7 @@ import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from './ChatItem'
+import { foldRuns } from './TaskRunsRow'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
@@ -172,13 +173,17 @@ export function HistoryList({ onNavigate, peek, viewState }: { onNavigate: () =>
             {pinnedRows.map(row)}
           </ul>
         )}
-        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} onNavigate={onNavigate} />}
-        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => (
-          <div key={key || 'all'} className="mb-2">
-            {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
-            <ul>{items.map(row)}</ul>
-          </div>
-        ))}
+        {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} />}
+        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => {
+          // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
+          const rows = foldRuns(items, row, { pool: filtered })
+          return rows.length > 0 && (
+            <div key={key || 'all'} className="mb-2">
+              {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
+              <ul>{rows}</ul>
+            </div>
+          )
+        })}
         {cursor && (
           <button
             type="button"

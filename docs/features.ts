@@ -110,7 +110,7 @@ export const FEATURES: Feature[] = [
   { id: 'skills.draft-from-form', name: 'Make a team skill from a form file', area: 'Skills', endpoints: ['startFormSkillDraft'] },
 
   // ---------------- Scheduled tasks ----------------
-  { id: 'schedules.tasks', name: 'Scheduled tasks: list, edit, run now, delete', area: 'Scheduled tasks', endpoints: ['listSchedules', 'updateSchedule', 'runScheduleNow', 'scheduleEditCard', 'editSchedule', 'deleteSchedule'], screens: ['/scheduled', '/scheduled/:id'] },
+  { id: 'schedules.tasks', name: 'Scheduled tasks: list, edit, run now, run history, delete', area: 'Scheduled tasks', endpoints: ['listSchedules', 'updateSchedule', 'runScheduleNow', 'listScheduleRuns', 'scheduleEditCard', 'editSchedule', 'deleteSchedule'], screens: ['/scheduled', '/scheduled/:id'] },
   { id: 'schedules.templates', name: 'Scheduled task templates', area: 'Scheduled tasks', endpoints: ['listScheduleTemplates', 'createScheduleFromTemplate'] },
   { id: 'schedules.review', name: 'Review a paused scheduled task', area: 'Scheduled tasks', endpoints: ['getScheduleReview', 'confirmScheduleReview', 'listSchedulesAwaitingReview'] },
 
