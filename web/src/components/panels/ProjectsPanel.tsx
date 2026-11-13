@@ -8,7 +8,7 @@
 // on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
 import clsx from 'clsx'
-import { Lock, Plus, SquareKanban, Users } from 'lucide-react'
+import { Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Project } from '@mycel/shared/api'
@@ -94,11 +94,12 @@ export function ProjectsList({ phone = false }: { phone?: boolean }) {
     <ul>
       {list.map((p) => {
         const a = activity.get(p.id)
-        // "나만" for mine; "멤버 N명" (its page's words) for a team one
-        const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
+        // "나만" for mine; "멤버 N명" (its page's words) for a team one; one whose folder is in the trash: "휴지통에 있음"
+        // alone, with the trash icon (nobody is its member then, so no members line: QA TC-1012)
+        const who = p.inTrash ? t('chat.project.inTrash') : onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         const meta = [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={<SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
+        return <ListRow key={p.id} to={`/projects/${p.id}`} selected={on} icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />} name={p.name} nameTitle={p.name} meta={meta} testId="projects-panel-row" nameTestId="projects-panel-name" metaTestId="projects-panel-meta" />
       })}
     </ul>
   )

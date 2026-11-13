@@ -1062,6 +1062,8 @@ export const ko = {
   'audit.act.project.create': '프로젝트 만듦',
   'projects.folder': '프로젝트 폴더',
   "projects.inTrash": "이 프로젝트는 휴지통에 있어요.",
+  'projects.changedMeanwhile': "편집하는 사이에 다른 사람이 이 프로젝트를 바꿨어요. 그 사람이 저장한 내용은 아래에 있고, 쓰신 글은 위 칸에 그대로 있어요. 다시 저장하면 쓰신 글로 바뀌어요.",
+  'projects.latestNoInstructions': "(지침 없음)",
   'projects.inTrashEdit': "이 프로젝트의 폴더가 휴지통에 있어요. 파일 › 휴지통에서 되돌리거나, 여기서 폴더를 골라 주세요. 폴더를 고르지 않고 저장하면 프로젝트는 그대로예요.",
   'projects.inTrashOpens': "저장하면 {folder}를 읽을 수 있는 모든 사람이 이 프로젝트와 지침을 보게 돼요.",
   'projects.inTrashOpensCount': "{folder}는 {n}명이 읽을 수 있어요. 저장하면 이 사람들이 모두 이 프로젝트와 지침을 보게 돼요.",

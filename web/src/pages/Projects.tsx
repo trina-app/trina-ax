@@ -93,6 +93,9 @@ const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : lo
 
 /** Who may rename and delete it, also without reading it (Project.canManage; older servers: whoever may edit it). */
 const mayManage = (p: Project) => p.canManage ?? p.canEdit
+/** Delete is offered only where the server takes it (Project.canDelete: a member's older project on an admin's folder
+ * is an admin's to delete, QA TC-1016) */
+const mayDelete = (p: Project) => p.canDelete ?? mayManage(p)
 
 /** What deleting did: `gone` (deleted for good, or not found any more), the project in the trash now (a team project in
  * projects/ the caller still manages: the owner and admins), or null (cancelled, refused). */
@@ -295,7 +298,7 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted, onMembers, row }: {
     ...(p.membersEditable ? [{ label: t('projects.participants'), icon: <Users size={14} aria-hidden />, onSelect: select(onMembers), testId: 'project-card-members' }] : []),
     { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
     // the trash shows at once: the card says so, or (not kept there for me) goes
-    ...(mayManage(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
+    ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(del), testId: 'project-card-delete' }] : []),
   ]
   if (row)
     return (
@@ -869,13 +872,13 @@ function ProjectPage() {
       ? mayManage(p)
         ? [
             { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'project-rename' },
-            { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
+            ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
       : p.canEdit
         ? [
             { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
-            { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
+            ...(mayDelete(p) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' }] : []),
           ]
         : null
   return (

@@ -1038,6 +1038,8 @@ export const es: Record<MessageKey, string> = {
   'audit.act.project.create': "Proyecto creado",
   'projects.folder': "Carpeta del proyecto",
   "projects.inTrash": "Este proyecto está en la papelera.",
+  'projects.changedMeanwhile': "Otra persona cambió este proyecto mientras lo editabas. Su versión está abajo; tu texto sigue en los campos de arriba. Guarda de nuevo para quedarte con el tuyo.",
+  'projects.latestNoInstructions': "(sin instrucciones)",
   'projects.inTrashEdit': "La carpeta de este proyecto está en la papelera. Restáurela desde Archivos › Papelera o elija una carpeta aquí. Si guarda sin elegir una, el proyecto queda como está.",
   'projects.inTrashOpens': "Al guardar, todas las personas que pueden leer {folder} verán este proyecto y sus instrucciones.",
   'projects.inTrashOpensCount': "{n, plural, one {# persona puede} other {# personas pueden}} leer {folder}: al guardar, todas verán este proyecto y sus instrucciones.",

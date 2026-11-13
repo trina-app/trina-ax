@@ -1063,6 +1063,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.project.create': 'Proyek dibuat',
   'projects.folder': 'Folder proyek',
   "projects.inTrash": "Proyek ini ada di Sampah.",
+  'projects.changedMeanwhile': "Orang lain mengubah proyek ini saat Anda menyunting. Versi mereka ada di bawah; teks Anda masih ada di kotak di atas. Simpan lagi untuk memakai teks Anda.",
+  'projects.latestNoInstructions': "(tanpa instruksi)",
   'projects.inTrashEdit': "Folder proyek ini ada di Sampah. Pulihkan dari File › Sampah, atau pilih folder di sini. Menyimpan tanpa memilih folder membiarkan proyek apa adanya.",
   'projects.inTrashOpens': "Setelah disimpan, semua orang yang bisa membaca {folder} akan melihat proyek ini dan instruksinya.",
   'projects.inTrashOpensCount': "{n} orang bisa membaca {folder}: setelah disimpan, mereka semua akan melihat proyek ini dan instruksinya.",

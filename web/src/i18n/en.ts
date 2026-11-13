@@ -1063,6 +1063,8 @@ export const en: Record<MessageKey, string> = {
   'audit.act.project.create': 'Project created',
   'projects.folder': 'Project folder',
   "projects.inTrash": "This project is in the trash.",
+  'projects.changedMeanwhile': "Someone else changed this project while you were editing. Their version is below; your text is still in the boxes above. Save again to keep yours.",
+  'projects.latestNoInstructions': "(no instructions)",
   'projects.inTrashEdit': "This project's folder is in the trash. Restore it from Files › Trash, or choose a folder here. Saving without choosing one keeps the project as it is.",
   'projects.inTrashOpens': "Everyone who can read {folder} will see this project and its instructions once you save.",
   'projects.inTrashOpensCount': "{n, plural, one {# person} other {# people}} can read {folder}: once you save, they will all see this project and its instructions.",

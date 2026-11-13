@@ -78,3 +78,30 @@ test('a phone: the 프로젝트 tab shows the list', async ({ page }) => {
   await expect(list.getByTestId('projects-team').getByTestId('projects-panel-name')).toContainText(['Acme launch'])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('a team project in the trash says only that: its row (a trash icon, no members line) and its card, at 390 and 1440 (QA TC-1012)', async ({ page }) => {
+  for (const [width, height] of [[390, 844], [1440, 900]] as const) {
+    await page.setViewportSize({ width, height })
+    await reset(page)
+    await signIn(page)
+    const id = await project(page, 'Acme binned', 'team')
+    expect((await page.request.delete(`/api/projects/${id}`, { headers: H })).status()).toBe(204)
+    await page.reload()
+    if (width < 768) {
+      // a phone's list holds the projects the owner manages too (a computer's panel leaves them to the page's cards)
+      await page.getByTestId('tab-projects').click()
+      const row = page.getByTestId('phone-projects-list').getByTestId('projects-panel-row').filter({ hasText: 'Acme binned' })
+      await expect(row.getByTestId('projects-panel-meta')).toContainText(t['chat.project.inTrash'])
+      await expect(row.getByTestId('projects-panel-meta')).not.toContainText(t['projects.noMembers'])
+      await expect(row.getByTestId('projects-panel-in-trash')).toBeVisible()
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/tc1012-list-${width}.png` })
+    } else {
+      await openRail(page, 'projects')
+      // the Projects page's card: "휴지통에 있음" alone
+      const card = page.getByTestId('project-card-who').filter({ hasText: t['chat.project.inTrash'] })
+      await expect(card).toHaveText(t['chat.project.inTrash'])
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/tc1012-card-${width}.png` })
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  }
+})

@@ -190,6 +190,10 @@ export const Project = z.object({
   /** the caller may manage it without reading it: rename, members, delete, restore (the owner or an admin for a team
    * project; its creator while they may edit it). Absent from older servers: use canEdit. */
   canManage: z.boolean().optional(),
+  /** the caller may delete it (DELETE /api/projects/:id). false: they manage it, but an older project a member made on
+   * a folder an admin made stays with that folder, so only an admin deletes it (409 project_folder_stays; QA TC-1016).
+   * Absent from older servers: use canManage. */
+  canDelete: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 

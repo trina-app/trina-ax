@@ -218,16 +218,19 @@ export class Schedules {
    * again, with their next time from now. Only a task untouched since that pause (its latest audit row is that pause,
    * for this project), still off, confirmed, not a finished one-time task, and that can run now. Audited
    * `schedule.resumed` (no actor: the server did it, `via: project_member`). Returns the ids turned on.
+   * The project came back from the trash (chat/project-restore.ts): `pausedSince` (when its folder went to the trash)
+   * keeps it to the tasks paused while it was there, and `via` is `project_restored` (QA TC-1014).
    */
-  resumeForProject(userId: string, projectId: string, now = new Date()): string[] {
+  resumeForProject(userId: string, projectId: string, now = new Date(), o: { pausedSince?: string; via?: 'project_member' | 'project_restored' } = {}): string[] {
     const rows = this.db.query(`SELECT * FROM schedules s WHERE s.user_id = ? AND s.enabled = 0
       AND EXISTS(SELECT 1 FROM schedule_project_skips k WHERE k.schedule_id = s.id AND k.project_id = ?)`).all(userId, projectId) as ScheduleRow[]
     const resumed: string[] = []
     for (const s of rows) {
-      const last = this.db.query('SELECT action, detail FROM audit_log WHERE target = ? ORDER BY id DESC LIMIT 1').get(s.id) as { action: string; detail: string | null } | null
+      const last = this.db.query('SELECT action, detail, at FROM audit_log WHERE target = ? ORDER BY id DESC LIMIT 1').get(s.id) as { action: string; detail: string | null; at: string } | null
       let d: { project?: unknown; paused?: unknown } | null = null
       try { d = JSON.parse(last?.detail ?? 'null') } catch { d = null }
       if (last?.action !== 'schedule.project_gone' || d?.project !== projectId || d?.paused !== true) continue
+      if (o.pausedSince && last.at < o.pausedSince) continue
       if (needsReview(s) || this.resumeBlockedReason(s, now)) continue
       if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) continue
       if (this.templateProjectGone(s)) continue
@@ -235,7 +238,7 @@ export class Schedules {
       if (!next) continue
       this.db.transaction(() => {
         this.db.query('UPDATE schedules SET enabled = 1, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ? AND enabled = 0').run(next.toISOString(), s.id)
-        audit(this.db, { actor: null, action: 'schedule.resumed', target: s.id, detail: { nextRunAt: next.toISOString(), via: 'project_member', project: projectId } })
+        audit(this.db, { actor: null, action: 'schedule.resumed', target: s.id, detail: { nextRunAt: next.toISOString(), via: o.via ?? 'project_member', project: projectId } })
       })()
       resumed.push(s.id)
     }

@@ -341,7 +341,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     }
   })
 
-  test('a team project nobody active is in: "남은 멤버 없음" in place of a count; one in the trash says so', async () => {
+  test('a team project nobody active is in: "남은 멤버 없음" in place of a count; one in the trash says only that (QA TC-1012)', async () => {
     list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 }), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: true, inTrash: true, audience: 0 })]
     const m = await page()
     try {
@@ -350,8 +350,9 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       expect(within(card(m, 'Acme old'), 'project-card-who')!.textContent).toBe(ko('projects.noMembers'))
       expect(within(card(m, 'Acme old'), 'project-card-state')).toBeNull()
       expect(ko('projects.noMembers')).toBe('남은 멤버 없음')
-      expect(within(card(m, 'Acme gone'), 'project-card-who')!.textContent).toBe(`${ko('projects.noMembers')} · ${ko('chat.project.inTrash')}`)
-      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(` · ${ko('chat.project.inTrash')}`)
+      // in the trash nobody is its member: no "남은 멤버 없음" beside it
+      expect(within(card(m, 'Acme gone'), 'project-card-who')!.textContent).toBe(ko('chat.project.inTrash'))
+      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
       // a personal project with nobody else: nothing said
       expect(within(card(m, 'Acme launch'), 'project-card-state')).toBeNull()
     } finally {
@@ -378,7 +379,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       expect(m.find('project-delete-trash-folder')).toBeNull()
       await m.click('dialog-confirm')
       await m.until(() => within(card(m, 'Acme legal'), 'project-card-state'), 'the card in the trash')
-      expect(within(card(m, 'Acme legal'), 'project-card-state')!.textContent).toBe(` · ${ko('chat.project.inTrash')}`)
+      expect(within(card(m, 'Acme legal'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
       expect(cards(m).length).toBe(4)
       expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`).map((c) => c.url)).toEqual([`/api/projects/${OUTSIDE}`])
       // again: for good
