@@ -22838,6 +22838,28 @@ signed out, does not tell whether first-run setup is finished:
 
 This is the same line as #369 for `/api/health`.
 
+## Store apps show no purchase links (fix/store-no-purchase-links, 2026-11-13, product owner)
+
+Plans are bought, changed and managed only on the web console (the account site). The store apps — the Mac App Store
+and Microsoft Store desktop builds (`storeApp()`) and the iPhone and Android app (`mobileApp()`); together
+`noPurchaseLinks()` in `web/src/lib/desktop.ts` — show no button, link or call to action toward buying, upgrading,
+changing or managing the plan, and name no price. Apple App Review 3.1.1 forbids steering to a purchase outside in-app
+purchase outside the US storefront; a team app sold to organisations may bill on its own (3.1.3(b)(c)), so the model is
+fine as long as the app does not steer. Google Play's payments policy has the same rule. This follows "No [팀 만들기]
+in store builds" (the first-run screen, `firstRunLinks`) and the Mac App Store entry above.
+- **Admin › System › Plan** has no "Manage plan" link there; the status and support links stay.
+- **A full plan is said as a fact**: "The plan's member seats are all taken. To add someone, turn off an account that
+  is no longer used. The team owner manages the plan on the web." No link, no price. The same for the team link's "no
+  seats left".
+- **The server's seat refusal** to an admin (`assertSeatFree`: "… or change the plan. Change the plan: <account
+  page>") now carries `params.changePlan: true`; inside a store app the web client swaps its message for the app's own
+  words and drops `manageUrl` (`storeSafeError`, lib/api.ts). The server cannot tell a store app from a browser, so the
+  client words it. An invitee's "the team is full, let the person who invited you know" has no flag and is unchanged.
+- The plain web and the dmg/exe desktop builds are unchanged. The sign-in page has no signup or trial link in any build,
+  and the phone app's first-run screen links only the repository's install guide.
+- The Microsoft Store build follows the same rule here (one `storeApp()` check), although its first-run screen keeps
+  [팀 만들기]: the stricter choice for plan links.
+
 ## Budget during an answer: usage counted as it comes, the answer stops at a used-up block budget (fix/budget-mid-answer, 2026-11-11)
 
 - **Usage is counted as it comes.** The engine's usage goes on the turn row on every usage event (Claude Code's running
@@ -24380,6 +24402,71 @@ the Android QA app and the iPhone TestFlight build. Plan and evidence:
   phone app gets n).
 - Version impact: **patch**.
 
+## Dev environment on srt: preview (feat/srt-preview, 2026-11-12, owner)
+
+Owner (pras), plan for the dev environment: "preview matters: without it a person cannot see a web app the AI built".
+On srt the dev server of a run listens on 127.0.0.1 in the run's private network namespace (srt's bwrap). Nothing
+outside the run reaches it, and srt's seccomp filter blocks AF_UNIX in the sandbox. Design: `docs/research/srt-dev-env.md`
+section 5. Linux only (macOS will use the shared localhost).
+
+- **`mycel-sandbox port-forward --cgroup <scope> --port N --socket <path>`** (`native/cmd/mycel-sandbox/portfwd_linux.go`).
+  It reads the processes of the run's scope cgroup (only systemd, as root, puts a process there), finds the one network
+  namespace other than its own where the port listens (`/proc/<pid>/net/tcp`, `tcp6`), opens it and checks it again after
+  the open, gets its owner user namespace (`NS_GET_USERNS`: srt's seccomp helper makes a nested user namespace for the
+  command, which does not own the network namespace), and checks that the server account owns it and that it is a child of
+  the server account's own. It binds the socket (mode 0600) in `<base>/devenv/run/<runId>-<port>.sock`, then execs
+  util-linux `nsenter --preserve-credentials --user=/proc/self/fd/U --net=/proc/self/fd/N`, which execs
+  `port-forward-inner`. That one checks that it is in the run's network namespace, sets no_new_privs, drops every
+  capability on every thread, and copies each connection to `127.0.0.1:N`, then `[::1]:N` (Vite often listens only
+  there), at most 256 at a time. It ends when its stdin closes (the server stops it, or the server ends).
+- **Why nsenter.** Go cannot enter a user namespace: `setns(CLONE_NEWUSER)` refuses a process with more than one thread,
+  and the Go runtime always has more. `setns(CLONE_NEWNET)` alone needs CAP_SYS_ADMIN in the caller's own user namespace,
+  which the server account does not have. nsenter is C, has one thread, and is in util-linux (`scripts/system/packages.json`,
+  every distribution has it). The namespace files are passed as open fds, so a pid that ends and comes back as another
+  process cannot change the target.
+- **Refused ports.** 3128 and 1080: srt's proxy relays listen there in the same namespace. A preview of them would open
+  the sandbox's proxy to the browser.
+- **The forwarder in the run's namespaces.** It is not in the run's pid namespace, so the sandbox cannot see, signal or
+  trace it. It has no capabilities (checked in `/proc/self/task/*/status`). The socket folder is hidden from every run
+  (the whole base folder is), and the sandbox has no AF_UNIX.
+- **Server.** The system seam of the runner (`SrtSystem.forward`, `srt/system.ts`) starts the helper; tests use a fake.
+  There is no `DevEnvRunner` interface: the build did not make one ("Build notes" of the design), and `SrtSystem` is the
+  seam tests already fake. `previewSocket` (`srt/runner.ts`) takes the run from the DB row, never from the request, keeps
+  one forwarder per run and port, and stops it when the run ends (`stopRow`, the ended branch of `pollRuns`). After a
+  restart, stale sockets go (`reconcile`). `MYCEL_DEV_ENV_SRT_DIRECT=1` (Docker) has no scope cgroup, so it has no
+  preview (`forward: null`).
+- **The gateway** (`server/src/devenv/preview.ts`, removed with the box runner, back with the same rules): its own listener
+  (`MYCEL_DEV_PREVIEW_LISTEN`) behind a wildcard origin on another registrable domain (`MYCEL_DEV_PREVIEW_ORIGIN`), a
+  random label per link, a single-use token (5 minutes), then a cookie for that one origin (60 minutes), Host localhost to
+  the dev server, our cookie never forwarded. A link now belongs to one row, its run id, one port and **one person: the
+  person who started the dev server** (the run has that person's folder access; an admin gets no link either). Each
+  request checks again: the row is open, running, a dev server, the same run id, the same person, and the person may
+  still use the dev environment. WebSocket upgrades are not supported yet (Vite falls back to a full reload).
+- **API.** `POST /api/dev-env/runs/:runId/preview {port}` → `{url, expiresAt}`. 404 with
+  `dev_env_preview_not_running`, 409 with `dev_env_preview_not_configured` (no origin, or no port-forward on this server).
+  Audit `dev_env.preview` (run, port, label).
+- **The AI and the step.** box_shell has `port` (with background=true only). With a preview origin the tool text says
+  that the person opens the dev server with the Preview button; the step of that dev server gets `Step.devEnvRun` kind
+  `server` with the port, and `Steps.tsx` shows "Dev server on port N · Preview". No port: no button, and the AI is told
+  to start it again with one. With no preview origin the text stays: test with curl in one command.
+- **Idle.** A dev server with a preview request in the last `idleStopMin` is not idle (the design's rule: "no preview
+  request and under 2 % CPU").
+- **No migration.** The port is on the chat step and in the link.
+- **Tests.** `native/cmd/mycel-sandbox/portfwd_test.go` (arguments, the pick from a fake `/proc`, the copy loop, and real
+  namespaces with `unshare -Urn` and nsenter where the host allows them), `tests/unit/dev-env-preview.test.ts` (fake
+  system: links, the gateway, A26 with two runs on one port, the end of a run), the permission matrix case,
+  `web/test/e2e/devenv-preview.spec.ts`, and `scripts/dev-env/srt/vm-check.sh REPO preview`
+  (`tests/linux/srt-vm-preview.ts`: S2 in the stand-in server unit, A26, the sandbox and the socket, the end of a run).
+- **VM, 2026-11-12** (Debian 13, t3a.medium, systemd 257, in the stand-in server unit as the server account:
+  NoNewPrivileges, no capabilities): every preview check passed. The forwarder was in the run's network namespace with
+  CapEff 0 and NoNewPrivs 1; two runs on port 3000 each served only their own page; the sandbox got "Operation not
+  permitted" on AF_UNIX and did not see `<base>/devenv/run`.
+- **A runner race the VM found (fixed here).** `Bun.spawn` returns before systemd-run has started the scope. A tracker
+  poll in that moment saw `ActiveState=inactive`, ended the row as `lost` and deleted the settings file, and srt then
+  refused to start (a dev server ended at once, 2 of about 12 starts). A run of this process whose process lives now
+  counts as running for an unknown scope and for `inactive` (`rowStatus`, test in `dev-env-preview.test.ts`).
+- **Files from a run.** A file a run writes in the person's own folder (`users/<id>/...`) belongs to the server account
+  (mode 640), and the Files API lists it and serves it (VM check P6).
 ## Dev environment on a Mac team server (feat/devenv-srt-macos, 2026-11-12, owner)
 
 Owner (pras), 2026-11-12: the dev environment runs on srt only, also on a team's own Mac mini (self-host, one team;
@@ -24902,3 +24989,45 @@ default.
   retries / the owner's locked password check still go), `tests/unit/b-presence.test.ts` (inUse, silence,
   grace, warm-up), `tests/unit/e-system-activity.test.ts`, `web/test/unit/presence.test.tsx` (the computer's word),
   `web/test/unit/room-notify.test.tsx` (the row). The test harnesses start presence without the warm-up.
+
+## Always allow on every card (feat/always-allow-everywhere, 2026-11-13, product owner)
+
+- **Why:** the owner, 2026-11-13, after a member stopped an answer because cards kept coming and a review of all 23
+  kinds of card: "항상 허용을 눌렀으면 안해야하는거 아니야?" and, for deletes, team skill saves, project members and AI videos,
+  "다 항상 허용". Rule: every permission card offers "Always allow" on its first showing; once a person picks it, that
+  kind of card is not raised for them again until they take it back. Supersedes the "outside content asks" parts of
+  "Connector write cards: outside content asks, Always allow for every connector" and the per-room folder grant of
+  "대화방에서 새 파일은 미리 허용" for new choices.
+- **How:** `server/src/chat/always-allow.ts` and table `card_always_allow` (migration 291_b: person × kind). Kinds
+  (`CARD_ALWAYS_KINDS`): room_change (any change after a room read, in the person's own chat and the ✦ side chat),
+  remember, save_wider, post_to_room (the text; files keep their own button), shared_read, move_files, skill_files
+  (move_skill, skill_files), skill_save (team skills and rules, not a taken name), delete_files (no card and no
+  two-cards-per-answer limit once on), project_members (the same), video (Higgsfield credits; the daily limit stays),
+  big_download (save_url over 1 GB). A yes / no card gets it through `ConfirmExtra.always` (chat/tools.ts turnPerson);
+  the server's own cards through `TurnExec.askAlways` / `withAlways`. The card shows "Always allow" before the no
+  (three answers as buttons) with one line: it will not ask again, even after reading web pages or files.
+- **Connections:** a person's stored Always allow (their own connection's rule, or `integration_user_allow`) and a team
+  connection set to send without asking now hold after outside content and after a room read; the card offers Always
+  allow there too, in a turn the person watches from their own app while the team's switch is on (review of #678: a
+  Slack question or the switch off keeps the earlier rule: outside content asks, no Always allow on the card, a
+  member's own Always allow ignored while the switch is off; an admin's "send without asking" stays). A scheduled run
+  still sends only what its task's card allowed. The cost, accepted by the owner: an
+  instruction planted in a web page, a file or a room message can now make the AI send through a connection that sends
+  without asking (tests/unit/b-chat-rooms.test.ts "a planted @fake instruction").
+- **Review of #678:** the one card that asks for a room change and a wider save together never offers "Always allow"
+  and is skipped only when both kinds are on; a post_to_room card that also offers the linked files offers no "Always
+  allow" (attaching files is the person's choice each time).
+- **Desktop browser:** the person's "Allow all websites" (Me.user.webAllowAll) turned on now turns the in-app browser to
+  "all" too while the team allows it (it only narrowed before), and the browser's own site card offers "Allow all
+  websites" on the first site. Office-network addresses still ask.
+- **Dev environment sites:** a person's "always" list holds up to 2,000 sites (was 100, after which "always" quietly
+  worked as once).
+- **Where it never applies (unchanged cards):** a scheduled run, a Slack question, a company profile draft and other
+  restricted turns, a confidential chat; an address that may carry data out (long query, random-looking parts,
+  user:password, an echo) and a redirect echo; a dev environment command that uses a login; a scheduled task's card;
+  connect_service. The choice is always the turn's own person's, never another member's, also in a shared project chat.
+- **Settings and the team:** the person's choices are listed in Settings › 트리나에게 허용한 것 (GET /api/ai-allowances,
+  `kind: 'card'`, id `card:<kind>`) and deleted there (DELETE, own only; 404 otherwise). Turning one on and off is
+  audited (`ai.always_allow`). The team switch is the existing `roomAlwaysAllow` (on by default), now titled
+  "'Always allow' on confirmation cards": off, no card offers it and the rows are ignored, not deleted. Room folder
+  grants made before keep working until they lapse; new ones are no longer made.

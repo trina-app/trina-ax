@@ -13,6 +13,7 @@ import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw, Share } fr
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { noPurchaseLinks } from '../../lib/desktop'
 import { formatDateTime } from '../../lib/format'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { teamLinkMessage } from '../../lib/team-link'
@@ -281,16 +282,14 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   const groupNames = linkGroupNames(t, link.groupIds, groups)
   // not while the link's groups are known only by count (the list did not load): the checks would start empty
   const canChangeGroups = !!onGroups && (!link.groupIds.length || groups.some((g) => link.groupIds.includes(g.id)))
-  // the link, its facts and its changes: in place on Admin › Members, under "링크 관리" in the invite step. The address
-  // is one quiet line cut with "…" (its token means nothing to people), Copy link inside it and the QR code beside it;
-  // the facts are one aligned list (label, value) instead of loose sentences; replace / turn off stay quiet at the end.
-  const details = (
-    <>
+  // the link (always shown, above the message): one quiet mono line cut in the middle (its token means nothing to people),
+  // Copy link inside it and the QR code beside it. Then the facts as one aligned list (label, value) and the changes: in
+  // place on Admin › Members, under "링크 관리" in the invite step; replace / turn off stay quiet at the end.
+  const linkLine = (
       <div>
-        <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
-        <div className="mt-1.5 flex items-center gap-1">
+        <div className="flex items-center gap-1">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-1 rounded-lg bg-subtle pr-0.5 pl-3 max-md:min-h-11">
-            <span className="min-w-0 flex-1 truncate text-label text-muted select-all" title={url} data-testid="team-link-url">{url}</span>
+            <MiddleCut text={url} />
             <CopyQuiet text={url} label={t('teamLink.copyLink')} />
           </div>
           <IconButton label={t('members.qr')} onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
@@ -304,6 +303,9 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           </div>
         )}
       </div>
+  )
+  const details = (
+    <>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 text-label leading-5" data-testid="team-link-facts">
         <dt className="text-muted">{t('teamLink.usesLabel')}</dt>
         <dd className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</dd>
@@ -358,16 +360,17 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     <div className="space-y-5" data-testid="team-link" data-folded={folded || undefined}>
       {/* every seat of the plan is taken: the link looks ready, but whoever opens it is told the team is full (QA TC-488) */}
       {left === 0 && (
-        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-no-seats">{t('teamLink.noSeats')}</p>
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-no-seats">{t(noSeatsKey())}</p>
       )}
       {link.limitedUntil && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
           {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
         </p>
       )}
+      {linkLine}
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
-        <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">
+        <blockquote className="mt-1.5 border-l-2 border-line pl-3 text-label leading-5 whitespace-pre-wrap break-words text-muted" data-testid="team-link-message">
           {message}
         </blockquote>
         {sharedHere && skillName && <LandingLine shared={sharedHere} skill={skillName} />}
@@ -377,6 +380,21 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     </div>
   )
 }
+
+/** The address on one line, cut in the middle with "…" (the whole address stays the text, so it can be selected). */
+function MiddleCut({ text }: { text: string }) {
+  const tail = text.slice(-10)
+  return (
+    <span className="flex min-w-0 flex-1 font-mono text-label text-muted select-all" title={text} data-testid="team-link-url">
+      <span className="min-w-0 truncate">{text.slice(0, -10)}</span>
+      <span className="shrink-0">{tail}</span>
+    </span>
+  )
+}
+
+/** Every seat taken: turn off an unused account or change the plan; a store app (lib/desktop.ts noPurchaseLinks) says it
+ * with no "change the plan" */
+export const noSeatsKey = (store = noPurchaseLinks()): MessageKey => (store ? 'teamLink.noSeatsStore' : 'teamLink.noSeats')
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
@@ -590,7 +608,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
       <p className="text-xs text-muted">{t('teamLink.memberNote')}</p>
     </>
   )
-  const fullNote = full && <p className="text-sm text-warn" data-testid="team-link-full">{t('teamLink.noSeats')}</p>
+  const fullNote = full && <p className="text-sm text-warn" data-testid="team-link-full">{t(noSeatsKey())}</p>
   const replaceNote = replacing && <p className="text-xs text-warn">{t('teamLink.replaceNote')}</p>
   const create = (
     <Button variant="primary" className={folded ? 'max-sm:w-full' : undefined} busy={busy} disabled={!!usesProblem || full} onClick={submit} data-testid="team-link-create">

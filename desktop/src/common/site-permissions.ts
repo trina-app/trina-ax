@@ -6,9 +6,9 @@
 // those addresses still ask. The team can switch the choice off (Admin > Team settings, `browserAllowAll`): then "all"
 // is refused and a saved "all" goes back to "ask" (teamAllowsAll, the last policy the team server sent, kept here).
 // The person's own "Allow all websites" for the AI's web reads lives on the team server (Me.user.webAllowAll,
-// docs/DECISIONS.md "Allow all websites covers the AI's web reads"): the server can make this browser stricter, never
-// wider, so only a change from on to off is followed (back to "ask"); an on never widens it (personAllowsAll, the last
-// value the team server sent, kept here).
+// docs/DECISIONS.md "Allow all websites covers the AI's web reads", "Always allow on every card"): followed both ways
+// while the team allows "all" (on: this browser opens every public site too; off: back to "ask"); personAllowsAll is the
+// last value the team server sent, kept here.
 // Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export type PermissionDecision = 'once' | 'always' | 'deny'
@@ -155,12 +155,14 @@ export class SitePermissions {
 
   /**
    * The person's "Allow all websites" on the team server as it just said it (Me.user.webAllowAll). From on to off: this
-   * browser goes back to "ask" too (stricter). On never widens it: that takes the person's click in the app's own
-   * window. Returns true when anything changed (caller persists and tells both screens).
+   * browser goes back to "ask" too (stricter). From off to on, while the team allows it: this browser opens every site
+   * too (docs/DECISIONS.md "Always allow on every card"; the owner, 2026-11-13: one "Allow all websites" is enough).
+   * Returns true when anything changed (caller persists and tells both screens).
    */
   setPersonPolicy(on: boolean): boolean {
     const before = `${this.personAll}:${this.access}`
     if (this.personAll && !on) this.access = 'ask'
+    if (!this.personAll && on && this.policyAll) this.access = 'all'
     this.personAll = on
     return before !== `${this.personAll}:${this.access}`
   }

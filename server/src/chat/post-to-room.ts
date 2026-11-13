@@ -29,6 +29,7 @@
 // (subagents.ts PARENT_ONLY_TOOLS). Reached anyway (the chat became confidential during the answer, a sub-agent's call)
 // it refuses with why and what to do, as it does for a room that is archived or not mine, a gone thread, content that
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
+import { withAlways } from './always-allow'
 import { isUuid7, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { opaqueParts } from '../tools/url-gate'
@@ -222,8 +223,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
           ...(all ? [{ label: tr('postRoomSendFiles', L), value: 'send_files' }] : []),
           { label: tr('postRoomDont', L), value: 'no' },
         ]
-        const reply = await exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options, multiple: false, allowText: false,
+        // "Always allow" for posts to rooms (chat/always-allow.ts; the owner, 2026-11-13): on, the text goes without the
+        // card. Not on a card that also offers the linked files (review of #678): that choice is the person's each time
+        const reply = await withAlways(all ? null : exec.alwaysPlace?.(), 'post_to_room', options, 'send', (opts, more) => exec.waitForPerson({
+          kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: opts, multiple: false, allowText: false, ...(more.note ? { note: more.note } : {}),
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
             ...(first.at > 0 ? [{ label: tr('postRoomNote', L), text: first.body.slice(0, first.at).trim() }] : []),
@@ -232,9 +235,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
             // what [파일도 함께 보내기] attaches, by name (a link far down a folded text is not missed)
             ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].join('\n'), noSize: true }] : []),
           ],
-          ...(options.length === 3 ? { buttons: true as const } : {}),
+          ...(opts.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)

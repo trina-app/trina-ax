@@ -305,13 +305,20 @@ export function ProjectList() {
   const locale = useLocale()
   const [items, setItems] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // ?new=1 (from Search's "New project") opens the form at once; closing it drops the parameter
+  // ?new=1 (Search's "New project", the 트리나 list's + and "새 프로젝트") opens the form, also when the list is already
+  // on screen, and leaves the address at once (as /rooms?new=1 does): dropping it only on close replaced the new
+  // project's page that saving had just opened with the list again
   const [params, setParams] = useSearchParams()
-  const [creating, setCreatingState] = useState(params.get('new') === '1')
-  const setCreating = (v: boolean) => {
-    setCreatingState(v)
-    if (!v && params.has('new')) setParams((p) => { p.delete('new'); return p }, { replace: true })
-  }
+  const [creating, setCreating] = useState(params.get('new') === '1')
+  const asked = params.get('new') === '1'
+  useEffect(() => {
+    if (!asked) return
+    setCreating(true)
+    setParams((p) => {
+      p.delete('new')
+      return p
+    }, { replace: true })
+  }, [asked, setParams])
   const navigate = useNavigate()
   // the members dialog of a card's ⋯ 멤버
   const [members, setMembers] = useState<Project | null>(null)

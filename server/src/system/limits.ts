@@ -204,12 +204,13 @@ export function seatLimit(): number | null { return currentPlan()?.maxActiveMemb
 export function planManageUrl(): string | null { return currentPlan()?.links?.account ?? null }
 
 /** Refuse (409 plan_limit) when `adding` more active accounts would go over the plan's seats. Call it inside the write
- * transaction that adds the account, so two requests at once cannot both take the last seat. */
+ * transaction that adds the account, so two requests at once cannot both take the last seat. `changePlan`: the message
+ * tells an admin to change the plan, so a store app shows its own wording instead (web/src/lib/api.ts storeSafeError). */
 export function assertSeatFree(db: Database, locale: Locale, adding = 1): void {
   const max = seatLimit()
   if (max === null || seatsUsed(db) + adding <= max) return
   const url = planManageUrl()
-  fail('plan_limit', (SEAT_MSG[locale] ?? SEAT_MSG.en)(max) + (url ? (MANAGE[locale] ?? MANAGE.en) + url : ''), { params: { reason: 'seat_limit', limit: max, ...(url ? { manageUrl: url } : {}) } })
+  fail('plan_limit', (SEAT_MSG[locale] ?? SEAT_MSG.en)(max) + (url ? (MANAGE[locale] ?? MANAGE.en) + url : ''), { params: { reason: 'seat_limit', limit: max, changePlan: true, ...(url ? { manageUrl: url } : {}) } })
 }
 
 // ---------------- concurrency over the plan ----------------

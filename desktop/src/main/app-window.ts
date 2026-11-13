@@ -767,8 +767,8 @@ export class AppWindow {
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
-      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed when it goes off, never
-      // when it goes on): common/me-policy.ts
+      // the team's policy and the person's "Allow all websites" for the AI's web reads (followed both ways):
+      // common/me-policy.ts
       if (pane && this.pane === pane) applyMePolicy(pane, me.data)
       if (me.data.team.name && me.data.team.name !== team.label) {
         this.saveTeams(updateTeam(this.teams, team.id, { label: me.data.team.name.slice(0, 200) }))

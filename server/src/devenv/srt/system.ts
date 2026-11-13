@@ -2,6 +2,7 @@
 // (setSrtSystem). The real one calls systemd-run and systemctl, or, with MYCEL_DEV_ENV_SRT_DIRECT=1, runs srt with no
 // scope (a process group; the Docker attack test, where there is no systemd).
 import fs from 'node:fs'
+import path from 'node:path'
 import { SRT_PATHS, UNIT_RE, scopeArgv, wrappedArgv, type ScopeLimits } from './config'
 
 export interface SpawnSpec {
@@ -55,6 +56,52 @@ export interface SrtSystem {
   procs(runId: string): { pid: number; command: string; seconds: number }[]
   /** check that scopes can be made here (polkit). '' = good, else why not */
   selfTest(id: string): Promise<string>
+  /** Serve a port of a running run on a unix socket (the preview): `mycel-sandbox port-forward` enters the run's
+   * network namespace (docs/DECISIONS.md "Dev environment on srt: preview"). Resolves when the socket accepts, or
+   * with why not. null: this system has no preview (no scope cgroup to find the run by). */
+  forward?: ((o: { runId: string; port: number; socket: string }) => Promise<Forwarder | { error: string }>) | null
+}
+
+/** A running port forwarder of one run and port. stop() ends it (its stdin closes); exited resolves when it ended. */
+export interface Forwarder {
+  socket: string
+  stop(): void
+  exited: Promise<void>
+}
+
+/** the root-owned mycel-sandbox helper the server unit names (server.service.in) */
+const sandboxHelper = (env: Record<string, string | undefined> = process.env) => {
+  const h = env.MYCEL_SANDBOX_HELPER ?? ''
+  return path.isAbsolute(h) && fs.existsSync(h) ? h : ''
+}
+
+/** Start `mycel-sandbox port-forward` for a run's scope cgroup and wait for its "ready" line (at most 10 s). */
+export async function startForwarder(argv: string[], socket: string, timeoutMs = 10_000): Promise<Forwarder | { error: string }> {
+  const p = Bun.spawn(argv, { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: { PATH: '/usr/bin:/bin', LANG: 'C' } })
+  const exited = p.exited.then(() => {})
+  const err = new Response(p.stderr).text()
+  const reader = p.stdout.getReader()
+  let out = ''
+  const ready = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) return false
+      out += new TextDecoder().decode(value)
+      if (out.includes('ready\n')) return true
+    }
+  })()
+  const timer = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), timeoutMs))
+  const r = await Promise.race([ready, timer])
+  if (r === true) {
+    reader.releaseLock()
+    void p.stdout.cancel().catch(() => {})
+    // the forwarder ends when its stdin closes: the server stops it, or the server process ends
+    const stop = () => { try { p.stdin.end() } catch {} ; setTimeout(() => { try { p.kill('SIGKILL') } catch {} }, 2000).unref?.() }
+    return { socket, stop, exited }
+  }
+  try { p.kill('SIGKILL') } catch {}
+  const why = (await err.catch(() => '')).trim().replace(/^mycel-sandbox: /, '').slice(0, 300)
+  return { error: r === 'timeout' ? 'the preview forwarder did not start in time' : why || 'the preview forwarder ended' }
 }
 
 const unitOf = (runId: string) => `trina-dev-${runId}.scope`
@@ -143,6 +190,11 @@ export function systemdSystem(id: string): SrtSystem {
       const r = await run([SRT_PATHS.systemdRun, '--scope', '--quiet', '--no-ask-password', `--unit=${unitOf(probe.slice(0, 16))}`, `--slice=${installId}-devenv.slice`, '--', '/bin/true']).catch((e) => ({ code: 1, out: '', err: String(e) }))
       return r.code === 0 ? '' : `cannot start a scope (polkit rule or slice missing): ${r.err.trim().slice(0, 300)}`
     },
+    forward: sandboxHelper() ? async ({ runId, port, socket }) => {
+      const helper = sandboxHelper()
+      if (!helper) return { error: 'no MYCEL_SANDBOX_HELPER on this server' }
+      return startForwarder([helper, 'port-forward', '--cgroup', cgroupDir(id, runId), '--port', String(port), '--socket', socket], socket)
+    } : null,
   }
 }
 
@@ -175,5 +227,7 @@ export function directSystem(): SrtSystem {
     cpuUsec() { return null },
     procs() { return [] },
     async selfTest() { return '' },
+    // no scope cgroup: port-forward cannot tell this run's processes from others, so there is no preview here
+    forward: null,
   }
 }

@@ -9,7 +9,10 @@
 #   4. a restart of the unit: the long run that the driver started must still run.
 # MODE "bench" runs tests/linux/srt-vm-bench.ts in place of the checks: real work (npm, Remotion, pip) through the real
 # box_shell tool, the escapes with positive controls and the queue (results in <base>/data/bench-results.json).
-# Usage (repo at REPO with bun install done, bun in /usr/local/bin): scripts/dev-env/srt/vm-check.sh REPO [checks|bench]
+# MODE "preview" runs tests/linux/srt-vm-preview.ts: the preview of a dev server through the real gateway and the real
+# mycel-sandbox port-forward (spike S2, attack A26; results in <base>/data/preview-results.json). It needs the static
+# helper at REPO/native/bin/linux-<arch>/mycel-sandbox (native/build.sh, or spike-vm.sh builds it).
+# Usage (repo at REPO with bun install done, bun in /usr/local/bin): scripts/dev-env/srt/vm-check.sh REPO [checks|bench|preview]
 set -euo pipefail
 REPO=${1:?repo folder}
 MODE=${2:-checks}
@@ -21,32 +24,40 @@ BUN=/usr/local/bin/bun
 [ -x "$BUN" ] || { echo "no $BUN" >&2; exit 1; }
 
 command -v jq >/dev/null && command -v curl >/dev/null || { apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q jq curl; }
-# the bench's test server makes the fixture team folder with pandoc
-[ "$MODE" != bench ] || command -v pandoc >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends pandoc
+# the test server of the bench and the preview makes the fixture team folder with pandoc
+[ "$MODE" = checks ] || command -v pandoc >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends pandoc
 
 # ---- 1. the server account and its folders ----
 id "$ID" >/dev/null 2>&1 || useradd --system -U -d "$BASE/data" -s /usr/sbin/nologin "$ID"
 install -d -o root -g root -m 755 "$BASE" "$BASE/root"
 for d in app data team config secrets setup status run run/tools agent agent/codex-auth; do install -d -o "$ID" -g "$ID" -m 750 "$BASE/$d"; done
 echo '{"hosted":true}' > "$BASE/root/install.json"
-cat > "$BASE/root/dev-env.json" <<'EOF'
-{"format":1,"plan":"starter","maxRunning":1,"cpus":1.5,"memoryMiB":1536,"pids":512,"diskGiB":4,"network":"open"}
+# the preview runs two dev servers at once: a plan with more slots
+RUNNING=1; [ "$MODE" != preview ] || RUNNING=3
+cat > "$BASE/root/dev-env.json" <<EOF
+{"format":1,"plan":"starter","maxRunning":$RUNNING,"cpus":1.5,"memoryMiB":1536,"pids":512,"diskGiB":4,"network":"open"}
 EOF
 chmod 644 "$BASE/root/install.json" "$BASE/root/dev-env.json"
+# the sandbox helper (root-owned, as install-linux.sh puts it): the unit names it in MYCEL_SANDBOX_HELPER
+case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64) GOARCH=arm64 ;; *) GOARCH=unknown ;; esac
+HELPER_SRC=$REPO/native/bin/linux-$GOARCH/mycel-sandbox
+if [ -f "$HELPER_SRC" ]; then install -o root -g root -m 755 "$HELPER_SRC" "$BASE/root/mycel-sandbox"
+elif [ "$MODE" = preview ]; then echo "no $HELPER_SRC (native/build.sh)" >&2; exit 1; fi
 printf 'MYCEL_TOKEN=CANARY-7f3a-etcdefault\n' > "/etc/default/$ID"; chown "root:$ID" "/etc/default/$ID"; chmod 640 "/etc/default/$ID"
 
 # ---- 2. the stand-in server unit ----
 DRIVER=srt-vm.ts; RESULTS=$BASE/data/vm-results.json; WAIT=240
 # the bench: its test server keeps its files in <base>/data (the unit can write there); about 40 min on a t3a.medium
 if [ "$MODE" = bench ]; then DRIVER=srt-vm-bench.ts; RESULTS=$BASE/data/bench-results.json; WAIT=900; fi
+if [ "$MODE" = preview ]; then DRIVER=srt-vm-preview.ts; RESULTS=$BASE/data/preview-results.json; WAIT=120; fi
 sed -e "s#@ID@#$ID#g" -e "s#@SRV@#$ID#g" -e "s#@BASE@#$BASE#g" -e "s#@PUBKEYS@##; s#@ALLOW_UNSIGNED_ENV@##" \
     -e "s#^ExecStart=.*#ExecStart=$BUN $REPO/tests/linux/$DRIVER#" \
     -e "/^After=/s/ $ID-launcher.service//" -e "/^Wants=/s/ $ID-launcher.service//" \
     "$REPO/scripts/linux/systemd/server.service.in" > "/etc/systemd/system/$UNIT"
 install -d "/etc/systemd/system/$UNIT.d"
 printf '[Service]\nEnvironment=MYCEL_VM_PHASE=checks MYCEL_WORK=%s\n' "$BASE/data/work" > "/etc/systemd/system/$UNIT.d/vm.conf"
-# the bench runs once: no restart after a crash
-[ "$MODE" != bench ] || printf 'Restart=no\n' >> "/etc/systemd/system/$UNIT.d/vm.conf"
+# the bench and the preview run once: no restart after a crash
+[ "$MODE" = checks ] || printf 'Restart=no\n' >> "/etc/systemd/system/$UNIT.d/vm.conf"
 systemctl daemon-reload
 
 # ---- 3. the install (it restarts the unit, which runs the checks) ----
@@ -71,6 +82,18 @@ if [ "$MODE" = bench ]; then
   FAILS=$(jq '[.results[] | select(.pass == false)] | length' "$RESULTS" 2>/dev/null || echo 99)
   grep -qs '"id": "END"' "$RESULTS" || FAILS=$((FAILS + 1))
   echo "vm-check: bench $FAILS failed"
+  [ "$FAILS" = 0 ]; exit
+fi
+if [ "$MODE" = preview ]; then
+  echo "vm-check: preview checks running (up to $((WAIT * 5 / 60)) min)"
+  for _ in $(seq 1 "$WAIT"); do grep -qs '"id": "\(END\|CRASH\)"' "$RESULTS" && break; systemctl is-active -q "$UNIT" || break; sleep 5; done
+  journalctl -u "$UNIT" --no-pager -o cat | grep -E '^preview ' || true
+  grep -qs '"id": "END"' "$RESULTS" || { journalctl -u "$UNIT" --no-pager | tail -60; echo "vm-check: the preview checks did not finish" >&2; }
+  echo "vm-check: server unit: $(systemctl show -p ActiveState,NRestarts,NoNewPrivileges,CapabilityBoundingSet "$UNIT" | tr '\n' ' ')"
+  echo "vm-check: results json:"; cat "$RESULTS" 2>/dev/null || true
+  FAILS=$(jq '[.results[] | select(.pass == false)] | length' "$RESULTS" 2>/dev/null || echo 99)
+  grep -qs '"id": "END"' "$RESULTS" || FAILS=$((FAILS + 1))
+  echo "vm-check: preview $FAILS failed"
   [ "$FAILS" = 0 ]; exit
 fi
 echo "vm-check: waiting for the driver (up to 20 min)"

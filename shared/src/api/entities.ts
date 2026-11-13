@@ -341,12 +341,15 @@ export const Step = z.object({
   /** box_shell on the srt runner (docs/DECISIONS.md "Dev environment: one queue"): the command or job waits in the team
    * queue. id: the queued run (POST /api/dev-env/runs/:id/stop cancels it); position: its place in line when the step
    * was written (the app reads the live place from GET /api/dev-env/runs); state: waiting, started, expired (the
-   * command waited too long: the dev environment is full) or cancelled. Absent on every other step */
+   * command waited too long: the dev environment is full) or cancelled. A dev server (kind server, state started)
+   * has the port the AI named: the step shows a Preview button for it (POST /api/dev-env/runs/:id/preview). Absent on
+   * every other step */
   devEnvRun: z.object({
     id: z.string().max(64),
-    kind: z.enum(['command', 'job']),
+    kind: z.enum(['command', 'job', 'server']),
     state: z.enum(['waiting', 'started', 'expired', 'cancelled']),
     position: z.number().int().min(1).nullable(),
+    port: z.number().int().min(1).max(65535).optional(),
   }).optional(),
 })
 export type Step = z.infer<typeof Step>
@@ -744,9 +747,10 @@ export const TeamSettings = z.object({
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
    * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
   aiSubagents: z.boolean(),
-  /** "대화방에서 '항상 허용' 쓰기" (default on): a room's change card may offer "이 방에서는 항상 허용" (new team files in
-   * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
-   * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
+  /** "'항상 허용' 쓰기" (default on): the AI's confirmation cards offer "Always allow" (docs/DECISIONS.md "Always allow on
+   * every card", server/src/chat/always-allow.ts; before 2026-11-13 only a room's change card, "대화방에서 새 파일은 미리
+   * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
+   * back on) */
   roomAlwaysAllow: z.boolean(),
   /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
