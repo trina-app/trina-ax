@@ -174,7 +174,8 @@ describe('shared project chat x every persona', () => {
       inst.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), falcon.id)
     await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: true })
     chat = (await W.as.memberIn.ok('POST', '/api/chats', { projectId: W.ids.projFalcon })).id
-    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: false })
+    // (no switch to turn off since 2026-11-13: a team project always shares its new chats, docs/DECISIONS.md "Team
+    // project chats shared by default")
     await W.as.memberIn.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: `${CANARY}\n@fake ` + JSON.stringify({ say: 'shared ok' }) })
     for (let i = 0; i < 100 && (await W.as.memberIn.get(`/api/chats/${chat}`)).json.runState !== 'idle'; i++) await Bun.sleep(100)
   })

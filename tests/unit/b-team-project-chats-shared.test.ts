@@ -120,6 +120,9 @@ describe('chats from before stay private', () => {
     const personal = legacyProject(db(), h.team, 'alice', { name: 'Old mine', folderPath: 'users/alice/projects/old-mine' })
     const old = await h.api('alice').call(API.createChat, { body: { projectId: team } })
     expect(old.shared).toBeUndefined()
+    // its creator may share one chat there already (the setting does not gate it any more); the other stays private
+    const earlier = await h.api('alice').call(API.createChat, { body: { projectId: team } })
+    expect((await h.api('alice').call(API.shareChat, { params: { id: earlier.id }, body: {} })).status).toBe('shared')
     expect(db().query('SELECT share_chats FROM projects WHERE id = ?').get(team)).toEqual({ share_chats: 0 })
     const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/292_b_team_project_chats_shared.sql'), 'utf8')
     db().exec(sql)

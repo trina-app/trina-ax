@@ -20,7 +20,8 @@ afterAll(async () => { await h.close() })
 /** a team project of `user` with these participants, its chats shared (or not) */
 async function project(user: string, name: string, participants: ProjectParticipant[] = [], share = true) {
   const p = await h.api(user).call(API.createProject, { body: { name, instructions: '', participants } })
-  if (share) await h.api(user).call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
+  // (every team project shares its chats since 2026-11-13; `share` false: as an older build left one)
+  if (!share) h.ctx.db.query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(p.id)
   return p.id
 }
 const seen = (user: string, id: string) => h.api(user).call(API.getProject, { params: { id } })

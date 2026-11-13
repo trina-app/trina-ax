@@ -83,7 +83,7 @@ async function asMember<T>(user: string, access: 'read' | 'write', fn: () => Pro
 
 // ---------------- the setting ----------------
 describe('the project setting', () => {
-  test('editors turn it on and off (audited); others may not; the project says who sees it', async () => {
+  test('nobody turns it off any more (409 share_chats_always for editors); others may not touch it; the project says who sees it', async () => {
     const p = await h.api('alice').call(API.getProject, { params: { id: projectId } })
     // alice and bob (finance reads it); carol (admin) and dana (owner) are not members; erin sees only public/
     expect(p).toMatchObject({ shareChats: true, audience: 2 })
@@ -96,11 +96,16 @@ describe('the project setting', () => {
     const managed = await h.api('carol').call(API.getProject, { params: { id: projectId }, query: { manage: '1' } })
     expect(managed).toMatchObject({ name: 'Falcon', member: false, canManage: true, canEdit: false, instructions: '', audience: 2 })
     expect([managed.shareChats, managed.sharedChats, managed.chatUploads]).toEqual([undefined, undefined, undefined])
-    // once a member who may write it, an admin edits it like its creator
-    await asMember('carol', 'write', () => h.api('carol').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } }))
-    expect((await h.api('bob').call(API.getProject, { params: { id: projectId } })).shareChats).toBe(false)
+    // a team project always shares its new chats (docs/DECISIONS.md "Team project chats shared by default"): even an
+    // editor (its creator, an admin who is a member and may write it) cannot turn it off
+    const off = await asMember('carol', 'write', () => errOf(h.api('carol').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } })))
+    expect([off.status, off.body.params?.reason]).toEqual([409, 'share_chats_always'])
+    const offAlice = await errOf(h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } }))
+    expect([offAlice.status, offAlice.body.params?.reason]).toEqual([409, 'share_chats_always'])
+    expect((await h.api('bob').call(API.getProject, { params: { id: projectId } })).shareChats).toBe(true)
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
-    expect(audits('project.share_chats', projectId).map((a) => [a.actor, JSON.parse(a.detail!).on])).toEqual([['alice', true], ['carol', false], ['alice', true]])
+    // (the project was made as an older build made it, the setting off: beforeAll turned it on once)
+    expect(audits('project.share_chats', projectId).map((a) => [a.actor, JSON.parse(a.detail!).on])).toEqual([['alice', true]])
   })
 
   test('a personal project never shares (409 project_personal); safe operations refuse turning it on; a project in the trash too', async () => {
@@ -110,7 +115,8 @@ describe('the project setting', () => {
     expect(mine.shareChats).toBe(false)
     process.env.MYCEL_SAFE_OPS_1A = '1'
     try {
-      await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } })
+      // (as an older build left it: the setting off)
+      db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(projectId)
       const s = await errOf(h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } }))
       expect([s.status, s.body.params?.reason]).toEqual([409, 'safe_ops'])
     } finally { delete process.env.MYCEL_SAFE_OPS_1A }
@@ -131,7 +137,8 @@ describe('the project setting', () => {
 // ---------------- sharing happens only at creation ----------------
 describe('shared only at creation', () => {
   test('chats made before stay private, chats made after are shared, a moved chat stays private, none while 1A is on or in a personal project', async () => {
-    await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: false } })
+    // as an older build left it (the setting off; migration 292 turns it on for every team project)
+    db().query('UPDATE projects SET share_chats = 0 WHERE id = ?').run(projectId)
     const before = await newShared()
     expect(before.shared).toBeUndefined()
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
@@ -140,6 +147,10 @@ describe('shared only at creation', () => {
     // turning it on later does not share what was there
     expect((await errOf(h.api('bob').call(API.getChat, { params: { id: before.id } }))).status).toBe(404)
     expect((await h.api('bob').call(API.getChat, { params: { id: after.id } })).shared).toMatchObject({ by: { id: 'alice', name: 'Alice Kim' }, mine: false, canDelete: false })
+    // "Only me": a new chat that stays its creator's
+    const onlyMe = await h.api('alice').call(API.createChat, { body: { projectId, private: true } })
+    expect(onlyMe.shared).toBeUndefined()
+    expect((await errOf(h.api('bob').call(API.getChat, { params: { id: onlyMe.id } }))).status).toBe(404)
     // a private chat moved into the project stays private
     const loose = await h.api('alice').call(API.createChat, { body: {} })
     const moved = await h.api('alice').call(API.updateChat, { params: { id: loose.id }, body: { projectId } })
