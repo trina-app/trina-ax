@@ -1,4 +1,5 @@
-// Pausing a bad release's roll-out (scripts/release/hold.ts, docs/RELEASE-CI.md 6; QA TC-361): the feed math (hold,
+// Pausing a bad release's roll-out (scripts/release/hold.ts, docs/RELEASE-CI.md 6; QA TC-361), and ending a good one's
+// ramp early (promote): the feed math (hold,
 // resume continuing the ramp, a replayed older head), what the updaters make of a held head (the app's own, servers that
 // do not know `hold` or `ramp`), and the script against a feed in a temporary folder signed with a temporary key.
 import { afterAll, describe, expect, test } from 'bun:test'
@@ -10,7 +11,7 @@ import { z } from 'zod'
 import { ReleaseFeed as ProtocolReleaseFeed } from '../../shared/src/cloud-protocol/release'
 import { silentLogger } from '../../server/src/log'
 import { OfficeRelease, signRelease, verifyRelease } from '../../server/src/office/release'
-import { DEFAULT_RAMP, holdRollout, inheritRollout, inRollout, newerHeadSeen, readRollout, resumeRollout, rolloutPercent, rolloutTurn, HeldRollout, type Rollout } from '../../server/src/system/rollout'
+import { DEFAULT_RAMP, holdRollout, inheritRollout, promoteRollout, inRollout, newerHeadSeen, readRollout, resumeRollout, rolloutPercent, rolloutTurn, HeldRollout, type Rollout } from '../../server/src/system/rollout'
 import { ReleaseFeed, UpdateManager } from '../../server/src/system/update'
 import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-job'
 import type { BackupManager } from '../../server/src/system/backup'
@@ -367,5 +368,79 @@ describe('hosting.ts hold / resume (scripts/release/hold.ts) on a local feed', (
     await expect(main(['resume', 'stable', '--reason', 'x'])).rejects.toThrow(/--reason is for hold/)
     await expect(main(['hold', 'stable', '--force'])).rejects.toThrow(/unknown option/)
     await expect(main(['hold', 'stable', '--office-version', '1.0.0'])).rejects.toThrow(/--office-version is for resume/)
+  })
+})
+
+// ---------------- promote: a good release to everyone now (ends the ramp) ----------------
+
+describe('promote (hosting.ts promote, the Feed workflow)', () => {
+  test('the math: percent 100, no ramp, the salt kept, changedAt; everyone on every channel and for older readers', () => {
+    const r = promoteRollout(ramp(), hours(2))
+    expect(r).toEqual({ percent: 100, salt: SALT, changedAt: hours(2).toISOString() })
+    if (r === 'unchanged') throw new Error('expected a rollout')
+    for (const ch of ['stable', 'beta'] as const) for (const urgent of [false, true]) expect(pct(r, hours(2), ch, urgent)).toBe(100)
+    for (const id of [FIRST, SECOND, THIRD, null]) expect(inRollout(feedOf(r), id, { now: hours(2), channel: 'stable' })).toBe(true)
+    // a reader that saw the ramped head takes the promoted one (later changedAt), not the other way round
+    expect(newerHeadSeen({ version: '1.1.0', rollout: ramp() }, { version: '1.1.0', rollout: r })).toBe(false)
+    expect(newerHeadSeen({ version: '1.1.0', rollout: r }, { version: '1.1.0', rollout: ramp() })).toBe(true)
+    // already everyone: unchanged; a held head: refused (resume first); a clock not after the last change: refused
+    expect(promoteRollout(undefined, hours(2))).toBe('unchanged')
+    expect(promoteRollout(r, hours(3))).toBe('unchanged')
+    expect(promoteRollout({ percent: 40, salt: SALT }, hours(3))).toEqual({ percent: 100, salt: SALT, changedAt: hours(3).toISOString() })
+    expect(() => promoteRollout(holdRollout(ramp(), hours(5), 'bad'), hours(6))).toThrow(/held .*resume it first/)
+    expect(() => promoteRollout({ ...ramp(), changedAt: hours(10).toISOString() }, hours(9))).toThrow(/clock/)
+  })
+
+  test('on a local feed: both heads to everyone at once, the version files and minFrom untouched; a server in the last wave takes it', async () => {
+    const root = publishedFeed('promote', { minFrom: '0.9.0' })
+    const before = snapshot(root)
+    expect((await serverSees(root, hours(2), THIRD)).decision).toEqual({ go: false, why: 'rollout' }) // 10% on day one
+    const dry = await run(root, { action: 'promote', version: '1.1.0', dryRun: true, now: () => hours(2) })
+    expect(dry).toMatchObject({ status: 'dry-run', uploaded: [] })
+    expect(snapshot(root)).toEqual(before)
+    const r = await run(root, { action: 'promote', version: '1.1.0', now: () => hours(2) })
+    expect(r).toMatchObject({ status: 'promoted', uploaded: ['server/stable.json', 'server/stable.json.sig', 'office/stable.json'], server: { held: false, percentNow: 100 }, office: { version: '1.1.0', held: false } })
+    const after = snapshot(root)
+    expect(Object.keys(after).filter((k) => after[k] !== before[k]).sort()).toEqual(['office/stable.json', 'server/stable.json', 'server/stable.json.sig'])
+    const head = JSON.parse(fs.readFileSync(path.join(root, 'server/stable.json'), 'utf8'))
+    const rel = JSON.parse(fs.readFileSync(path.join(root, 'server/1.1.0/release.json'), 'utf8'))
+    expect({ ...head, rollout: undefined }).toEqual({ ...rel, rollout: undefined })
+    expect(head.minFrom).toBe('0.9.0')
+    expect(head.rollout).toEqual({ percent: 100, salt: SALT, changedAt: hours(2).toISOString() })
+    for (const id of [FIRST, SECOND, THIRD]) expect((await serverSees(root, hours(2), id)).decision).toEqual({ go: true, version: '1.1.0' })
+    const office = verifyRelease(fs.readFileSync(path.join(root, 'office/stable.json'), 'utf8'), { keys: [PUB], channel: 'stable', feed: FEED })
+    expect(office.rollout).toEqual(head.rollout)
+    expect(inRollout(office, THIRD, { now: hours(2), channel: 'stable' })).toBe(true)
+    // again: nothing to do
+    expect(await run(root, { action: 'promote', version: '1.1.0', now: () => hours(3) })).toMatchObject({ status: 'unchanged', uploaded: [] })
+    expect(snapshot(root)).toEqual(after)
+  })
+
+  test('refused: a held head (resume first), another version; an office list at another version is left alone', async () => {
+    const held = publishedFeed('promote-held')
+    await run(held, { reason: 'bad' })
+    const snap = snapshot(held)
+    await expect(run(held, { action: 'promote', now: () => hours(40) })).rejects.toThrow(/resume it first/)
+    expect(snapshot(held)).toEqual(snap)
+    const other = publishedFeed('promote-other', { office: '1.0.5' })
+    await expect(run(other, { action: 'promote', version: '1.0.9', now: () => hours(2) })).rejects.toThrow(/at 1\.1\.0, not 1\.0\.9/)
+    const r = await run(other, { action: 'promote', version: '1.1.0', now: () => hours(2) })
+    expect(r).toMatchObject({ status: 'promoted', uploaded: ['server/stable.json', 'server/stable.json.sig'], office: null })
+    expect(r.lines.join('\n')).toContain('office/stable.json is at 1.0.5, not 1.1.0: left as it is')
+    await expect(main(['promote', 'stable', '--reason', 'x'])).rejects.toThrow(/--reason is for hold/)
+  })
+
+  test('the Feed workflow: only from main, the release group, the key only where it is used, the inputs as env (not in the script)', () => {
+    const wf = fs.readFileSync(path.resolve(import.meta.dir, '../../.github/workflows/feed.yml'), 'utf8')
+    const rel = fs.readFileSync(path.resolve(import.meta.dir, '../../.github/workflows/release.yml'), 'utf8')
+    expect(wf).toContain("if: github.ref == 'refs/heads/main'")
+    // the changes wait for (and never run beside) a release publish; held (reads only) has its own group
+    expect(/concurrency:\n\s+group: (.+)/.exec(rel)?.[1]).toBe('release-${{ github.repository }}')
+    expect(/concurrency:\n\s+group: (.+)/.exec(wf)?.[1]).toBe("${{ inputs.action == 'held' && 'feed-read' || format('release-{0}', github.repository) }}")
+    expect(wf.match(/secrets\.RELEASE_SIGNING_KEY/g)?.length).toBe(1)
+    expect(wf).toContain('rm -f "$RUNNER_TEMP/release-key.pem"')
+    // inputs reach the shell only through env (no ${{ inputs.* }} inside a run: script)
+    for (const block of wf.split(/\n\s+run: \|?/).slice(1)) expect(block.split(/\n\s+- (?:name|uses):/)[0]).not.toMatch(/\$\{\{\s*inputs\./)
+    for (const a of ['held', 'promote', 'hold', 'resume']) expect(wf).toContain(a)
   })
 })
