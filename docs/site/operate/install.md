@@ -11,6 +11,7 @@ There are four ways to run Trina AX. Pick the one that fits who will look after 
 | **Who runs it** | Trina, in AWS Seoul | Your IT | Your office operator | You |
 | **AI** | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
 | **OS isolation** | Yes | Yes | Runs as the signed-in user | No |
+| **Reach from outside the office** | Yes | Your network setup | Optional: a Tailscale address (devices on your tailnet, no certificate to install) or a Cloudflare Tunnel address | No |
 
 ## Get started
 
@@ -78,6 +79,9 @@ No sudo is needed. It installs into `~/TeamAX`.
 
 #### Create the owner
 Use the local setup link the installer prints. Office computers then use `https://<Mac-IP>:8443` after trusting the office certificate (`~/TeamAX/teamax card` shows its fingerprint).
+
+#### Reach it from anywhere (optional)
+With the Tailscale app signed in on the Mac and HTTPS Certificates on for the tailnet, run `~/TeamAX/teamax tailscale-address on`. Devices on the same tailnet then open `https://<machine>.<tailnet>.ts.net:<port>` from anywhere, with no certificate to install. Create the owner before this: the first-run setup is refused on that address.
 :::
 
 Full guide: [Office Mac](../../OFFICE.en.md).

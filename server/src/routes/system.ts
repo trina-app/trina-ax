@@ -10,6 +10,7 @@ import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
+import { fromOutside } from '../http/tunnel'
 import { DownloadStalled } from '../http/download-deadline'
 import { JobFailure } from '../jobs/service'
 import type { JobService } from '../services'
@@ -118,7 +119,7 @@ export const systemRoutes: RouteModule = {
       // from the internet, signed out (the office internet address, or <team>.<domain> through the relay): liveness
       // only, no build fingerprint (attack review finding 1). This server, the office LAN and signed-in people keep it.
       const info = c.get('info')
-      if (!auth && (info.tunnel || info.via === 'relay')) return { ok: dbOk, time: new Date().toISOString() }
+      if (!auth && (fromOutside(info) || info.via === 'relay')) return { ok: dbOk, time: new Date().toISOString() }
       return {
         ok: dbOk,
         version: ctx.version,

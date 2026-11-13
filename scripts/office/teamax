@@ -9,6 +9,8 @@
 #                                                 put an archive in place; everyone signs in again afterwards
 #   ~/TeamAX/teamax public-address set <app.example.com> <token file> | off | status
 #                                                 the internet address (Cloudflare Tunnel, docs/OFFICE.md)
+#   ~/TeamAX/teamax tailscale-address on [--port N] | off | status
+#                                                 the Tailscale address for the tailnet's devices (docs/OFFICE.md)
 #   ~/TeamAX/teamax desktop list | add <installer.exe|.dmg> [--version x.y.z] [--keep] | remove <file>
 #                                                 the desktop apps members download under Settings → Apps
 #   ~/TeamAX/teamax update [status|check|now|pause|resume|channel stable|beta|time HH:MM]

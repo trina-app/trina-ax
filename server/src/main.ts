@@ -8,6 +8,7 @@ import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, OBSOLETE_KEYS, type AppConfig } from './app-config'
 import { buildApp } from './app'
 import { directFetch } from './http/tunnel'
+import { TAILNET_RELOAD_MS, tailnetListener } from './http/tailnet-listener'
 import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
@@ -244,8 +245,17 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
       ctx.onClose(() => clearInterval(timer))
     }
   }
+  if (cfg.tailnet) {
+    // the office Tailscale address (office/tailscale.ts): its own listener, every request on it marked tailnet
+    const serveTailnet = directFetch(cfg, (req, env) => app.fetch(req, env), peerIp, { tailnet: true })
+    const tl = tailnetListener(cfg.tailnet, (o) => Bun.serve({ ...base, ...o, fetch: serveTailnet }), log)
+    tl.tick()
+    const timer = setInterval(() => tl.tick(), TAILNET_RELOAD_MS)
+    timer.unref?.()
+    ctx.onClose(() => { clearInterval(timer); tl.stop() })
+  }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
-  log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, publicHost: cfg.tunnel?.host ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
+  log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, publicHost: cfg.tunnel?.host ?? null, tailnet: cfg.tailnet ? `${cfg.tailnet.host}:${cfg.tailnet.port}` : null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
   // production: bring the engine core up now (tools gate, launcher connection, model proxy) so the engine account's
   // network path exists before the first turn (the codex-login CLI tunnels through the proxy). A failure is logged
   // and retried on first use.
