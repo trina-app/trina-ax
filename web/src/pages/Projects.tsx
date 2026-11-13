@@ -387,7 +387,7 @@ export function ProjectList() {
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
-        {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
+        {items && !items.length && <EmptyState screen icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         {/* the cells of a row stretch to its tallest card, and each card fills its cell */}
         {/* the same sections as 프로젝트's list (panels/ProjectsPanel.tsx): 팀 프로젝트, 내 프로젝트, then, quieter, the team
             projects the owner or an admin only manages (not a member: their name and members only) */}
@@ -673,7 +673,7 @@ function ProjectPage() {
     else setP(next)
   }
 
-  if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
@@ -1009,7 +1009,7 @@ export function ProjectFiles() {
   }, [path, p?.member])
   // a computer: the folder on the 파일 screen (the project's page for someone who is not a member: no files for them)
   if (!phone && p && path !== null) return <Navigate to={p.member === false ? `/projects/${p.id}` : `/files?path=${encodeURIComponent(path)}`} replace />
-  if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
+  if (missing) return <EmptyState screen title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   const name = dir ? dir.slice(dir.lastIndexOf('/') + 1) : t('files.title')
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (

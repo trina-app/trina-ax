@@ -47,7 +47,7 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
   return (
     <section className="mb-8" data-testid="ai-allowances">
       {/* a phone's bar names the section already (SettingsDialog.tsx): there the title is for screen readers only */}
-      <h2 className="mb-1 text-title-sm font-semibold max-md:sr-only">{t(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}</h2>
+      <h2 className="mb-1 text-title font-semibold max-md:sr-only">{t(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}</h2>
       {/* a phone's page with the other parts: this list's own heading, like theirs */}
       {folded && <h3 className="mb-1 text-title-sm font-semibold" data-testid="allowances-part">{t('allowances.part')}</h3>}
       <p className="mb-3 text-sm text-muted">{t('allowances.desc')}</p>

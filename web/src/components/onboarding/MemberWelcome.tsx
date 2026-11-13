@@ -73,7 +73,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink" aria-hidden><Check size={14} /></span>
           <div className="min-w-0 flex-[1_1_12rem]">
-            <h2 id={`${ids}-title`} className="font-semibold text-ink">{t('memberWelcome.allSet')}</h2>
+            <h2 id={`${ids}-title`} className="text-title-sm font-semibold text-ink">{t('memberWelcome.allSet')}</h2>
             <p className="text-sm text-muted text-balance">{t('memberWelcome.allSetHint', { place: t(phone ? 'tabs.chats' : 'rooms.title'), ai: aiName(t) })}</p>
           </div>
           <Button size="sm" className={tap} onClick={() => void hide()} data-testid="member-welcome-close">{t('common.close')}</Button>

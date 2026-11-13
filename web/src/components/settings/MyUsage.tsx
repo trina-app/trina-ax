@@ -57,7 +57,7 @@ export default function MyUsage() {
       {/* like the Console: the title, one dim line, and the period pill with refresh on the right */}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
         <div className="min-w-0 flex-1 max-md:basis-full">
-          <h2 id={`${ids}-h`} className="text-title-sm font-semibold max-md:sr-only">
+          <h2 id={`${ids}-h`} className="text-title font-semibold max-md:sr-only">
             {t('myUsage.title')}
           </h2>
           <p className="mt-1 text-xs text-muted max-md:mt-0" data-testid="my-usage-desc">

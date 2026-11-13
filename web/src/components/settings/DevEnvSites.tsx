@@ -50,7 +50,7 @@ export function DevEnvSites({ part = false }: { part?: boolean }) {
   return (
     <section className={clsx('space-y-5', part && 'border-t border-line pt-5')} data-testid="dev-env-sites" data-part={part ? '' : undefined}>
       <div>
-        {part ? <h3 className="text-title-sm font-semibold">{t('settings.devEnvSites')}</h3> : <h2 className="text-title-sm font-semibold">{t('settings.devEnvSites')}</h2>}
+        {part ? <h3 className="text-title-sm font-semibold">{t('settings.devEnvSites')}</h3> : <h2 className="text-title font-semibold">{t('settings.devEnvSites')}</h2>}
         <p className="mt-1 text-sm text-muted">{t('devEnvSites.intro')}</p>
       </div>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}

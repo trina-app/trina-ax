@@ -247,7 +247,7 @@ function ConnectorsHome() {
       {/* the section's top, like Settings' other sections: its name (a phone's bar says it, so there for screen readers
           only), one line, the search and Add; it scrolls with the list (QA TC-262) */}
       <div data-testid="connectors-header">
-        <h2 className="text-title-sm font-semibold max-md:sr-only">{t('integrations.title')}</h2>
+        <h2 className="text-title font-semibold max-md:sr-only">{t('integrations.title')}</h2>
         <p className="mt-1 text-sm text-muted max-md:mt-0">{t('connectorsPage.desc')}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">{headActions}</div>
       </div>

@@ -132,11 +132,14 @@ export function Skeleton({ lines = 3, className }: { lines?: number; className?:
   )
 }
 
-export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
+/** `screen`: the page's whole content is this empty state (an empty folder, no projects yet, not found): its line is a
+ * display heading (24px, 22px on phones). Without it (a search with no match, an empty list inside a card, a pane or a
+ * dialog) the line is a section title (17px). */
+export function EmptyState({ icon, title, children, screen }: { icon?: ReactNode; title: string; children?: ReactNode; screen?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       {icon && <div className="text-faint">{icon}</div>}
-      <p className="max-w-md text-display font-semibold text-balance text-ink">{title}</p>
+      <p className={clsx('max-w-md font-semibold text-balance break-words text-ink', screen ? 'text-display' : 'text-title-sm')}>{title}</p>
       {children && <div className="max-w-md text-sm text-balance text-muted">{children}</div>}
     </div>
   )

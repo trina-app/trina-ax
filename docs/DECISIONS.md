@@ -13121,7 +13121,10 @@ sizes (`text-lg` 18px, `text-2xl`, `text-[1.625rem] sm:text-[1.875rem]`). The le
   `sm:text-*` per element: the greeting and a project's name change at 768px now, not at 640px.
 - **Through the shared pieces first.** PageHeader and AdminPageHeader → title; Modal and Settings' window → title-sm;
   the admin `Card` (framed 15px bold and flat 16px medium, now one) and `SettingsSection`, Settings' `Section` and
-  `PrefSection` → title-sm; `EmptyState`'s line → display; the home greeting → hero; a project's, a schedule's, a
+  `PrefSection` → title-sm, but a Settings page's own title (프로필, 알림, 커넥터, 사용량) → title: at title-sm it was the
+  size of the sections under it ("프로필" over "언어"), so the level was lost; `EmptyState`'s line → display when it is the whole page (`screen`: an empty folder, no projects, trash, activity,
+  schedules, not found) and title-sm elsewhere (a search miss, an empty list in a card, a pane or a dialog: 24px there
+  was a shout and long lines wrapped to three); the home greeting → hero; a project's, a schedule's, a
   plugin's and a connector's page name and the setup steps (Welcome, onboarding, member welcome) → display.
 - **Then the one-offs**, about 50 headings: section titles at 15px bold or 16px (Connectors, Plugins, folder access,
   Admin home, usage, browser, AI allowances, the deck progress card) → title-sm; the room's, thread's and side chat's

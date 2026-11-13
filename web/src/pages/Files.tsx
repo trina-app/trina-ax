@@ -1028,7 +1028,7 @@ function Files() {
                 )}
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
-                  <EmptyState icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
+                  <EmptyState screen icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
                     {canAdd && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
@@ -1654,7 +1654,7 @@ function TrashView() {
       <p className="mb-3 text-xs text-faint" data-testid="trash-note">{t(phone ? 'files.trashNoteShort' : 'files.trashNote')}</p>
       {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={5} />}
-      {items && !items.length && <EmptyState icon={<Trash2 size={28} />} title={t('files.trashEmpty')} />}
+      {items && !items.length && <EmptyState screen icon={<Trash2 size={28} />} title={t('files.trashEmpty')} />}
       <ul className="divide-y divide-line" data-testid="trash-list">
         {sorted.map((it) => (
           <li key={it.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm max-md:flex-nowrap" data-testid="trash-item">

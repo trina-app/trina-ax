@@ -388,7 +388,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
