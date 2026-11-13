@@ -15,6 +15,7 @@ import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatRelative } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
+import { newChatPath } from '../lib/newChat'
 import { cardLine, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runStateLabel, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
@@ -91,7 +92,7 @@ function useStartInChat() {
   return () => {
     // a start for the sentence in the new-chat box, unless something is already typed there
     if (!readDraft(me.user.id, 'new')) writeDraft(me.user.id, 'new', t('scheduled.chatStarter'))
-    navigate('/')
+    navigate(newChatPath())
   }
 }
 

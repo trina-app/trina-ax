@@ -250,6 +250,9 @@ function Gate() {
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
+          {/* the new chat on its own page: a phone with the new navigation's tabs, where / is 트리나's list (lib/newChat.ts); a
+              computer's goes to / (pages/Home.tsx) */}
+          <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />

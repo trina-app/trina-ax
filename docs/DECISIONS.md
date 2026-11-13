@@ -11474,6 +11474,36 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
   in a chat, a room and a page, from inside and from outside).
 - Version impact: **minor** (a new phone navigation; no API change).
 
+## Phone tabs: 트리나 · 대화 · 파일 · 나 (feat/nav-rail-p5, 2026-11-13, navigation redesign P5)
+
+넣을 곳: Team AX core (`web/src/lib/tabs.ts`, `lib/screens.ts`, `lib/newChat.ts`, `components/BottomTabs.tsx`,
+`components/panels/PhoneTrinaHome.tsx`, `components/panels/FilesPanel.tsx` `PhoneFilesHome`,
+`components/settings/SettingsDialog.tsx`), 이유: the phone app is the web app in a web view. Plan:
+`docs/AGENTS/plan/20261112-1839-nav-rail.md` §2.2 (decisions Q1–Q3, approved by the owner 2026-11-13). Only while the
+server's `navRail` switch is on; with it off the phone is exactly as in the entries above and below. On that path it
+reverses QA TC-255 option D (프로젝트 as the third tab) and "Phones: Home like the AI apps" (Home as 트리나's root).
+
+- **Tabs: 트리나 · 대화 · 파일 · 나**, the computer rail's first three places by name and order; 활동 stays in 나
+  (four tabs). Start tab 트리나, as before.
+- **트리나 is the list first (option B)**: the computer's Trina list (고정 · 폴더 · 프로젝트 · 모든 프로젝트 · 기타 기록,
+  then 예약 작업 · 팀 스킬 · 삭제한 기록), the owner's setup row on top, a bar with 🔍 and the filter (no status chips).
+  "트리나에게 묻기" floats at the bottom right and opens the new chat at **`/new`** (no tab bar, ‹ back to the list).
+  The AI chats' mark that was on ☰ is on the 트리나 tab. The ☰ drawer is gone: its rows are in this list and in 나.
+- **New chat with something ready keeps landing on the box**: `newChatPath()` gives `/new` on such a phone and `/`
+  elsewhere; files asked about, a scheduled task's start sentence, a skill's or a file's question and ⇧⌘O use it. A
+  `/` that carries `?prompt=` or `?project=` (old links, bookmarks, notifications) goes to `/new` with it; a
+  computer's `/new` goes to `/`. A draft left in the box does **not** send `/` to `/new`: the list would be out of reach.
+- **Projects are 트리나's**: a group opens its project, 모든 프로젝트 lists them all; both have ‹ back to the list. A
+  project's new chat is under the project. The projects list has no 팀 폴더 row any more.
+- **파일 is the team folder's places** (as the computer's 파일 list): 최근 파일, the team's top folders, the project
+  folders, 내 파일, 휴지통. A place's own folder goes back to 파일 (not to the projects/ or users/ folder above it). The
+  team folder's own top (files kept loose there) is `/files?team=1`, opened from the 팀 폴더 label, because `/files` is
+  the places here. No upload button on the places: a folder's ⊕ uploads into that folder.
+- **나** is headed 나 (not 설정): the team's logo and name with 팀원 초대 and 관리자 for owners and admins (관리자 moves
+  here from under the photo), the photo row, 활동 with its count, the status and "자리 비움으로 표시" (new on phones).
+- **Back per tab** as before; the stacks keep their own key (`mycel.tabStacks.v3`), and an entry of the old 프로젝트 tab
+  takes its first screen's tab (a project → 트리나, the team folder → 파일).
+
 ## Desktop sidebar: rooms first (feat/phone-nav, 2026-11-06)
 
 넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`, `chat/ChatState.tsx`; the chat list's

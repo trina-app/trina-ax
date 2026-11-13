@@ -7,7 +7,7 @@
 // light and dark, 1280 light and 1024 with a room's thread open, as the owner and as a member.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { navRail, openRail, reset, signIn } from './helpers'
+import { navRail, openRail, OWNER, reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -303,11 +303,15 @@ test('Screenshots of the rail: each place at 1440 light and dark, 1280 light, 10
   }
 })
 
-test('a phone keeps today\'s layout with the switch on (its tabs are a later phase)', async ({ page }) => {
+test('a phone gets no rail with the switch on: its own tabs instead (phone-tabs-v2.spec.ts)', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await navRail(page)
-  await signIn(page)
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill(OWNER.username)
+  await page.getByTestId('login-password').fill(OWNER.password)
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByTestId('phone-trina-home')).toBeVisible()
   await expect(page.getByTestId('bottom-tabs')).toBeVisible()
   await expect(page.getByTestId('rail')).toHaveCount(0)
   await expect(page.getByTestId('trina-panel')).toHaveCount(0)
