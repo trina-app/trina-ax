@@ -85,7 +85,7 @@ jobs:
       MSSTORE_VERSION: ${{ inputs.version || '0.0.1' }}
       MSSTORE_TEST: ${{ (github.event_name == 'pull_request' || inputs.test) && '1' || '0' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # a manual run builds exactly the tested commit (the pull request: its own merge commit)
           ref: ${{ needs.release-tag.outputs.sha }}
@@ -111,7 +111,7 @@ jobs:
           grep -q '<PublisherDisplayName>Trina Inc.</PublisherDisplayName>' manifest.xml
           grep -q '<DeviceCapability Name="microphone"/>' manifest.xml
           grep -q 'assets\\Wide310x150Logo.png' manifest.xml
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msstore-msix
           path: desktop/release/*-store-x64*.msix
