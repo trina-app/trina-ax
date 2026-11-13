@@ -526,3 +526,23 @@ describe('pinned chats', () => {
   })
 })
 
+
+describe("the phone's ☰ drawer", () => {
+  test('its history is by date by default (오늘, …), as before the redesign; the computer panel keeps its own default', async () => {
+    const now = new Date().toISOString()
+    useChats.setState({ chats: [chat(1, { projectId: '01900000-0000-7000-8000-0000000000aa', updatedAt: now, title: '오늘 채팅' })], chatsLoaded: true, chatsCursor: null })
+    const { TrinaDrawer, useTrinaDrawer } = await import('../../src/components/phone/TrinaDrawer')
+    const m = await mount(<MemoryRouter initialEntries={['/']}><TrinaDrawer /></MemoryRouter>)
+    try {
+      await act(async () => useTrinaDrawer.getState().setOpen(true))
+      await m.until(() => m.find('trina-drawer'), 'the drawer', 2000)
+      expect(m.html()).toContain(translate('ko', 'sidebar.today'))
+      // nothing is filtered: no chip, the default is the drawer's own
+      expect(m.find('recents-filter-label')).toBeNull()
+      expect(m.html()).toContain('오늘 채팅')
+    } finally {
+      await act(async () => useTrinaDrawer.getState().setOpen(false))
+      await m.unmount()
+    }
+  })
+})

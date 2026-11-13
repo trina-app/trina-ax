@@ -2,7 +2,7 @@
 // the navigation redesign (the owner, 2026-11-13: "the phone 트리나 tab must be identical to how it was before"; docs/
 // DECISIONS.md "Phones: Home like the AI apps, the history behind ☰"): the AI's name with the product's mark on top, then
 // 검색, 예약 작업 and 팀 스킬, then "트리나 기록" (it folds; the filter and sort menu beside it; the whole history by
-// project or by date, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
+// date: 오늘, 어제 …, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
 // on Back (lib/backCloses.ts), on Esc, and with a tap beside it.
 import clsx from 'clsx'
 import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
@@ -14,7 +14,7 @@ import { useOverlayEntry } from '../../lib/backCloses'
 import { aiName } from '../../lib/tabs'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
-import { DEFAULT_RECENTS_VIEW, HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
+import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
 import { SetupRow } from '../onboarding/SetupRow'
 import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
 import { Tooltip } from '../Tooltip'
@@ -23,6 +23,7 @@ import { Tooltip } from '../Tooltip'
 export const useTrinaDrawer = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }))
 
 const OPEN_KEY = 'mycel.sidebar.recents'
+const DRAWER_VIEW = { key: 'mycel.drawer.historyView', base: { group: 'date' as const } }
 const readOpen = () => {
   try {
     return localStorage.getItem(OPEN_KEY) !== 'closed'
@@ -61,7 +62,9 @@ function DrawerBody({ close }: { close: () => void }) {
   const t = useT()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
-  const view = useRecentsView()
+  // by date by default, as the drawer was before the navigation redesign (Today, Yesterday …); its own choice, apart
+  // from the computer's 트리나 panel
+  const view = useRecentsView(DRAWER_VIEW)
   const listId = useId()
   const [recentsOpen, setRecentsOpen] = useState(readOpen)
   const toggle = () =>
@@ -127,7 +130,7 @@ function DrawerBody({ close }: { close: () => void }) {
               <span aria-hidden>·</span>
               <span className="truncate">{viewWords(view, t)}</span>
               <Tooltip label={t('sidebar.filter.clear')}>
-                <button type="button" onClick={() => view.setView(DEFAULT_RECENTS_VIEW)} aria-label={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+                <button type="button" onClick={() => view.setView(view.base)} aria-label={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
                   <X size={11} aria-hidden />
                 </button>
               </Tooltip>

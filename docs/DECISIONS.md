@@ -23666,7 +23666,8 @@ the server).
 The owner, 2026-11-13: the phone 트리나 tab must be identical to how it was before the navigation redesign (dev
 85c5d1deb). Home is the tab again (the greeting, the suggestions, the box at the bottom; `/new` comes back to `/` with its
 question), with ☰ on the top bar (its dot when an AI chat wants me) opening the drawer as it was: the AI's name with the
-mark, 검색, 예약 작업, 팀 스킬, 트리나 기록 (folds; filter and sort beside it; by project or by date), my status and 삭제한
+mark, 검색, 예약 작업, 팀 스킬, 트리나 기록 (folds; filter and sort beside it; **by date by default**, 오늘 · 어제 …, with the
+"?" and dot marks, its own remembered choice `mycel.drawer.historyView`, apart from the computer panel's), my status and 삭제한
 기록 at the bottom (`web/src/components/phone/TrinaDrawer.tsx`, from the old Sidebar's phone branch). Only the tab bar is
 new. Supersedes the phone part of "Phone tabs: 트리나 · 대화 · 파일 · 나" (the list as the tab's root and its floating
 트리나에게 묻기 button).
