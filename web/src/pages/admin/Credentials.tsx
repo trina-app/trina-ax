@@ -21,6 +21,7 @@ import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inp
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
 import { LogoTile } from '../../components/integrations/ConnectorsView'
+import { useAdminGroups, useAdminRead, useAdminUsers } from '../../store/adminPeople'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -54,6 +55,9 @@ export type Family = 'claude' | 'codex'
 /** The team's AI accounts for Admin › AI providers (pages/admin/Engines.tsx): the list, what an owner and an admin may
  * do with each, and the dialogs. Each provider row shows its own family (ProviderAccounts); the settings for members'
  * own accounts are in the Team provider settings tab (Engines.tsx MemberAccounts). */
+export const loadTeamCredentials = () => api.call(API.listCredentials)
+export const loadTrialCredit = () => api.call(API.trialCredit).catch(() => ({ credit: null }))
+
 export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
@@ -61,11 +65,11 @@ export function useTeamCredentials() {
   const owner = isAdmin(me)
   const act = useAction()
   const actOk = useActionOk()
-  const state = useLoad(() => api.call(API.listCredentials))
+  const state = useAdminRead('credentials', loadTeamCredentials)
   // the hosting service's trial AI credit, when this team has one (an older server or an error: nothing shown)
-  const trial = useLoad(() => api.call(API.trialCredit).catch(() => ({ credit: null })))
-  const groups = useLoad(async () => (owner ? (await api.call(API.listGroups)).items : []), [owner])
-  const users = useLoad(async () => (owner ? (await api.call(API.listUsers)).items : []), [owner])
+  const trial = useAdminRead('trialCredit', loadTrialCredit)
+  const groups = useAdminGroups(owner)
+  const users = useAdminUsers(owner)
   /** the family whose Add account dialog is open */
   const [adding, setAdding] = useState<Family | null>(null)
   const [editing, setEditing] = useState<Credential | null>(null)

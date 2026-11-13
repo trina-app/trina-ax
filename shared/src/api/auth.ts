@@ -80,6 +80,9 @@ export const Me = z.object({
     /** made by signing in with a temporary password: the forced change asks only for the new password (true only
      * while mustChangePassword) */
     tempLogin: z.boolean().optional(),
+    /** this sign-in's key for addresses of pictures that never change (a room file's ?k=): with it the server lets this
+     * browser keep them (server/src/auth/media-key.ts); a new sign-in gets a new one. Absent from older servers. */
+    mediaKey: z.string().max(64).optional(),
   }),
   server: z.object({
     version: z.string(), dev: z.boolean(),

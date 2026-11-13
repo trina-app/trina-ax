@@ -55,6 +55,7 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
+import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -75,9 +76,9 @@ export default function Members() {
   const act = useAction()
   const actOk = useActionOk()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
-  const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
-  const invites = useLoad(async () => (await api.call(API.listInvites)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsersNoAi()
+  const invites = useAdminRead('invites', loadAdminInvites)
+  const groups = useAdminGroups()
   // the team's AI connections: the delete confirmation names those only the person may use (ai-assignees.ts)
   const connections = useLoad(loadConnections)
   const [inviteOpen, setInviteOpen] = useState(false)

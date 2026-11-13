@@ -2,7 +2,7 @@
 // or listed service with open requests: its logo and name, who asked ("Alice and 2 others asked"), Add (the usual setup:
 // a Google one's page, a listed service's "Connect for the team") and Dismiss (closes the requests; nobody is told, they
 // may ask again). Nothing when nobody asked, or on an older server.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, isGoogleRequestable, type RequestableService, type TeamServiceRequest } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { builtInLogo, requestableName } from '../../lib/googleApps'
@@ -18,13 +18,20 @@ const logoOf = (s: RequestableService) => {
   return c ? connectorLogo(c) : '/favicon.svg'
 }
 
-/** The open requests, read again when `version` changes (a connection was added). */
+/** The open requests, read again when `version` changes (a connection was added). `undefined` is "not known yet": the
+ * first known version is not a change (the page's own list arriving read them twice). */
 export function useMemberAsks(version: unknown) {
   const [items, setItems] = useState<TeamServiceRequest[]>([])
   const load = useCallback(async () => {
     try { setItems((await api.call(API.teamServiceRequests)).items) } catch { setItems([]) }
   }, [])
-  useEffect(() => { void load() }, [load, version])
+  const seen = useRef<{ v: unknown } | null>(null)
+  useEffect(() => {
+    const before = seen.current
+    seen.current = { v: version }
+    if (before && before.v === undefined && version !== undefined) return
+    void load()
+  }, [load, version])
   return { items, setItems, reload: load }
 }
 

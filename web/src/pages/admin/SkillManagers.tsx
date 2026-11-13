@@ -25,6 +25,7 @@ import { useFaceOf } from '../../store/people'
 import { toast } from '../../store/ui'
 import { useAction, useActionOk, useLoad } from './common'
 import { AddNamed, type NamedOption } from './AddNamed'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const SKILLS = 'skills'
 /** Admin › 폴더 권한 with skills/ chosen: where a folder of skills/ is handed over, and other rules are changed. */
@@ -165,8 +166,8 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
   const act = useAction()
   const actOk = useActionOk()
   const managers = useSkillManagers()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [picked, setPicked] = useState<NamedOption | null>(null)
   /** the grant being removed (its key) or 'add' */
   const [busy, setBusy] = useState<string | null>(null)

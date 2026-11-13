@@ -3,7 +3,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { ApiError, errorText } from './lib/api'
+import { ApiError, errorText, setMediaKey } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useDeckBuilds } from './store/deckBuilds'
@@ -23,6 +23,7 @@ import { useEngines } from './store/engines'
 import { resetInbox } from './store/inbox'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
+import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useSession } from './store/session'
 import { clearLocalData } from './lib/localData'
@@ -112,8 +113,8 @@ function useSettingsOverlay() {
 }
 
 /** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
- * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
- * chat counted as on screen. */
+ * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards, the
+ * chat counted as on screen and the admin screens' kept reads. */
 function dropPersonStores() {
   // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
   resetOptimistic()
@@ -135,6 +136,7 @@ function dropPersonStores() {
   useJobs.getState().reset()
   useSessionMarkers.getState().reset()
   useRailMemory.getState().reset()
+  resetAdminReads()
 }
 
 // Another person signing in over a signed-in one in this window (a password reset link on a shared computer,
@@ -147,6 +149,12 @@ setBeforePersonSwitch(() => {
   clearLocalData()
   forgetStepsSeen()
 })
+
+// the addresses of room pictures carry this sign-in's media key (lib/api.ts roomFileUrl): set before any screen of the
+// session draws (a store subscription runs as the status changes, before React renders), none while signed out
+const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session.mediaKey ?? null : null)
+setMediaKey(mediaKeyOf(useSession.getState()))
+useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
 
 /** The page load after another person signed in over the signed-in one (tests replace it). */
 export const personSwitch = { reload: () => location.reload() }

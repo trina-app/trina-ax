@@ -13009,6 +13009,50 @@ group's skills, its list tag and its save line in a room only when everyone is i
 `group-skills.spec.ts` (the section, rename, the "/" badge, a non-member) and `group-skill-shares.spec.ts` (the target
 choice, a member reviews and applies).
 
+## Admin reads are kept for a minute; room pictures are kept per sign-in (perf/admin-media-cache, 2026-11-13)
+
+Cache audit 2026-11-13, batch D (Fast 3G + 4x CPU): every admin tab read the members and groups lists again (Team
+settings asked for each three times, in three rounds), Admin home asked 13 questions on every return, and a room
+picture was checked again by the server on every view (one round trip each).
+
+**Admin reads are kept for a minute** (`web/src/store/adminPeople.ts`):
+
+- One store for the admin screens' reads: members (`users`, and `users:noAi` for Members and Admin home), groups,
+  invites, the admin AI engines, team AI accounts, usage limits, and Admin home's cards. Everything that asks while a
+  read is on its way waits for that one request. An answer is used again for 60 s without asking; older, it shows at
+  once and is read again behind it (no skeleton on a return).
+- Fresh after the admin's own change: any request of this window that is not GET or HEAD (`lib/api.ts onApiWrite`)
+  makes every kept answer old, and an answer to a read that left before such a change is old too. The screens' own
+  Reload after a save asks at once, and `setData` changes the kept answer for every screen that shows it. Another
+  admin's change shows within a minute (there is no live event for admin lists).
+- Signed out, or another person signed in in this window: `App.tsx dropPersonStores` drops all of it, and an answer that
+  arrives after that is thrown away.
+- Team settings starts the AI groups' reads (engines, accounts, trial credit, limits, people) beside its own, on a
+  computer: they were three rounds one after another. Admin › System's own check still makes Admin home read the checks
+  again (`forgetKeptChecks`), and a phone's Back keeps them a minute as before.
+- Admin › Connectors read members' asks twice (once more when its own list arrived): the first list is not a change.
+- Not shared: Admin › Folder permissions still reads the folder list each time (a rule made meanwhile is never
+  missed; only its people and groups come from the store).
+
+**Room pictures are kept per sign-in** (`server/src/auth/media-key.ts`): a room file's id always means the same bytes, so
+its thumbnail and inline read may be kept by the browser. The rule that keeps this as strict as before:
+
+- Every request that reaches the server is checked exactly as before (in the room, the message there and visible, the
+  download-only list). Only Cache-Control changes, and only when the address carries the asking session's own media key
+  (`?k=`, from `GET /api/me` `session.mediaKey`): then `private, max-age=…, immutable`, at most a day and never past
+  the session's end. No key, another session's key, a download, a quarantined file: `private, no-cache` as before.
+- Why the key: a browser keeps answers by address. With one address for everyone, the next person on a shared
+  computer would be shown the last person's kept pictures without the server being asked. The key is an HMAC of the
+  session's token hash (never sent to a browser), different for every sign-in, so the next person's app asks for
+  addresses this browser never kept, and the server checks them. Never `public`: no proxy or CDN keeps a picture.
+- What is looser than before, on purpose: within the same sign-in, a picture already shown stays viewable from this
+  browser's cache for up to a day after the person lost access (left the room, the message deleted). The app no longer
+  links to it; the bytes were on that computer already (a `no-cache` answer is stored too).
+- Not changed: team file previews and HEIC previews (`/api/files/download`, `/api/files/preview`) and chat attachment
+  thumbnails keep `private, no-cache` with an ETag (a 304 without the bytes): their address names a path whose file
+  and folder access can change. Avatars were already versioned and immutable; they now load lazily, as do chip
+  thumbnails.
+
 ## Reads reach every window and device (fix/read-sync, 2026-11-07)
 
 The owner: "다른 곳(앱, 다른 웹)에서는 읽었는데 여기서는 또 안 읽었다고 알림도 울리고 계속 1 떠 있네". Placement: Team AX

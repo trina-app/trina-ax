@@ -17,6 +17,7 @@ import { useWelcome } from '../../store/welcome'
 import { IconButton } from '../../components/ui'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { technicalEngineState } from './plain'
+import { loadAdminEngines, loadAdminInvites, loadAdminUsers, readAdmin } from '../../store/adminPeople'
 
 /** Admin › Home's setup part for the owner: while the welcome steps are unfinished nothing but, when the setup row was
  * hidden, "시작 설정 다시 보기"; else the checklist below. Nothing until the steps' progress is read. */
@@ -83,7 +84,8 @@ export function OwnerChecklist({ compact }: { compact?: boolean } = {}) {
   useEffect(() => {
     if (hidden) return
     let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
+    // engines, people and invites: Admin home reads them too (store/adminPeople.ts: one request for both)
+    Promise.allSettled([readAdmin('engines', loadAdminEngines), readAdmin('users', loadAdminUsers).then((items) => ({ items })), readAdmin('invites', loadAdminInvites).then((items) => ({ items })), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
       if (!live) return
       setSteps({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && (x.status === 'ok' || x.status === 'limited' || technicalEngineState(x.status))),

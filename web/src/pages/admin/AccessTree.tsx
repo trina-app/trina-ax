@@ -49,6 +49,7 @@ import { FOLDER_Q } from './adminScreens'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { setPeopleRefocus } from './folder-slots'
 import { BarAdd } from './barActions'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -371,8 +372,8 @@ export default function AccessTree() {
   const navigate = useNavigate()
   const tree = useTreeData()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [ready, setReady] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)

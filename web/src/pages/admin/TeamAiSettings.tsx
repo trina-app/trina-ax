@@ -20,13 +20,14 @@ import { api, API } from '../../lib/api'
 import { formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
-import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
-import { PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { Loadable, OneLine, SettingRow, SettingsSection, useAction, useActionOk, useFocusAfterRemove, useOneAtATime } from './common'
+import { loadTeamCredentials, loadTrialCredit, PersonalCredentialList, useTeamCredentials, type TeamCredentials } from './Credentials'
 import { useKeptDraft } from '../../lib/keptDraft'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { PhoneChecks } from '../../components/phone/PhoneChecks'
 import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 import { AdminBarActions, BarAdd, useAdminBarSlot } from './barActions'
+import { loadAdminEngines, preloadAdminPeople, readAdmin, useAdminGroups, useAdminRead, useAdminUsers } from '../../store/adminPeople'
 
 type EnginesData = EnginesResponse
 
@@ -47,6 +48,18 @@ export function defaultEngineChoices(engines: EnginesData['engines'], saved: Eng
 
 /** The AI groups of Team settings; `#ai` and `#ai-limits` in the address bring their group into view. `part`: a phone's
  * group of Team settings (teamSettingsGroups.ts): the engine's groups, or the usage limits alone. */
+const loadBudgets = async () => (await api.call(API.listBudgets)).items
+
+/** Start the reads of the AI groups now: Team settings shows them only after its own read, and would otherwise ask
+ * for them one after another. */
+export function preloadTeamAi() {
+  void readAdmin('engines', loadAdminEngines).catch(() => {})
+  void readAdmin('budgets', loadBudgets).catch(() => {})
+  void readAdmin('credentials', loadTeamCredentials).catch(() => {})
+  void readAdmin('trialCredit', loadTrialCredit).catch(() => {})
+  preloadAdminPeople()
+}
+
 export default function TeamAiSettings({ part }: { part?: 'engine' | 'limits' }) {
   const { hash } = useLocation()
   if (part === 'limits') return <div data-testid="team-ai-settings"><Budgets openHere={hash === '#ai-limits'} /></div>
@@ -55,7 +68,7 @@ export default function TeamAiSettings({ part }: { part?: 'engine' | 'limits' })
 
 function EngineGroups({ limits }: { limits: boolean }) {
   const { hash } = useLocation()
-  const state = useLoad(() => api.call(API.engines))
+  const state = useAdminRead('engines', loadAdminEngines)
   const tc = useTeamCredentials()
   const top = useRef<HTMLHeadingElement>(null)
   // opened at #ai (an old "Team provider settings" link): this group into view, the focus on its title
@@ -177,8 +190,8 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
 function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
   const t = useT()
   const act = useAction()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
   const [fallback, setFallback] = useState(data.limitFallback)
   const [busy, setBusy] = useState(false)
@@ -319,9 +332,9 @@ function Budgets({ openHere }: { openHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const actOk = useActionOk()
-  const budgets = useLoad(async () => (await api.call(API.listBudgets)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const budgets = useAdminRead('budgets', loadBudgets)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   // opened from a "Usage limits" link (Usage, AI providers): bring this group into view and put the focus on its title,
