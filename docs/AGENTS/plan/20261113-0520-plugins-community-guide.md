@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 05:20
 - Branch: `feat/plugins-community-guide`
-- Status: in progress
+- Status: done
 - Where: docs/site (public docs) and web/src/pages/admin/Plugins.tsx. Why: the only plugin page is filed under "For
   AI agents", and the admin page does not say that anyone can build a plugin (QA sheet TC-195 / TC-745, TC-194 / TC-744).
 - Version impact: patch. New docs and words on an existing page; no API, format or behaviour change.
@@ -56,4 +56,8 @@ migration, no permission change.
 
 ## Result
 
-(filled in at the end)
+Built as planned. Sharing points to the Discord link in README.md and to GitHub issues / pull requests (no template
+repo or listing exists). The guide's example was installed with Install from file on a development server with
+`MYCEL_PLUGINS_ALLOW_UNSIGNED=1` (shown as Unverified; the skill appeared in Team skills), and
+`tests/unit/plugins-guide.test.ts` keeps the example true. Nothing was removed from the page; the community part is one
+heading, one line and two links inside Discover, not a card.

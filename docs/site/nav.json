@@ -21,6 +21,7 @@
     { "title": "Developer guide", "groups": [
       { "title": "Understand the code", "pages": ["develop/architecture", "develop/repository-layout"] },
       { "title": "Make a change", "pages": ["develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing"] },
+      { "title": "Plugins", "pages": ["develop/plugins"] },
       { "title": "Releases", "pages": ["develop/versioning", "develop/core-and-trina"] }
     ] },
     { "title": "For AI agents", "groups": [

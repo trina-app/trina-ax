@@ -5,7 +5,9 @@
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only. On a phone a plugin's page
 // is the plugin alone, under "‹ Plugins": the title row (search, Install from file) is the list's (QA TC-269 step 2).
-import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
+// Under the official list, "Community plugins" is one line and two links to the public guide, not a list: there is no
+// community registry, and a community plugin installs only through Install from file with the same checks (QA TC-194).
+import { AlertTriangle, ArrowLeft, ArrowUpCircle, BadgeCheck, BookOpen, Cable, Check, Cpu, ExternalLink, FileText, FileUp, Globe, Languages, Loader2, Minus, Plus, Puzzle, Search, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
@@ -22,6 +24,30 @@ import { Loadable, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 
 type T = ReturnType<typeof useT>
+
+/** The public guide for people who build plugins (docs/site/develop/plugins.md), and its part on sharing one. */
+const PLUGIN_GUIDE = 'https://ax.trina.app/docs/develop/plugins/'
+const PLUGIN_SHARE = `${PLUGIN_GUIDE}#share-your-plugin`
+
+/** No community list exists: an honest line and the guide's two links (each opens the public docs in a new tab). */
+function CommunityPlugins() {
+  const t = useT()
+  const id = useId()
+  return (
+    <div aria-labelledby={id} role="group" className="mt-6" data-testid="plugins-community">
+      <h4 id={id} className="text-sm font-medium text-muted">{t('plugins.community')}</h4>
+      <p className="mt-1 max-w-3xl text-sm text-muted">{t('plugins.community.empty')}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-3.5 text-sm font-medium text-ink hover:bg-hover max-md:min-h-11" data-testid="plugins-build">
+          {t('plugins.community.build')}<ExternalLink size={13} aria-hidden /><span className="sr-only"> ({t('accessView.newTab')})</span>
+        </a>
+        <a href={PLUGIN_SHARE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-accent-text hover:underline max-md:min-h-11" data-testid="plugins-share">
+          {t('plugins.community.share')}<ExternalLink size={13} aria-hidden /><span className="sr-only"> ({t('accessView.newTab')})</span>
+        </a>
+      </div>
+    </div>
+  )
+}
 
 /** A refusal in the admin's language: the server's params.reason, else the generic text. */
 function refusal(t: T, e: unknown, locale: ReturnType<typeof useLocale>): string {
@@ -509,9 +535,10 @@ export default function Plugins() {
                     </ul>
                   </section>
                 )}
-                {(catalog.length > 0 || (!q && d.catalogSource === 'none')) && (
+                {(catalog.length > 0 || !q) && (
                   <section aria-labelledby={discoverId} className={installed.length > 0 ? 'mt-6 border-t border-line pt-6' : undefined} data-testid="plugins-discover">
                     <h3 id={discoverId} className={sectionTitle}>{t('connectors.discover')}</h3>
+                    {(catalog.length > 0 || (!q && d.catalogSource === 'none')) && <>
                     <div className="mb-3 flex items-center gap-2">
                       <h4 className="flex items-center gap-2 text-sm font-medium text-muted">
                         {q ? t('connectors.results') : t('plugins.catalog')}
@@ -522,6 +549,8 @@ export default function Plugins() {
                       ? <ul className={pluginListCls} data-testid="plugins-catalog">{catalog.map((c) => <DiscoverCard key={c.id} c={c} review={review} onOpen={() => setOpen(c.id)} />)}</ul>
                       : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
                     {d.catalogSource !== 'none' && <p className="mt-4 text-xs text-faint" data-testid="plugins-catalog-source">{t(`plugins.catalog.${d.catalogSource}` as MessageKey)}</p>}
+                    </>}
+                    {!q && <CommunityPlugins />}
                   </section>
                 )}
                 {imports.length > 0 && (
