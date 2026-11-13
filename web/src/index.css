@@ -69,20 +69,28 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* Computers read at the phone's sizes too (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, meta, times and
+     hints 13px, badges 12px, nothing else under 13px. Tailwind's text-xs and text-sm are raised here, at the root, so
+     every screen follows without a class change; text-base stays 16px. */
+  --text-xs: 0.8125rem; /* 13/18 */
+  --text-xs--line-height: calc(1.125 / 0.8125);
+  --text-sm: 0.9375rem; /* 15/22 */
+  --text-sm--line-height: calc(1.375 / 0.9375);
   /* The app's own type sizes next to Tailwind's text-xs / text-sm / text-base: reading (answers, messages, the message
      boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
      blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
      --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
-     step up (the @media block below); leading-reading is the line of room messages and the message boxes. In rem, as
+     step up in reading, label, base and code, and keep xs, sm and micro (the @media block below); leading-reading is the line
+     of room messages and the message boxes. In rem, as
      Tailwind's own, so the person's text size (lib/textSize.ts: the root font size) scales them; the px are at 기본. */
-  --text-reading: 0.9375rem; /* 15px */
+  --text-reading: 1rem; /* 16px */
   --text-label: 0.8125rem; /* 13px */
-  --text-micro: 0.6875rem; /* 11px */
-  --text-nano: 0.625rem; /* 10px */
+  --text-micro: 0.8125rem; /* 13px */
+  --text-nano: 0.75rem; /* 12px */
   --text-code: 0.8125rem; /* 13px */
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
-  --leading-reading: 1.5rem;
+  --leading-reading: 1.625rem; /* 26px */
   /* The list panels' type (the rail's panels: 트리나, 대화, 프로젝트, 파일, 활동; the phone lists and drawer that share
      their rows; docs/DESIGN-SYSTEM.md "Typography": row, list-heading, meta): `text-row` 15px for every row, a section's header and the fixed rows
      on top; `text-meta` 13px for a row's second line and tags (a project's "나만 · 3시간 전", a chat's project); `h-row`
@@ -208,7 +216,8 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   .presence-dot[data-presence-dot='away'] { background: Canvas; box-shadow: inset 0 0 0 2px CanvasText, 0 0 0 2px Canvas; }
 }
 
-/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
+/* Phones (below 768px, where the phone top bar and the tabs show): the text sizes at the phone floor (xs, sm and micro as
+   on computers, the others one step up; badges stay 11px)
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
    reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it

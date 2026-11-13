@@ -523,8 +523,9 @@ export function urlTransform(url: string): string {
 // the same way). text-reading is 15px, 17px on phones (index.css).
 const SIZES = {
   answer: 'text-reading leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-reading',
-  // (inline code is 0.85em; in small text on a phone that would read under 13px, so there it is the text's size)
-  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs max-md:prose-code:text-[1em]',
+  // (inline code is 0.85em; in small text (13px on every width) that would read under 12px, so there it is the text's size;
+  // a variant on both sides of 768px, so it wins over the base 0.85em whatever order the classes come out in)
+  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs max-md:prose-code:text-[1em] md:prose-code:text-[1em]',
 }
 
 /** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts).
