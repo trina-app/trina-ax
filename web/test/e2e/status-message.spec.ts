@@ -69,7 +69,7 @@ test('a suggestion: my emoji in the sidebar and on my messages, the words on hov
   await expect(runs.nth(1).getByTestId('status-emoji')).toHaveCount(0)
   // a mouse on it: the words and when it ends
   await runs.nth(0).getByTestId('status-emoji').hover()
-  await expect(page.getByRole('tooltip')).toHaveText(/^회의 중 · (오전|오후) \d{1,2}:\d\d까지$/)
+  await expect(page.getByRole('tooltip')).toHaveText(/^회의 중 · (\d{1,2}월 \d{1,2}일 )?(오전|오후) \d{1,2}:\d\d까지$/)
   await page.mouse.move(700, 500)
   // others see it after a reload too (the directory)
   await page.reload()
@@ -193,7 +193,7 @@ test.describe('a phone', () => {
     await page.getByTestId('status-suggestion').filter({ hasText: '집중하는 중' }).click()
     await page.getByTestId('status-save').click()
     await expect(page.getByTestId('status-dialog')).toHaveCount(0)
-    await expect(await myStatusRow(page)).toHaveText(/^🎧집중하는 중 · (오전|오후) \d{1,2}:\d\d까지$/)
+    await expect(await myStatusRow(page)).toHaveText(/^🎧집중하는 중 · (\d{1,2}월 \d{1,2}일 )?(오전|오후) \d{1,2}:\d\d까지$/)
   })
 })
 
