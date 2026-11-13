@@ -86,8 +86,12 @@ for (const phone of [false, true]) {
     // the row opens the task page; the newest run opens its chat, which marks it seen
     await morning.click()
     await expect(page).toHaveURL(/\/scheduled\/[^/]+$/)
+    const seen = page.waitForResponse((r) => /\/api\/chats\/[^/]+\/seen$/.test(r.url()) && r.ok())
     await page.getByTestId('schedule-history').getByTestId('schedule-run-link').first().click()
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+    await seen
+    // back to the start (not on the chat: there it has no marker anyway), and the list again
+    await page.goto('/')
     await showChats(page)
     await expect(navChatList(page).getByTestId('task-runs-row').filter({ hasText: '아침 요약' })).not.toHaveAttribute('data-unread', '')
   })
