@@ -79,7 +79,6 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
   + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
-export const SRT_SHELL_DESCRIPTION = srtShellDescription(false)
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
 
