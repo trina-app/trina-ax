@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
   aiSubagents: true,
-  /** a room's change card may offer "이 방에서는 항상 허용" (rooms/ai-grants.ts) */
+  /** the AI's cards may offer "Always allow" (chat/always-allow.ts; rooms/ai-grants.ts) */
   roomAlwaysAllow: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
   projectCreators: 'members',

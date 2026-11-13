@@ -2,6 +2,7 @@
 // Implements: ROOMS (shared/src/api/rooms.ts) and AI_ALLOWANCES (shared/src/api/ai-allowances.ts: what I allowed @트리나
 // in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
 // request never names an author or another member's read position.
+import { dropAlways, listAlways } from '../chat/always-allow'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
@@ -75,8 +76,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.pinRoom, ({ c, auth, params }) => rooms.pin(auth.user.id, params.id, c.get('locale')))
     kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
-    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: listGrants(ctx.db, auth.user.id) } })
-    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!deleteGrant(ctx.db, auth.user.id, params.id)) fail('not_found') })
+    // "Always allow" on a kind of card (chat/always-allow.ts) first, then the room folders
+    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)] } })
+    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
     kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk

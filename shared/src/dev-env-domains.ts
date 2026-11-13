@@ -56,7 +56,7 @@ export function cleanExtraDomains(list: readonly string[]): string[] {
 // ---------------- sites a person allows (docs/DECISIONS.md "Dev environment: sites a person allows") ----------------
 
 /** At most this many sites one person can allow "always". */
-export const DEV_ENV_MAX_USER_SITES = 100
+export const DEV_ENV_MAX_USER_SITES = 2000
 
 /** The warning that a person accepts to turn Full internet on. A new version (other words) turns it off for everyone
  * until each person accepts again; it never needs an admin. */

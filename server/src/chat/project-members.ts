@@ -50,6 +50,7 @@ import { readRooms } from './read-rooms'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
+import { alwaysHere, withAlways } from './always-allow'
 
 export const PROJECT_MEMBERS_TOOL = 'change_project_members'
 /** members cards one answer may show (a third ask is a new message) */
@@ -286,7 +287,7 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
@@ -413,7 +414,9 @@ export function projectMembersTool(exec: MembersExec): Tool {
     if (mode) return refused(mode.reason, mode.text)
     const s = state()
     if (s.declined) return refused('declined', refusal({ done: NONE, why: { kind: 'declined' }, also: 'The user said no to a members card earlier in this answer, so no other is asked in it; do not change the members another way', next: cardNext('declined') }))
-    if (s.shown >= MAX_MEMBER_CARDS) return refused('too_many', refusal({ done: NONE, why: { kind: 'limit', limit: `at most ${MAX_MEMBER_CARDS} members cards in one answer`, resets: 'with the user\'s next message' }, next: 'tell the user what is left; they can ask again in a new message' }))
+    // "Always allow" for members changes (chat/always-allow.ts; the owner, 2026-11-13): no card and no card limit
+    const always = alwaysHere(exec.alwaysPlace?.(), 'project_members')
+    if (always !== 'on' && s.shown >= MAX_MEMBER_CARDS) return refused('too_many', refusal({ done: NONE, why: { kind: 'limit', limit: `at most ${MAX_MEMBER_CARDS} members cards in one answer`, resets: 'with the user\'s next message' }, next: 'tell the user what is left; they can ask again in a new message' }))
     if (s.open || exec.openRequests().length) return refused('busy', refusal({ done: NONE, why: { kind: 'limit', limit: 'one card at a time: another card is waiting for the user\'s answer' }, next: 'wait for that answer, then call again' }))
     let user: Principal
     try { user = exec.livePrincipal() } catch { return refused('account_disabled', 'Access denied: this account is disabled.') }
@@ -444,16 +447,21 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const requestId = uuidv7()
     const base = { projectId: r.id, add: p.adds.map(keyOf), remove: p.removes.map(keyOf), gained: p.plan.gained.length, lost: p.plan.lost.length, notSaid: card.notSaid, readRooms: roomsRead, requestId }
     // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-    s.shown++
+    if (always !== 'on') s.shown++
     s.open = true
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
     try {
-      answer = await exec.askPerson({
-        kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-        options: [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }],
-        details: card.details,
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+      let missing: typeof answer.missing = null
+      const value = await withAlways(exec.alwaysPlace?.(), 'project_members', [{ label: MEMBERS_TEXT.yes[L], value: 'change' }, { label: MEMBERS_TEXT.no[L], value: 'skip' }], 'change', async (options, more) => {
+        const r = await exec.askPerson({
+          kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
+          options, details: card.details, ...more,
+          expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+        missing = r.missing
+        return r.value
+      })
+      answer = { value, missing }
     } finally { s.open = false }
     const v = Array.isArray(answer.value) && answer.value.length === 1 ? answer.value[0] : answer.value
     if (v !== 'change') {
