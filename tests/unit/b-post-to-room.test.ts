@@ -598,4 +598,38 @@ describe('to a teammate by name', () => {
       expect(audits('alice').at(-1)).toMatchObject({ target: m.id, kind: 'dm', people: 1, via: 'ai', ownWords: true, openedDm: true })
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_to_room') }
   })
+
+  test('a 1:1 chat whose name is only a part of the name typed, and no such person: asked, not posted to it', async () => {
+    const add = h.ctx.db.query("INSERT INTO users (id, username, name, role, status) VALUES (?, ?, ?, 'member', 'active')")
+    add.run('al', 'al1', 'Al')
+    add.run('minsu', 'ms1', '민수')
+    const al = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'al' } })).id
+    const ms = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'minsu' } })).id
+    // "Alice" (no such teammate but alice herself) holds "Al"; "김민수 씨" holds "민수"
+    for (const [ref, dm] of [['Alice', al], ['김민수 씨', ms]] as const) {
+      const before = authored(dm, 'alice')
+      const r = await turn('alice', post({ room: ref, text: 'Lunch?', own_words: true }))
+      expect(r.card).toBeNull()
+      expect(r.content).toContain(`only a part of the name matches "${ref}"`)
+      expect(r.content).toContain(`room_id=${dm}`)
+      expect(authored(dm, 'alice')).toBe(before)
+    }
+    // the name in full is that 1:1 chat
+    const full = await turn('alice', post({ room: 'Al', text: 'Lunch?', own_words: true }), { answer: 'no' })
+    expect(full.card!.question).toBe('Send this to 1:1 chat with Al (2 people)?')
+  })
+
+  test('the sending limit reached while the card waits: refused before the 1:1 chat is made, nothing left behind', async () => {
+    const rs = roomsOf(h.ctx)
+    const clockWas = rs.clock
+    try {
+      const r = await turn('alice', post({ room: 'person:hanap', text: 'Lunch?', own_words: true }), {
+        answer: 'send',
+        // time stands still and the budget is spent
+        meanwhile: () => { const now = clock; rs.clock = () => now; for (let i = 0; i < 100; i++) try { rs.takeSendToken('alice') } catch { break } },
+      })
+      expect(r.content).toContain('the sending limit')
+      expect(dmOf('alice', 'hanap')).toBeNull()
+    } finally { rs.clock = clockWas }
+  })
 })

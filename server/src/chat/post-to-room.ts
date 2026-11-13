@@ -174,9 +174,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const asked = f ? (f.exact ? others.filter((t) => t.exact) : others) : people.length > 1 ? people : []
           const morePeople = p && 'many' in p && p.total > p.many.length ? ` (the first ${p.many.length} of ${p.total} people who match: ask the user for a fuller name)` : ''
           const personLine = (t: Teammate) => `- ${neutralizeTags(oneLine(t.name, 80))} · a teammate${t.dmRoomId ? '' : ', no 1:1 chat with the user yet'} · room="${PERSON_REF}${t.id}"`
-          if (asked.length || (f && 'many' in f)) {
+          // a 1:1 chat found by a part of the name only ("Al" for "Alice", who left; "민수" for "김민수 씨"), and no person
+          // named so in full: a guess about who gets it, so the user is asked (with "Always allow" it would go unseen)
+          const guessDm = !!f && 'one' in f && !f.exact && f.one.room.kind === 'dm' && !people.some((t) => t.exact && t.dmRoomId === f.one.room.id)
+          if (asked.length || (f && 'many' in f) || guessDm) {
             const lines = [...roomsListed.map((r) => `- ${neutralizeTags(oneLine(titleOf(r.view), 80))} · last activity ${localTime(r.view.activityAt, rt.timeZone)} · room_id=${r.room.id}`), ...asked.map(personLine)]
-            return no(`Nothing was posted: several rooms or people match "${refAi}". Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
+            return no(`Nothing was posted: ${lines.length === 1 ? `only a part of the name matches "${refAi}"` : `several rooms or people match "${refAi}"`}. Ask the user which one they mean (name them), then call post_to_room again with its room_id or room="${PERSON_REF}<id>"${asked.length ? morePeople : ''}:\n${lines.join('\n')}`, `refused: ${lines.length} rooms or people match`)
           }
           if (f && 'one' in f) roomId = f.one.room.id
           else if (people.length === 1) {

@@ -25663,7 +25663,9 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   people are matched also when rooms match (review, 2026-11-13): a room match that is only a part of a name gives way to
   every other person who matches (a 1:1 chat with "Hana Kim" for "Hana" while Hana Park matches too; one with "Bob" for
   "Bob Kim"), an exact one (`findRoom`'s `exact`) to a person named in full; the people a listed 1:1 chat stands for
-  are not listed twice. Either way the user is asked: with "Always allow" a wrong guess would post with no card.
+  are not listed twice. A 1:1 chat found only because its name is a part of the name typed ("Al" for "Alice", who left;
+  "민수" for "김민수 씨"), with no person of that name: asked too, as the one candidate. Either way the user is asked:
+  with "Always allow" a wrong guess would post with no card.
   Disabled and deleted accounts and I myself are never found, by name or by `person:<id>`; the answer for them is the
   same as for nobody.
 - **The 1:1 chat is made on Send, not before.** With a 1:1 chat already there it is that room, unchanged. With none,
