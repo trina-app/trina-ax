@@ -2334,7 +2334,7 @@ export class MockServer {
       const x = this.chats.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
       // a shared chat of a project the caller was taken out of: 404 with the project's name (QA TC-1067)
       const pr = x.projectId ? this.projects.find((p) => p.id === x.projectId) : undefined
-      if (pr && this.sharedChats.has(x.id) && this.formerMembers.has(`${pr.id}:${c.user.id}`) && !this.projectSees(pr, c.user)) this.notFoundFor(pr.id, c.user.id)
+      if (pr && !x.deletedAt && this.sharedChats.has(x.id) && this.formerMembers.has(`${pr.id}:${c.user.id}`) && !this.projectSees(pr, c.user)) this.notFoundFor(pr.id, c.user.id)
       return x
     },
     getChatQueue: (c) => {

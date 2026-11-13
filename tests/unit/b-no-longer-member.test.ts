@@ -1,8 +1,9 @@
 // "You're no longer a member of <project>" (QA TC-1067; server/src/chat/project-joins.ts noLongerMember): someone taken
 // out of a team project (or who left it) opens their old link to it, or to one of its shared chats they saw, and gets a
 // 404 with one reason, `no_longer_member`, and the project's name. Nothing more: no other 404 body changes (a private
-// chat of someone else, a chat shared after they left, a project they were never in, a missing one), and adding them
-// back clears it. Every loss leaves an audit row `project.member_lost`. The members dialog's dry run names up to three
+// chat of someone else, a chat shared after they left, a shared chat deleted since, a project they were never in, a
+// missing one), and adding them back clears it. The name is the one they knew: the project's name when they lost it,
+// stored in the audit row, never a later rename (security review of #768); a row without it gives the plain 404. Every loss leaves an audit row `project.member_lost`. The members dialog's dry run names up to three
 // of the people who would lose it (`removedNames`).
 // Fixture (tests/lib/fixtures.ts): alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -46,7 +47,7 @@ describe('no longer a member', () => {
     const rows = lostRows(p.id, 'bob')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.actor).toBe('dana')
-    expect(JSON.parse(rows[0]!.detail)).toMatchObject({ projectId: p.id, userId: 'bob', via: 'project' })
+    expect(JSON.parse(rows[0]!.detail)).toMatchObject({ projectId: p.id, userId: 'bob', name: 'Atlas', via: 'project' })
     // the old links
     expect(await err(getProject('bob', p.id))).toMatchObject(GONE('Atlas'))
     expect((await err(getProject('bob', p.id)))!.message).toBe("더 이상 'Atlas' 프로젝트의 멤버가 아니에요.")
@@ -62,12 +63,33 @@ describe('no longer a member', () => {
     expect((await err(getProject('erin', p.id)))!.params).toBeNull()
     // a project that is not there: the plain 404
     expect((await err(getProject('bob', uuidv7())))!.params).toBeNull()
-    // added back: he reads it again, and if taken out again the reason comes back
+    // renamed after he was out: he still reads the name he knew, never the new one
+    await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { name: 'Layoffs 2027' } })
+    expect(db().query('SELECT name FROM projects WHERE id = ?').get(p.id)).toEqual({ name: 'Layoffs 2027' })
+    for (const e of [await err(getProject('bob', p.id)), await err(getChat('bob', seen))]) {
+      expect(e).toMatchObject(GONE('Atlas'))
+      expect(JSON.stringify(e)).not.toContain('Layoffs')
+    }
+    // a shared chat he saw, deleted since: the plain 404
+    const gone = chat(p.id, 'alice', true)
+    await put('dana', p.id, [user('alice'), user('bob')])
+    await put('dana', p.id, [user('alice')])
+    expect(await err(getChat('bob', gone))).toMatchObject(GONE('Layoffs 2027'))
+    db().query("UPDATE chats SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(gone)
+    expect(await err(getChat('bob', gone))).toEqual(await err(getChat('bob', uuidv7())))
+    // added back: he reads it again, and if taken out again the reason comes back, with the name of that time
     await put('dana', p.id, [user('alice'), user('bob')])
     expect((await getProject('bob', p.id)).id).toBe(p.id)
     expect((await getChat('bob', seen)).id).toBe(seen)
     await put('dana', p.id, [user('alice')])
-    expect(await err(getProject('bob', p.id))).toMatchObject(GONE('Atlas'))
+    expect(await err(getProject('bob', p.id))).toMatchObject(GONE('Layoffs 2027'))
+  })
+
+  test('a loss row without a name (an older build\'s): the plain 404, no reason', async () => {
+    const p = await make('dana', 'Delta', [user('bob')])
+    await put('dana', p.id, [])
+    db().query("UPDATE audit_log SET detail = json_remove(detail, '$.name') WHERE action = 'project.member_lost' AND target = ?").run(p.id)
+    expect((await err(getProject('bob', p.id)))!.params).toBeNull()
   })
 
   test('left it (through a group): the same reason', async () => {

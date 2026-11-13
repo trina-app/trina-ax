@@ -26392,11 +26392,13 @@ twice. Lean: things are removed, not added.
   Supersedes "taking people out alone saves at once" ("Project members in one panel").
 - **"You're no longer a member of <project>" (TC-1067).** Every loss of a team project leaves an audit row
   `project.member_lost` (`chat/project-joins.ts`, beside `project.member_gained`; the person, who did it, how; `self`
-  when they left). `GET /api/projects/:id` and `GET /api/chats/:id` of a shared chat answer someone whose latest
-  gained/lost row for that project is a loss with the 404 they had, plus `params: {reason: 'no_longer_member', project:
-  <name>}` and that sentence as the message. Only the project's name and that they were in it, both things they knew:
-  a chat shared after they lost it, someone else's private chat there, a project they were never in or one that is
-  gone keep the one 404 of a missing chat (docs "Team project chats shared by default"). Other project routes keep the
+  when they left; the project's `name` then). `GET /api/projects/:id` and `GET /api/chats/:id` of a shared chat answer
+  someone whose latest gained/lost row for that project is a loss with the 404 they had, plus `params: {reason:
+  'no_longer_member', project: <name>}` and that sentence as the message. The name is the one stored in that row,
+  never the project's current name (security review of #768: a removed member would otherwise learn every later
+  rename); a row without one gives the plain 404. Only that name and that they were in it, both things they knew: a
+  chat shared after they lost it, a shared chat deleted since, someone else's private chat there, a project they were
+  never in or one that is gone keep the one 404 of a missing chat (docs "Team project chats shared by default"). Other project routes keep the
   plain 404. No migration: the trail is the audit log (its index on target and action); if retention dropped the row,
   the generic text comes back. The chat page and the project page show the sentence with a link to Projects.
 - **A private chat says so (TC-1068).** Its header has a lock (`PrivateChatMark`, "Only you see this chat" as tooltip

@@ -277,9 +277,10 @@ export function chatFor(rt: ChatRuntime, userId: string, id: string, mode: 'view
   const project = rt.store.projectRow(r.project_id!)
   const me = loadPrincipal(rt.db, userId)
   if (!project || !me || !projectSeenByAll(rt.db, rt.files, project, [userId])) {
-    // someone taken out of its project (or who left it) opens a shared chat they saw while in it: one plain reason,
-    // the project's name only (QA TC-1067); everyone else gets the one 404 of a missing chat
-    const gone = project && me && r.shared_at ? noLongerMember(rt.db, project.id, userId) : null
+    // someone taken out of its project (or who left it) opens a shared chat they saw while in it, still there: one plain
+    // reason, the project's name as it was then (QA TC-1067); a deleted chat and everyone else get the one 404 of a
+    // missing chat
+    const gone = project && me && r.shared_at && !r.deleted_at ? noLongerMember(rt.db, project.id, userId) : null
     if (gone && r.shared_at! <= gone.at) return fail('not_found', tr('projectNoLongerMember', L, { name: gone.name }), { params: { reason: 'no_longer_member', project: gone.name } })
     return fail('not_found')
   }

@@ -55,7 +55,7 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
       const nowIds = new Set(now.map((p) => p.id))
       for (const id of was) {
         if (nowIds.has(id) || (by.only && !by.only.has(id)) || !after.principals.some((p) => p.id === id)) continue
-        audit(ctx.db, { actor: by.actor, action: 'project.member_lost', target: pr.id, detail: { projectId: pr.id, userId: id, via: by.via, ...(by.actor === id ? { self: true } : {}) } })
+        audit(ctx.db, { actor: by.actor, action: 'project.member_lost', target: pr.id, detail: { projectId: pr.id, userId: id, name: pr.name, via: by.via, ...(by.actor === id ? { self: true } : {}) } })
       }
       if (!gained.length) continue
       for (const g of gained) {
@@ -82,14 +82,16 @@ export function projectJoinsOfNewAccount(ctx: AppContext, userId: string, actor:
  * A team project `userId` read once and does not read now: its name, for the one sentence their old link to it (or to
  * one of its shared chats they saw) shows, "You're no longer a member of <project>" (QA TC-1067). Only when the latest
  * of their `project.member_gained` / `project.member_lost` rows for it is a loss (`at`: when), so it tells them nothing
- * they did not know: the project's name and that they were in it. Null otherwise (never a member, back in it since, or
- * the trail is gone): the generic not-found.
+ * they did not know: the project's name AS IT WAS when they lost it (stored in that row; never its current name, which
+ * would tell them every later rename: security review of #768) and that they were in it. Null otherwise (never a
+ * member, back in it since, the project gone, a row without a name, or the trail gone): the generic not-found.
  */
 export function noLongerMember(db: Database, projectId: string, userId: string): { name: string; at: string } | null {
   try {
-    const row = db.query(`SELECT a.action, a.at, p.name FROM audit_log a JOIN projects p ON p.id = a.target
+    // the projects join only checks that the project still exists; the name is the row's own
+    const row = db.query(`SELECT a.action, a.at, json_extract(a.detail, '$.name') AS name FROM audit_log a JOIN projects p ON p.id = a.target
       WHERE a.target = ? AND a.action IN ('project.member_gained', 'project.member_lost') AND json_valid(a.detail)
-      AND json_extract(a.detail, '$.userId') = ? ORDER BY a.id DESC LIMIT 1`).get(projectId, userId) as { action: string; at: string; name: string } | null
-    return row && row.action === 'project.member_lost' ? { name: row.name, at: row.at } : null
+      AND json_extract(a.detail, '$.userId') = ? ORDER BY a.id DESC LIMIT 1`).get(projectId, userId) as { action: string; at: string; name: unknown } | null
+    return row && row.action === 'project.member_lost' && typeof row.name === 'string' && row.name ? { name: row.name, at: row.at } : null
   } catch { return null }
 }
