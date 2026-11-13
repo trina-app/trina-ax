@@ -11,7 +11,7 @@
 // phone-chats-tab.spec.ts).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { tabButton, tabMark } from './nav'
+import { phoneTrinaHome, tabButton, tabMark } from './nav'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
 import { DICTS } from '../../src/i18n'
 
@@ -47,7 +47,14 @@ async function start(page: Page) {
     const q = new URL(route.request().url()).searchParams.get('q') ?? ''
     return route.fulfill(json(q.includes('견적') ? { items: [HIT], rooms: [{ id: TEAM, kind: 'team', name: '디자인 리뷰', peers: [MINJUN, SEOYEON], memberCount: 3 }], nextCursor: null } : { items: [], rooms: [], nextCursor: null }))
   })
+  await signedInOnList(page)
+}
+
+/** Signed in, on the 트리나 tab's list (`/`): signIn leaves a phone on the new-chat box (/new), which has no tab bar. */
+async function signedInOnList(page: Page) {
   await signIn(page)
+  await page.goto('/')
+  await expect(phoneTrinaHome(page)).toBeVisible()
 }
 
 /** An admin's busy week: 35 notices of the app's own (a connection to sign in again), all newer than one mention; the
@@ -68,7 +75,7 @@ async function startBusy(page: Page, slow = 0) {
     const next = from + limit < all.length ? String(from + limit) : null
     return route.fulfill({ json: { items: all.slice(from, from + limit), nextCursor: next, unreadCount: 36, roomUnreadCount: 1 } })
   })
-  await signIn(page)
+  await signedInOnList(page)
   return asked
 }
 
@@ -139,8 +146,9 @@ export function chatsTabCases() {
 
     test('step 2: mentions and thread replies from 대화, each unread counted once across the tabs', async ({ page }) => {
       await start(page)
-      // 대화: the rooms' own count (2 + a thread + 1); 나: only the scheduled task's result, not the mention or reply again
-      await expect(tabMark(page, 'chats')).toContainText('4')
+      // 대화: how many conversations have something unread (the rail's one number, rail/railBadges.ts chatsMark: 디자인
+      // 리뷰 and 지호's DM); 나: only the scheduled task's result, not the mention or reply again
+      await expect(tabMark(page, 'chats')).toContainText('2')
       await expect(tabMark(page, 'me')).toContainText('1')
       await expect(tabMark(page, 'me')).not.toContainText('3')
       // 나's 활동 row says what the 나 tab says

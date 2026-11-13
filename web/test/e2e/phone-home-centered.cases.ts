@@ -14,6 +14,9 @@
 // TC-252 with the card: the keyboard up and a long draft, the whole card stays within 35 % of what is in sight.
 // Every Home state (the owner's first time, the goal card, a member's first time, an invited member's welcome, a member
 // who chatted, an empty team) fits without overlap; SHOTS_DIR=<folder> saves each one.
+// With the phone tabs 트리나 · 대화 · 파일 · 나 (docs/DECISIONS.md "Phone tabs") `/` on a phone is 트리나's list and this
+// page is the new-chat box, /new, which shows no tab bar (lib/tabs.ts hidesTabs): the card sits at the bottom of the
+// screen, and "switch tabs and come back" is ‹ to the list, another tab, then 트리나에게 묻기 again.
 // Each test runs in Chromium (Android's engine: phone-home-centered.spec.ts) and WebKit (the iPhone app's:
 // phone-home-centered.webkit.spec.ts).
 import fs from 'node:fs'
@@ -21,7 +24,7 @@ import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
-import { openTab, tabBar } from './nav'
+import { newChatButton, openTab, tabBar } from './nav'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -94,14 +97,21 @@ async function greetingCentred(page: Page) {
   expect(Math.abs(m.x + m.width / 2 - (g.x + g.width / 2))).toBeLessThanOrEqual(2)
 }
 
-/** the card right above the tab bar, the tab bar in sight */
-async function cardOnTabs(page: Page) {
-  const tabs = tabBar(page)
-  await expect(tabs).toBeVisible()
-  const dock = await box(page.getByTestId('home-dock')), bar = await box(tabs)
-  expect(Math.abs(dock.y + dock.height - bar.y)).toBeLessThanOrEqual(1)
+/** the new-chat page shows no tab bar (lib/tabs.ts hidesTabs): the card right at the bottom of the screen */
+async function cardAtBottom(page: Page) {
+  await expect(tabBar(page)).toHaveCount(0)
+  const dock = await box(page.getByTestId('home-dock'))
+  const bottom = await page.evaluate(() => window.innerHeight)
+  expect(Math.abs(dock.y + dock.height - bottom)).toBeLessThanOrEqual(1)
   const card = await box(page.getByTestId('composer'))
-  expect(card.y + card.height).toBeLessThanOrEqual(bar.y)
+  expect(card.y + card.height).toBeLessThanOrEqual(bottom)
+}
+
+/** 트리나에게 묻기 from the 트리나 tab's list: the new-chat page */
+async function openNew(page: Page) {
+  await (await newChatButton(page)).click()
+  await expect(page).toHaveURL(/\/new$/)
+  await expect(page.getByTestId('composer-input')).toBeVisible()
 }
 
 /** one card: the text on top, a row under it with + · (the engine picker) · mic · send, each taking taps from 44 px; no
@@ -204,10 +214,12 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
     open: async (page) => {
       await signIn(page)
       await call(page, 'POST', '/api/onboarding/welcome/team')
-      // opening the app lands on the unfinished steps (once); ‹ leads to Home, which keeps their row at the top
+      // opening the app lands on the unfinished steps (once); ‹ leads to 트리나's list, and the new-chat page keeps
+      // their row at the top
       await page.goto('/')
       await page.getByTestId('welcome-bar-back').click()
       await expect(page).toHaveURL(/\/$/)
+      await openNew(page)
     },
     ready: (page) => page.getByTestId('welcome-resume'),
   },
@@ -219,7 +231,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await call(page, 'PATCH', '/api/onboarding/welcome', { finish: true })
       await call(page, 'POST', '/api/onboarding/packs/work/install', { skills: ['humanizer'] })
       await call(page, 'POST', '/__test/team-goal', goal())
-      await page.goto('/')
+      await page.goto('/new')
     },
     ready: (page) => page.getByTestId('team-goal'),
   },
@@ -228,7 +240,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
     open: async (page) => {
       await teamWithSkills(page)
       await signIn(page, BOB)
-      await openTab(page, 'ai')
+      await openNew(page)
     },
     ready: (page) => page.getByTestId('team-prepared'),
   },
@@ -240,7 +252,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
         owner: { id: 'olga', name: 'Olga' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false,
       } } })
       await signIn(page, BOB)
-      await openTab(page, 'ai')
+      await openNew(page)
     },
     ready: (page) => page.getByTestId('member-welcome'),
   },
@@ -251,7 +263,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await teamWithSkills(page)
       await signIn(page, BOB)
       for (const title of ['a', 'b', 'c', 'd', 'e']) await call(page, 'POST', '/api/chats', { title })
-      await page.goto('/')
+      await page.goto('/new')
     },
     ready: (page) => page.getByTestId('often-asked').or(page.getByTestId('team-prepared')),
   },
@@ -262,7 +274,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await teamWithSkills(page)
       await page.route('**/api/me/ai-access', (r) => r.fulfill({ json: { usable: false, action: 'ask_owner', requested: false } }))
       await signIn(page, BOB)
-      await openTab(page, 'ai')
+      await openNew(page)
     },
     ready: (page) => page.getByTestId('home-top').locator(':scope > *').first(),
   },
@@ -273,7 +285,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await signIn(page)
       await call(page, 'POST', '/api/onboarding/welcome/team')
       await call(page, 'PATCH', '/api/onboarding/welcome', { finish: true })
-      await page.goto('/')
+      await page.goto('/new')
     },
     ready: (page) => page.getByTestId('team-prepared-add'),
   },
@@ -316,13 +328,14 @@ export function homeCenteredCases() {
         await page.emulateMedia({ colorScheme: 'light' })
         await reset(page)
         await signIn(page)
-        // 1. Open the app on the 트리나 tab
+        // 1. Open the new-chat page from the 트리나 tab
         await page.goto('/')
+        await openNew(page)
         await expect(page.getByTestId('composer-input')).toBeVisible()
         await expect(page.getByTestId('engine-picker')).toBeVisible()
         // 2. Look without touching: nothing focused, the tab bar there, the greeting in the middle, one card
         await notFocused(page)
-        await cardOnTabs(page)
+        await cardAtBottom(page)
         await greetingCentred(page)
         await oneCard(page, true)
         await shot(page, `steps-${size.width}-1-open.png`)
@@ -340,20 +353,20 @@ export function homeCenteredCases() {
           // put away (iOS's Done or a swipe down): the field lets go of the focus
           await input.evaluate((el) => el.blur())
           await closeKeyboard(page, kind, size)
-          await cardOnTabs(page)
+          await cardAtBottom(page)
           await notFocused(page)
         }
 
-        // 4. Switch tabs and come back (대화: a tab whatever the other tabs are; after a focus too, twice): the box is not
-        // focused by itself
+        // 4. Switch tabs and come back (‹ to the list, 대화, 트리나 and 트리나에게 묻기 again; after a focus too, twice):
+        // the box is not focused by itself
         for (let round = 0; round < 2; round++) {
           await openTab(page, 'chats')
           await expect(page.getByTestId('composer-input')).toHaveCount(0)
           await openTab(page, 'ai')
           await expect(page).toHaveURL(/\/$/)
-          await expect(page.getByTestId('composer-input')).toBeVisible()
+          await openNew(page)
           await notFocused(page)
-          await cardOnTabs(page)
+          await cardAtBottom(page)
         }
         await greetingCentred(page)
       })
@@ -382,28 +395,30 @@ export function homeCenteredCases() {
 
       test('sign-in and Back from a chat: the box is not focused by itself', async ({ page }) => {
         await reset(page)
+        // a phone signs in on 트리나's list (signIn then opens the new-chat page)
         await signIn(page)
-        await expect(page).toHaveURL(/\/$/)
+        await expect(page).toHaveURL(/\/new$/)
         await notFocused(page)
         await page.getByTestId('composer-input').fill('안녕하세요')
         await page.getByTestId('send').click()
         await expect(page).toHaveURL(/\/c\//)
         await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+        // ‹ goes back to where the chat was started: the new-chat page
         await page.getByTestId('chat-back').click()
-        await expect(page).toHaveURL(/\/$/)
+        await expect(page).toHaveURL(/\/new$/)
         await expect(page.getByTestId('composer-input')).toBeVisible()
         await notFocused(page)
-        await cardOnTabs(page)
+        await cardAtBottom(page)
       })
 
       test('TC-182 with the card: one engine on, no picker in it; + · mic · send stay', async ({ page }) => {
         await reset(page)
         await signIn(page)
         await call(page, 'PATCH', '/api/admin/engines', { enabled: { codex: false } })
-        await page.goto('/')
+        await page.goto('/new')
         await expect(page.getByTestId('composer-tools')).toBeVisible()
         await oneCard(page, false)
-        await cardOnTabs(page)
+        await cardAtBottom(page)
       })
 
       test('every Home state fits without overlap, the card above the tab bar', async ({ page }) => {
@@ -427,7 +442,7 @@ export function homeCenteredCases() {
             await page.getByTestId('home-scroll').evaluate((el) => { el.scrollTop = 0 })
             await shot(page, `${size.width}-${state.name}.png`)
             // the card stays docked right above the tab bar, scrolled or not
-            await cardOnTabs(page)
+            await cardAtBottom(page)
           })
         }
       })
