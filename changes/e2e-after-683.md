@@ -1,1 +1,0 @@
-- Tests: the browser tests follow the navigation of #683 (프로젝트 as its own place, the phone 트리나 tab as before).

@@ -1,1 +1,0 @@
-- Admin: Team settings and System now sit in the middle of the page on wide screens instead of at the left edge.
