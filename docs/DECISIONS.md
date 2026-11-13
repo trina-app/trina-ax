@@ -17542,7 +17542,11 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   quiet line, saving still works. No members picker, no instructions box, no where-question here.
 - **Entry points**: "+ 새 프로젝트" on top of 프로젝트's list (computer panel and phone tab), the Projects page and ⌘K's "New
   project", and a chat's **프로젝트로 옮기기 › + 새 프로젝트**: the chat's title is the name (selected), 만들기 makes it and moves
-  the chat in, the toast has 되돌리기. The move list says who sees each project ("나만", "멤버 4명"), never its folder path;
+  the chat in, the toast has 되돌리기. 되돌리기 moves the chat back and then deletes the project made in that step,
+  with its empty folder, only while it is still as it was made (owner 2026-11-13): mine, still 나만, no chats (anyone's,
+  in the trash too), no files or folders in it, no instructions, no scheduled task (`DELETE /api/projects/:id?ifEmpty=1`,
+  checked again in the deleting transaction; the folder goes by rmdir, so a file saved meanwhile keeps it). Otherwise
+  (409 `project_not_empty`) the project stays, without a word, and a move back that fails leaves it alone. The move list says who sees each project ("나만", "멤버 4명"), never its folder path;
   its hint: "다음 답부터 트리나가 이 프로젝트의 파일과 지침을 봐요." Choosing an existing project still uses 저장, because the
   "프로젝트 멤버와 공유" switch for sharing projects lives in that dialog (left as is).
 - **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
