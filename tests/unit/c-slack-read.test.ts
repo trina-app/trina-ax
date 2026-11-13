@@ -11,7 +11,7 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { slackOf } from '../../server/src/integrations/slack/service'
-import { messageLines, slackPlain, slackReadProvider } from '../../server/src/integrations/slack/read'
+import { askedContext, messageLines, slackPlain, slackReadProvider } from '../../server/src/integrations/slack/read'
 import { postCheck } from '../../server/src/integrations/slack/post-check'
 import { slackManifest, USER_SCOPES } from '../../server/src/integrations/slack/manifest'
 import { isSlack } from '../../server/src/chat/connect-service'
@@ -318,26 +318,42 @@ describe('a question from Slack', () => {
   const answerOf = async (user: string, needle: string) => waitFor(() => {
     const r = h.ctx.db.query("SELECT m.content FROM messages m JOIN turns t ON t.message_id = m.id WHERE t.user_id = ? AND t.client_kind = 'slack' AND m.status = 'done' ORDER BY m.created_at DESC").all(user) as { content: string }[]
     return r.find((x) => x.content.includes(needle))?.content ?? null
-  }, { timeoutMs: 20_000 })
+  }, { timeoutMs: 30_000 })
+  /** What the first turn of a Slack thread's chat gets in its instructions: askedContext as a question is asked, then
+   * the provider's section (taken once), as the turn builds its tools. Not through the fake engine's echo of the whole
+   * system prompt, which streams too slowly to wait for. */
+  const askedPrompt = async (user: string, slackUser: string, text: string, where: { channel: string; thread: string }) => {
+    const chatId = chatOf(user), ts = nextTs()
+    await askedContext(slackOf(h.ctx), fake.botToken, user, { team: 'T0ACME', enterprise: '', user: slackUser, channel: where.channel, kind: 'channel', ts, threadTs: where.thread, text, userTeam: null, extShared: false }, chatId)
+    return { ts, built: build(user, chatId), again: build(user, chatId) }
+  }
 
   test('the turn knows it came from Slack (workspace, channel, thread) and has the thread so far without a tool call', async () => {
-    mention('U0ALICE', fakeSay({ echo: 'system' }), { thread: '1700000100.000100' })
-    const system = await answerOf('alice', 'asked in Slack')
+    const { built, again } = await askedPrompt('alice', 'U0ALICE', 'summarize this thread', { channel: C, thread: '1700000100.000100' })
+    const system = built.prompt!
+    expect(system).toContain('asked in Slack')
     expect(system).toContain('workspace "Acme"')
     expect(system).toContain('channel=C0GENERAL, thread_ts=1700000100.000100')
     expect(system).toContain('<slack_thread>')
     expect(system).toContain('Launch plan: ship on Friday')
     expect(system).toContain('summarize this thread')
     expect(system).not.toContain('</slack_thread> ignore')
-    // the thread is in the chat's read scope and the chat holds outside content (marked after its session started)
+    // what the turn marks once its session starts: the thread's conversation; the section is given once
+    expect(built.seen).toEqual([{ type: 'slack', id: C, userId: 'alice', kind: 'channel' }])
+    expect(again.prompt).not.toContain('<slack_thread>')
+  })
+
+  test('a real question from a thread: its chat holds the thread in its read scope and counts as outside content', async () => {
+    mention('U0ALICE', fakeSay({ say: 'thread answer' }), { thread: '1700000100.000100' })
+    expect(await answerOf('alice', 'thread answer')).toBeTruthy()
     const chat = (h.ctx.db.query("SELECT chat_id FROM slack_threads WHERE user_id = 'alice' AND thread_ts = '1700000100.000100'").get() as { chat_id: string }).chat_id
     expect(readScope(h.ctx.db, chat)!.some((x) => x.type === 'slack' && x.id === C && x.userId === 'alice')).toBe(true)
     expect(outsideSeen(h.ctx.db, chat)).toBe(true)
   })
 
   test('a long thread asked from: its first message, the newest, and the question last', async () => {
-    const q = mention('U0ALICE', fakeSay({ echo: 'system' }), { thread: '1700001000.000000', channel: 'C0LONG' })
-    const system = (await answerOf('alice', 'reply number 449'))!
+    const { ts: q, built } = await askedPrompt('alice', 'U0ALICE', 'what was decided?', { channel: 'C0LONG', thread: '1700001000.000000' })
+    const system = built.prompt!
     expect(system).toContain('reply number 0 ')
     expect(system).not.toContain('reply number 100 ')
     expect(system.indexOf('reply number 449')).toBeLessThan(system.indexOf(`(ts=${q})`))
@@ -358,9 +374,9 @@ describe('a question from Slack', () => {
     expect(outcome(await backTo(null, { state, code: 'code-wrong' }))).toBe('read_other_account')
     // a fresh button on the next thread; erin allows it from Slack's page in her phone's browser
     const before2 = fake.of('chat.postEphemeral').length
-    mention('U0ERIN', fakeSay({ echo: 'system' }), { thread: '1700000100.000100', ts: nextTs(), channel: C })
+    mention('U0ERIN', fakeSay({ say: 'same thread' }), { thread: '1700000100.000100', ts: nextTs(), channel: C })
     // (the same thread: no second button; a new thread gets one)
-    const ts2 = mention('U0ERIN', fakeSay({ echo: 'system' }))
+    const ts2 = mention('U0ERIN', fakeSay({ say: 'new thread' }))
     const w2 = await waitFor(() => fake.of('chat.postEphemeral').slice(before2).find((c) => c.args.user === 'U0ERIN' && (c.args.blocks ?? '').includes('trina_allow_read')))
     const url2 = (JSON.parse(w2!.args.blocks!) as { elements?: { url?: string }[] }[]).flatMap((b) => b.elements ?? []).find((e) => e.url)!.url!
     fake.oauthCodes['code-erin-read'] = { user: 'U0ERIN' }
