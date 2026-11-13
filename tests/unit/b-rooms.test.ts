@@ -176,11 +176,11 @@ test('reading: my own position and badge only, forward only; no message says who
   expect(await teamRoom(otto.client)).toMatchObject({ unreadCount: 1, lastReadSeq: 2 })
 })
 
-test('a private message (reserved for the AI step) is seen by its one person only and counts for nobody else', async () => {
+test('an old private preview of the room AI is seen by nobody, not even its person, and counts for nobody', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'visible')
-  // the AI step will write these; here the row is put in directly
+  // the old room AI wrote these; here the row is put in directly
   const id = newId()
   h.ctx.db.transaction(() => {
     const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(team.id) as { last_seq: number }).last_seq
@@ -188,8 +188,7 @@ test('a private message (reserved for the AI step) is seen by its one person onl
       .run(id, team.id, seq, mia.id, mia.id, JSON.stringify([nora.id]), new Date().toISOString())
   })()
   const forMia = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(forMia.map((m: any) => m.body)).toEqual(['visible', 'PRIVATE PREVIEW'])
-  expect(forMia[1]).toMatchObject({ authorKind: 'ai', author: null, askedBy: { id: mia.id }, visibility: 'private' })
+  expect(forMia.map((m: any) => m.body)).toEqual(['visible'])
   const forNora = await nora.client.call('GET', `/api/rooms/${team.id}/messages`)
   expect(JSON.stringify(forNora)).not.toContain('PRIVATE PREVIEW')
   expect(await teamRoom(nora.client)).toMatchObject({ unreadCount: 1, mentioned: false })

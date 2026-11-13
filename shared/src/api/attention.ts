@@ -37,16 +37,14 @@ export const roomUnread = (r: Pick<Room, 'unreadCount'> & Partial<Pick<Room, 'th
 const levelOf = (r: Pick<Room, 'kind' | 'muted'> & Partial<Pick<Room, 'notify'>>) =>
   r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
 
-/** Does this room want me (docs/DECISIONS.md "Session markers"): its AI waits on me (a card of my own question), or
- * something unread there is for me by my level for the room (Room.notify, shared room-alerts.ts: the same rule the
+/** Does this room want me (docs/DECISIONS.md "Session markers"): something unread there is for me by my level for the room (Room.notify, shared room-alerts.ts: the same rule the
  * server's notices follow): an @mention, a reply in a thread I follow ("내가 참여한 스레드의 답글" on), or any message of
  * a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기. Plain unread messages in a team
  * room or the everyone room at its default only make the row bold, as in Slack. Counted once in the one count n. An
  * older server without levels: muted is 끄기, DMs and group chats are 모든 메시지. */
-export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits' | 'notify' | 'hidden'>>, threadReplies = true): boolean {
+export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'notify' | 'hidden'>>, threadReplies = true): boolean {
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
   if (r.hidden) return false
-  if (r.aiWaits) return true
   const level = levelOf(r)
   if (level === 'off' || roomUnread(r) <= 0) return false
   return r.mentioned || (threadReplies && (r.threadsUnread ?? 0) > 0) || (level === 'all' && r.unreadCount > 0)
@@ -60,10 +58,10 @@ export function roomLightsDot(r: Pick<Room, 'kind' | 'unreadCount' | 'muted'> & 
 
 type CountedChat = MarkedChat & Pick<Chat, 'id'>
 type CountedRoom = Parameters<typeof roomWantsMe>[0]
-/** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (roomWantsMe: the room's AI waiting on
- * me, or unread messages for me by my level for the room: by default a DM or group chat message, an @mention, a reply
+/** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (roomWantsMe: unread messages for me by my
+ * level for the room: by default a DM or group chat message, an @mention, a reply
  * in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once. `ask`: any of
- * them is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
+ * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
  * screen in a visible window; `cards`: the chats with a card open in this window; `threadReplies`: my "replies in
@@ -76,12 +74,12 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
     chatsN++
     if (m!.kind === 'ask') chatAsk = true
   }
-  let n = chatsN, ask = chatAsk, unread = false
+  let n = chatsN, unread = false
   for (const r of rooms) {
-    if (roomWantsMe(r, o.threadReplies ?? true)) { n++; if (r.aiWaits) ask = true }
+    if (roomWantsMe(r, o.threadReplies ?? true)) n++
     else if (roomLightsDot(r)) unread = true
   }
-  return { n, ask, chats: chatsN, chatAsk, unread }
+  return { n, ask: chatAsk, chats: chatsN, chatAsk, unread }
 }
 
 /** The most an app icon's number shows (iOS and Android launchers cut longer numbers anyway). */

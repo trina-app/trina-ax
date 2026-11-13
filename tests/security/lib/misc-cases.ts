@@ -222,7 +222,6 @@ export const MISC_SPECS: Record<string, Spec> = {
   trialCredit: { build: (c) => c.get('/api/admin/trial-credit'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the trial credit shows a key') } },
 
   // ---- rooms: the open cards of my own questions in a room I am in (the DM: alice and erin only)
-  listRoomAiRequests: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai/requests`), scope: 'room-dm' },
   // search: each person's own rooms; the DM's message is found by its two people and by nobody else (the matrix's
   // canary check catches it for everyone else)
   searchRoomMessages: { build: (c) => c.get(`/api/room-messages?q=${encodeURIComponent(C.dmMsg)}`), scope: 'self',

@@ -8,7 +8,7 @@
 //     "새 폴더 만들어 넣기" where the row's "⋯" is. That is the keyboard's way (and a phone's long press); a mouse may also
 //     drag a row onto a folder (dragRow, useDropTarget). A project's chat cannot go in a folder: its item is off and the
 //     menu says why under it;
-//   - a folded room folder's one pill (roomFolderPill): the strongest of its rooms, "?" › "@" › how many rooms are unread.
+//   - a folded room folder's one pill (roomFolderPill): the strongest of its rooms, "@" › how many rooms are unread.
 // Folders are mine only: nothing here is shown to or sent for anyone else.
 import clsx from 'clsx'
 import { ArrowDown, ArrowUp, Folder, FolderMinus, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
@@ -234,11 +234,10 @@ export function useDropTarget(kind: NavFolderKind, onDrop: (id: string) => void)
 /** how a folder looks while a row is held over it */
 export const DROP_OVER = 'rounded-lg bg-accent-soft ring-2 ring-accent ring-inset'
 
-/** A folded room folder's one pill: the strongest of its rooms, "?" (a room's AI waits on me) › "@" (an unread
- * mention) › how many of its rooms have unread messages. Muted rooms are left out, as the 대화 count leaves them. */
-export type RoomFolderPill = { kind: 'ask' } | { kind: 'mention' } | { kind: 'unread'; n: number }
-export function roomFolderPill(rooms: Pick<Room, 'aiWaits' | 'mentioned' | 'muted' | 'unreadCount' | 'threadsUnread'>[]): RoomFolderPill | null {
-  if (rooms.some((r) => r.aiWaits)) return { kind: 'ask' }
+/** A folded room folder's one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms have
+ * unread messages. Muted rooms are left out, as the 대화 count leaves them. */
+export type RoomFolderPill = { kind: 'mention' } | { kind: 'unread'; n: number }
+export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unreadCount' | 'threadsUnread'>[]): RoomFolderPill | null {
   const loud = rooms.filter((r) => !r.muted && roomUnread(r) > 0)
   if (loud.some((r) => r.mentioned)) return { kind: 'mention' }
   return loud.length ? { kind: 'unread', n: loud.length } : null
@@ -246,10 +245,10 @@ export function roomFolderPill(rooms: Pick<Room, 'aiWaits' | 'mentioned' | 'mute
 
 export function RoomFolderPillView({ pill, className }: { pill: RoomFolderPill; className?: string }) {
   const t = useT()
-  const words = pill.kind === 'ask' ? t('rooms.aiWaits') : pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
+  const words = pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
   return (
-    <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', pill.kind === 'ask' ? 'bg-warn font-bold text-canvas' : 'bg-accent text-accent-ink', className)} data-testid="room-folder-pill" data-kind={pill.kind}>
-      <span aria-hidden>{pill.kind === 'ask' ? '?' : pill.kind === 'mention' ? '@' : pill.n > 99 ? '99+' : pill.n}</span>
+    <span className={clsx('shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink', className)} data-testid="room-folder-pill" data-kind={pill.kind}>
+      <span aria-hidden>{pill.kind === 'mention' ? '@' : pill.n > 99 ? '99+' : pill.n}</span>
       <span className="sr-only">{words}</span>
     </span>
   )

@@ -236,8 +236,7 @@ export const chatsRoutes: RouteModule = {
       }
       // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
-      // a search: every word of the text, in any order, each in the title or in one of the chat's messages (the AI's
-      // project_chats tool matches the same way, chat/room-project-chats.ts); "견적서 보내" finds "견적서를 보내드렸어요".
+      // a search: every word of the text, in any order, each in the title or in one of the chat's messages; "견적서 보내" finds "견적서를 보내드렸어요".
       // The chats that hold the words are found once per request, before the pages below: a pass per word (the longest
       // first) over the chats this list may hold, after the first word only over those that held the words before, each
       // chat's finished messages (status <> 'streaming': what messages_fts holds) read by the chat's index until the

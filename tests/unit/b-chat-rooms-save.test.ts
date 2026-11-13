@@ -266,11 +266,10 @@ describe('saving a room file from my own chat', () => {
     for (const n of ['hidden.pdf', 'private.pdf', file.name]) expect(fs.existsSync(at(`users/alice/${n}`))).toBe(false)
     expect(events(r.turnId).filter((e) => e.tool === 'save_room_file').map((l) => l.summary)).toEqual(['save_room_file -> not found', 'save_room_file -> not found', 'save_room_file -> refused: not a file id'])
     expect(r.done.content).toContain("Give the file's file_id (from room_read), not its name")
-    // erin, whose preview it is, may save hers (as only hers: a new file in her own folder, no card)
+    // nor erin, whose old private preview it was: unposted previews are nobody's since the room AI was removed
     const hers = await run('erin', await newChat('erin'), fake(save(roomId, privFile.id, 'users/erin/')), () => 'allow')
     expect(hers.cards).toHaveLength(0)
-    expect(fs.existsSync(at('users/erin/private.pdf'))).toBe(true)
-    fs.rmSync(at('users/erin/private.pdf'), { force: true })
+    expect(fs.existsSync(at('users/erin/private.pdf'))).toBe(false)
   })
 
   test('a read-only target and a held file are refused before any card; skills/ and instruction files too', async () => {

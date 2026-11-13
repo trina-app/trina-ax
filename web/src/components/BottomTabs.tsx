@@ -6,9 +6,7 @@
 // quarter of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): my unread room messages on
 // 대화 (a mention and a followed thread's replies among them), on 나 the unread Inbox notices that are not about a
 // conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
-// the accent for a new answer: store/sessionMarkers.ts). While @트리나 waits on me in a room (Room.aiWaits), 대화's pill
-// is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count is the same and
-// comes back when the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
+// the accent for a new answer: store/sessionMarkers.ts). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
 // face in rooms and the rail's 트리나) where the product is named after its AI, in its own orange (the owner,
 // 2026-11-12: "AI 아이콘은 색넣는게 좋지 않을까?"), dimmed while another tab is on show so the bar still marks where you
@@ -47,8 +45,6 @@ export function BottomTabs() {
   // under the Settings dialog the page below it is what the router shows; the bar marks "나" by the real address
   const path = useRealPath()
   const unread = useRooms((s) => totalUnread(s.rooms))
-  // a room I hid counts nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
-  const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
@@ -82,14 +78,7 @@ export function BottomTabs() {
           ))}
       </TabLink>
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
-        {aiWaits ? (
-          <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
-            <span aria-hidden>?</span>
-            <span className="sr-only">{[t('rooms.aiWaits'), unread > 0 && t('rooms.unread', { n: unread })].filter(Boolean).join(', ')}</span>
-          </span>
-        ) : (
-          unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />
-        )}
+        {unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />}
       </TabLink>
       <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>

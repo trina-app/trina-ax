@@ -13,7 +13,7 @@ const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'ro
 export const ROOM_SPECS: Record<string, Spec> = {
   listRooms: { build: (c) => c.get('/api/rooms'), scope: 'self' },
   // "이 방에서는 항상 허용" (rooms/ai-grants.ts): each person lists their own; an id that is not theirs answers like one that
-  // is not there (another person's grant: tests/unit/b-room-ai-grants.test.ts)
+  // is not there (another person's grant)
   listAiAllowances: { build: (c) => c.get('/api/ai-allowances'), scope: 'self' },
   deleteAiAllowance: { build: (c) => c.del('/api/ai-allowances/019a0000-0000-7000-8000-00000000a11f'), scope: 'nobody' },
   // everyone opens their DM with frank (an active member); the DM itself is checked by the cases below
@@ -179,10 +179,6 @@ export const ROOM_SPECS: Record<string, Spec> = {
   },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)
-  getRoomAi: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai`), scope: 'room-dm' },
-  stopRoomAi: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/ai/${w.ids.dmAiTurn}/stop`), scope: 'own-alice' },
-  shareRoomMessage: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmAiPreview}/share`), scope: 'own-alice' },
-  roomMessageSources: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/sources`), scope: 'room-dm' },
   roomFile: {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}?download=1`), scope: 'room-dm',
     check: (r) => { if (r.status === 200 && !r.headers.get('content-disposition')?.includes(C.dmFileName)) throw new Error('the member did not get the room file') },

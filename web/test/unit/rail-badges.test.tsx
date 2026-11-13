@@ -23,13 +23,12 @@ describe('marks', () => {
     expect(aiMark({ chats: 1, chatAsk: false })).toEqual({ kind: 'dot' })
   })
 
-  test('대화: conversations with something unread (not messages), muted and hidden left out; "?" first; a dot for mention rows only', () => {
+  test('대화: conversations with something unread (not messages), muted and hidden left out; a dot for mention rows only', () => {
     const rooms = [room({ unreadCount: 12 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
     expect(unreadRooms(rooms)).toBe(2)
     expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 2 })
-    expect(chatsMark([...rooms, room({ unreadCount: 1, aiWaits: true })], 0)).toEqual({ kind: 'ask' })
-    // a hidden room's waiting AI does not mark the rail (it shows nowhere)
-    expect(chatsMark([room({ aiWaits: true, hidden: true })], 0)).toBeNull()
+    // a hidden room does not mark the rail (it shows nowhere)
+    expect(chatsMark([room({ unreadCount: 1, hidden: true })], 0)).toBeNull()
     // a mention row unread in Activity, its room read meanwhile: still a mark on 대화
     expect(chatsMark([room()], 1)).toEqual({ kind: 'dot' })
     expect(chatsMark([room()], 0)).toBeNull()

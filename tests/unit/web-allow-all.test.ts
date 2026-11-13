@@ -229,25 +229,6 @@ describe('always the caller\'s own switch', () => {
     await expect(gate(chat, 'https://shared-chat.example/c', person(null), { user: 'alice' })).rejects.toThrow(/did not allow/)
   })
 
-  test('a room: @트리나 asked by Alice (on) opens without a card; asked by Bob (off) in the same room, a card', async () => {
-    on('alice')
-    const g = await h.api('dana').call(API.createGroup, { body: { name: `web-all-${uuidv7().slice(-6)}`, memberIds: ['alice', 'bob'] } })
-    const room = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
-    const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d).replace(/\//g, '\\u002f')).join('\n')
-    const ask = (user: string, url: string) => h.api(user).call(API.sendRoomMessage, { params: { id: room }, body: { body: `@트리나 read it\n${fake({ tool: 'web_fetch', args: { url } }, { say: 'done' })}`, clientMessageId: 'cm-' + crypto.randomUUID(), mentions: [], fileIds: [] } })
-    const qa = await ask('alice', 'https://room-alice.example/a')
-    await alice.next('room.ai.run', (f) => f.data.run.questionId === qa.id && ['done', 'error', 'stopped'].includes(f.data.run.state), 30_000)
-    expect(alice.frames.filter((f) => f.type === 'turn.request')).toEqual([])
-    expect(looked('room-alice.example')).toBe(1)
-    const qb = await ask('bob', 'https://room-bob.example/a')
-    const card = await bob.next('turn.request', (f) => String(req(f).question ?? '').includes('room-bob.example'), 20_000)
-    expect(looked('room-bob.example')).toBe(0)
-    // Bob's own card offers Bob's own switch
-    expect(req(card).options!.map((o) => o.value)).toContain(ALL_SITES_ANSWER)
-    await h.api('bob').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'deny' } })
-    await bob.next('room.ai.run', (f) => f.data.run.questionId === qb.id && ['done', 'error', 'stopped'].includes(f.data.run.state), 30_000)
-    expect(webAllowAll(db(), 'bob')).toBe(false)
-  })
 })
 
 describe('only the person turns it on', () => {

@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
-import { mergeMessages, placeKey, settledPending, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
+import { mergeMessages, placeKey, settledPending, toggledReactions, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { readUpTo, roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
@@ -637,47 +637,6 @@ describe('handleEvent', () => {
     others([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
     await useRooms.getState().react(r.id, m.id, '👍', true)
     expect(reactions()).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
-  })
-})
-
-describe('the AI in a room', () => {
-  test('room.ai counts anyone\'s questions; my run shows its steps, a done one goes (its answer is a message), a stopped one stays until closed', () => {
-    const r = room()
-    const run = { turnId: uuidv7(), roomId: r.id, questionId: uuidv7(), state: 'running' as const, position: 0, steps: [], error: null, createdAt: at(1) }
-    const store = useRooms.getState()
-    store.reset()
-    store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 2 } })
-    store.handleEvent({ seq: 2, at: 1, type: 'room.ai.run', data: { roomId: r.id, run } })
-    store.handleEvent({ seq: 3, at: 1, type: 'room.ai.step', data: { roomId: r.id, turnId: run.turnId, step: { id: 's1', kind: 'tool', label: 'Read · acme/notes.md', status: 'running', startedAt: at(1), endedAt: null } } })
-    expect(useRooms.getState().ai[r.id]).toMatchObject({ answering: 2, runs: [{ turnId: run.turnId, steps: [{ id: 's1' }] }] })
-    // a step of a run that is not mine is ignored (nobody else's steps ever come; this one is unknown)
-    store.handleEvent({ seq: 3, at: 1, type: 'room.ai.step', data: { roomId: r.id, turnId: uuidv7(), step: { id: 's2', kind: 'tool', label: 'x', status: 'ok', startedAt: at(1), endedAt: at(1) } } })
-    expect(useRooms.getState().ai[r.id]!.runs).toHaveLength(1)
-    expect(withAiRun(useRooms.getState().ai, r.id, { ...run, state: 'done' })[r.id]!.runs).toEqual([])
-    store.handleEvent({ seq: 2, at: 1, type: 'room.ai.run', data: { roomId: r.id, run: { ...run, state: 'stopped' } } })
-    expect(useRooms.getState().ai[r.id]!.runs[0]).toMatchObject({ state: 'stopped', steps: [{ id: 's1' }] })
-    store.dismissAi(r.id, run.turnId)
-    expect(useRooms.getState().ai[r.id]!.runs).toEqual([])
-    store.reset()
-  })
-
-  test("someone else's answer that stayed private: the question says so, and stops saying so once it is posted", () => {
-    const r = room()
-    const q = message({ roomId: r.id, seq: 1, author: BEN, body: '@Trina budget?' })
-    useRooms.setState({ rooms: [r], timeline: tl(r.id, [q]) })
-    const store = useRooms.getState()
-    store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
-    // the answer stayed Ben's: the server sends the question again, marked (a reload lists it marked too)
-    store.handleEvent({ seq: 2, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: { ...q, answeredPrivately: true } } })
-    store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0 } })
-    expect(useRooms.getState().timeline!.messages[0]).toMatchObject({ id: q.id, answeredPrivately: true })
-    expect(useRooms.getState().ai[r.id]).toEqual({ answering: 0, runs: [] })
-    // Ben posts it: the answer comes to the room and the question loses the mark
-    const posted = message({ roomId: r.id, seq: 3, authorKind: 'ai', author: null, askedBy: BEN, body: 'it is 30', replyTo: { id: q.id, author: BEN, excerpt: q.body, fileCount: 0, deleted: false } })
-    store.handleEvent({ seq: 4, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
-    store.handleEvent({ seq: 5, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: q } })
-    expect(useRooms.getState().timeline!.messages.map((m) => [m.id, !!m.answeredPrivately])).toEqual([[q.id, false], [posted.id, false]])
-    store.reset()
   })
 })
 
