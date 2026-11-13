@@ -703,11 +703,12 @@ export function membersCard(p: Pick<MembersPlan, 'r' | 'adds' | 'removes' | 'pla
     ].filter(Boolean).join('\n'),
   ].filter(Boolean).join('\n\n')
   const red = (ls: string[]) => (ls.length ? { alerts: ls.map((text) => ({ text, note: MEMBERS_TEXT.notSaid[L] })) } : {})
+  // noSize: names, not text that goes out (no "24자" under a project or a person, as QA TC-091 for a file list)
   const details: ConfirmDetail[] = [
-    { label: MEMBERS_TEXT.project[L], text: projectLine, ...(o.projectSaid ? {} : { alerts: [{ text: projectLine, note: MEMBERS_TEXT.notSaid[L] }] }) },
+    { label: MEMBERS_TEXT.project[L], text: projectLine, noSize: true, ...(o.projectSaid ? {} : { alerts: [{ text: projectLine, note: MEMBERS_TEXT.notSaid[L] }] }) },
     // never folded: the AI chose these names, so none may sit behind "전체 보기"
-    ...(addLines.length ? [{ label: say('add', L, { n: addLines.length }), text: addLines.join('\n'), ...red(alerts.add) }] : []),
-    ...(removeLines.length ? [{ label: say('remove', L, { n: removeLines.length }), text: removeLines.join('\n'), ...red(alerts.remove) }] : []),
+    ...(addLines.length ? [{ label: say('add', L, { n: addLines.length }), text: addLines.join('\n'), noSize: true, ...red(alerts.add) }] : []),
+    ...(removeLines.length ? [{ label: say('remove', L, { n: removeLines.length }), text: removeLines.join('\n'), noSize: true, ...red(alerts.remove) }] : []),
   ]
   return { question, details, notSaid }
 }
