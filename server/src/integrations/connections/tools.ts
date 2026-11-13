@@ -127,8 +127,9 @@ function turnChat(ctx: AppContext, tc: TurnToolContext): string {
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
 function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   ctx.db.transaction(() => {
-    // a Google app's answer (the person's mail, calendar, documents) is also from outside the team files
-    addSources(ctx.db, chat, row.google_app ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
+    // a person's own Google app's answer (their mail, calendar, documents) is also from outside the team files; the
+    // account shared with the team is a team connection: its answer may reach the people its rule includes
+    addSources(ctx.db, chat, row.google_app && row.scope === 'personal' ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
       : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
     ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chat)
   })()
@@ -308,6 +309,7 @@ function pinnedRefusal(row: Row, pinned: { pins: string[]; urls: string[] }, des
 /** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
  * owner. */
 function connectionSettings(row: Pick<Row, 'scope' | 'google_app' | 'name'>, L: Locale): string {
+  if (row.google_app && row.scope === 'team') return `in ${SCREEN.adminMcp(L)} › ${row.name} (the shared account)`
   if (row.google_app) return `in ${SCREEN.connectors(L, row.name)}, its ⋯ menu › Settings`
   return row.scope === 'team' ? `in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.connectors(L)}`
 }
@@ -1015,6 +1017,16 @@ function lookupSection(deferred: { row: Row; key: string; entries: TurnEntry[] }
   }
 }
 
+/** For the AI's list: a Google app's account an admin shared with the team is someone else's mailbox, calendar or files,
+ * so it says whose and that the person's own comes first. Empty for every other connection. */
+function sharedAccount(row: Row): string {
+  if (!row.google_app || row.scope !== 'team') return ''
+  let email: string | null = null
+  try { email = (JSON.parse(row.account ?? 'null') as { email?: string | null } | null)?.email ?? null } catch {}
+  const at = email ? ` ${email.replace(/[^\w.@+-]/g, '')}` : ''
+  return `, the team's shared Google account${at}, connected by an admin for the people it is shared with; when the user also has their own ${row.name}, use their own unless they ask for the team's or the shared account`
+}
+
 /** The provider chat turns ask for this person's tools (chat/tools.ts buildToolSet). */
 export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
   return {
@@ -1038,7 +1050,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
           // the person's own connection: they sign in again (or give a new key) on a card in the chat (QA TC-127)
           else if (row.scope === 'personal' && !row.google_app) lines.push(`- ${row.name} (personal connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. When they ask for ${row.name}, call connect_service with connection "${row.id}" and name "${row.name}" so they can ${row.auth === 'oauth' ? 'sign in again' : 'give the key'} on a card in this chat (not in a scheduled run)`)
-          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
+          else lines.push(`- ${row.name} (${who} connection${sharedAccount(row)}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app && row.scope === 'personal' ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
@@ -1072,9 +1084,10 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
             // a list saved before every tool was kept: checking the connection again gets the rest
             : ` (the service offers ${offered.total} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
         const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''
-        if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
-        else if (direct) lines.push(`- ${row.name} (${who} connection, MCP server): ${entries.length} tools named ${key}__…${capped}${offNote}`)
-        else lines.push(`- ${row.name} (${who} connection, MCP server): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
+        const shared = sharedAccount(row)
+        if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection${shared}, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
+        else if (direct) lines.push(`- ${row.name} (${who} connection${shared}, MCP server): ${entries.length} tools named ${key}__…${capped}${offNote}`)
+        else lines.push(`- ${row.name} (${who} connection${shared}, MCP server): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
       }
       // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
       // when they ask for the service (connect_service with the template's id). Never another member's connection.

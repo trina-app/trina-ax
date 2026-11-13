@@ -7,6 +7,7 @@ import { resolveLayout } from '../../system/layout'
 import { DRIVE_SCOPE, configKey, hash, readDriveConfig, type DriveConfig } from './config'
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
+import { signsTeamGoogleApp } from '../connections/store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
@@ -438,6 +439,8 @@ export class GoogleDrive {
     // a team Drive share the person signed in for is often the same grant too: it would stop for the whole team
     const others = !!this.ctx.db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(user)
       || ownsLiveDriveShare(this.ctx.db, user)
+      // an app's account they connected for the team (google-apps/service.ts "Shared with the team")
+      || signsTeamGoogleApp(this.ctx.db, user)
     let revocation: 'revoked' | 'unavailable' | 'not_needed'
     try { revocation = others ? 'not_needed' : await this.revoke(token) } finally { this.revoking.delete(user) }
     return { disconnected: true as const, revocation }

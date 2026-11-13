@@ -185,12 +185,21 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
-  // a Google app: its own team switch (Admin › Connectors), not the switch for members' own MCP connections
-  if (row.google_app) return row.scope === 'personal' && row.owner_user_id === userId
+  // a person's own Google app: only its owner, whatever the switch for members' own MCP connections says. The account
+  // an admin shared with the team for an app (scope 'team', migration 348) follows the team rule below like any team
+  // connection
+  if (row.google_app && row.scope === 'personal') return row.owner_user_id === userId
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) LIMIT 1`).get(row.id, userId, userId)
+}
+
+/** This person signed in an app's account shared with the team that still holds its tokens (but `except`): revoking
+ * their Google grant could end it for everyone it is shared with. */
+export function signsTeamGoogleApp(db: Database, user: string, except?: string): boolean {
+  return !!db.query(`SELECT 1 FROM integrations i JOIN team_sign_ins s ON s.kind = 'team_connection' AND s.target_id = i.id
+    WHERE i.scope = 'team' AND i.google_app IS NOT NULL AND i.secret_enc IS NOT NULL AND s.user_id = ? AND i.id != ? LIMIT 1`).get(user, except ?? '')
 }
 
 /** Is this person among the people an admin's template is for (templates.ts)? A template that is gone covers nobody.
