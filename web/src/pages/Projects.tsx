@@ -41,7 +41,7 @@ import { ArchiveRestore, ChevronRight, FileText, FolderKanban, Folder, FolderOpe
 import { foldRuns } from '../components/nav/TaskRunsRow'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project, ProjectParticipant, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { RAIL_STATE_KEY } from '../lib/rail'
@@ -56,6 +56,8 @@ import { isUnused } from '../components/chat/ChatState'
 import { accessChanged, chatChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { readManagedList, useProjects } from '../store/projects'
+import { chatOrder, folderMoved, keepFaces, useProjectPage, withChatEvent } from '../store/projectPage'
+import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
@@ -82,18 +84,6 @@ import { FileDropZone } from '../components/FileDropZone'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
-
-/** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
- * page has them), then the newest. */
-const chatOrder = (a: Chat, b: Chat) =>
-  a.pinnedAt || b.pinnedAt
-    ? (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
-    : a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1
-
-/** A chat of the list as it is now, with the faces of who wrote in it it had: those come with the list only, not with a
- * chat event or an action's answer. */
-const keepFaces = (old: Chat | undefined, chat: Chat): Chat =>
-  old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
 
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
@@ -477,6 +467,18 @@ export function ProjectChatRow({ chat: c, onMove, onChanged, onRemoved }: { chat
   )
 }
 
+/** The files line of a project's page: its folder's first page (`failed`: it could not be read, so no count is said). */
+type PageFiles = { entries: FileEntry[]; more: boolean; failed?: boolean }
+const pageFiles = (r: TreeResponse): PageFiles => ({ entries: r.entries, more: !!r.nextCursor })
+
+/** What a project's page shows first: as it was left (store/projectPage.ts) with its folder as last listed. */
+function keptPage(id: string | undefined): { project: Project | null; chats: Chat[] | null; files: PageFiles | null } {
+  const kept = id ? useProjectPage.getState().pages[id] : undefined
+  if (!kept) return { project: null, chats: null, files: null }
+  const folder = kept.project.member === false ? null : keptFolder(kept.project.folderPath)
+  return { project: kept.project, chats: kept.chats, files: folder && pageFiles(folder) }
+}
+
 // Files from this computer dropped anywhere on a project's page go into its new-chat box, as on Home and a chat's page
 // (QA TC-071); a project that takes no chat here (in the trash, managed from outside) says nothing can be attached.
 export function ProjectHome() {
@@ -492,12 +494,16 @@ function ProjectPage() {
   const locale = useLocale()
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const [p, setP] = useState<Project | null>(null)
+  // a project seen a moment ago shows as it was at once (store/projectPage.ts, its files store/teamFiles.ts) and is read
+  // again behind it
+  const [p, setP] = useState<Project | null>(() => keptPage(projectId).project)
   const [missing, setMissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [chats, setChats] = useState<Chat[] | null>(null)
+  const [chats, setChats] = useState<Chat[] | null>(() => keptPage(projectId).chats)
+  const shownChats = useRef(chats)
+  shownChats.current = chats
   // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
-  const [files, setFiles] = useState<{ entries: FileEntry[]; more: boolean; failed?: boolean } | null>(null)
+  const [files, setFiles] = useState<PageFiles | null>(() => keptPage(projectId).files)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
   // a chat row's ⋯ 프로젝트 변경
@@ -529,37 +535,112 @@ function ProjectPage() {
 
   /** the latest load only may fill the page (another project's page, or a load after a change, started later) */
   const loads = useRef(0)
+  /** the project as on screen now, for a load that starts (its folder is read along with it) */
+  const shownP = useRef(p)
+  shownP.current = p
+  /** the project changed here (renamed, edited, shared, its members saved): a read started before does not show */
+  const projectEdits = useRef(0)
+  const changeP = (next: Project) => {
+    projectEdits.current++
+    setP(next)
+  }
+  /** the chats' changes made since a read started (a row's rename, an event): made again on its answer, numbered */
+  const chatEdits = useRef<{ n: number; f: (cur: Chat[]) => Chat[] }[]>([])
+  const chatEditCount = useRef(0)
+  /** chat reads on their way (no change is kept for later when none is) */
+  const chatReads = useRef(0)
+  const changeChats = (f: (cur: Chat[]) => Chat[]) => {
+    chatEditCount.current++
+    if (chatReads.current) chatEdits.current.push({ n: chatEditCount.current, f })
+    setChats((cur) => cur && f(cur))
+  }
   /**
-   * The project, its chats (mine, and the shared ones I see) and its files. manage=1 (the default): the owner and
-   * admins also get a team project they are not members of (Project.member false: no files then, and the server lists
-   * only my own chats in it); `manage` false once I am a member (after 나를 멤버로 추가).
+   * The project, its chats (mine, and the shared ones I see) and its files, all three at once: its id is in the address,
+   * and its folder is known from the page shown or the projects store (read again after the project when it was not,
+   * or was another). manage=1 (the default): the owner and admins also get a team project they are not members of
+   * (Project.member false: no files then, and the server lists only my own chats in it); `manage` false once I am a
+   * member (after 나를 멤버로 추가). `fresh`: after a change here, so a folder read on its way is not joined.
    */
-  const load = (o: { manage?: boolean } = {}) => {
+  const load = (o: { manage?: boolean; fresh?: boolean } = {}) => {
+    const id = projectId!
     const mine = ++loads.current
     const live = () => mine === loads.current
-    api.call(API.getProject, { params: { id: projectId! }, ...(o.manage === false ? {} : { query: { manage: '1' } }) }).then(
+    const pFrom = projectEdits.current
+    const chatsFrom = chatEditCount.current
+    const known = (shownP.current?.id === id ? shownP.current : null) ?? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null
+    const guess = known && (known.member !== false || o.manage === false) ? known.folderPath : null
+    const folderRead = guess ? readFolder(guess, { fresh: o.fresh }) : null
+    folderRead?.catch(() => {})
+    chatReads.current++
+    api.call(API.listChats, { query: { projectId: id, limit: 50 } }).then(
+      (r) => {
+        if (!live()) return
+        let items = r.items
+        // the changes made while it was read, on top of its answer (an older list never undoes them)
+        for (const c of chatEdits.current) if (c.n > chatsFrom) items = c.f(items)
+        setChats(items)
+      },
+      // what was shown stays (nothing shown: no chats)
+      () => live() && setChats((cur) => cur ?? []),
+    ).finally(() => {
+      if (--chatReads.current === 0) chatEdits.current = []
+    })
+    api.call(API.getProject, { params: { id }, ...(o.manage === false ? {} : { query: { manage: '1' } }) }).then(
       (x) => {
         if (!live()) return
-        setP(x)
+        // changed here while it was read: what is on screen is newer than this answer
+        const now = projectEdits.current === pFrom ? x : (shownP.current ?? x)
+        if (now === x) setP(x)
+        keepable.current = true
+        useProjectPage.getState().keep(id, { project: now, chats: shownChats.current })
         setMissing(false)
         setError(null)
-        useProjects.getState().put(x)
-        api.call(API.listChats, { query: { projectId: x.id, limit: 50 } }).then((r) => live() && setChats(r.items), () => live() && setChats([]))
-        if (x.member === false) setFiles(null)
-        else api.call(API.tree, { query: { path: x.folderPath, limit: 100 } }).then((r) => live() && setFiles({ entries: r.entries, more: !!r.nextCursor }), () => live() && setFiles({ entries: [], more: false, failed: true }))
+        useProjects.getState().put(now)
+        if (now.member === false) setFiles(null)
+        else {
+          const read = guess === now.folderPath && folderRead ? folderRead : readFolder(now.folderPath, { fresh: o.fresh })
+          read.then(
+            (r) => live() && setFiles(pageFiles(r)),
+            () => live() && setFiles((cur) => (cur && !cur.failed ? cur : { entries: [], more: false, failed: true })),
+          )
+        }
       },
       (e) => {
         if (!live()) return
-        if (isApiError(e, 'not_found')) setMissing(true)
-        else setError(errorText(e, locale, t('error.network')))
+        if (isApiError(e, 'not_found')) {
+          setMissing(true)
+          useProjectPage.getState().drop(id)
+        } else if (shownP.current?.id !== id) setError(errorText(e, locale, t('error.network')))
+        // (a page shown from a moment ago stays as it was; the next visit reads it again)
       },
     )
   }
 
+  // the page as it is on screen is what a return to it shows first; not while an access change (or a connection that
+  // could not resume) is unanswered: what is on screen may not be mine to see any more until the project is read again
+  const keepable = useRef(true)
   useEffect(() => {
-    setP(null)
-    setChats(null)
-    setFiles(null)
+    if (keepable.current && p && p.id === projectId && !missing) useProjectPage.getState().keep(p.id, { project: p, chats })
+  }, [p, chats, projectId, missing])
+  useEffect(() => {
+    const again = () => {
+      keepable.current = false
+      load({ fresh: true })
+    }
+    const offA = accessChanged.on(again)
+    const offB = reloadAsked.on(again)
+    return () => {
+      offA()
+      offB()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
+  useEffect(() => {
+    const kept = keptPage(projectId)
+    setP(kept.project)
+    setChats(kept.chats)
+    setFiles(kept.files)
     setMissing(false)
     setError(null)
     setPurged(false)
@@ -576,21 +657,11 @@ function ProjectPage() {
   // the list follows chat events (store/live.ts chatChanged; the server sends each person only the chats they see): a
   // chat of this project made, renamed or restored shows, one deleted, moved away or no longer visible to me goes. The
   // faces of who wrote in a shared chat come with the list only, so a row keeps the ones it had
-  useEffect(() => chatChanged.on(({ chatId, change, chat }) => {
-    setChats((cur) => {
-      if (!cur) return cur
-      const old = cur.find((c) => c.id === chatId)
-      const rest = cur.filter((c) => c.id !== chatId)
-      if (change === 'deleted' || change === 'purged' || !chat || chat.deletedAt || chat.projectId !== projectId) return old ? rest : cur
-      const next = keepFaces(old, chat)
-      return [next, ...rest].sort(chatOrder)
-    })
-  }), [projectId])
+  useEffect(() => chatChanged.on((e) => changeChats((cur) => withChatEvent(cur, projectId!, e))), [projectId])
 
   // a row's rename, pin or move, without waiting for its chat event: the row as it is now, in its place (a pin moves it
   // up); moved to another project, it goes
-  const chatHere = (chat: Chat) => setChats((cur) => {
-    if (!cur) return cur
+  const chatHere = (chat: Chat) => changeChats((cur) => {
     const old = cur.find((c) => c.id === chat.id)
     const rest = cur.filter((c) => c.id !== chat.id)
     if (!old || chat.projectId !== projectId) return rest
@@ -619,13 +690,15 @@ function ProjectPage() {
   const del = async () => {
     if (!p) return
     const d = await remove(p)
-    if (d === 'gone') navigate('/projects')
-    else if (d) load()
+    if (d === 'gone') {
+      useProjectPage.getState().drop(p.id)
+      navigate('/projects')
+    } else if (d) load({ fresh: true })
   }
   const renameProject = useRenameProject()
   const rename = async () => {
     const r = p && (await renameProject(p))
-    if (r) setP(r)
+    if (r) changeP(r)
   }
 
   // 나를 멤버로 추가 (docs/DECISIONS.md "Project contents only for members"): the members as they are now and me, saved
@@ -639,9 +712,9 @@ function ProjectPage() {
       const a = await api.call(API.getProjectAccess, { params: { id: p.id } })
       const participants = [...chosenOf(a).filter((x) => !(x.subjectType === 'user' && x.subjectId === me.user.id)), { subjectType: 'user' as const, subjectId: me.user.id }]
       await api.call(API.putProjectParticipants, { params: { id: p.id }, body: { participants, expectedHash: a.rulesHash } })
-      load({ manage: false })
+      load({ manage: false, fresh: true })
     } catch (e) {
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load()
+      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') load({ fresh: true })
       const refused = refusalKey(e, 'project')
       toast({ level: 'error', text: refused ? t(refused) : errorText(e, locale, t('error.network')) })
     } finally {
@@ -657,8 +730,8 @@ function ProjectPage() {
     try {
       const r = await api.call(API.restoreProject, { params: { id: p.id } })
       useProjects.getState().put(r)
-      setP(r)
-      load()
+      changeP(r)
+      load({ fresh: true })
     } catch (e) {
       if (isApiError(e, 'conflict') && e.body.params?.reason === 'project_folder_purged') setPurged(true)
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -670,8 +743,8 @@ function ProjectPage() {
   // the members dialog saved: an owner or admin who added or took out themselves loads the page again (its files,
   // instructions and the others' chats come or go)
   const membersSaved = (next: Project) => {
-    if ((next.member === false) !== (p?.member === false)) load({ manage: next.member === false })
-    else setP(next)
+    if ((next.member === false) !== (p?.member === false)) load({ manage: next.member === false, fresh: true })
+    else changeP(next)
   }
 
   if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
@@ -880,18 +953,18 @@ function ProjectPage() {
               {/* the runs of one scheduled task started here: one row that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
                 <li>
-                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => setChats((cur) => cur && cur.filter((y) => y.id !== x.id))} />
+                  <ProjectChatRow chat={c} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
                 </li>
               ))}
             </ul>
           </section>
         </div>
       </div>
-      {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
+      {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={changeP} />}
       {members && <ProjectMembersDialog project={p} onClose={() => setMembers(false)} onSaved={membersSaved} />}
-      {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); setChats((cur) => (cur && !cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
+      {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
-      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
+      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }) }) }} />}
     </div>
   )
 }
@@ -955,6 +1028,18 @@ function ImportChatsDialog({ project, onClose, onMoved }: { project: Project; on
   )
 }
 
+/** The project of a page, as this window knows it without asking: its page seen a moment ago, or the projects store. */
+const knownProject = (id: string | undefined): Project | null => {
+  const p = id ? useProjectPage.getState().pages[id]?.project ?? useProjects.getState().byId[id] ?? null : null
+  // its folder moved since it was read (renamed in another window): the project is asked for again
+  return p && !folderMoved(p.folderPath) ? p : null
+}
+/** A folder's first page as last listed, for a phone's project files. */
+const keptList = (path: string | null) => {
+  const r = path === null ? null : keptFolder(path)
+  return r && { entries: r.entries, cursor: r.nextCursor }
+}
+
 /** A folder of a project's files as the address says it (`?dir=`, relative to the project's folder): no leading or
  * trailing "/", no "." or ".." parts. */
 export const projectDir = (raw: string | null) => (raw ?? '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/')
@@ -976,15 +1061,21 @@ export function ProjectFiles() {
   const dir = projectDir(params.get('dir'))
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE)
-  const [p, setP] = useState<Project | null>(null)
+  // the project as this window knows it (its page a moment ago, or the projects store): a computer goes on to its
+  // folder at once, a phone lists the folder without waiting for it
+  const [p, setP] = useState<Project | null>(() => knownProject(projectId))
   const [missing, setMissing] = useState(false)
-  const [list, setList] = useState<{ entries: FileEntry[]; cursor: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [more, setMore] = useState(false)
   const loads = useRef(0)
+  const path = p ? [p.folderPath, dir].filter(Boolean).join('/') : null
+  /** the folder as last listed (store/teamFiles.ts), at once; the next pages (더 보기) are this screen's own */
+  const [list, setList] = useState<{ entries: FileEntry[]; cursor: string | null } | null>(() => keptList(path))
   useEffect(() => {
     let live = true
     setMissing(false)
+    // a computer that knows the project goes to its folder (below) and asks nothing here
+    if (!phone && knownProject(projectId)) return
     api.call(API.getProject, { params: { id: projectId! }, query: { manage: '1' } }).then(
       (x) => { if (!live) return; setP(x); useProjects.getState().put(x) },
       (e) => { if (!live) return; if (isApiError(e, 'not_found')) setMissing(true); else setError(errorText(e, locale, t('error.network'))) },
@@ -992,20 +1083,21 @@ export function ProjectFiles() {
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
-  const path = p ? [p.folderPath, dir].filter(Boolean).join('/') : null
   const read = (cursor?: string) => {
     if (path === null) return
     const mine = cursor ? loads.current : ++loads.current
     if (cursor) setMore(true)
-    api.call(API.tree, { query: { path, limit: 100, ...(cursor ? { cursor } : {}) } }).then(
+    const page = cursor ? api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor } }) : readFolder(path)
+    page.then(
       (r) => { if (mine !== loads.current) return; setList((cur) => ({ entries: cursor && cur ? [...cur.entries, ...r.entries] : r.entries, cursor: r.nextCursor })); setError(null) },
       (e) => { if (mine === loads.current) setError(errorText(e, locale, t('error.network'))) },
     ).finally(() => { if (cursor) setMore(false) })
   }
   useEffect(() => {
-    setList(null)
+    setList(keptList(path))
     setError(null)
-    if (p?.member !== false) read()
+    // (a computer goes to the 파일 screen, which lists the folder itself)
+    if (phone && p?.member !== false) read()
     return () => { loads.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, p?.member])
