@@ -140,7 +140,8 @@ export function HistoryGroups({ state, row, pool, onNavigate }: { state: History
   return (
     <div data-testid="history-groups">
       {state.shown.map((g) => (
-        <Group key={g.key} group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} />
+        // a project whose chats here are all older runs of a task whose newest run is in another group: no empty header
+        (!pool || !g.chats.length || foldRuns(g.chats, row, { pool }).length > 0) && <Group key={g.key} group={g} state={state} row={row} pool={pool} onNavigate={onNavigate} />
       ))}
     </div>
   )

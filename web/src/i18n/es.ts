@@ -3867,8 +3867,6 @@ export const es: Record<MessageKey, string> = {
   "scheduled.showMoreRuns": "Ver más",
   "scheduled.run.skipped": "No se ejecutó",
   "scheduled.runReason.problems": "Algunos pasos no funcionaron",
-  "scheduled.runReason.error": "Se detuvo por un error",
-  "scheduled.runReason.stopped": "Se detuvo antes de terminar",
   "scheduled.runReason.interrupted": "No terminó, por ejemplo tras un reinicio",
   "scheduled.runReason.budget_exceeded": "Se alcanzó el límite de uso",
   "scheduled.runReason.user_unavailable": "La cuenta del propietario no estaba activa",

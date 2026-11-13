@@ -3911,8 +3911,6 @@ export const id: Record<MessageKey, string> = {
   "scheduled.showMoreRuns": "Tampilkan lagi",
   "scheduled.run.skipped": "Tidak dijalankan",
   "scheduled.runReason.problems": "Beberapa langkah tidak berhasil",
-  "scheduled.runReason.error": "Berhenti karena galat",
-  "scheduled.runReason.stopped": "Dihentikan sebelum selesai",
   "scheduled.runReason.interrupted": "Tidak selesai, misalnya setelah server dimulai ulang",
   "scheduled.runReason.budget_exceeded": "Batas pemakaian tercapai",
   "scheduled.runReason.user_unavailable": "Akun pemilik tidak aktif",

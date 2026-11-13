@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
-import { foldRuns } from '../../src/components/nav/TaskRunsRow'
+import { foldRuns, runsUnread } from '../../src/components/nav/TaskRunsRow'
 
 const chat = (id: string, at: string, o: Partial<Chat> = {}): Chat => ({ id, projectId: null, title: id, engine: 'claude-code', model: null, createdAt: at, updatedAt: at, deletedAt: null, runState: 'idle', ...o })
 const runOf = (task: string, outcome: 'succeeded' | 'problems' | 'failed' | null = 'succeeded') => ({ schedule: { id: task, title: `Task ${task}`, templateId: null, outcome } })
@@ -41,14 +41,18 @@ describe('runs folded in Recent', () => {
     expect(rows(html(foldRuns(today, row, { pool: list })))).toEqual(['task:A', 'x'])
   })
 
-  test('semibold while a run is unread; not once that run was seen', () => {
+  test('semibold while a run is unread; not once that run is opened', () => {
     const unread = [chat('a1', '2026-11-13T09:00:00Z', runOf('A')), chat('a2', '2026-11-12T09:00:00Z', { ...runOf('A'), unseen: true })]
     const h = html(foldRuns(unread, row))
     expect(h).toContain('data-unread=""')
     expect(h).toContain('font-semibold')
-    // the person opened that run: its seen clears `unseen` (the on-screen case, before the server answers, is in
-    // e2e/schedule-runs.spec.ts: a server render reads the store's first state)
+    // the person opens that run: on screen it has no marker at once, so the row is not semibold any more (before the
+    // server's seen answers); after the seen, `unseen` is gone for good
+    expect(runsUnread(unread, null)).toBe(true)
+    expect(runsUnread(unread, 'a2')).toBe(false)
+    expect(runsUnread(unread, 'a1')).toBe(true)
     const seen = unread.map((c) => ({ ...c, unseen: undefined }))
+    expect(runsUnread(seen, null)).toBe(false)
     expect(html(foldRuns(seen, row))).not.toContain('data-unread')
   })
 

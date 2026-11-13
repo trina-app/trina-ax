@@ -47,8 +47,17 @@ describe('run history of a task', () => {
     expect((await h.api('alice').call(API.getChat, { params: { id: chatId } })).schedule?.id).toBe(made.id)
     // an ordinary chat has none
     expect((await h.api('alice').call(API.listChats, { query: { limit: 100 } })).items.filter((c) => c.id !== chatId && c.schedule?.id === made.id)).toEqual([])
-    // the task deleted: its runs are ordinary chats again
+    // a new name reaches the lists that fold its runs: the run chat's event carries it
+    const ws = await h.ws('alice', { windowId: 'win-runs-1' })
+    await ws.next('hello')
+    h.ctx.db.query('UPDATE schedules SET title = ? WHERE id = ?').run('Folded', made.id)
+    rt.schedules.publishRuns('alice', made.id)
+    expect((await ws.next('chat.updated', (f) => f.data.chatId === chatId)).data.chat?.schedule?.title).toBe('Folded')
+    // the task deleted: its runs are ordinary chats again, and the open lists hear it
+    const heard = ws.next('chat.updated', (f) => f.data.chatId === chatId && !f.data.chat?.schedule)
     expect(rt.schedules.delete('alice', made.id)).toBe(true)
+    expect((await heard).data.chat?.title).toBeTruthy()
+    ws.close()
     expect((await h.api('alice').call(API.listChats, { query: { limit: 100 } })).items.find((c) => c.id === chatId)!.schedule).toBeUndefined()
   })
 

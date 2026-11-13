@@ -275,7 +275,20 @@ export class Schedules {
   }
 
   delete(userId: string, id: string): boolean {
-    return this.db.query('DELETE FROM schedules WHERE id = ? AND user_id = ?').run(id, userId).changes > 0
+    const gone = this.db.query('DELETE FROM schedules WHERE id = ? AND user_id = ?').run(id, userId).changes > 0
+    // its runs are ordinary chats again (Chat.schedule is gone): the lists that fold them hear it
+    if (gone) this.publishRuns(userId, id)
+    return gone
+  }
+
+  /** chat.updated for the newest run chats of a task (at most 200, the ones a list shows): its name changed, or it was
+   *  deleted, so the lists that fold its runs into one row (Chat.schedule) draw that row again. */
+  publishRuns(userId: string, id: string): void {
+    const chats = this.db.query(`SELECT t.chat_id FROM turns t JOIN chats c ON c.id = t.chat_id AND c.deleted_at IS NULL
+      WHERE t.schedule_id = ? AND t.user_id = ? GROUP BY t.chat_id ORDER BY MAX(t.started_at) DESC LIMIT 200`).all(id, userId) as { chat_id: string }[]
+    for (const c of chats) {
+      try { this.rt.publishChat(userId, c.chat_id, 'updated') } catch (e) { this.rt.log.warn('schedule run chat event failed', { err: e, schedule: id }) }
+    }
   }
 
   /** The last run's result: 'done' only for a clean success; a finished run with refused/failed tools is 'problems',

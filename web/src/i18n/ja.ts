@@ -3867,8 +3867,6 @@ export const ja: Record<MessageKey, string> = {
   "scheduled.showMoreRuns": "もっと見る",
   "scheduled.run.skipped": "未実行",
   "scheduled.runReason.problems": "一部の手順がうまくいきませんでした",
-  "scheduled.runReason.error": "エラーで止まりました",
-  "scheduled.runReason.stopped": "終わる前に止められました",
   "scheduled.runReason.interrupted": "終わりませんでした(サーバーの再起動など)",
   "scheduled.runReason.budget_exceeded": "利用上限に達しました",
   "scheduled.runReason.user_unavailable": "所有者のアカウントが有効ではありませんでした",

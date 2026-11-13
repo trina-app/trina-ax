@@ -5094,6 +5094,12 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   a clock, the newest run's time, a red dot when it failed (amber for problems, the spinner while one runs), semibold
   while any run has an answer not seen yet. It opens the task page; each run there opens its chat, which marks it seen.
   Folding is in the web app only: Search, the task page and a pinned run (고정) still show the run chats themselves.
+  Renaming or deleting the task sends `chat.updated` for its newest run chats (at most 200), so open lists redraw the
+  row or let the runs out again. A run chat the person renamed is theirs now (`title_source` is no longer `schedule`):
+  it leaves the fold and is a row of its own. Recent is paged: runs on a page not read yet do not count toward the row's
+  bold or time until that page is read.
+- **Row words.** The label says the state ("Succeeded", "Failed", "Stopped", "Not run"); a reason follows only where it
+  adds something (a failed run's own error line, problems, an interrupted run, why an occurrence did not run).
 - Tests: `tests/unit/schedule-runs.test.ts`, `web/test/unit/scheduled-view.test.tsx`, `web/test/unit/task-runs-row.test.tsx`,
   `web/test/e2e/schedule-runs.spec.ts`.
 

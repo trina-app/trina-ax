@@ -56,7 +56,8 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
 }) {
   const cls = clsx(
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 56px)
-    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left hover:bg-hover focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
+    'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
+    (to || onClick) && 'hover:bg-hover',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : 'items-center',
     selected && 'bg-hover',
   )
@@ -87,8 +88,8 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
           {body}
         </button>
       ) : (
-        // neither: a row that opens nothing (a scheduled run that did not start has no chat), without a hover
-        <div className={clsx(cls, 'hover:bg-transparent')} data-testid={testId} {...link}>
+        // neither: a row that opens nothing (a scheduled run that did not start has no chat), no hover
+        <div className={cls} data-testid={testId} {...link}>
           {body}
         </div>
       )}

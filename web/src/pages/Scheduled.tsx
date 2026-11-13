@@ -353,10 +353,12 @@ function useScheduleRuns(s: Schedule | null): RunsState {
 function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsState }) {
   const t = useT(), locale = useLocale()
   const last = lastRunOf(s)
+  // the history on its way: a skeleton (not the last run as a placeholder row whose time then jumps)
+  if (runs && !runs.items && !runs.failed) return <Skeleton lines={2} />
   const items = runs?.items && !runs.failed ? runs.items : last ? [last] : []
   // a run started a moment ago that the history has not got yet (it is read again when the task changes)
   const list = s.running && !items.some((r) => r.status === 'running') && last ? [last, ...items] : items
-  if (!list.length) return runs && !runs.items && !runs.failed ? <Skeleton lines={2} /> : <p className="mt-2 text-meta text-faint">{t('scheduled.noRuns')}</p>
+  if (!list.length) return <p className="mt-2 text-meta text-faint">{t('scheduled.noRuns')}</p>
   const newest = list[0]!
   // the newest row is the run the task's own last result is about (not one the server leaves out of it, TC-360)
   const next = !s.running && newest.status === s.lastOutcome ? outcomeReason(s, t) : ''

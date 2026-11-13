@@ -3911,8 +3911,6 @@ export const en: Record<MessageKey, string> = {
   "scheduled.showMoreRuns": "Show more",
   "scheduled.run.skipped": "Not run",
   "scheduled.runReason.problems": "Some steps did not work",
-  "scheduled.runReason.error": "Stopped with an error",
-  "scheduled.runReason.stopped": "Stopped before it finished",
   "scheduled.runReason.interrupted": "Did not finish, for example after a restart",
   "scheduled.runReason.budget_exceeded": "The usage limit was reached",
   "scheduled.runReason.user_unavailable": "The owner's account was not active",

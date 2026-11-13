@@ -16,7 +16,7 @@ export function outcomeTone(o: Schedule['lastOutcome']): Tone {
 }
 
 /** A template's own name in the person's language; a task's title. */
-export const scheduleName = (s: Schedule, t: T) =>
+export const scheduleName = (s: Pick<Schedule, 'templateId' | 'title'>, t: T) =>
   s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title
 
 const weekdayName = (n: number, locale: Locale) =>
@@ -83,8 +83,9 @@ export const runLabel = (r: ScheduleRun, t: T) =>
     : r.status in RUN_STATE ? t(RUN_STATE[r.status as keyof typeof RUN_STATE]!)
     : t('scheduled.run.skipped')
 export const runReason = (r: ScheduleRun, t: T, o: { membersOnly?: boolean } = {}) => {
-  if (r.status === 'running' || r.status === 'done') return ''
-  if (r.status === 'error' && r.error) return r.error
+  // the label already says it ("Failed", "Stopped"): a reason only where it adds something
+  if (r.status === 'running' || r.status === 'done' || r.status === 'stopped') return ''
+  if (r.status === 'error') return r.error ?? ''
   if (r.status === 'needs_key') return r.needName ? t('scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
   if (r.status === 'project_gone' && o.membersOnly) return t('scheduled.runReason.members_only')
   return t(`scheduled.runReason.${r.status}` as MessageKey)

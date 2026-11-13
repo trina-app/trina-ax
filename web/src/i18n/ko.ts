@@ -3910,8 +3910,6 @@ export const ko = {
   "scheduled.showMoreRuns": "더 보기",
   "scheduled.run.skipped": "실행 안 됨",
   "scheduled.runReason.problems": "일부 단계가 안 됐어요",
-  "scheduled.runReason.error": "오류로 멈췄어요",
-  "scheduled.runReason.stopped": "끝나기 전에 멈췄어요",
   "scheduled.runReason.interrupted": "끝나지 못했어요 (예: 서버 재시작)",
   "scheduled.runReason.budget_exceeded": "사용 한도에 닿았어요",
   "scheduled.runReason.user_unavailable": "소유자 계정이 활성 상태가 아니었어요",

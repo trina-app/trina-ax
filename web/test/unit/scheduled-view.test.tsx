@@ -202,7 +202,8 @@ describe('scheduled task page', () => {
     const block = history(decode(render({ ...daily, lastRunAt: ago(3 * 3600_000), lastChatId: 'chat-5', lastOutcome: 'error' })))
     expect(count(block, 'data-testid="schedule-run-link"')).toBe(1)
     expect(block).toContain('href="/c/chat-5"')
-    expect(block).toContain(t('scheduled.runReason.error'))
+    // "Failed" says it; the next step says what to do
+    expect(block).toContain(t('scheduled.run.error'))
     expect(block).toContain(t('scheduled.reason.error'))
     expect(history(decode(render(daily)))).toContain(t('scheduled.noRuns'))
   })
@@ -225,7 +226,7 @@ describe('scheduled task page', () => {
 
   test('the block\'s words exist in every language', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
-      for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'scheduled.run.skipped', 'scheduled.runsTitle', 'scheduled.openRun', 'scheduled.runReason.error', 'rooms.roomNotIn'] as const)
+      for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'scheduled.run.skipped', 'scheduled.runsTitle', 'scheduled.openRun', 'scheduled.runReason.problems', 'rooms.roomNotIn'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
 })

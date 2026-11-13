@@ -11,7 +11,8 @@ import { useLocation } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { listTime } from '../../lib/format'
 import { markerOf, needsMe } from '../../lib/sessionMarkers'
-import { useLocale, useT, type MessageKey } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
+import { scheduleName } from '../../lib/scheduleText'
 import { useProjects } from '../../store/projects'
 import { useSessionMarkers } from '../../store/sessionMarkers'
 import { ListRow } from '../list/List'
@@ -36,15 +37,19 @@ export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o:
   })
 }
 
+/** Any run with an answer I have not seen (its "?" or dot): the folded row reads semibold. `here`: the chat on screen
+ * in a visible window, which has no marker (the person is reading it; its seen goes to the server). */
+export const runsUnread = (runs: readonly Chat[], here: string | null) => runs.some((c) => needsMe(markerOf(c, { here: c.id === here })))
+
 /** One task's runs as one row (`runs`: newest first, at least one). */
 export function TaskRunsRow({ runs, projectTag = false }: { runs: Run[]; projectTag?: boolean }) {
   const t = useT(), locale = useLocale()
   const newest = runs[0]!
   const task = newest.schedule
-  const name = task.templateId === 'daily-file-index' || task.templateId === 'weekly-summary' ? t(`scheduleTemplates.${task.templateId}` as MessageKey) : task.title
+  const name = scheduleName(task, t)
   // the chat on screen in a visible window has no marker (the person is reading it)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  const unread = runs.some((c) => needsMe(markerOf(c, { here: c.id === here })))
+  const unread = runsUnread(runs, here)
   const running = runs.find((c) => c.runState === 'running' || c.runState === 'queued')
   const tone = running ? null : task.outcome === 'failed' ? 'danger' : task.outcome === 'problems' ? 'warn' : null
   const project = useProjects((s) => (projectTag && newest.projectId && (!s.listed || s.listed.has(newest.projectId)) ? s.byId[newest.projectId] ?? null : null))
