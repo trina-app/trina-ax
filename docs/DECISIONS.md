@@ -11648,8 +11648,9 @@ computers and the tabs 트리나 · 대화 · 파일 · 나 on phones are the on
   does nothing until the suites drop the call.
 - **Old addresses keep working** (plan §3): `/projects…` opens in 트리나, `/new` on a computer and `/` with `?prompt=`,
   `?project=` or `?folder=` on a phone go to the composer, `/activity?tab=mentions|threads|dms` goes to 대화's 멘션·스레드,
-  `/files?view=trash` is 파일's trash, `/settings/*` and `/connectors/*` as before. Old `mycel.sidebar.*` keys in
-  browsers are left unread; old `.v2` phone stacks are cleared at sign-out and an old 프로젝트 entry takes its first
+  `/files?view=trash` is 파일's trash, `/settings/*` and `/connectors/*` as before. The old caps' and folds' keys
+  (`mycel.sidebar.rooms`, `roomsAll`, `recents`, `recentsAll`) are left unread in browsers (the filter's
+  `mycel.sidebar.historyView` and the groups' `historyFolded` are still the Trina list's); old `.v2` phone stacks are cleared at sign-out and an old 프로젝트 entry takes its first
   screen's tab.
 - Tests: the old sidebar's unit suite went; what it covered that stays (the team menu, a chat row's "…", pinning) is
   `web/test/unit/nav-menus.test.tsx`. `tests/unit/b-nav-rail-flag.test.ts` now checks the key is ignored.

@@ -73,6 +73,8 @@ export default function Rooms() {
           <p className="px-6 pt-24 pb-8 text-center text-sm text-muted" data-testid="rooms-pick">{t('rail.pickConversation')}</p>
           {hidden.length > 0 && <HiddenRooms rooms={hidden} />}
         </div>
+        {/* /rooms?new=1 (a link that asks for a new conversation) opens the people list here too */}
+        <PeoplePicker open={picking} onClose={() => setPicking(false)} />
       </div>
     )
   return (

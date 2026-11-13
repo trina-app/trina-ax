@@ -54,7 +54,7 @@ describe('panel', () => {
 const me = (role: 'owner' | 'member') => ({
   user: { id: 'mina', username: 'mina', name: 'Mina', title: null, email: null, role, locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'ko', chatTrashRetentionDays: 14 }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
-  server: { version: '0', dev: false, deployment: 'hosted', navRail: true },
+  server: { version: '0', dev: false, deployment: 'hosted' },
 }) as unknown as Me
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 
