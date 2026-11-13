@@ -1,0 +1,1 @@
+- Phone app: after the app is updated or reinstalled and you sign in again, the team removes the phone's earlier registration at the next app start, so a notification reaches the phone once instead of once per earlier sign-in (QA TC-835; ships with the next store build).
