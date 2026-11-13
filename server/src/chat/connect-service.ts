@@ -42,8 +42,8 @@ import type { TurnExec } from './turn'
 export function connectRows(db: Database, userId: string, scope: 'personal' | 'team'): { rows: Row[]; count: number } {
   const rows = scope === 'personal'
     ? [...(db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(userId) as Row[]).filter((r) => !r.template_id || templateCovers(db, r.template_id, userId)),
-      ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
-    : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
+      ...(db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
+    : db.query(`${selectRows(db)} WHERE scope = 'team' AND google_app IS NULL`).all() as Row[]
   return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id).length }
 }
 

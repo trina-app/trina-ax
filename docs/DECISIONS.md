@@ -25318,3 +25318,40 @@ server system. Route A of "Dev environment on srt: Ubuntu 24.04 stays off" is no
   directly; the person's own Settings › Connectors and onboarding have no list (their Discover is on the page).
 - **Title.** Adding a listed app reads "Add Notion" with the app's icon (the "as a team connection" title is gone: the
   For line says who it is for); its address is one small line. `Modal`'s title takes any content (a string still works).
+
+## A shared Google account for the team (feat/google-team-connection, 2026-11-13, QA TC-198)
+
+Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: [GOOGLE-APPS.md](GOOGLE-APPS.md)
+"Shared with the team".
+
+- **Reverses part of "No members' switch for connectors" (2026-11-12)**: "the AI uses only that person's own" no longer
+  holds for Gmail, Google Calendar, Google Docs and Google Sheets. An owner or admin may connect one Google account per
+  app for the team and pick who uses it; per member stays the default, and the shared one is an explicit admin choice
+  (nobody uses a new one until its people are saved). Also bends "Rooms use the asker's own Google apps only" (Gmail …
+  as built-in connectors): a side chat beside a room offers the shared account to the people its rule includes, as it
+  offers any team connection.
+- **The team-connection model, not a second permission system.** The shared account is a team row of `integrations`
+  (`scope = 'team'`, `google_app` set, owner NULL); its rule is `integration_access` and `store.ts mayUse` treats it as
+  every team connection (an access rule must match; being an admin is not one). Tools, read scope, hidden secrets,
+  members' Always allow and its pruning all follow without new code. The generic connection list and manage APIs still
+  hide every `google_app` row: it is managed only on the app's page.
+- **Owners and admins only, checked twice.** New `/api/admin/google-apps/:app/team…` endpoints (`auth: 'admin'`), and
+  the service reads the role again from the database on every call (an admin demoted mid sign-in cannot finish it). Its
+  sign-in is a `google_app_flows` row with `scope = 'team'` (migration 349, additive): only the team completion takes it,
+  only the personal one a personal flow, so neither can become the other.
+- **Writes keep asking.** Its write rule is "ask" and no screen sets it to "allow": sending as a shared mailbox asks the
+  member on the card each time unless they chose their own Always allow there. That choice ends when an admin signs a
+  different Google account in (they chose it for the old one), when they leave the rule, or when they turn it back on
+  the app's page. Scheduled runs cannot send through it. Considered and not done: forbidding Always allow on a shared
+  mailbox; kept consistent with every other team connection and the owner's "Always allow means done".
+- **The admin who signed it in** is recorded in `team_sign_ins` so 팀장 넘기기 lists it. It stays when that admin leaves
+  (a shared mailbox is the team's, unlike a Drive share of an admin's own Drive). Revocation at Google: Google revokes a whole
+  grant, so removing the shared account, a person's own Disconnect (apps or Drive) and every end of a Drive share (stopped,
+  ended at 팀장 넘기기, its admin gone) ask Google
+  only when neither the same person keeps another Google sign-in here nor anyone's sign-in here uses the same Google
+  account (`store.ts googleAccountInUse`, matched by the confirmed address; an unknown address counts as in use). Found
+  in review: a member's own Gmail on the team's mailbox account, disconnected, would have ended the shared one for
+  everyone.
+- **Google Drive unchanged**: "Drives shared with the team" (#95) already is its shared mode (read-only, chosen folders).
+- Version impact: **minor** (new admin feature and endpoints, optional fields, an add-only migration).
+- Tests: `tests/unit/c-google-apps-team.test.ts`.

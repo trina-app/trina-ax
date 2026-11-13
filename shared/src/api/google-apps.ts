@@ -4,6 +4,7 @@
 import { z } from 'zod'
 import { endpoint, empty } from './endpoint'
 import { DriveAccount, DriveFlow, SetDriveClientBody } from './drive'
+import { IntegrationAccess } from './integrations'
 
 export const GOOGLE_APP_IDS = ['gmail', 'calendar', 'docs', 'sheets'] as const
 export const GoogleAppId = z.enum(GOOGLE_APP_IDS)
@@ -24,7 +25,19 @@ export type GoogleAppTool = z.infer<typeof GoogleAppTool>
  * `serviceDown`: connected, but the tools cannot be reached right now (the AI says so; it comes back by itself).
  * `writePolicy`: "ask" a card before each change, "allow" the person chose Always allow.
  * `tools`: what the AI gets, for "Show all tools" (also when not connected).
+ * `shared`: the team's shared account for this app (an owner or admin connected it, docs/GOOGLE-APPS.md "Shared with
+ *   the team"), only when its rule includes this person; null otherwise (also for an admin it does not include). An
+ *   older server sends none.
  */
+export const GoogleAppShared = z.object({
+  /** the shared connection's id (DELETE /api/integrations/:id/always-allow ends this person's own Always allow there) */
+  id: z.string(),
+  account: DriveAccount,
+  status: z.enum(['connected', 'needs_reconnect']),
+  /** this person chose Always allow on a card for the shared account (their own choice; the team's rule asks) */
+  alwaysAllowed: z.boolean(),
+})
+export type GoogleAppShared = z.infer<typeof GoogleAppShared>
 export const GoogleAppView = z.object({
   id: GoogleAppId,
   available: z.boolean(),
@@ -34,12 +47,30 @@ export const GoogleAppView = z.object({
   writePolicy: z.enum(['ask', 'allow']),
   serviceDown: z.boolean(),
   tools: z.array(GoogleAppTool),
+  shared: GoogleAppShared.nullable().optional(),
 })
 export type GoogleAppView = z.infer<typeof GoogleAppView>
 
 /** The same sign-in flow shape as Google Drive's (poll it, then confirm the account). */
 export const GoogleAppFlow = DriveFlow
 export type GoogleAppFlow = z.infer<typeof GoogleAppFlow>
+
+/**
+ * The team's shared account for one app, as owners and admins see it: one Google account connected once, used by the
+ * people its rule includes (the same rule as a team connection's) without connecting their own. `usedBy`: how many
+ * active people the rule includes now. `connectedBy`: who signed it in. `id`: the shared connection (a dialog that made
+ * it removes only that one). Never a token.
+ */
+export const GoogleAppTeam = z.object({
+  id: z.string(),
+  status: z.enum(['connected', 'needs_reconnect']),
+  account: DriveAccount,
+  access: IntegrationAccess,
+  usedBy: z.number().int(),
+  connectedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+  connectedAt: z.string(),
+})
+export type GoogleAppTeam = z.infer<typeof GoogleAppTeam>
 
 /** `connectUrl`: on a hosted team, the hosting service's own start page for this sign-in (opened first on the web). */
 const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), expiresAt: z.string() })
@@ -53,6 +84,8 @@ const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string(
  * `apis`: the Google APIs to switch on in Google Cloud for this card (shown as a checklist).
  * `membersCanConnect`: always true (no members' switch since 2026-11-12, docs/DECISIONS.md "No members' switch for
  *   connectors"); kept for older apps.
+ * `team`: the shared account an owner or admin connected for the team (GoogleAppTeam), or null. An older server sends
+ *   none.
  */
 export const GoogleAppAdminStatus = z.object({
   id: GoogleAppId,
@@ -65,6 +98,7 @@ export const GoogleAppAdminStatus = z.object({
   apis: z.array(z.object({ name: z.string(), url: z.string().url() })),
   membersCanConnect: z.boolean(),
   connectedMembers: z.number().int(),
+  team: GoogleAppTeam.nullable().optional(),
 })
 export type GoogleAppAdminStatus = z.infer<typeof GoogleAppAdminStatus>
 
@@ -85,5 +119,11 @@ export const GOOGLE_APPS = {
   disconnectGoogleApp: endpoint({ method: 'DELETE', path: `/api/integrations/google-apps${AppParam}`, auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: "Remove this app's sign-in at once; Google is asked to revoke only when it was the person's last Google sign-in here." }),
   googleAppsAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-apps', auth: 'admin', owner: 'C', response: z.object({ apps: z.array(GoogleAppAdminStatus) }), summary: 'Whether each Google app is set up, by whom, the APIs to switch on, the team switch and how many members connected; never the client.' }),
   setGoogleAppClient: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/client`, auth: 'admin', owner: 'C', body: SetGoogleAppClientBody, response: GoogleAppAdminStatus, summary: "Set up one app with the same Google app as Google Drive, or its own Google OAuth web client. Refused on hosted servers, without a public address, when the operator set it, and where it cannot run." }),
+  authorizeGoogleAppTeam: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/authorize`, auth: 'admin', owner: 'C', body: z.object({}).strict(), response: Authorization, summary: "Owners and admins: start the Google sign-in of the account shared with the team for one app." }),
+  googleAppTeamFlow: endpoint({ method: 'GET', path: `/api/admin/google-apps${AppParam}/team/flows/:id`, auth: 'admin', owner: 'C', response: GoogleAppFlow, summary: 'Poll the shared account sign-in started by this same signed-in session.' }),
+  cancelGoogleAppTeamFlow: endpoint({ method: 'DELETE', path: `/api/admin/google-apps${AppParam}/team/flows/:id`, auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Cancel this shared account sign-in.' }),
+  completeGoogleAppTeamFlow: endpoint({ method: 'POST', path: `/api/admin/google-apps${AppParam}/team/flows/:id/complete`, auth: 'admin', owner: 'C', body: z.object({ create: z.boolean().optional() }).strict(), response: GoogleAppAdminStatus, summary: "Confirm the Google account shown: it becomes the team's shared account for the app (a new one is used by nobody until its people are saved; a reconnect keeps them). `create`: only when there is none yet (else 409 team_exists: another admin connected one meanwhile). Members' own connections are not touched." }),
+  setGoogleAppTeam: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/team`, auth: 'admin', owner: 'C', body: z.object({ access: IntegrationAccess }).strict(), response: GoogleAppAdminStatus, summary: 'Who may use the shared account: everyone, groups or people (the same rule as a team connection).' }),
+  removeGoogleAppTeam: endpoint({ method: 'DELETE', path: `/api/admin/google-apps${AppParam}/team`, auth: 'admin', owner: 'C', query: z.object({ id: z.string().max(100).optional() }), response: z.object({ removed: z.boolean(), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: "Remove the shared account at once; Google is asked to revoke only when no other sign-in here uses the same Google account." }),
   setGoogleAppMembers: endpoint({ method: 'PUT', path: `/api/admin/google-apps${AppParam}/members`, auth: 'admin', owner: 'C', body: z.object({ on: z.boolean() }).strict(), response: GoogleAppAdminStatus, summary: 'The old members switch, kept for older apps: admin-only, changes nothing (every member may connect their own once the app is set up).' }),
 } as const
