@@ -5,6 +5,9 @@
 // for a member, whatever the number of chats (5+ too, a task's runs among them), and the "···" that shows on a row's
 // hover does not move its time. A computer and a phone, light and dark, the owner and a member. TC_SHOTS=<folder> keeps
 // screenshots.
+// The list is a page's main list (ListRow scale="page", QA TC-1050; docs/DECISIONS.md "Page lists: page density"): rows
+// 48px on a computer and at least 48px on a phone (not the panels' 30px), every title flush with the "트리나 기록"
+// heading, every time ending at one x, and a shared chat's faces the same size and centred on their row.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -12,6 +15,25 @@ import { reset, signIn } from './helpers'
 const BOB = { username: 'bob', password: 'bob password 1' }
 
 const post = (page: Page, path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
+
+/** a page's list's rows (TC-1050): their height (48px on a computer, at least 48 on a phone), every title at the
+ * heading's x, every time's right edge at one x */
+async function pageDensity(list: Locator, width: number) {
+  const rows = list.locator('[data-testid="project-chat"], [data-testid="task-runs-row"]')
+  const heights = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+  for (const h of heights) {
+    if (width >= 768) expect(Math.round(h)).toBe(48)
+    else expect(h).toBeGreaterThanOrEqual(48)
+  }
+  const h2 = (await list.getByRole('heading', { level: 2 }).boundingBox())!
+  const xs = await list.getByTestId('project-row-title').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().x))
+  for (const x of xs) expect(Math.abs(x - h2.x)).toBeLessThanOrEqual(1)
+  const ends = await rows.locator('time').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))
+  for (const e of ends) expect(Math.abs(e - ends[0]!)).toBeLessThanOrEqual(1)
+  // the hover fill reaches out past the titles (the row's inset as a negative margin), not cut at the heading's edge
+  const fill = (await rows.first().boundingBox())!
+  expect(fill.x).toBeLessThan(h2.x - 4)
+}
 
 for (const [width, height] of [[1440, 900], [390, 844]] as const) {
   for (const scheme of ['light', 'dark'] as const) {
@@ -24,8 +46,14 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
       expect(r.status()).toBe(201)
       const id = ((await r.json()) as { id: string }).id
       expect((await page.request.post('/__test/schedule', { data: { title: '평일 뉴스 브리핑', runs: 3, projectId: id } })).ok()).toBeTruthy()
-      for (const title of ['Gemini Decisions API 댓글 초안', 'Hacker News 비공식 문서 요약'])
-        expect((await post(page, '/api/chats', { projectId: id, title })).ok()).toBeTruthy()
+      const made: string[] = []
+      for (const title of ['Gemini Decisions API 댓글 초안', 'Hacker News 비공식 문서 요약']) {
+        const c = await post(page, '/api/chats', { projectId: id, title })
+        expect(c.ok()).toBeTruthy()
+        made.push(((await c.json()) as { id: string }).id)
+      }
+      // a pinned chat among them: its pin after the title, not before it
+      expect((await post(page, `/api/chats/${made[0]}/pin`, {})).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
       const list = page.getByTestId('project-chats')
       const chats = list.getByTestId('project-chat')
@@ -33,6 +61,7 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
       await expect(chats).toHaveCount(2)
       await expect(task).toHaveCount(1)
       await expect(task).toContainText('평일 뉴스 브리핑')
+      await expect(list.getByTestId('chat-pin-icon')).toHaveCount(1)
       await list.scrollIntoViewIfNeeded()
       if (process.env.TC_SHOTS) await list.screenshot({ path: `${process.env.TC_SHOTS}/tc990-${width}-${scheme}.png` })
 
@@ -55,6 +84,7 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
         return b.x + b.width
       }
       expect(Math.abs((await end(task)) - (await end(chats.first())))).toBeLessThanOrEqual(1)
+      await pageDensity(list, width)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     })
   }
@@ -72,8 +102,13 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
       const id = ((await r.json()) as { id: string }).id
       expect((await page.request.patch(`/api/projects/${id}`, { headers: { [CSRF_HEADER]: '1' }, data: { shareChats: true } })).ok()).toBeTruthy()
       expect((await page.request.post('/__test/schedule', { data: { title: '평일 뉴스 브리핑', runs: 3, projectId: id } })).ok()).toBeTruthy()
-      for (const title of ['Weekly numbers', 'Launch plan review', 'Hacker News 비공식 문서 요약', 'Gemini Decisions API 댓글 초안', 'Q4 budget notes'])
-        expect((await post(page, '/api/chats', { projectId: id, title })).ok()).toBeTruthy()
+      const made: string[] = []
+      for (const title of ['Weekly numbers', 'Launch plan review', 'Hacker News 비공식 문서 요약', 'Gemini Decisions API 댓글 초안', 'Q4 budget notes']) {
+        const c = await post(page, '/api/chats', { projectId: id, title })
+        expect(c.ok()).toBeTruthy()
+        made.push(((await c.json()) as { id: string }).id)
+      }
+      expect((await post(page, `/api/chats/${made[1]}/pin`, {})).ok()).toBeTruthy()
       const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', viewport: { width, height }, colorScheme: scheme, serviceWorkers: 'block' })
       const bob = await ctx.newPage()
       await signIn(bob, BOB)
@@ -118,6 +153,22 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
         await expect(list.getByTestId('project-chat-menu').first()).toBeVisible()
         const after = (await time.boundingBox())!
         expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(0.5)
+        await pageDensity(list, width)
+        // a shared chat's faces: one size, and centred on their row as the time is (rows without faces line up too:
+        // the times' right edges above)
+        const faces = await list.getByTestId('project-chat').evaluateAll((rows) => rows.flatMap((r) => {
+          const box = r.getBoundingClientRect()
+          const t = r.querySelector('time')!
+          return [...t.parentElement!.querySelectorAll('span.rounded-full')].map((f) => {
+            const b = f.getBoundingClientRect()
+            return { w: b.width, h: b.height, off: b.y + b.height / 2 - (box.y + box.height / 2) }
+          })
+        }))
+        expect(faces.length).toBeGreaterThan(0)
+        for (const f of faces) {
+          expect(f).toMatchObject({ w: faces[0]!.w, h: faces[0]!.h })
+          expect(Math.abs(f.off)).toBeLessThanOrEqual(1)
+        }
         expect(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       }
       await ctx.close()

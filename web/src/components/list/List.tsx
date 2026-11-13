@@ -17,9 +17,10 @@ import { Link } from 'react-router-dom'
 import { useFolds } from '../panels/folds'
 import { MenuButton, useRowMenu, type MenuItem } from '../rooms/MenuButton'
 
-/** A row's name: unread or selected semibold in ink; otherwise the read look (a computer: muted 400; a phone: ink 500) */
-export const rowName = ({ unread = false, selected = false }: { unread?: boolean; selected?: boolean } = {}) =>
-  clsx('text-row', unread || selected ? 'font-semibold text-ink' : 'font-row-read text-row-read')
+/** A row's name: unread or selected semibold in ink; otherwise the read look (a panel on a computer: muted 400; a phone
+ * and a page's main list, `page`: ink 400) */
+export const rowName = ({ unread = false, selected = false, page = false }: { unread?: boolean; selected?: boolean; page?: boolean } = {}) =>
+  clsx('text-row', unread || selected ? 'font-semibold text-ink' : page ? 'font-normal text-ink' : 'font-row-read text-row-read')
 
 /** A row's icon: a bare icon on a computer, a round tile on a phone (index.css --spacing-list-icon, --color-list-icon-bg).
  * `face`: a list of people (the member picker): a box a picture reads in, 28px on a computer (--spacing-list-face) */
@@ -56,6 +57,12 @@ export const rowBox = 'min-h-row-min pointer-coarse:min-h-[max(2.75rem,var(--spa
 /** A section header's row (ListSection; a group of the filtered history, history/HistoryGroups.tsx): the rows' 30px on
  * a computer, 44px to tap on a phone and a touch screen */
 export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 max-md:min-h-11'
+/** A page's main list's row (ListRow `scale="page"`: a project's 트리나 기록, 팀 스킬's skills; docs/DECISIONS.md "Page
+ * lists: page density"): 48px on a computer and a phone (index.css --spacing-row-page), not the panels' 30px, and its
+ * words flush with the section's heading, the hover fill reaching out past them (`pageBleed`: the row's own 12px
+ * inset as a negative margin), so the list sits in the page's column as its heading and text do */
+export const pageRowBox = 'min-h-row-page'
+const pageBleed = '-mx-3 w-[calc(100%+1.5rem)]'
 
 export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-normal text-faint tabular-nums'
 
@@ -74,9 +81,11 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * (RowMenu). `actions`: buttons beside the row's click area, outside its link (a skill's 실행): the row's words end
  * before them. `rowRef`: the link's or button's element; `rowTitle`: its tooltip. `strong`: the name in ink at medium weight whether read or not
  * (a list of things to pick from, not of things to read: skills). `li`: the <li>'s ref, handlers, className, data-* and
- * aria-*.
+ * aria-*. `scale`: "panel" (the default: the rail's panels, the phone tabs, the drawer, a dialog's list) or "page" for
+ * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
+ * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -98,6 +107,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
   /** the whole row's tooltip (a skill's description) */
   rowTitle?: string
   strong?: boolean
+  scale?: 'panel' | 'page'
   unread?: boolean
   selected?: boolean
   wrap?: boolean
@@ -114,10 +124,12 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
   onBlur?: (e: FocusEvent<HTMLElement>) => void
   onKeyDown?: (e: KeyboardEvent<HTMLElement>) => void
 }) {
+  const page = scale === 'page'
   const cls = clsx(
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 48px)
-    'flex w-full gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
-    rowBox,
+    'flex gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
+    // a page's list: the row's inset outside the column (with `actions`, only on the left: they take the right's)
+    page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
     (to || onClick || choice) && !disabled && 'hover:bg-hover',
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
@@ -132,7 +144,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {icon && <ListIcon face={face} className={meta ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       {lead && <span className="-mr-1 flex shrink-0 items-center gap-1 self-center">{lead}</span>}
       <span className="min-w-0 flex-1">
-        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? 'text-row font-medium text-ink' : rowName({ unread, selected }))} title={nameTitle} data-testid={nameTestId}>
+        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? 'text-row font-medium text-ink' : rowName({ unread, selected, page }))} title={nameTitle} data-testid={nameTestId}>
           {name}
         </span>
         {meta && (
@@ -183,7 +195,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {...liRest}
     >
       {box}
-      {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
+      {actions && <span className={clsx('flex shrink-0 items-center gap-1', page && '-mr-3')}>{actions}</span>}
       {menu}
       {rowMenu && (
         // 28 px on a computer (WCAG 2.2 target size: it sits on the row), 44 px on a phone
@@ -193,7 +205,8 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
           items={rowMenu.items}
           sheetTitle={rowMenu.sheetTitle}
           buttonRef={rowMenu.buttonRef}
-          className="absolute inset-y-0 right-1 flex items-center max-md:right-0"
+          // a page's list: as far out as the row's fill reaches (pageBleed), the same 4px in from its edge
+          className={clsx('absolute inset-y-0 flex items-center', page ? '-right-2 max-md:-right-3' : 'right-1 max-md:right-0')}
           buttonClassName="touch-hit hover:bg-surface max-md:size-11 pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
           openSignal={rm.openSignal}
           openRequest={rm.openRequest}

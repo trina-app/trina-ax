@@ -216,9 +216,11 @@ function ShareReviews({ items }: { items: SkillShare[] | null }) {
   return (
     <section className="mb-5" aria-label={t('skills.sharesToReview')} data-testid="share-review-list">
       <ListHeading as="h2" className="mb-1">{t('skills.sharesToReview')}</ListHeading>
-      <ul className="-mx-3">
+      {/* the page's lists' density (ListRow scale="page"), as the skills under it */}
+      <ul>
         {items.map((s) => (
           <ListRow
+            scale="page"
             key={s.id}
             to={`/skills/share/${s.id}`}
             icon={<Users />}
