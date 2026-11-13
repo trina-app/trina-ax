@@ -4,14 +4,14 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { resolveLayout } from '../../system/layout'
-import { DRIVE_SCOPE, configKey, hash, readDriveConfig, type DriveConfig } from './config'
+import { DRIVE_SCOPE, OWN_APP_SETTING, configKey, hash, readDriveConfig, type DriveConfig } from './config'
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
 import { googleAccountInUse, googleEmailOf, signsTeamGoogleApp } from '../connections/store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
-import { setSetting } from '../../admin/settings'
+import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
@@ -64,7 +64,10 @@ export class GoogleDrive {
     this.clientFromEnv = !!process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE
     this.clientFile = process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE || path.join(dir, 'client.json')
     this.cfg = deps.config !== undefined ? deps.config : readDriveConfig(this.clientFile, ctx.config.teamRoot)
-    const brokerOpts = deps.broker !== undefined ? deps.broker : driveBrokerFor(ctx, !!this.cfg, this.clientFromEnv)
+    // a client.json the company's own Google app wrote (own-app.ts) still keeps the hosting service's sign-in ready
+    // behind it: removing that app goes back to the hosting service at once, without a restart
+    const byOwnApp = !!this.cfg && getSetting<{ key?: unknown }>(ctx.db, OWN_APP_SETTING)?.key === configKey(this.cfg)
+    const brokerOpts = deps.broker !== undefined ? deps.broker : driveBrokerFor(ctx, !!this.cfg && !byOwnApp, this.clientFromEnv)
     this.broker = brokerOpts ? new DriveBroker(brokerOpts, deps.fetch ?? fetch, this.now) : null
     this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)

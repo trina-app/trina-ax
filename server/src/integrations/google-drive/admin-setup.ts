@@ -13,8 +13,9 @@
 //    While it does not serve it (not registered, or removed), the page may set a client of its own, which then wins;
 //  - a client the operator set (MYCEL_GOOGLE_DRIVE_CLIENT_FILE, or a client.json the installer or the operator wrote):
 //    the page shows it as "set by the server" and leaves it alone. Only a client set on this page can be replaced here;
-//  - a server without a public https address (tunnel.host): Google has no address to send people back to.
-// The redirect URI is always https://<tunnel.host>/api/integrations/google-drive/callback; a downloaded file must list it.
+//  - a server without a public https address (tunnel.host, or a hosted server's team address): Google has no address to
+//    send people back to.
+// The redirect URI is always https://<public host>/api/integrations/google-drive/callback; a downloaded file must list it.
 //
 // The client secret never leaves the server: not in a response, the audit log (only "drive.client_set"), or a log line.
 //
@@ -27,7 +28,7 @@ import type { DriveAdminStatus } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { audit } from '../../admin/audit'
 import { getSetting, setSetting } from '../../admin/settings'
-import { isHosted } from '../../system/deployment'
+import { isHosted, publicHostOf } from '../../system/deployment'
 import { CALLBACK_PATH, parseDriveConfig, type DriveConfig } from './config'
 import { googleDriveOf } from './oauth'
 import { DriveError } from './store'
@@ -36,7 +37,9 @@ import { shareRows, shareWorks } from './shares'
 /** the key of the client set on this page (configKey): a client.json with another key was written by someone else */
 export const DRIVE_CLIENT_BY_APP = 'integrations.googleDriveClientByApp'
 
-export const driveRedirectUri = (ctx: AppContext) => (ctx.config.tunnel?.host ? `https://${ctx.config.tunnel.host}${CALLBACK_PATH}` : null)
+/** https://<public host>/api/integrations/google-drive/callback (system/deployment.ts publicHostOf: tunnel.host, or a
+ * hosted server's team address from publicOrigins) */
+export const driveRedirectUri = (ctx: AppContext) => { const h = publicHostOf(ctx.config); return h ? `https://${h}${CALLBACK_PATH}` : null }
 
 export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
   const svc = googleDriveOf(ctx)

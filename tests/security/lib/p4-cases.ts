@@ -49,6 +49,9 @@ export const P4_SPECS: Record<string, Spec> = {
   googleAppsAdminStatus: { build: c => c.get('/api/admin/google-apps'), scope: 'byLevel' },
   setGoogleAppClient: { build: c => c.put('/api/admin/google-apps/gmail/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
   setGoogleAppMembers: { build: c => c.put('/api/admin/google-apps/gmail/members', { on: true }), scope: 'byLevel' },
+  googleOwnApp: { build: c => c.get('/api/admin/google/own-app'), scope: 'byLevel' },
+  setGoogleOwnApp: { build: c => c.put('/api/admin/google/own-app', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
+  removeGoogleOwnApp: { build: c => c.del('/api/admin/google/own-app'), scope: 'byLevel' },
   // the account shared with the team (QA TC-198): owners and admins only; its sign-in is bound to the admin's session
   authorizeGoogleAppTeam: { build: c => c.post('/api/admin/google-apps/gmail/team/authorize', {}), scope: 'byLevel' },
   googleAppTeamFlow: { build: c => c.get('/api/admin/google-apps/gmail/team/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },

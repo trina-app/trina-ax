@@ -103,6 +103,36 @@ An unregistered server, or one the hosting service removed, stays at "Not availa
 sign-ins and refreshes at once), and its admin page offers to set a client of its own again. To go back, put the client
 back (or set one on the page) and unset the variable.
 
+**The company's own Google app instead.** Where the hosting service is the Google sign-in (a hosted server, whether or
+not the hosting service answers yet, or a self-installed server it serves) and the operator set no Google client, an
+owner or admin can make all five Google apps (Drive, Gmail, Calendar, Docs, Sheets) sign in with the company's own
+Google app (an Internal app on the company's Google Workspace: no Google review, no user limit). It is set once, from
+Team settings › Google sign-in on any Google page (`GET`/`PUT`/`DELETE /api/admin/google/own-app`,
+`server/src/integrations/google-drive/own-app.ts`). Stored as today's files, so the sign-in code is unchanged:
+
+- the client is written as this `client.json` (mode 0600, a new file renamed into place and read back; the earlier file
+  is put back if the read fails), which wins over the hosting service; the four apps are set to "the same Google app as
+  Drive" ([GOOGLE-APPS.md](GOOGLE-APPS.md) "The company's own Google app");
+- settings `integrations.googleOwnApp` = `{ key, by, at, apps }` (the client's fingerprint, who, when, and the four
+  apps' settings before it). A `client.json` with another fingerprint is the operator's: the setting is then refused
+  (`blocked: "server"`), and removing it never deletes that file;
+- the uploaded file must list both return addresses, `https://<team host>/api/integrations/google-drive/callback` and
+  `.../google-apps/callback` (refused with `client_redirect_drive` / `client_redirect_apps`); the client ID and secret
+  are accepted too. The team host is `tunnel.host`, or on a hosted server the host of its first https `publicOrigins`
+  entry (the hosting service writes the team address there, never `tunnel`: `system/deployment.ts publicHostOf`). A
+  team rename changes it: add the new addresses at Google;
+- the change ends every Google sign-in here (a new client is a new key), and nothing is revoked at Google by it. The
+  answer counts them first: `people` (active people with a Drive or app connection) and `shared` (Drive shares and the
+  team's shared Google accounts, which an admin reconnects);
+- removing it deletes only a `client.json` it wrote and puts the four apps back. The hosting service's sign-in stays
+  ready behind the company's client (the broker is kept even after a restart while it is set), and the server asks the
+  hosting service right away, so all five go back to it at once. `canGoBack: false` (no broker URL): Google turns off
+  until a client is set again;
+- the client ID and secret are in no answer, log line or audit entry (`google.own_app_set` with `{ replaced }`,
+  `google.own_app_removed` with `{}`); owners and admins only. Like every server-held client, the file is not in
+  `admin.js archive`: after a restore, add the app again;
+- the card-level setup is unchanged: on a hosted server `blocked: "hosted"`, no redirect address shown.
+
 **Flow.** `POST /api/integrations/google-drive/authorize` (and the share authorize) asks the control plane to start
 (`begin()`): the same flow row, state and PKCE verifier as the direct flow, but the control plane makes the Google
 address. Google returns to the control plane, which sends the browser to this server's own callback with `state` and a

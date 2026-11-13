@@ -159,6 +159,19 @@ each card can be set up on the page as on any self-installed server. A card that
 this page, or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE`) keeps signing in with it and never calls the hosting
 service.
 
+### The company's own Google app
+
+Where the hosting service is the sign-in (a hosted server, or a self-installed server it serves) and the operator set
+no client, an owner or admin can set the company's own Google app once for all five Google apps
+(`/api/admin/google/own-app`, [GOOGLE-DRIVE.md](GOOGLE-DRIVE.md) "The company's own Google app instead"). It is written
+as Google Drive's `client.json`, and each of these four cards is set to "the same Google app as Drive" (`{by:'drive'}`),
+so the cards sign in directly at Google with it (source `drive`) and never call the hosting service; their redirect
+address is `https://<team host>/api/integrations/google-apps/callback`, which the uploaded file must list next to
+Drive's. A card that has a client of its own or the operator's `MYCEL_GOOGLE_<APP>_CLIENT_FILE` blocks it
+(`blocked: "server"`). Removing it puts each card back as it was (only a card still on "same as Drive"), so they go back
+to the hosting service at once. Connections made with the hosting service's app, and the team's shared account, ask to
+connect again after either change. The card's own `canSetUp` and `blocked: "hosted"` do not change.
+
 ## Disconnecting
 
 Disconnect removes that app's sign-in in Trina at once. Trina asks Google (or the hosting service) to revoke only when

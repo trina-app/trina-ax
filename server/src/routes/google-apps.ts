@@ -11,6 +11,7 @@ import type { AppContextC } from '../http/env'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
+import { GoogleOwnAppError, ownAppStatus, removeOwnApp, setOwnApp } from '../integrations/google-drive/own-app'
 import { afterServiceSetup, askService, dismissServiceRequests, myServiceRequests, teamServiceRequests, withdrawService } from '../integrations/service-requests'
 
 /** the app in the path, or not found */
@@ -23,7 +24,7 @@ function appOf(raw: string | undefined): GoogleAppId {
 async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
   try { return await fn() } catch (e) {
     if (e instanceof HttpError) throw e
-    if (e instanceof GoogleAppError) {
+    if (e instanceof GoogleAppError || e instanceof GoogleOwnAppError) {
       const code = e.status === 404 ? 'not_found' : e.status === 401 ? 'unauthorized' : e.status === 403 ? 'forbidden' : e.status === 429 ? 'rate_limited' : e.status === 409 ? 'conflict' : e.status >= 500 ? 'unavailable' : 'bad_request'
       throw new HttpError(code, e.message, { status: e.status, params: { reason: e.reason } })
     }
@@ -47,6 +48,14 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
     afterServiceSetup(ctx, app)
     return st
   }))
+  // the company's own Google app for all five Google apps (integrations/google-drive/own-app.ts); owners and admins
+  kit.handle(API.googleOwnApp, () => safe(() => ownAppStatus(ctx)))
+  kit.handle(API.setGoogleOwnApp, ({ auth, body }) => safe(() => {
+    const st = setOwnApp(ctx, auth.user.id, body)
+    for (const s of ['google-drive', 'gmail', 'calendar', 'docs', 'sheets'] as const) afterServiceSetup(ctx, s)
+    return st
+  }))
+  kit.handle(API.removeGoogleOwnApp, ({ auth }) => safe(() => removeOwnApp(ctx, auth.user.id)))
   // the account shared with the team: owners and admins only (the route checks the role; the service checks it again)
   kit.handle(API.authorizeGoogleAppTeam, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team')))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))
