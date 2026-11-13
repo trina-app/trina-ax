@@ -17796,6 +17796,47 @@ Slack's sections, that only they see. This entry is the server half: tables, rul
   Left as is: names are unique by NFC + lower case, not NFKC (as the plan says).
 - Version impact: **minor** (new endpoints, additive fields and an additive migration).
 
+## List folders on screen (feat/nav-rail-p4b, 2026-11-13, navigation redesign P4b)
+
+넣을 곳: Team AX core (`web/src/components/nav/NavFolders.tsx`, `web/src/store/navFolders.ts`, the Trina list
+`panels/TrinaList.tsx`, 대화's `panels/RoomsByKind.tsx`, the row menus `nav/ChatItem.tsx` and `rooms/RoomMenu.tsx`), 이유:
+the lists they sort are core. Plan: `docs/AGENTS/plan/20261112-1839-nav-rail.md` §4.6, phase P4b (approved by the owner
+2026-11-13). Only while the server's `navRail` switch is on; with it off no folder shows and `/api/nav-folders` is never
+read. The server half is the entry above.
+
+- **Making them**: "새 폴더" is the + on the "폴더 · 나만 보여요" label, or, before the first folder, one quiet row (beside
+  "+ 새 프로젝트" in the Trina list; at the end of 대화's). A name dialog checks 1–40 characters and a name I already use
+  (any letter case) before the server does.
+- **A folder's header**: its name with ▾ folds it (remembered per person in this browser, as project groups); its "⋯"
+  has 이름 바꾸기 · 위로 · 아래로 · 폴더 지우기 (the first has no 위로, the last no 아래로: two items instead of drag-to-order,
+  the same for a keyboard and a finger). Deleting asks first only when something is in it ("폴더만 지워져요. 안의 기록은
+  목록에 그대로 있어요."). A Trina folder's header also has + "'<folder>'에서 트리나에게 묻기": Home with `?folder=<id>` says
+  "'<folder>' 폴더에 넣어요" (✕ undoes it) and the first message's chat is filed there before it opens.
+  **This reverses the plan's "no + on folder headers" (UX review N2)**: the owner's brief for P4b asked for it, like the
+  project groups' + and Claude Code's groups.
+- **Filling them**: a row's "⋯" (a right-click, a phone's long press) has **폴더로 옮기기**, which opens a second small menu
+  where the row's "⋯" is: my folders (the current one ticked) and "새 폴더 만들어 넣기"; and **폴더에서 빼기** while it is in
+  one. A toast says where it went. This is the keyboard's way. With a mouse a row may also be **dragged onto a folder**
+  (HTML drag and drop; the row says its kind in the drag's type, so a folder only takes its own kind and a project chat
+  carries nothing). **This brings drag forward from "a follow-up"** (plan §4.6), also at the owner's brief; the menu
+  stays the way that works everywhere.
+- **A project's chat**: 폴더로 옮기기 is shown but off, and the menu says why under it ("프로젝트 기록은 프로젝트 안에
+  있어요."), read out with the item. A room hidden by me has no folder item (the server refuses it; show it first), as pins.
+- **대화**: room folders are sections between 고정 and 팀 대화방, a room in one place only (pinned › its folder › its kind; a
+  folder id that is not one of mine is ignored). A folded room folder keeps one pill, the strongest of its rooms: "?"
+  (its AI waits on me) › "@" (an unread mention) › how many rooms have unread messages; muted rooms are left out, as the
+  대화 count leaves them. A folded Trina folder keeps its strongest session marker, as project groups.
+- **Empty folder**: one short line, "아직 비어 있어요" (the P2 line ran to three lines in a 240 px panel).
+- **Phones**: the same components draw in the phone's lists (P5 reuses TrinaList and RoomsByKind): the header's + and
+  "⋯" always show on a touch screen, the row menus are sheets. A new chat from a folder's + uses `/?folder=`; P5's
+  `newChatPath` should carry it to `/new` like `?project=`.
+- Fixed on the way: a row's menu in 대화 was cut off at its section's edge (`content-visibility: auto` contains paint), so
+  a section is drawn plainly while one of its menus is open.
+- Tests: `web/test/unit/nav-folders.test.tsx`, `web/test/e2e/nav-folders.spec.ts` (make, rename, reorder, delete; keyboard
+  and drag; in and out; the project chat's reason; a folder's +; room folders and the pill; another person signing in in
+  the same window sees none of them; the switch off shows and reads nothing).
+- Version impact: none while the switch is off (no changelog fragment, per `changes/README.md`).
+
 ## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
 
 Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:

@@ -105,7 +105,9 @@ export function RoomsByKind() {
       <section
         key={s.key}
         aria-labelledby={id}
-        className="[content-visibility:auto]"
+        // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
+        // so the section is drawn plainly while one is open
+        className="[content-visibility:auto] has-[[aria-expanded=true]]:[content-visibility:visible]"
         style={{ containIntrinsicSize: `auto ${32 + shown.length * ROW_PX}px` }}
         data-testid="chats-panel-section"
         data-section={s.key}
@@ -161,7 +163,7 @@ function RoomFolder({ folder, rooms, shown, folded, onFold }: { folder: NavFolde
         <FolderMenu
           folder={folder}
           count={rooms.length}
-          className="absolute top-1/2 right-1 -translate-y-1/2"
+          className="absolute inset-y-0 right-1 flex items-center"
           buttonClassName="opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
         />
       </div>

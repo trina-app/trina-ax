@@ -21,7 +21,8 @@ import { createFolder, deleteFolder, fileChat, fileRoom, foldersOf, moveFolder, 
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
-import { panelRow } from '../../components/panels/PanelFrame'
+import { Tooltip } from '../Tooltip'
+import { panelRow } from '../panels/PanelFrame'
 
 /** my folders of one kind, read when first needed and kept current */
 export function useFolders(kind: NavFolderKind, on = true): NavFolder[] {
@@ -104,9 +105,11 @@ export function NewFolderButton({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   const act = useFolderActions(kind)
   return (
-    <button type="button" aria-label={t('navFolders.new')} title={t('navFolders.new')} onClick={() => void act.create()} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={`${kind}-folder-new`}>
-      <Plus size={14} aria-hidden />
-    </button>
+    <Tooltip label={t('navFolders.new')}>
+      <button type="button" aria-label={t('navFolders.new')} onClick={() => void act.create()} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={`${kind}-folder-new`}>
+        <Plus size={14} aria-hidden />
+      </button>
+    </Tooltip>
   )
 }
 

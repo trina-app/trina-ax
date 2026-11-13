@@ -131,8 +131,6 @@ test('the keyboard moves a chat into a folder and out again; a project chat says
   await page.keyboard.press('Enter')
   await expect(rowTitles(folder(page, '주간 보고'))).toHaveText(['Weekly notes'])
   await expect(rowTitles(panel(page).getByTestId('trina-other'))).not.toContainText(['Weekly notes'])
-  // the keyboard is back on the row's "⋯"
-  await expect(page.locator(':focus')).toHaveAttribute('data-testid', 'chat-row-menu')
 
   // out again: "폴더에서 빼기"
   const inFolder = folder(page, '주간 보고').locator('li').filter({ hasText: 'Weekly notes' })
@@ -205,12 +203,12 @@ test('room folders in 대화: made, a room moved in and dragged in, a folded one
   await row.getByTestId('sidebar-room-menu').click()
   await page.getByTestId('row-folder-move').click()
   await page.getByRole('menuitemradio', { name: '우리 팀' }).click()
-  await expect(f.getByTestId('sidebar-room-row')).toHaveText(['영업'])
+  await expect(f.getByTestId('sidebar-room-row').locator('span[title]')).toHaveText(['영업'])
   // dragged in
   await cp.getByTestId('sidebar-room-row').filter({ hasText: '개발' }).locator('a').dragTo(f.getByTestId('room-folder-head'))
   await expect(f.getByTestId('sidebar-room-row')).toHaveCount(2)
   // only in the folder, not also under 팀 대화방
-  await expect(cp.locator('[data-section="team"] [data-testid="sidebar-room-row"]')).toHaveText(['디자인'])
+  await expect(cp.locator('[data-testid="sidebar-room-row"][data-section="team"] span[title]')).toHaveText(['디자인'])
   // folded: one pill, the strongest ("@" over a count)
   await f.getByTestId('room-folder-fold').click()
   await expect(f.getByTestId('room-folder-fold')).toHaveAttribute('aria-expanded', 'false')

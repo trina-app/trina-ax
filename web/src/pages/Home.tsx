@@ -58,6 +58,7 @@ import { useMemberWelcome } from '../store/memberWelcome'
 import { TrinaStar } from '../components/TrinaStar'
 import { FileDropZone } from '../components/FileDropZone'
 import { useFolders } from '../components/nav/NavFolders'
+import { Tooltip } from '../components/Tooltip'
 import { useNavRail } from '../lib/navRail'
 
 // Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
@@ -178,9 +179,11 @@ function HomePage() {
               <p className="mb-2 flex items-center justify-center gap-1.5 text-sm text-muted" data-testid="home-folder">
                 <Folder size={14} className="shrink-0" aria-hidden />
                 <span className="truncate">{t('navFolders.goesInto', { name: folder.name })}</span>
-                <button type="button" aria-label={t('navFolders.goesIntoClear')} title={t('navFolders.goesIntoClear')} onClick={() => setParams({}, { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
-                  <X size={14} aria-hidden />
-                </button>
+                <Tooltip label={t('navFolders.goesIntoClear')}>
+                  <button type="button" aria-label={t('navFolders.goesIntoClear')} onClick={() => setParams({}, { replace: true })} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="home-folder-clear">
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               </p>
             )}
             {project && (
