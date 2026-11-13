@@ -18,6 +18,7 @@ import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { useLoad } from './common'
 import { InFolderHeader, takePeopleRefocus } from './folder-slots'
 import { useAdminBar } from './phoneBar'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 /** the "someone new" option of the list (not a person id: those are [a-z0-9_-]) */
 const NEW = '+new'
@@ -29,8 +30,8 @@ const fold = (s: string) => s.normalize('NFC').toLocaleLowerCase()
 export default function AccessPeople() {
   const t = useT()
   const [params, setParams] = useSearchParams()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const users = useAdminUsers()
+  const groups = useAdminGroups()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
   const location = useLocation()
   const picker = useRef<HTMLDivElement>(null)

@@ -21,8 +21,8 @@ import {
 import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader, useMediaQuery } from '../../components/ui'
 import { PhoneFilters } from '../../components/PhoneFilters'
-import { useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
+import { useAdminUsers } from '../../store/adminPeople'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
 const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
@@ -33,7 +33,7 @@ export default function Audit() {
   const [params, setParams] = useSearchParams()
   const f = readFilters(params)
   const set = (patch: Partial<ActivityFilters>) => setParams((p) => writeFilters({ ...readFilters(p), ...patch }), { replace: true })
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const users = useAdminUsers()
   const [items, setItems] = useState<AuditEntry[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

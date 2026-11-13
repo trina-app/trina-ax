@@ -31,7 +31,7 @@ export function ChipThumb({ file, src, alt = '', fallback = null, className }: {
   if (broken) return <>{fallback}</>
   // (its place is kept for the moment before the file's address is made: nothing moves under the pointer)
   if (!url) return <span aria-hidden className={clsx(SQUARE, 'block bg-subtle', className)} />
-  return <img src={url} alt={alt} onError={() => setBroken(true)} className={clsx(SQUARE, 'object-cover', className)} data-testid="chip-thumb" />
+  return <img src={url} alt={alt} loading="lazy" decoding="async" onError={() => setBroken(true)} className={clsx(SQUARE, 'object-cover', className)} data-testid="chip-thumb" />
 }
 
 /** The picture's square in the row above the box: a hairline edge (a white screenshot on the white box), a spinner over

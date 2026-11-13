@@ -41,6 +41,9 @@ export const authRoutes: RouteModule = {
     kit.handle(API.logout, ({ c, auth }) => {
       a().revokeSession(auth.session.id, 'logout')
       if (auth.via === 'cookie') a().clearCookie(c)
+      // a shared computer: the browser forgets what it kept of this person (room pictures of this sign-in, the bodies
+      // of private answers it stored to check again), so nothing of it is left for the next person (auth/media-key.ts)
+      c.header('Clear-Site-Data', '"cache"')
     })
 
     kit.handle(API.changePassword, async ({ c, body }) => {

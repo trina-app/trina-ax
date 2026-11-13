@@ -46,6 +46,7 @@ import { Loadable, SettingRow, SettingsSection, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 import AdminSlack from './Slack'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'slack' } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
 
@@ -58,8 +59,8 @@ export default function AdminIntegrations() {
   const t = useT()
   const me = useMeStrict()
   const state = useLoad(async () => (await api.call(API.listTeamIntegrations)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   // an older server has no templates: the page works without them
   const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
   // toList: opened from Discover or while a connector's page is open; once added, the page shows the list with it

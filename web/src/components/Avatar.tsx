@@ -13,7 +13,7 @@ export function Avatar({ user, size = 24, className }: { user: AvatarUser; size?
   useEffect(() => setBroken(false), [user.id, user.avatarVersion])
   const style = { width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.45)) }
   if (user.avatarVersion && !broken) {
-    return <img src={avatarUrl(user.id, user.avatarVersion)} alt="" aria-hidden width={size} height={size} style={style} className={clsx('shrink-0 rounded-full bg-hover object-cover', className)} onError={() => setBroken(true)} draggable={false} />
+    return <img src={avatarUrl(user.id, user.avatarVersion)} alt="" aria-hidden loading="lazy" decoding="async" width={size} height={size} style={style} className={clsx('shrink-0 rounded-full bg-hover object-cover', className)} onError={() => setBroken(true)} draggable={false} />
   }
   return (
     <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-hover font-semibold text-muted', className)} aria-hidden>

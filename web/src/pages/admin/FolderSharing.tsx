@@ -26,6 +26,7 @@ import { useFaceOf } from '../../store/people'
 import { useMeStrict } from '../../store/session'
 import { AddNamed, type ListControl } from './AddNamed'
 import { useRulesDraft } from './useRulesDraft'
+import { loadAdminGroups, loadAdminUsers, readAdmin } from '../../store/adminPeople'
 
 export interface FolderSharingProps {
   path: string
@@ -61,8 +62,9 @@ export default function FolderSharing(props: FolderSharingProps) {
       try {
         const [folders, users, groups, below] = await Promise.all([
           api.call(API.listFolders),
-          api.call(API.listUsers),
-          api.call(API.listGroups),
+          // people and groups: the admin screens' kept lists (read again after any change made here)
+          readAdmin('users', loadAdminUsers).then((items) => ({ items })),
+          readAdmin('groups', loadAdminGroups).then((items) => ({ items })),
           // folders inside with settings of their own (the tree's "rule folders only" list, the folder itself left out)
           api.call(API.explainAccessTree, { query: { path, rules: '1', limit: 1 } }).then((r) => Math.max(0, (r.levels[0]?.total ?? 0) - (r.self.rules > 0 ? 1 : 0)), () => 0),
         ])

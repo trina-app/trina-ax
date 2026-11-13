@@ -16,11 +16,12 @@ import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Badge, Button, confirmDialog, Modal } from '../ui'
-import { SettingRow, useLoad } from '../../pages/admin/common'
+import { SettingRow } from '../../pages/admin/common'
 import { useSignInFlow, type SignInOps } from '../settings/DriveConnection'
 import { CardMenu } from './AppConnectorCard'
 import { AccessPicker } from './IntegrationDialog'
 import { SignInSteps } from './GoogleAppConnector'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
 const accountLine = (a: GoogleAppTeam['account']) => a.email ?? a.name ?? ''
@@ -83,8 +84,8 @@ function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
   const t = useT()
   const me = useMeStrict()
   const name = builtInName(app)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   const [step, setStep] = useState(first)
   const [made, setMade] = useState<GoogleAppTeam | null>(team)
   const [access, setAccess] = useState<IntegrationAccess>(team?.access ?? NOBODY)

@@ -26,13 +26,14 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd } from './barActions'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 export default function Groups() {
   const t = useT()
   const locale = useLocale()
   const actOk = useActionOk()
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
   const connections = useLoad(loadConnections)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [query, setQuery] = useState('')
