@@ -87,15 +87,17 @@ test('shared project chats follow the Trina list\'s rules: never a move; rename 
   expect(await items(chat({ shared: { by: 'bob', canDelete: false }, pinnedAt: '2026-11-02T00:00:00.000Z' }), { onMove })).toEqual([['project-chat-unpin', ko('chat.unpin')], link])
 })
 
-test('상단에 고정 pins it and hands the row back as it is now', async () => {
+test('상단에 고정 pins it and hands the row back as it is now: pinned at once, then the server\'s copy', async () => {
   const changed: Chat[] = []
   const m = await mount(<MemoryRouter><ProjectChatRow chat={chat()} onChanged={(c) => changed.push(c)} /></MemoryRouter>)
   try {
     await m.click('project-chat-menu')
     await m.click('project-chat-pin')
-    await m.until(() => changed.length, 'the pinned chat')
+    await m.until(() => changed.length >= 2, 'the pinned chat, then the server\'s copy')
     expect(calls).toContain(`POST /api/chats/${ID}/pin`)
-    expect(changed[0]!.pinnedAt).toBe('2026-11-12T00:00:00.000Z')
+    // on screen before the answer (lib/optimistic.ts), then as the server has it
+    expect(changed[0]!.pinnedAt).toBeTruthy()
+    expect(changed.at(-1)!.pinnedAt).toBe('2026-11-12T00:00:00.000Z')
     // the menu closed, the keyboard back on "···"
     expect(m.find('project-chat-pin')).toBeNull()
     expect(document.activeElement).toBe(m.get('project-chat-menu') as never)

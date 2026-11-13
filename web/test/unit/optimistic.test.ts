@@ -111,7 +111,11 @@ test('different items do not wait for each other', async () => {
 })
 
 test('every change counts: a list read asked before one can tell its answer may be older', async () => {
-  const before = optimisticEdits()
-  await optimistic({ key: 'z', from: 0, to: 1, show: () => {}, send: () => Promise.resolve(null) })
-  expect(optimisticEdits()).toBe(before + 1)
+  const pins = (k: string) => k.endsWith(':pin')
+  await optimistic({ key: 'chat:a:pin', from: 0, to: 1, show: () => {}, send: () => Promise.resolve(null) })
+  await optimistic({ key: 'chat:a:title', from: 0, to: 1, show: () => {}, send: () => Promise.resolve(null) })
+  // by key or by a test: another kind of change does not count
+  expect(optimisticEdits('chat:a:pin')).toBe(1)
+  expect(optimisticEdits(pins)).toBe(1)
+  expect(optimisticEdits('chat:b:pin')).toBe(0)
 })

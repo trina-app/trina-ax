@@ -1186,6 +1186,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         to: pinned ? new Date().toISOString() : undefined,
         show: (at) => set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? withPin(r, at) : r)) })),
         send: () => (pinned ? api.call(API.pinRoom, { params }) : api.call(API.unpinRoom, { params })),
+        confirmed: (room) => room.pinnedAt,
         settle: (room) => set((s) => withRoom(s, room)),
       })
     },

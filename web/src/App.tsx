@@ -42,6 +42,7 @@ import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
 import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
@@ -114,6 +115,8 @@ function useSettingsOverlay() {
  * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
  * chat counted as on screen. */
 function dropPersonStores() {
+  // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
+  resetOptimistic()
   useChats.getState().reset()
   useDeckBuilds.getState().reset()
   useSendQueue.getState().reset()

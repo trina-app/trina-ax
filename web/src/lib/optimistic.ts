@@ -4,18 +4,21 @@
 // go to the server one after another, in the order they were made, so the server ends where the last tap left it.
 // A reply that is no longer the newest (a newer change of the same item was made meanwhile) writes nothing: the newer
 // one's reply decides (the same rule as #698's "an answer from before a change made here writes nothing").
-// A list read that was asked before such a change may be older than it too: `optimisticEdits()` counts the changes made
-// here, so a read compares it before and after and reads again instead of writing older values back.
-// Not for what cannot be taken back or what concerns access or money (deleting forever, removing someone, a role,
-// payments): those keep their confirm, then wait for the server.
+// For setting a value (pin, mute, a name, on/off, a folder): an older change that fails under a newer one says nothing,
+// only the newest is reported. Not for what adds up (a reaction, a message) or cannot be taken back or concerns access
+// or money (deleting forever, removing someone, a role, payments): those keep their confirm, then wait for the server.
+// A list read or a live event may carry the value from before a change: `optimisticPending` says a change of the item
+// is still unanswered (keep the value on screen), `optimisticEdits` counts the changes made (compared from a read's start
+// to its answer: different, the answer may be from before one; read again instead of writing it).
 import { errorText } from './api'
 import { currentLocale, t } from '../i18n'
 import { toast } from '../store/ui'
 
 export interface OptimisticChange<V, R> {
-  /** the item and what of it changes: changes with the same key are one queue (`chat:<id>:pin`, `room:<id>:muted`) */
+  /** the item and what of it changes, `<kind>:<id>:<field>`: changes with the same key are one queue */
   key: string
-  /** the value now, before this change (what a failure puts back when nothing newer was confirmed meanwhile) */
+  /** the value now, before this change; only the first change of a queue uses it (later ones go back to what the server
+   * confirmed by then) */
   from: V
   /** the new value, on screen at once */
   to: V
@@ -25,36 +28,56 @@ export interface OptimisticChange<V, R> {
   send: () => Promise<R>
   /** the server's answer, written only while this is still the newest change of its key */
   settle?: (reply: R) => void
+  /** the value the server now has, from its answer (a trimmed name, its own time); by default `to` */
+  confirmed?: (reply: R) => V
   /** the toast on failure: by default the error in the person's language; false: no toast (the caller says it) */
   failText?: string | false
 }
 
-export type OptimisticResult<R> = { ok: true; reply: R; newest: boolean } | { ok: false; error: unknown }
+/** `newest` false: a newer change of the item was made meanwhile, and `reply` is not what is on screen */
+export type OptimisticResult<R> = { ok: true; reply: R; newest: boolean } | { ok: false; error: unknown; newest: boolean }
 
 interface Lane {
-  /** the newest change's number (one count for all keys) */
+  /** the newest change's number */
   newest: number
-  /** what the server last agreed to: from the first change's `from`, then each success's `to` */
+  /** what the server last agreed to: from the first change's `from`, then each success's answer */
   confirmed: unknown
   /** the end of the queue: the next change's request waits for it */
   tail: Promise<unknown>
-  /** changes still on their way */
+  /** changes not answered yet */
   open: number
 }
 
 const lanes = new Map<string, Lane>()
-let edits = 0
+/** changes made so far, by key (kept after they end, for `optimisticEdits`; cleared by `resetOptimistic`) */
+const made = new Map<string, number>()
+let count = 0
+/** a reset (another person signed in) makes every change still on its way write nothing */
+let generation = 0
 
-/** How many changes were made here so far: a list read compares it from its start to its answer; a different count means
- * the answer may be from before a change on screen (read again, do not write it). */
-export const optimisticEdits = (): number => edits
+type KeyMatch = string | ((key: string) => boolean)
+const matches = (m: KeyMatch, key: string) => (typeof m === 'string' ? key === m : m(key))
 
-/** a change of `key` is still on its way to the server (a read of that item would bring an older value) */
+/** How many changes of the matching keys were made here so far (a key, or a test such as every chat pin). */
+export function optimisticEdits(match: KeyMatch): number {
+  let n = 0
+  for (const [k, c] of made) if (matches(match, k)) n += c
+  return n
+}
+
+/** The keys of the matching changes still unanswered (a read or an event about them may be older than the screen). */
+export function optimisticPendingKeys(match: KeyMatch): string[] {
+  return [...lanes].filter(([k, l]) => l.open > 0 && matches(match, k)).map(([k]) => k)
+}
+
+/** a change of `key` is still unanswered */
 export const optimisticPending = (key: string): boolean => (lanes.get(key)?.open ?? 0) > 0
 
 /** Show a change at once and send it; see the file's comment. Never rejects: the result says how it ended. */
 export function optimistic<V, R>(c: OptimisticChange<V, R>): Promise<OptimisticResult<R>> {
-  const n = ++edits
+  const n = ++count
+  const mine = generation
+  made.set(c.key, (made.get(c.key) ?? 0) + 1)
   let lane = lanes.get(c.key)
   if (!lane) {
     lane = { newest: n, confirmed: c.from, tail: Promise.resolve(), open: 0 }
@@ -65,28 +88,36 @@ export function optimistic<V, R>(c: OptimisticChange<V, R>): Promise<OptimisticR
   l.open++
   c.show(c.to)
   const run = l.tail.then(async (): Promise<OptimisticResult<R>> => {
+    let outcome: { reply: R } | { error: unknown }
     try {
-      const reply = await c.send()
-      l.confirmed = c.to
-      const newest = l.newest === n
-      if (newest) c.settle?.(reply)
-      return { ok: true, reply, newest }
+      outcome = { reply: await c.send() }
     } catch (error) {
-      // a newer change is on screen: it decides (and, failing too, puts back what was confirmed by then)
-      if (l.newest === n) {
-        c.show(l.confirmed as V)
-        if (c.failText !== false) toast({ level: 'error', text: c.failText ?? errorText(error, currentLocale(), t('error.network')) })
-      }
-      return { ok: false, error }
-    } finally {
-      if (--l.open === 0 && lanes.get(c.key) === l) lanes.delete(c.key)
+      outcome = { error }
     }
+    // answered: no longer pending, so the settle below (and the events after it) may write the server's copy
+    l.open--
+    if (l.open === 0 && lanes.get(c.key) === l) lanes.delete(c.key)
+    const newest = l.newest === n
+    if (mine !== generation) return 'reply' in outcome ? { ok: true, reply: outcome.reply, newest: false } : { ok: false, error: outcome.error, newest: false }
+    if ('reply' in outcome) {
+      l.confirmed = c.confirmed ? c.confirmed(outcome.reply) : c.to
+      if (newest) c.settle?.(outcome.reply)
+      return { ok: true, reply: outcome.reply, newest }
+    }
+    // a newer change is on screen: it decides (and, failing too, puts back what was confirmed by then)
+    if (newest) {
+      c.show(l.confirmed as V)
+      if (c.failText !== false) toast({ level: 'error', text: c.failText ?? errorText(outcome.error, currentLocale(), t('error.network')) })
+    }
+    return { ok: false, error: outcome.error, newest }
   })
   l.tail = run
   return run
 }
 
-/** forget every queue (another person signed in; tests) */
+/** Forget every queue and count (another person signed in): what is still on its way writes nothing. */
 export function resetOptimistic(): void {
+  generation++
   lanes.clear()
+  made.clear()
 }

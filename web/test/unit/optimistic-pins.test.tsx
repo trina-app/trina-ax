@@ -170,3 +170,54 @@ test('a room unpin that fails: the pin comes back, with the network words', asyn
   expect(toasts()).toHaveLength(1)
   expect(toasts()[0]!.level).toBe('error')
 })
+
+test("a chat's event from before the pin's answer (a turn running) keeps the pin on screen; the answer then writes", async () => {
+  useChats.setState({ chats: [chat()], chatsLoaded: true })
+  useChatGroups.setState({ groups: groups([]) })
+  const { actions, unmount } = await chatActions()
+  try {
+    const done = actions.togglePin(chat())
+    useChats.getState().handleEvent({ type: 'chat.updated', data: { chatId: ID, change: 'updated', chat: { ...chat(), runState: 'running' } } } as never)
+    expect(listed()?.pinnedAt).toBeTruthy()
+    expect(listed()?.runState).toBe('running')
+    await tick()
+    take(`POST /api/chats/${ID}/pin`).answer(json(chat('2026-11-13T01:00:00.000Z')))
+    await done
+    // answered: the events after it write the server's copy as before
+    useChats.getState().handleEvent({ type: 'chat.updated', data: { chatId: ID, change: 'updated', chat: chat('2026-11-13T01:00:00.000Z') } } as never)
+    expect(listed()?.pinnedAt).toBe('2026-11-13T01:00:00.000Z')
+  } finally {
+    await unmount()
+  }
+})
+
+test('a groups read asked after the tap but answered before the pin: the row stays in 고정', async () => {
+  useChats.setState({ chats: [chat()], chatsLoaded: true })
+  useChatGroups.setState({ groups: groups([]) })
+  const { actions, unmount } = await chatActions()
+  try {
+    const done = actions.togglePin(chat())
+    const read = readChatGroups()
+    await tick()
+    take('GET /api/chats/groups').answer(json(groups([])))
+    await read
+    expect(useChatGroups.getState().groups!.pinned.map((c) => c.id)).toEqual([ID])
+    take(`POST /api/chats/${ID}/pin`).answer(json(chat('2026-11-13T01:00:00.000Z')))
+    await done
+    expect(useChatGroups.getState().groups!.pinned.map((c) => c.pinnedAt)).toEqual(['2026-11-13T01:00:00.000Z'])
+  } finally {
+    await unmount()
+  }
+})
+
+test('another person signs in while a pin is on its way: its answer writes nothing', async () => {
+  const r = room({ name: 'acme' })
+  useRooms.setState({ rooms: [r], loaded: true })
+  const done = useRooms.getState().setPinned(r.id, true)
+  await tick()
+  resetOptimistic()
+  useRooms.setState({ rooms: [{ ...r }], loaded: true })
+  take(`POST /api/rooms/${r.id}/pin`).answer(json({ ...r, pinnedAt: '2026-11-13T02:00:00.000Z' }))
+  await done
+  expect(useRooms.getState().rooms[0]!.pinnedAt).toBeUndefined()
+})

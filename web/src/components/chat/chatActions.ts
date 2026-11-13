@@ -79,7 +79,8 @@ export function useChatActions() {
 
   /** pin a chat to the top of my list, or unpin it: mine only; my other windows hear it (chat.updated). On screen at
    * once (lib/optimistic.ts): `onShown` gets the chat each time its pin on screen changes (now, the server's copy, or
-   * as it was after a failure), for lists that keep their own copy. The server's copy, or null when it failed. */
+   * as it was after a failure), for lists that keep their own copy. The server's copy, or null when it failed or a newer
+   * pin or unpin of the chat was made meanwhile. */
   const togglePin = async (chat: Chat, onShown?: (c: Chat) => void): Promise<Chat | null> => {
     const params = { id: chat.id }
     const pinning = !chat.pinnedAt
@@ -93,6 +94,7 @@ export function useChatActions() {
         onShown?.(c)
       },
       send: () => (pinning ? api.call(API.pinChat, { params }) : api.call(API.unpinChat, { params })),
+      confirmed: (c) => c.pinnedAt,
       settle: (c) => {
         // the server's copy joins my list as before (a project page's chat that my list had not loaded yet)
         useChats.getState().upsertChat(c)
@@ -100,7 +102,7 @@ export function useChatActions() {
         onShown?.(c)
       },
     })
-    return r.ok ? r.reply : null
+    return r.ok && r.newest ? r.reply : null
   }
 
   return { rename, remove, togglePin }
