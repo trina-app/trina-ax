@@ -7,7 +7,7 @@
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
 import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Plus, Search, ShieldAlert, Trash2, X } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../lib/connectors'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleRun } from '@mycel/shared/api'
@@ -17,6 +17,7 @@ import { readDraft, writeDraft } from '../lib/localData'
 import { newChatPath } from '../lib/newChat'
 import { cardLine, lastRunOf, nextDueRead, outcomeLabel, outcomeReason, outcomeTone, repeatText, runLabel, runReason, runTone, saveLine, scheduleName, schedulePreview, scheduleState, sourceName, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
+import { putCached, readSchedules, SHARED, useCachedRead } from '../store/listCache'
 import { chatChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
@@ -38,30 +39,24 @@ const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', dan
  * task's run changes (chat.updated of a task's last run chat: Run now's from its answer on, a run at its time once the
  * list is read again at that time, lib/scheduleText.ts nextDueRead), and after a reset connection, so the "Last run"
  * block follows a run without a reload. */
+/** GET /api/schedules */
+type ScheduleList = { items: Schedule[]; timeZone: string }
+
 function useScheduleList() {
   const t = useT(), locale = useLocale()
-  const [items, setItems] = useState<Schedule[] | null>(null)
+  // the list as this window last read it (store/listCache.ts, shared with the "paused for review" banner and Search):
+  // a visit after the first shows it at once and reads it again behind it
+  const list = useCachedRead<ScheduleList>(SHARED.schedules, readSchedules)
+  const items = list.data?.items ?? null
+  const tz = list.data?.timeZone ?? ''
+  const error = list.failed ? errorText(list.failed, locale, t('error.network')) : null
   const shown = useRef<Schedule[] | null>(null)
   shown.current = items
-  const [tz, setTz] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const life = useRef(0), revision = useRef(0)
-  const load = useCallback(async () => {
-    const generation = life.current, rev = ++revision.current
-    try {
-      const r = await api.call(API.listSchedules)
-      if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
-      setTz(r.timeZone)
-      setError(null)
-    } catch (e) {
-      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // `life` changes when the page goes: an action's answer that comes after it changes nothing here
+  const life = useRef(0)
+  const load = list.reload
   useEffect(() => {
     life.current++
-    void load()
     // the events of one run come close together (its chat made, queued, running): read once for them
     let timer: ReturnType<typeof setTimeout> | null = null
     const soon = () => { timer ??= setTimeout(() => { timer = null; void load() }, 250) }
@@ -80,9 +75,11 @@ function useScheduleList() {
     const timer = setTimeout(() => void load(), wait)
     return () => clearTimeout(timer)
   }, [items, load])
-  const replace = (u: Schedule) => { revision.current++; setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null) }
-  const add = (u: Schedule) => { revision.current++; setItems((cur) => [u, ...(cur ?? []).filter((x) => x.id !== u.id)]) }
-  const drop = (id: string) => { revision.current++; setItems((cur) => cur?.filter((x) => x.id !== id) ?? null) }
+  // a change made here shows at once; a read on its way when it was made is read again (it may be from before it)
+  const edit = (f: (cur: Schedule[]) => Schedule[]) => putCached<ScheduleList>(SHARED.schedules, (d) => (d ? { ...d, items: f(d.items) } : d))
+  const replace = (u: Schedule) => edit((cur) => cur.map((x) => (x.id === u.id ? u : x)))
+  const add = (u: Schedule) => edit((cur) => [u, ...cur.filter((x) => x.id !== u.id)])
+  const drop = (id: string) => edit((cur) => cur.filter((x) => x.id !== id))
   return { items, tz, error, load, replace, add, drop, life }
 }
 
@@ -585,10 +582,10 @@ export function ScheduledTask() {
   }, [])
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const toggle = async (x: Schedule) => {
-    const generation = life.current
     try {
       const u = await api.call(API.updateSchedule, { params: { id: x.id }, body: { enabled: !x.enabled } })
-      if (generation === life.current) replace(u)
+      // the kept list takes it also when the page is gone by now (Search and the banner read it)
+      replace(u)
     } catch (e) { fail(e) }
   }
   // "다시 확인": the task's card, here; resuming is answering it
@@ -611,8 +608,8 @@ export function ScheduledTask() {
     const generation = life.current
     try {
       const u = await api.call(API.confirmScheduleReview, { params: { id: x.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
       replace(u)
+      if (generation !== life.current) return
       setReview(null)
       schedulesChanged.emit()
       if (value === 'resave') toast({ level: 'success', text: t('schedules.resaveDone') })
@@ -645,8 +642,8 @@ export function ScheduledTask() {
     setRunning(true)
     try {
       const r = await api.call(API.runScheduleNow, { params: { id: x.id }, body: {} })
-      if (generation !== life.current) return
       replace(r.schedule)
+      if (generation !== life.current) return
       // and read again: a quick run may have ended before this answer came (its chat's events are followed from here)
       void load()
       toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
@@ -659,8 +656,8 @@ export function ScheduledTask() {
     if (generation !== life.current) return
     try {
       await api.call(API.deleteSchedule, { params: { id: x.id } })
-      if (generation !== life.current) return
       drop(x.id)
+      if (generation !== life.current) return
       if (x.needsReview) schedulesChanged.emit()
       navigate('/scheduled', { replace: true })
     } catch (e) { fail(e) }

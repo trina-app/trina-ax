@@ -16,6 +16,7 @@ import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { notificationsChanged } from '../../store/live'
 import { toast } from '../../store/ui'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../ui'
 import { Choices, Warning } from './IntegrationDialog'
 import { reserveSignInWindow } from './IntegrationRow'
@@ -29,12 +30,15 @@ const ENDED: Record<Exclude<IntegrationRequest['state'], 'waiting'>, MessageKey>
 
 /** The waiting requests, above the member's own connections. `onConnected`: a connection was made from one (a sign-in
  * next: in the window reserved during the click, null when none could open). `version` changes: load again. */
+const REQUESTS_KEY = 'connectors:requests'
 export function MyRequests({ onConnected, version }: { onConnected: (i: Integration, signIn: { window: Window | null } | null) => void; version: number }) {
   const t = useT()
   const locale = useLocale()
   const location = useLocation()
   const navigate = useNavigate()
-  const [items, setItems] = useState<IntegrationRequest[]>([])
+  // as this window last read them (store/listCache.ts): shown at once on a visit after the first
+  const [items, setItems] = useState<IntegrationRequest[]>(() => peekCached<IntegrationRequest[]>(REQUESTS_KEY) ?? [])
+  useEffect(() => { rememberCached(REQUESTS_KEY, items) }, [items])
   const [open, setOpen] = useState<IntegrationRequest | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const gen = useRef(0)

@@ -22,6 +22,7 @@ import { CHATS_ACTIVITY } from '../../lib/screens'
 import { aiName } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead } from '../../store/inbox'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
@@ -109,20 +110,27 @@ function keptFor(at: { pathname: string; search: string; state?: unknown; lit: s
   return kept
 }
 
+/** what 활동's list keeps between visits */
+type KeptFeed = { items: InboxNotification[]; cursor: string | null; unread: number }
+const FEED_KEY = 'feed:panel'
+
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
   const chips = chipsFor(admin)
   const [chip, setChip] = useState<ActivityChip>('all')
   const shownChip = chips.includes(chip) ? chip : 'all'
-  const [items, setItems] = useState<InboxNotification[] | null>(null)
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [unread, setUnread] = useState(0)
+  // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
+  const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
+  const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
+  const [unread, setUnread] = useState(kept?.unread ?? 0)
+  useEffect(() => { rememberCached<KeptFeed>(FEED_KEY, items ? { items, cursor, unread } : undefined) }, [items, cursor, unread])
   const [error, setError] = useState<string | null>(null)
   const [paging, setPaging] = useState(false)
   const [marking, setMarking] = useState(false)
   const pages = useRef(0)
-  const itemsRef = useRef<InboxNotification[] | null>(null)
+  const itemsRef = useRef<InboxNotification[] | null>(items)
   const life = useRef(0)
   // the newest read again wins: an older answer that lands late (or one sent before a row was read here) is dropped
   const sequence = useRef(0)

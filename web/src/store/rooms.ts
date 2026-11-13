@@ -669,6 +669,23 @@ let timelineGen = 0
 const unsure = new Map<string, number>()
 /** (by the read count when it was marked: only a read that started after it clears it) */
 const markUnsure = (roomId: string) => unsure.set(roomId, timelineGen)
+/** Threads closed a moment ago (by placeKey, the last few): one opened again shows them at once while its newest page
+ * is read (docs/DECISIONS.md "Lists, Search and Settings open at once"). A change in one meanwhile (a reply, an edit, a
+ * delete, reactions) forgets it, so it opens as before, from the server. */
+const keptThreads = new Map<string, Pick<ThreadView, 'root' | 'replies' | 'nextCursor'>>()
+const KEPT_THREADS = 10
+/** forget every kept thread of a room (I am out of it: back in later, its threads open from the server) */
+function forgetKeptThreads(roomId: string) {
+  for (const key of [...keptThreads.keys()]) if (key.startsWith(roomId + '/')) keptThreads.delete(key)
+}
+/** forget the kept threads of the room that this message (or its thread's root) is part of */
+function forgetKeptThread(roomId: string, messageId: string, rootId?: string | null) {
+  for (const [key, tv] of keptThreads) {
+    if (!key.startsWith(roomId + '/')) continue
+    const root = key.slice(roomId.length + 1)
+    if (root === messageId || root === rootId || tv.replies.some((m) => m.id === messageId)) keptThreads.delete(key)
+  }
+}
 /** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
  * takes an answer meant for its earlier showing); a thread's goes with it */
 let threadGenSeq = 0
@@ -981,9 +998,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       // on screen already (the page's thread, now beside a file of it too): one more panel shows it
       if (cur) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders + 1 } } }))
       asked.delete(key)
-      // the root as the timeline has it already: shown at once while the replies load
-      const root = get().timeline?.roomId === roomId ? get().timeline!.messages.find((m) => m.id === rootId) ?? null : null
-      set((s) => ({ threadViews: { ...s.threadViews, [key]: { roomId, rootId, root, replies: [], nextCursor: null, loading: true, error: null, holders: 1 } } }))
+      // the root as the timeline has it already, and the replies as this window last showed them (a room I am still
+      // in): shown at once while the newest page loads
+      const kept = get().rooms.some((r) => r.id === roomId) ? keptThreads.get(key) : undefined
+      keptThreads.delete(key)
+      const root = (get().timeline?.roomId === roomId ? get().timeline!.messages.find((m) => m.id === rootId) : undefined) ?? kept?.root ?? null
+      set((s) => ({ threadViews: { ...s.threadViews, [key]: { roomId, rootId, root, replies: kept?.replies ?? [], nextCursor: kept?.nextCursor ?? null, loading: true, error: null, holders: 1 } } }))
       void get().loadThread(roomId, rootId)
     },
 
@@ -992,8 +1012,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       const cur = get().threadViews[key]
       if (!cur) return
       if (cur.holders > 1) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders - 1 } } }))
-      // the last panel: a read still on its way is dropped
+      // the last panel: a read still on its way is dropped; what it showed is kept for a while (keptThreads)
       threadGens.delete(key)
+      // (only one page of replies: the newest page read when it opens again replaces them, so more would shrink)
+      if (cur.root && !cur.error && !cur.loading && cur.replies.length <= ROOM_PAGE) {
+        keptThreads.delete(key)
+        keptThreads.set(key, { root: cur.root, replies: cur.replies, nextCursor: cur.nextCursor })
+        if (keptThreads.size > KEPT_THREADS) keptThreads.delete(keptThreads.keys().next().value!)
+      }
       set((s) => ({ threadViews: omit(s.threadViews, key) }))
     },
 
@@ -1314,6 +1340,8 @@ export const useRooms = create<RoomsState>((set, get) => {
     forgetKept() {
       const open = get().openRoomId
       if (open) markUnsure(open)
+      // the kept threads may have missed changes as well: they open from the server again
+      keptThreads.clear()
       set({ kept: {} })
     },
 
@@ -1338,6 +1366,12 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     handleEvent(ev) {
+      // a kept thread this changes opens from the server next time
+      if (keptThreads.size) {
+        if (ev.type === 'room.message' || ev.type === 'room.message.updated') forgetKeptThread(ev.data.roomId, ev.data.message.id, ev.data.message.threadRootId)
+        else if (ev.type === 'room.reactions') forgetKeptThread(ev.data.roomId, ev.data.messageId)
+        else if (ev.type === 'room.thread') forgetKeptThread(ev.data.roomId, ev.data.rootId)
+      }
       switch (ev.type) {
         case 'room.message': {
           const { roomId, message } = ev.data
@@ -1366,6 +1400,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.updated': {
           const { roomId, change, room } = ev.data
           if (change === 'removed' || !room) {
+            forgetKeptThreads(roomId)
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
             useSideChats.getState().drop(roomId)
@@ -1409,6 +1444,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       useSideChats.getState().reset()
       timelineGen++
       threadGens.clear()
+      keptThreads.clear()
       inFlight.clear()
       set({ ...EMPTY })
     },

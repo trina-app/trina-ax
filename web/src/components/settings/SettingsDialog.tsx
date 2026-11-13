@@ -35,6 +35,7 @@ import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { useLocale, useT } from '../../i18n'
 import { SETTINGS_GROUPS, browserTabShown, sectionMatches, settingsPageName, settingsTabs, type SettingsTab } from '../../pages/settingsTabs'
 import { useNoticeUnread } from '../../store/inbox'
+import { useCachedRead } from '../../store/listCache'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
@@ -53,6 +54,9 @@ import type { MessageKey } from '../../i18n'
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
 const PHONE_TOP = new Set(['profile'])
+const OWN_CREDENTIALS_KEY = 'settings:ownCredentials'
+const readOwnCredentials = () => api.call(API.myCredentials).then((r) => r.allowed || r.items.length > 0)
+
 /** sections a phone shows as parts of 트리나에게 허용한 것 (the AI's sites), not as rows of their own */
 const PHONE_FOLDED = new Set(['browser', 'dev-env-sites'])
 
@@ -92,10 +96,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useFocusTrap(ref, true, softClose, returnTo)
   // the page under the dialog is inert until it has closed, so the keyboard goes back once it is reachable again
   useEffect(() => () => void requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus()), [returnTo])
-  const [own, setOwn] = useState<boolean | null>(null)
-  useEffect(() => {
-    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
-  }, [])
+  // whether the person may keep AI connections of their own: as this window last read it (store/listCache.ts), read
+  // again when Settings opens unless that was a minute ago (the team's AI choices changing marks it stale)
+  const ownRead = useCachedRead(OWN_CREDENTIALS_KEY, readOwnCredentials, { minAgeMs: 60_000 })
+  const own = ownRead.data ?? (ownRead.failed ? false : null)
   // the dev environment's sites: only while the dev environment on srt is on for this person (a 404: not on this server)
   const devEnv = me.server.devEnv
   const [sites, setSites] = useState<boolean | null>(devEnv ? null : false)
