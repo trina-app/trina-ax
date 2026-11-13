@@ -100,7 +100,7 @@ const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', 
 
 describe('which tab an address belongs to', () => {
   test('the four tabs and their lists', async () => {
-    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', me: '/settings' })
+    expect(TAB_ROOT).toEqual({ ai: '/', chats: '/rooms', projects: '/projects', files: '/files', me: '/settings' })
     for (const p of ['/', '/c/abc', '/scheduled', '/scheduled/s1', '/skills', '/trash', '/connectors/authorize']) expect(tabOf(p)).toBe('ai')
     for (const p of ['/rooms', '/rooms/r1']) expect(tabOf(p)).toBe('chats')
     // 프로젝트 (QA TC-255): the projects and the team folder with its Trash

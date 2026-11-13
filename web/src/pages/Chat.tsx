@@ -415,7 +415,7 @@ function ChatView({ chatId }: { chatId: string }) {
         </div>
         {isDesktop() && <BrowserToggle />}
         {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id)} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
           <AiMark />
         </IconButton>
       </div>

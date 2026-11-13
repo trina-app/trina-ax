@@ -172,9 +172,10 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
  * hides on Home, whose own quiet row under the message box says the same; on a computer it replaces that row.
  * `aiReady`: AI answers the owner (or not known yet).
  */
-export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean }): 'hidden' | 'resume' | 'ai' {
+export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' {
   if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'
-  const home = o.path === '/'
+  // `home`: the new-chat page is on screen (Home, `/`; on a phone with the new navigation's tabs `/new`, `/` being the list)
+  const home = o.home ?? o.path === '/'
   if (!o.aiReady) return home ? 'hidden' : 'ai'
   return home && !o.computer ? 'hidden' : 'resume'
 }

@@ -5230,6 +5230,7 @@ export const id: Record<MessageKey, string> = {
   "filesPanel.recent": "File terbaru",
   "filesPanel.recentEmpty": "Belum ada file yang berubah akhir-akhir ini.",
   "filesPanel.team": "Folder tim",
+  "filesPanel.teamAll": "Semua isi folder tim",
   "filesPanel.projects": "Folder proyek",
   "scheduled.sourceMineFiles": "file saya",
   "schedules.saveFolderNoneFiles": "Tidak ada (hanya menyimpan di File saya)",

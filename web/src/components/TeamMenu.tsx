@@ -31,7 +31,7 @@ import { InviteStep } from './onboarding/InviteStep'
 import { Modal } from './ui'
 
 /** The team's logo, cropped square as the settings previews do; the product's mark while there is none. */
-function TeamLogo({ className, testId }: { className: string; testId?: string }) {
+export function TeamLogo({ className, testId }: { className: string; testId?: string }) {
   const me = useMeStrict()
   const src = me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'
   return <img src={src} alt="" aria-hidden className={clsx('shrink-0 object-cover', className)} data-testid={testId} />

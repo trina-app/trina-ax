@@ -63,6 +63,9 @@ import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { useNavRail } from '../lib/navRail'
+import { newChatPath } from '../lib/newChat'
+import { PhoneFilesHome, TEAM_ROOT_ON_PHONE } from '../components/panels/FilesPanel'
+import { stackNow } from '../lib/screenHistory'
 import RecentFiles from './RecentFiles'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
@@ -101,13 +104,17 @@ function dragBadge(dt: DataTransfer, text: string) {
   setTimeout(() => el.remove(), 0)
 }
 
-/** /files: the team folder explorer; with the new navigation on a computer (lib/navRail.ts, phase P3) also 파일's
- * "최근 파일" (`?view=recent`, pages/RecentFiles.tsx), a row of the list beside the rail. */
+/** /files: the team folder explorer; with the new navigation (lib/navRail.ts, phase P3) also 파일's "최근 파일"
+ * (`?view=recent`, pages/RecentFiles.tsx), a row of the list beside the rail; on a phone (phase P5) /files itself is the
+ * 파일 tab's places (components/panels/FilesPanel.tsx PhoneFilesHome) and a folder is a place's screen. */
 export default function FilesRoute() {
   const [params] = useSearchParams()
-  const computer = useMediaQuery('(min-width: 768px)')
-  const rail = useNavRail() && computer
-  return rail && params.get('view') === 'recent' ? <RecentFiles /> : <Files />
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const rail = useNavRail()
+  if (rail && params.get('view') === 'recent') return <RecentFiles />
+  // (the team folder's own top is /files?team=1 there: FilesPanel.tsx TEAM_ROOT_ON_PHONE)
+  if (rail && phone && !params.get('path') && !params.get('view') && !params.get('q') && !params.get('select') && !params.has('team')) return <PhoneFilesHome />
+  return <Files />
 }
 
 function Files() {
@@ -117,9 +124,22 @@ function Files() {
   const words = useFolderWords()
   /** a folder's own name ("leads", 부서), for the phone's bar and its ‹ */
   const folderName = useFolderName()
-  // the phone's ‹ at the team folder: the 프로젝트 tab's list it is under (lib/screens.ts), or what is under it in its stack
-  const upFromTeamFolder = useGoBack('/projects')
-  const teamFolderBackLabel = useBackLabel('/projects', () => null)
+  // the phone's ‹ at the team folder: the 프로젝트 tab's list it is under (lib/screens.ts), or what is under it in its stack;
+  // with the new navigation's tabs 파일's places, the tab's root, which the top folders, a project's folder and my own
+  // folder are under (their ‹ says 파일)
+  const placesTab = useNavRail()
+  const upFromTeamFolder = useGoBack(placesTab ? '/files' : '/projects')
+  const teamFolderBackLabel = useBackLabel(placesTab ? '/files' : '/projects', () => null)
+  const rootName = placesTab ? t('sidebar.files') : t('files.root')
+  /** the folder ‹ goes to: the one above, or 파일's places for a place's own folder (new navigation, phones) */
+  const upOf = (p: string) => {
+    const up = parentPath(p)
+    return placesTab && (up === 'projects' || up === 'users') ? '' : up
+  }
+  // a top folder opened from the team folder's own top (파일 › 팀 폴더 전체): ‹ goes back there, not to the places
+  const fromTeamTop = placesTab && stackNow()?.below?.p === TEAM_ROOT_ON_PHONE
+  const upTo = (p: string) => (upOf(p) === '' && fromTeamTop ? navigate(TEAM_ROOT_ON_PHONE) : go(upOf(p)))
+  const upName = (p: string) => (upOf(p) ? folderName(upOf(p)) : fromTeamTop ? t('files.root') : rootName)
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -661,7 +681,7 @@ function Files() {
 
   // a file goes into a new chat as an attachment (a team-file reference); a folder is named in the prompt
   const chatAttach = useTeamAttach()
-  const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(`/?prompt=${encodeURIComponent(t('files.chatPrompt', { path: e.path }))}`))
+  const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(newChatPath({ prompt: t('files.chatPrompt', { path: e.path }) })))
   const addToChat = (e: FileEntry) => chatAttach.addToChat([e.path])
 
   // ---------------- drag and drop ----------------
@@ -848,8 +868,8 @@ function Files() {
         // Back in its stack, named after where it goes); ⊕ only where the folder takes new files. The team folder is
         // named as its row on the projects list ("팀 폴더")
         <PhonePageBar
-          onBack={view === 'trash' ? () => setView('files') : path ? () => go(parentPath(path)) : upFromTeamFolder}
-          backLabel={view === 'trash' ? (path ? folderName(path) : t('files.root')) : path ? (parentPath(path) ? folderName(parentPath(path)) : t('files.root')) : teamFolderBackLabel}
+          onBack={view === 'trash' ? () => setView('files') : path ? () => upTo(path) : upFromTeamFolder}
+          backLabel={view === 'trash' ? (path ? folderName(path) : rootName) : path ? upName(path) : teamFolderBackLabel}
           title={view === 'trash' ? t('files.trash') : path ? folderName(path) : t('files.root')}
           heading
           action={

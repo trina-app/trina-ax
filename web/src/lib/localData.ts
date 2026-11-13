@@ -12,6 +12,9 @@ const PUSH_OFF_HERE_PREFIX = 'mycel.phonePush.offHere:'
  * the tabs since QA TC-255 (프로젝트 in place of 파일), so a stack saved under the old tabs is never put back under
  * another one; the old key is only cleared */
 export const TAB_STACKS_KEY = 'mycel.tabStacks.v2'
+/** the same with the new navigation's tabs (트리나 · 대화 · 파일 · 나, the server's `navRail` switch): their own key, so a
+ * stack of one set of tabs is never put back under the other */
+export const TAB_STACKS_V3_KEY = 'mycel.tabStacks.v3'
 const OLD_TAB_STACKS_KEY = 'mycel.tabStacks'
 /** what each place of the new navigation's rail had open (lib/rail.ts), this browser tab */
 export const RAIL_LAST_KEY = 'mycel.rail.last'
@@ -55,6 +58,6 @@ export function clearLocalData(s: Store | null = local()) {
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
   try {
-    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, OLD_TAB_STACKS_KEY, RAIL_LAST_KEY]) sessionStorage.removeItem(k)
+    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, TAB_STACKS_V3_KEY, OLD_TAB_STACKS_KEY, RAIL_LAST_KEY]) sessionStorage.removeItem(k)
   } catch { /* storage blocked */ }
 }

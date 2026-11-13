@@ -37,6 +37,7 @@ function layoutRoutes(): string[] {
 /** The decision for each route, as App.tsx writes it (without the leading "/"; "" is Home). */
 const DECIDED: Record<string, RailItem | null> = {
   '': 'ai',
+  new: 'ai',
   'c/:chatId': 'ai',
   rooms: 'chats',
   'rooms/:roomId': 'chats',
