@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 04:10
 - Branch: `fix/admin-centered-column`
-- Status: in progress
+- Status: done
 - Where: web/src/pages/admin/AdminLayout.tsx. Why: Team settings and System stay at the left edge of the area (QA TC-193, tracking TC-743).
 - Version impact: patch, a layout fix on computers only
 
@@ -35,4 +35,4 @@ No words on screen change.
 
 ## Result
 
-(fill in at the end)
+The Team settings and System column is centred in the shared admin layout (AdminLayout.tsx, data-testid="admin-column"); every other page keeps its width and position. Measured at 1440 and 1920, menu shown and hidden: equal space left and right. Narrow and wide pages share one centre line, not one left edge (the narrow form is 768 px; tables must not get narrower). An e2e check in team-settings.spec.ts pins it.
