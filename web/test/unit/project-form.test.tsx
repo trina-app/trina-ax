@@ -127,6 +127,36 @@ describe('a new project', () => {
     await m.unmount()
   })
 
+  test('the rows show who it is: a photo and title; for an admin a group\'s size and up to 3 faces; added ones stay, marked', async () => {
+    signedIn('admin')
+    const LEADS = '01900000-0000-7000-8000-0000000000b2'
+    routes = {
+      'GET /api/people': () => json(200, { people: [...PEOPLE.people, { id: 'jiwoo', name: 'Jiwoo', avatarVersion: 3 }, { id: 'olga', name: 'Olga' }] }),
+      // a switched-off member ('gone') is not in the directory: not counted, no face
+      'GET /api/admin/groups': () => json(200, { items: [{ id: LEADS, name: 'Leads', description: null, memberIds: ['bob', 'sora', 'jiwoo', 'olga', 'gone'] }, { id: SALES, name: 'Sales', description: null, memberIds: ['mia'] }] }),
+      'POST /api/projects/access-preview': () => json(200, { people: 1, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }),
+    }
+    const m = await mount(<MemoryRouter><ProjectForm onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.click(await m.until(() => m.find('project-participants-search'), 'the search', 2000))
+    const leads = await m.until(() => m.find(`participant-add-group-${LEADS}`), 'the group', 2000)
+    await m.until(() => m.get(`participant-add-group-${LEADS}`).textContent!.includes(en('projects.groupCount', { n: 4 })), 'its size', 2000)
+    expect(leads.textContent).not.toContain(en('projects.groupMine'))
+    // 3 faces and "+1" (a phone: 2 and "+2")
+    expect(m.get(`participant-faces-${LEADS}-more`).textContent).toBe('+1')
+    expect(m.get(`participant-faces-${LEADS}-more-phone`).textContent).toBe('+2')
+    // a person's photo fills the row's icon box; the title is the second line
+    expect(m.get('participant-add-user-jiwoo').querySelector('img')!.getAttribute('src')).toContain('/api/people/jiwoo/avatar')
+    expect(m.get('participant-add-user-bob').textContent).toContain('Sales lead')
+    // me: already in, marked added, cannot be added again
+    expect(m.get('participant-add-user-mia').hasAttribute('disabled')).toBe(true)
+    expect(m.get('participant-add-user-mia').textContent).toContain(en('projects.added'))
+    await m.click('participant-add-user-bob')
+    await m.click('project-participants-search')
+    expect(await m.until(() => m.find('participant-add-user-bob'), 'bob again', 2000)).toBeTruthy()
+    expect(m.get('participant-add-user-bob').hasAttribute('disabled')).toBe(true)
+    await m.unmount()
+  })
+
   test('a team that lets only admins: a member makes a personal project, and is told why', async () => {
     signedIn('member', 'admins')
     routes = { 'POST /api/projects': () => json(201, project('users/mia/projects/Notes')) }

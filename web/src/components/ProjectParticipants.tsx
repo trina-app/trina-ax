@@ -56,8 +56,8 @@ export function useParticipantOptions(extra: readonly ParticipantOption[] = NO_E
     const mine = new Set((me?.groups ?? []).map((g) => g.id))
     const byId = new Map((people ?? []).map((p) => [p.id, p]))
     const groups: ParticipantOption[] = admin
-      // an admin: who is in it, the active people only (the directory's), by name
-      ? (allGroups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: mine.has(g.id), members: g.memberIds.flatMap((id) => byId.get(id) ?? []).sort(byName) }))
+      // an admin: who is in it, the active people only (the directory's, once read: no "0 people" before it), by name
+      ? (allGroups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: mine.has(g.id), ...(people ? { members: g.memberIds.flatMap((id) => byId.get(id) ?? []).sort(byName) } : {}) }))
       : (me?.groups ?? []).map((g) => ({ subjectType: 'group', subjectId: g.id, name: g.name, mine: true }))
     const persons = (people ?? []).map((p) => ({ subjectType: 'user' as const, subjectId: p.id, name: p.name, ...(p.title ? { title: p.title } : {}), ...(p.avatarVersion ? { avatarVersion: p.avatarVersion } : {}) }))
     const out = new Map<string, ParticipantOption>()
