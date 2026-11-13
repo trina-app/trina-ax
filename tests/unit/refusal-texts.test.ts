@@ -12,6 +12,7 @@ import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, shared
 import { scheduledRunBlock } from '../../server/src/chat/schedules'
 import { roomRefsBlock } from '../../server/src/chat/turn'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { DICTS } from '../../web/src/i18n'
 
 describe('refusal()', () => {
   test('the four parts in order: done, why, the extra line, the next step, the names', () => {
@@ -162,6 +163,10 @@ describe('the instructions say what each kind of chat cannot do, and where to do
   const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
     user: h.ctx.files.principal('alice'), groupNames: [], locale: 'ko', timeZone: 'Asia/Seoul', memories: [], project: null,
     browser: false, tools: ['move_files', 'copy_files'], history: null, ...extra,
+  })
+
+  test('"Continue in a chat only you see": the AI names the menu item by the app\'s own words, in every language', () => {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SCREEN.continuePrivately(L)).toBe(DICTS[L]['chat.continuePrivately'])
   })
 
   test('a shared chat: what is missing there, and an own chat instead', () => {
