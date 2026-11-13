@@ -37,13 +37,15 @@ test('the owner: faces under the name and on the 멤버 line; the dialog lists e
   await expect(header.getByTestId('project-header-face')).toHaveCount(4)
   await expect(header.getByTestId('project-header-more')).toHaveText('+1')
   await expect(header.getByTestId('project-header-open')).toHaveAccessibleName(/^멤버: Olga, /)
-  // the 멤버 line keeps its number, the faces after it
-  await expect(page.getByTestId('project-members')).toContainText('멤버5명')
-  await expect(page.getByTestId('project-members').getByTestId('project-members-row-people')).toBeVisible()
+  // the 멤버 line keeps its number only: the faces are under the name, once
+  await expect(page.getByTestId('project-members')).toHaveText('멤버5명관리')
+  await expect(header.getByTestId('project-header-face').first()).toHaveCSS('width', '24px')
 
   await header.getByTestId('project-header-open').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('project-people-count')).toHaveText('이 프로젝트에 있는 사람 5명')
+  // the count line says it only after a change, not twice
+  await expect(dialog.getByTestId('project-access-summary')).toHaveCount(0)
   await expect(dialog.locator('[data-testid^="project-person-tag-"]')).toHaveCount(1)
   await expect(dialog.getByTestId('project-person-tag-olga')).toHaveText('만든 사람 · 나')
   // Bob and Sora, in both groups, once each

@@ -25494,11 +25494,13 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
 
 - **Why:** a team project's page said only "멤버 5명" and "새 채팅은 멤버 5명이 볼 수 있어요", and its members dialog listed
   the creator and a group ("리드 · 부서"), never the five people. Nobody could see who was in it.
-- **Decision:** a small stack of faces (4 and "+N", on a phone too; the photo or the first letter; the name on hover)
-  under a shared project's name, one line, no card. Clicking it opens the members dialog, for everyone who sees the
-  page. The 멤버 line keeps its number with the same faces after it. A personal project shows none.
+- **Decision:** a stack of faces (24 px with a ring of the page's colour; 4 and "+N", on a phone too; the photo or the
+  first letter; the name on hover) under a shared project's name, one line, no card. Clicking it opens the members
+  dialog, for everyone who sees the page. The faces show once: the 멤버 line keeps "멤버 5명 · 관리" (manager review). A
+  personal project shows none.
 - **The dialog:** a group row says how many people it holds and opens to list them; under the picker one list of
-  everyone in it now, each person once even when two groups hold them, the creator and "나" marked. A member who does
+  everyone in it now, each person once even when two groups hold them, the creator and "나" marked; its title is the
+  count, so the "멤버 N명" line under the picker shows only while a change is pending (the count after it). A member who does
   not manage it gets that list only, the line that says who changes the members, and 닫기.
 - **The server:** `GET /api/projects/:id/people` answers the project's audience (who reads its folder now, which in
   projects/ is its members only), each person once with `avatarVersion`, the creator first, then by name. Its members

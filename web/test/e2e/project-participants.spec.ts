@@ -67,7 +67,9 @@ test('the owner\'s case: every count is the members, the owner and admins only w
   const id = d.url().split('/').pop()!
   await expect(d.getByTestId('project-members')).toContainText('멤버3명')
   await d.getByTestId('project-members-manage').click()
-  await expect(d.getByTestId('project-access-summary')).toHaveText('멤버 3명')
+  // the list of who is in it says how many (the count line comes only with a change)
+  await expect(d.getByTestId('project-people-count')).toHaveText('이 프로젝트에 있는 사람 3명')
+  await expect(d.getByTestId('project-access-summary')).toHaveCount(0)
   await expect(d.getByTestId('project-access-summary-role')).toHaveCount(0)
   await ctx.close()
 
@@ -253,7 +255,7 @@ test('members only: another setting of the folder goes with ×, those inside the
   await expect(d).not.toContainText('계약')
   await expect(d).not.toContainText('여기서는 바꿀 수 없어요.')
   await expect(d).not.toContainText('폴더 권한에서 보기')
-  await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 2명')
+  await expect(page.getByTestId('project-people-count')).toHaveText('이 프로젝트에 있는 사람 2명')
   await page.getByTestId('project-other-rule-remove-user-jiwoo').click()
   await expect(page.getByTestId('project-other-rule-user-jiwoo')).toHaveAttribute('data-state', 'removed')
   await expect(page.getByTestId('project-access-summary')).toHaveText('멤버 1명')

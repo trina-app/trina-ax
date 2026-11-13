@@ -40,7 +40,7 @@ export function peopleNames(t: ReturnType<typeof useT>, people: readonly Project
 }
 
 /**
- * Their faces, small and on one line: 4 and "+N" (on a phone too), each with its name on hover. `onOpen`: the faces are
+ * Their faces on one line, 24 px with a ring of the page's colour: 4 and "+N" (on a phone too), each with its name on hover. `onOpen`: the faces are
  * one button that opens the members dialog, read out as "멤버: Mina, Sam 외 3명"; without it they are only a picture
  * beside words that say how many (the 멤버 line). Nothing for nobody.
  */
@@ -48,7 +48,7 @@ export function PeopleStack({ people, onOpen, testId }: { people: readonly Proje
   const t = useT()
   if (!people.length) return null
   const names = peopleNames(t, people)
-  const faces = <FaceStack people={people} count={people.length} shown={FACES_MAX} phoneShown={FACES_MAX} tips testId={testId} />
+  const faces = <FaceStack people={people} count={people.length} shown={FACES_MAX} phoneShown={FACES_MAX} size={24} tips testId={testId} />
   if (!onOpen) return faces
   return (
     // no-tooltip: each face says its name on hover; the button's words (for screen readers) name all of them. Its name

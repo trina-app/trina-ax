@@ -19,16 +19,16 @@ export const FACES_MAX = 4
 const STACK = ['relative z-[3]', 'relative z-[2] -ml-1', 'relative z-[1] -ml-1', 'relative z-0 -ml-1'] as const satisfies { length: typeof FACES_MAX }
 /** the "+N" after the faces: a tile like a face's (as high, in px like the pictures), tucked under the last face like
  * the others, its count kept clear of that face's edge (the wider padding on the left) */
-const MORE = '-ml-1 flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-hover pr-[5px] pl-[7px] text-[0.6875rem] leading-none font-semibold text-muted tabular-nums'
+const MORE = '-ml-1 flex shrink-0 items-center justify-center rounded-full bg-hover pr-[5px] pl-[7px] text-[0.6875rem] leading-none font-semibold text-muted tabular-nums'
 
 /**
  * `people`: the first ones (only `shown` of them show, FACES_SHOWN unless given; on a phone `phoneShown`, 2 unless given);
  * `count`: how many there are in all. Each face has a ring of the page's colour; `hoverRing`: the hover colour on a
  * hovered row (a `group` around it). `tips`: each face says its name on hover (with a mouse). `testId`: the stack is
  * `<testId>-people`, the "+N" tiles `<testId>-more` (a computer) and `<testId>-more-phone` (only when the phone shows
- * fewer).
+ * fewer). `size`: each face's size (20 unless given).
  */
-export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, ...rest }: {
+export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, size = 20, ...rest }: {
   people: readonly AvatarUser[]
   count: number
   hoverRing?: boolean
@@ -36,8 +36,12 @@ export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOW
   shown?: 1 | 2 | 3 | 4
   phoneShown?: 1 | 2 | 3 | 4
   tips?: boolean
+  /** each face's size in px: 20, or 24 (a project's people under its name) */
+  size?: 20 | 24
 } & Omit<ComponentPropsWithRef<'span'>, 'children' | 'className'>) {
   const ring = clsx('ring-2 ring-canvas', hoverRing && 'group-hover:ring-hover')
+  // the "+N" tile as high as a face
+  const more = clsx(MORE, size === 24 ? 'h-[24px] min-w-[24px]' : 'h-[20px] min-w-[20px]')
   const phone = Math.min(phoneShown, shown)
   const place = (i: number) => clsx(STACK[i], i >= phone && 'max-sm:hidden')
   return (
@@ -45,14 +49,14 @@ export function FaceStack({ people, count, hoverRing, testId, shown = FACES_SHOW
       {people.slice(0, shown).map((p, i) => tips ? (
         <Tooltip key={p.id} label={p.name}>
           <span className={clsx('flex rounded-full', place(i))} data-testid={`${testId}-face`}>
-            <Avatar user={p} size={20} className={ring} />
+            <Avatar user={p} size={size} className={ring} />
           </span>
         </Tooltip>
       ) : (
-        <Avatar key={p.id} user={p} size={20} className={clsx(ring, place(i))} />
+        <Avatar key={p.id} user={p} size={size} className={clsx(ring, place(i))} />
       ))}
-      {count > shown && <span className={clsx(MORE, ring, phone < shown && 'max-sm:hidden')} data-testid={`${testId}-more`}>+{count - shown}</span>}
-      {phone < shown && count > phone && <span className={clsx(MORE, ring, 'sm:hidden')} data-testid={`${testId}-more-phone`}>+{count - phone}</span>}
+      {count > shown && <span className={clsx(more, ring, phone < shown && 'max-sm:hidden')} data-testid={`${testId}-more`}>+{count - shown}</span>}
+      {phone < shown && count > phone && <span className={clsx(more, ring, 'sm:hidden')} data-testid={`${testId}-more-phone`}>+{count - phone}</span>}
     </span>
   )
 }

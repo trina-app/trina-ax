@@ -201,7 +201,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved }: { project: P
         {access && editable && (
           <div className="space-y-2">
             <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} />
-            <AccessSummary count={count} />
+            {/* the count after the change; with nothing changed the list of people below says it already */}
+            {(changed || !people || !people.people.length) && <AccessSummary count={count} />}
           </div>
         )}
         {/* changed elsewhere meanwhile (a folder moved), or a project made before outside projects/: who changes it */}
