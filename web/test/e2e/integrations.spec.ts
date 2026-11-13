@@ -112,10 +112,9 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   expect((await patched).postDataJSON()).toEqual({ secret: 'wrong-key' })
   // the service refused it: the row says why
   await expect(pm).toHaveAttribute('data-state', 'error')
-  await expect(pm.getByTestId('integration-error')).toContainText('키를 거절했어요')
-  // ... once, with what to do next
-  await expect(pm.getByText(/키를 거절했어요/)).toHaveCount(1)
-  await expect(pm.getByTestId('integration-error')).toContainText('수정에서 주소나 키를 고쳐 주세요')
+  // ... once, in one line of the page's own words, with the one thing to do
+  await expect(pm.getByTestId('integration-error')).toHaveText('서비스가 키나 로그인을 받아 주지 않았어요. ⋯의 수정에서 키를 다시 넣어 주세요.')
+  await expect(pm.getByText(/받아 주지 않았어요/)).toHaveCount(1)
 
   // the server's own refusal shows at its field (Add is on the list)
   await toList(page)

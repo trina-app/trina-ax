@@ -7,7 +7,7 @@
 // Edit, Ask every time, Delete; the phone app: no Edit and no sign-in, as before), and "Turn tools on or off" under the
 // tools opens their switches. The caller adds what is its own: Settings' ask-an-admin line, Admin's Team settings.
 import clsx from 'clsx'
-import { Check } from 'lucide-react'
+import { Check, RefreshCw } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
@@ -26,6 +26,31 @@ interface Place { list?: { to: string; name: string }; inSettings?: boolean }
 
 /** How many tools a listed service's page shows before it is connected; "Show all" shows the rest in place. */
 export const LISTED_TOOLS = 12
+
+/** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
+ * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
+ * without one) shows the server's own words, which carry their own next step. */
+const REASON_KIND: Record<string, 'address' | 'key' | 'slow' | 'service'> = {
+  unreachable: 'address', private_address: 'address', blocked_port: 'address', redirect: 'address', not_mcp: 'address',
+  refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key', oauth_unsupported: 'key', oauth_no_registration: 'key', oauth_no_registration_member: 'key',
+  timeout: 'slow', list_timeout: 'slow',
+  http_status: 'service', too_large: 'service', tls: 'service',
+}
+
+/** Why a connection does not work, and the one thing this reader can do about it, in one line. `manage`: they manage it
+ * here; `elsewhere`: they manage it, in Admin › Connectors (an admin on a team connection in Settings); `phone`: the
+ * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page. */
+export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean }): string {
+  const kind = i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
+  if (!kind) return i.lastError ?? ''
+  const step = who.elsewhere ? 'inAdmin'
+    : !who.manage ? (kind === 'slow' ? 'later' : 'askAdmin')
+    : kind === 'slow' || kind === 'service' ? 'checkAgain'
+    : who.phone ? 'onComputer'
+    : kind === 'address' ? 'editAddress'
+    : i.auth === 'oauth' && who.signIn ? 'signIn' : 'editKey'
+  return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
+}
 
 /** A connection's or a listed service's address without the path: what a page shows for one added by its address. */
 const hostOf = (url: string) => { try { return new URL(url).host } catch { return url } }
@@ -118,17 +143,19 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     ...(ownAllow && (i.alwaysAllowedByMe || manage) ? [{ label: t('integrations.alwaysAllow.stop'), onSelect: () => void actions.askAgain(i), testId: 'integration-always-allow-stop' }] : []),
     ...(manage ? [{ label: t('common.delete'), onSelect: () => void actions.remove(i), danger: true, testId: 'integration-delete' }] : []),
   ]
-  const status = i.status === 'connected' ? (
+  const status = checking ? (
+    // Check again under way: said where the state is, until the answer comes (a toast then says how it went)
+    <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
+  ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
     flow ? null : <Button variant="primary" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">{t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}</Button>
   ) : (
     <span className={clsx('text-xs', i.status === 'error' ? 'text-danger' : 'text-warn')} data-testid="connection-status" data-state={i.status}>{t(`integrations.status.${i.status}`)}</span>
   )
-  // what to do next, after what happened: whoever manages it checks or edits it (or signs in again), anyone else asks
-  const next = i.status === 'needs_auth'
-    ? (signInHere ? t('connectors.page.signInFix') : manage ? t('integrations.signIn.phone') : t('connectors.page.errorAsk'))
-    : manage ? t(phone ? 'connectors.page.errorFixPhone' : 'connectors.page.errorFix') : t('connectors.page.errorAsk')
+  // what happened and the one thing to do, in one line: whoever manages it here checks, edits or signs in again; an
+  // admin reading a team connection in Settings manages it in Admin; anyone else asks an admin
+  const trouble = failing ? errorLine(t, i, { manage, elsewhere: !!readOnly && i.canManage, phone, signIn: signInHere }) : null
   const signInLine = i.auth === 'oauth'
     ? (i.hasSecret ? (i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn')) : t('connectors.page.notSignedIn'))
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
@@ -139,7 +166,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
   const toolsNote = i.kind !== 'mcp' ? null : (
     <>
-      {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : 'connectors.toolsAfter')}</span>}
+      {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
       {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
       {i.tools.length > 0 && (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -172,7 +199,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         status={(flow || failing || note || alert) ? (
           <>
             {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {failing && !flow && <Note tone="warn" testId="integration-error">{i.lastError} {next}</Note>}
+            {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>

@@ -5,7 +5,8 @@
 - Status: done
 - Where: `web/` (the Connectors pages in Settings and Admin). Why: the web app's own screens (see
   docs/REPOSITORY-RULES.md).
-- Version impact: patch. A lighter page with the same actions; no API, setting, permission or data change.
+- Version impact: minor. A visible UI change, and one additive optional API field (`Integration.lastErrorReason`); no
+  setting, permission or data change.
 
 ## Goal
 
@@ -82,3 +83,7 @@ request-connector, skill-tool-counts, a11y, phone-*).
   texts lost their "asks first" sentence (the line under them says it); the "Official" mark is gone (the line says
   "By <service>"); "Nobody can use it yet" shows once, in Who can use it.
 - DECISIONS entry "A listed service's and a connection's page look like the Google connectors' pages".
+- Review fixes: one error line from the reason code (`lastErrorReason`, additive) in the page's own words with one next
+  step per reader (managers here, an admin in Settings → Admin › Connected apps, members → ask an admin); the server's
+  words alone for an unknown code; "Its tools show here once it works." for a connection in error; "Checking…" while
+  Check again runs; "Reading is free" reworded.

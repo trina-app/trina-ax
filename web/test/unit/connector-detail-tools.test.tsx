@@ -6,8 +6,8 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
-import { translate, useLocaleStore } from '../../src/i18n'
-import { ConnectionPage, LISTED_TOOLS, ListedServicePage } from '../../src/components/integrations/ConnectionPage'
+import { t, translate, useLocaleStore } from '../../src/i18n'
+import { ConnectionPage, errorLine, LISTED_TOOLS, ListedServicePage } from '../../src/components/integrations/ConnectionPage'
 import { useIntegrationActions } from '../../src/components/integrations/IntegrationRow'
 import { CONNECTOR_DOCS, CONNECTORS } from '../../src/lib/connectors'
 import { installDom, mount, removeDom } from './dom-host'
@@ -41,7 +41,7 @@ const now = new Date().toISOString()
 const failing: Integration = {
   id: '01900000-0000-7000-8000-0000000000c1', scope: 'team', kind: 'mcp', name: 'Higgsfield', slug: 'higgsfield', url: 'https://mcp.higgsfield.ai/mcp',
   auth: 'bearer', authHeader: null, hasSecret: true, account: null, notes: null, writePolicy: 'ask', status: 'error',
-  lastError: 'The service did not answer within 30 seconds.', tools: [{ name: 'make_video', title: 'Make video', description: '', readOnly: false }],
+  lastError: 'The service did not answer within 30 seconds.', lastErrorReason: 'timeout', tools: [{ name: 'make_video', title: 'Make video', description: '', readOnly: false }],
   toolsTotal: 185, toolsUpdatedAt: null, access: null, createdBy: null, createdAt: now, updatedAt: now, lastUsedAt: now, canManage: true,
 }
 
@@ -53,8 +53,10 @@ function Page({ i }: { i: Integration }) {
 test('a failing connection: the error once with what to do next, the actions in ⋯, no address for a listed service', async () => {
   const m = await mount(<Page i={failing} />)
   try {
-    expect(m.html().split(failing.lastError!).length - 1).toBe(1)
-    expect(m.get('integration-error').textContent).toContain(translate('en', 'connectors.page.errorFix'))
+    // one line in the page's words with one next step; the server's own sentence is not added to it
+    expect(m.get('integration-error').textContent).toBe(`${translate('en', 'connectors.err.slow')} ${translate('en', 'connectors.step.checkAgain')}`)
+    expect(m.html()).not.toContain(failing.lastError!)
+    expect(m.get('app-tools-note').textContent).not.toContain(translate('en', 'connectors.toolsAfter'))
     expect(m.get('connection-status').textContent).toBe(translate('en', 'integrations.status.error'))
     expect(m.find('integration-refresh')).toBeNull()
     await m.click('connection-menu')
@@ -72,7 +74,38 @@ test('one added by its address shows the address in its details; a member reads 
   const m = await mount(<Page i={custom} />)
   try {
     expect(m.get('connector-address').textContent).toContain(custom.url)
-    expect(m.get('integration-error').textContent).toContain(translate('en', 'connectors.page.errorAsk'))
+    expect(m.get('integration-error').textContent).toBe(`${translate('en', 'connectors.err.slow')} ${translate('en', 'connectors.step.later')}`)
     expect(m.find('connection-menu')).toBeNull()
   } finally { await m.unmount() }
+})
+
+test('the one next step fits the reader and the reason; a reason the page does not know keeps the server\'s words', () => {
+  const line = (reason: string | null, auth: Integration['auth'], who: Partial<Parameters<typeof errorLine>[2]>) =>
+    errorLine(t, { lastError: 'Server words.', lastErrorReason: reason, auth }, { manage: true, elsewhere: false, phone: false, signIn: true, ...who })
+  const say = (kind: string, step: string) => `${translate('en', `connectors.err.${kind}` as Parameters<typeof translate>[1])} ${translate('en', `connectors.step.${step}` as Parameters<typeof translate>[1])}`
+  expect(line('refused', 'bearer', {})).toBe(say('key', 'editKey'))
+  expect(line('refused', 'oauth', {})).toBe(say('key', 'signIn'))
+  expect(line('unreachable', 'none', {})).toBe(say('address', 'editAddress'))
+  expect(line('unreachable', 'none', { phone: true })).toBe(say('address', 'onComputer'))
+  expect(line('http_status', 'none', { phone: true })).toBe(say('service', 'checkAgain'))
+  expect(line('refused', 'bearer', { manage: false })).toBe(say('key', 'askAdmin'))
+  // an admin reading a team connection in Settings: it is managed in Admin
+  expect(line('refused', 'bearer', { manage: false, elsewhere: true })).toBe(say('key', 'inAdmin'))
+  expect(line('key_unsafe', 'bearer', {})).toBe('Server words.')
+  expect(line(null, 'bearer', {})).toBe('Server words.')
+})
+
+test('Check again under way shows on the page until it answers', async () => {
+  const realFetch = globalThis.fetch
+  let answer: (r: Response) => void = () => {}
+  globalThis.fetch = (() => new Promise<Response>((r) => { answer = r })) as unknown as typeof fetch
+  const m = await mount(<Page i={failing} />)
+  try {
+    await m.click('connection-menu')
+    await m.click('integration-refresh')
+    await m.until(() => m.find('connection-status')?.getAttribute('data-state') === 'checking', 'checking shown')
+    expect(m.get('connection-status').textContent).toBe(translate('en', 'connectors.page.checking'))
+    answer(new Response(JSON.stringify({ ...failing, status: 'connected', lastError: null, lastErrorReason: null }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    await m.until(() => m.find('connection-status')?.getAttribute('data-state') !== 'checking', 'checking ends')
+  } finally { await m.unmount(); globalThis.fetch = realFetch }
 })

@@ -25373,9 +25373,17 @@ Plan: `docs/AGENTS/plan/20261113-0408-google-team-connection.md`. How it works: 
   says so in one line under the tools. Admin › a team connection: Team settings › Who can use it (Used by, Added by, "Not
   in your chats", "Nobody can use it yet"), changed in Edit as before. Admin › a listed service the team has a connection
   to opens that connection's page. No permission or API change.
-- **One error line.** The service's reason shows once, followed by what to do: whoever manages it "Try Check again in
-  ⋯. If it keeps failing, fix its address or key in Edit." (the phone app: "…fix it on a computer"), anyone else "Ask an
-  admin to look at it.", a sign-in that is needed "Sign in again to fix it.".
+- **One error line, in the reader's words.** The API now also sends the check's reason code (`Integration.lastErrorReason`,
+  optional: older servers omit it; `store.ts view`). The page groups the codes (`ConnectionPage.tsx REASON_KIND`: the
+  address, the key or sign-in, too slow, the service's own error) and writes one line from its own five-language
+  strings: what happened and one next step for this reader. Whoever manages it here: "Try Check again in ⋯", "Check its
+  address in Edit, in ⋯", "Enter the key again in Edit, in ⋯" or "Sign in again" (the phone app: "Fix it on a computer"
+  for an address or key); an admin reading a team connection in Settings: "Manage it in Admin › Connected apps"; anyone
+  else: "Ask an admin to look at it" ("It may work again later" when it was only slow). A code the page does not know,
+  or no code (an older server), shows the server's own words alone, which carry their own next step; nothing is
+  appended to them. A connection in error with no tools yet says "Its tools show here once it works.", and Check again
+  shows "Checking…" in place of the state until it answers.
+- **"Reading is free" reworded** (also on the Google pages): "The AI reads without asking. …", five languages.
 - **Removed:** the boxed header card, the nested row card and its chips ("Always allow", "Run without asking", the
   audience chip), the second copy of the error, "Key saved · Last tried" as one line, the raw address on a listed
   service's page, the "Official" mark (the line says "By <service>"), and the About texts' "asks first" sentence (the

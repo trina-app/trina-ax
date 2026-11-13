@@ -4981,11 +4981,13 @@ export class MockServer {
     const keyed = x.auth === 'bearer' || x.auth === 'header'
     const secret = this.integrationSecrets.get(x.id)
     x.checks++
-    const set = (status: Integration['status'], lastError: string | null) => Object.assign(x, { status, lastError })
-    if (new URL(x.url).hostname.startsWith('down.')) set('error', '서비스가 응답하지 않아요(502). 잠시 뒤 다시 확인해 주세요.')
+    // like the server: the reason in words (text.ts reasonText) and its code (lastErrorReason)
+    const set = (status: Integration['status'], lastError: string | null, lastErrorReason: string | null = null) => Object.assign(x, { status, lastError, lastErrorReason })
+    if (new URL(x.url).hostname.startsWith('down.')) set('error', '서비스가 오류로 답했어요(HTTP 502).', 'http_status')
+    else if (new URL(x.url).hostname.startsWith('slow.')) set('error', '서비스가 30초 안에 답하지 않았어요.', 'timeout')
     else if (x.auth === 'oauth' && !secret) set('needs_auth', null)
-    else if (keyed && !secret) set('error', '키가 없어요. 수정에서 키를 넣어 주세요.')
-    else if (keyed && secret === 'wrong-key') set('error', '서비스가 키를 거절했어요(401). 키를 확인해 주세요.')
+    else if (keyed && !secret) set('error', '키가 아직 없어요. 키를 넣어 주세요.', 'no_secret')
+    else if (keyed && secret === 'wrong-key') set('error', '서비스가 키나 로그인을 받아 주지 않았어요(HTTP 401). 키를 다시 넣거나 다시 로그인해 주세요.', 'refused')
     else {
       set('connected', null)
       const host = new URL(x.url).hostname
