@@ -117,6 +117,29 @@ test('the first message has its bar under it, where the header cannot cut it', a
   expect(b.y).toBeGreaterThan(header.y + header.height)
 })
 
+test('the first message\'s bar stays on top of the next run\'s bar where they meet (keyboard focus kept, mouse on the next message)', async ({ page }) => {
+  // the next message starts its own run (another person, its name line above it): its bar shows over its top edge,
+  // where the first message's bar hangs; while both show, the first one's buttons are the ones under the pointer
+  await reset(page)
+  await routeRoom(page, { members: [SORA], messages: [MESSAGES[0]!, { id: id(4), author: OLGA, body: '확인했어요' }] })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await expect(page.getByTestId('room-message')).toHaveCount(2)
+  const top = page.getByTestId('room-message').first()
+  await page.keyboard.press('Shift')
+  await top.getByTestId('message-react').focus()
+  const next = page.getByTestId('room-message').nth(1)
+  await next.hover({ position: { x: 20, y: 4 } })
+  await expect.poll(() => opacity(next.getByTestId('message-hover-bar'))).toBe('1')
+  const react = await box(top.getByTestId('message-react'))
+  // (the two bars do meet there: the point is inside the next message's bar too)
+  const nb = await box(next.getByTestId('message-hover-bar'))
+  expect(react.y + react.height / 2).toBeGreaterThan(nb.y)
+  expect(react.y + react.height / 2).toBeLessThan(nb.y + nb.height)
+  const onTop = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid="room-message"]') === document.querySelector('[data-testid="room-message"]'), [react.x + react.width / 2, react.y + react.height / 2])
+  expect(onTop).toBe(true)
+})
+
 test('keyboard: Tab reaches the bar and shows it, each button is named, Esc closes its menu and gives the focus back', async ({ page }) => {
   await openRoom(page)
   await page.getByTestId('room-input').first().click()
