@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-13 11:31
 - Branch: `feat/team-project-chats-shared`
-- Status: in progress
+- Status: done (not pushed; no PR yet)
 - Where: Team AX core (`server/src/routes/chats.ts`, `server/src/chat/{shared,share-chat,chat-groups,prompt,members-only-once}.ts`,
   migration 292, `shared/src/api/chats.ts`, `web/src/pages/{Projects,Chat}.tsx`, `web/src/components/chat/*`,
   `web/src/components/ProjectForm.tsx`, `web/src/i18n/*`). Why: chats, projects and permissions are core
@@ -43,8 +43,8 @@ In, phase 1b:
    A private chat in a team project shows a lock in its rows (only its creator ever sees it).
 3. Wording, English first, then ko, id, ja, es (below).
 4. A shared chat asked for a personal tool: the AI's instructions say it plainly and point to **Continue in a chat only
-   you see** (the chat title menu, and on a computer the line under the box), which opens a new private chat in the same
-   project with the person's last question in the box.
+   you see** (the chat title menu), which opens a new private chat in the same project with the person's last question
+   in the box.
 5. A one-time notice on a team project page for a creator with private chats there: "🔒 {N} chats only you see ·
    choose chats to share", opening a list of those chats, each with the existing per-chat share (no bulk share).
 6. The switch and its strings (`projects.shareChats*`) go in all five languages.
@@ -84,4 +84,9 @@ Out (phase 2): bulk share, per-viewer unseen markers, live answers for viewers.
 
 ## Result
 
-(filled in at the end)
+Built as planned on `feat/team-project-chats-shared`, migration 292. Differences: "Continue in a chat only you see" is
+in the chat's title menu only (not also under the box: lean UI, and the AI names that one place); its question is kept
+in the window, not in the address's state (a phone's tab stack may go back to the project page's own entry). Sharing
+one chat no longer needs the project setting, only a team project. Found while building: the AI's members tool and the
+other own-chat tools now need an "Only me" chat in a team project (a shared chat never had them); a member removed
+while their turn ran in a shared chat kept it running (fixed, `stopTurnsIn`). Not pushed, no PR yet.
