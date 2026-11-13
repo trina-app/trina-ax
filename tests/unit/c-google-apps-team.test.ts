@@ -73,6 +73,8 @@ function turn(user: Person, o: { person?: Card; scheduled?: boolean } = {}) {
       async confirm(q) { p.asked.push(q); return p.answer === 'yes' },
       async choose(q, options) { p.asked.push(q); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
       *turnUrls() {},
+      // a turn the person watches from their own app (the card may offer Always allow); never a scheduled run
+      allSitesHere: () => !o.scheduled,
       ...(o.scheduled ? { unattended: true } : {}),
     }
   }
