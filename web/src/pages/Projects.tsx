@@ -852,7 +852,6 @@ function ProjectPage() {
   // the owner or an admin on a team project they are not a member of (or one in the trash, which nobody reads): its
   // name, its members, their own chats in it; nothing of its contents
   const outside = p.member === false
-  const summary = firstParagraph(p.instructions)
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
@@ -916,11 +915,7 @@ function ProjectPage() {
             <PeopleStack people={people.people} onOpen={() => setMembers(true)} testId="project-header" />
           </div>
         )}
-        {summary && (
-          <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted max-md:mt-0" data-testid="project-summary">
-            {summary}
-          </p>
-        )}
+        {/* no copy of the instructions here: they show once, in 지침 beside the box (QA TC-980) */}
         {/* phone: the box, then the side lines, then the chats; wide: the chats under the box, the lines beside them */}
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
