@@ -398,7 +398,7 @@ test('a deleted team skill: 최근 변경 and the notice open 파일 › 휴지�
   expect((await page.request.delete('/api/files?path=skills%2Fteam-rules.md', { headers: { [CSRF_HEADER]: '1' } })).ok()).toBeTruthy()
   await page.getByTestId('toast').filter({ hasText: 'skills/team-rules.md' }).getByRole('button', { name: '열기', exact: true }).click()
   await expect(page).toHaveURL(/\/files\?view=trash$/)
-  await expect(page.getByTestId('trash-list')).toContainText('skills/team-rules.md')
+  await expect(page.locator('[data-testid="trash-item"][data-path="skills/team-rules.md"]').getByTestId('trash-where')).toHaveText('팀 스킬')
   // 팀 스킬 › 최근 변경: the 삭제 row's button is the trash tab's word and goes there too
   await page.goto('/skills')
   await page.getByRole('tab', { name: '최근 변경' }).click()
@@ -409,7 +409,7 @@ test('a deleted team skill: 최근 변경 and the notice open 파일 › 휴지�
   await change.getByRole('button', { name: '휴지통', exact: true }).click()
   await expect(page).toHaveURL(/\/files\?view=trash$/)
   await expect(page.getByRole('heading', { name: '휴지통', exact: true })).toBeVisible()
-  await expect(page.getByTestId('trash-list')).toContainText('skills/team-rules.md')
+  await expect(page.locator('[data-testid="trash-item"][data-path="skills/team-rules.md"]').getByTestId('trash-name')).toHaveText('team-rules.md')
   expect(realErrors(errors)).toEqual([])
 })
 

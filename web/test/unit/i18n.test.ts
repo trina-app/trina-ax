@@ -43,14 +43,19 @@ describe('translations', () => {
   })
   test('file deletion guidance uses the team retention policy and each item’s saved date', () => {
     for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      for (const key of ['files.deleteBody', 'files.trashNote'] as const) {
-        expect(translate(loc, key)).not.toMatch(/\d/)
-        expect(placeholders(translate(loc, key))).toEqual([])
-      }
+      expect(translate(loc, 'files.deleteBody')).not.toMatch(/\d/)
+      expect(placeholders(translate(loc, 'files.deleteBody'))).toEqual([])
       expect(placeholders(DICTS[loc]['files.purgeAt'])).toEqual(['date'])
+      // the trash's one line: the team's retention as a number (QA TC-1040)
+      expect(placeholders(DICTS[loc]['files.trashNoteDays'])).toEqual(['days'])
+      expect(translate(loc, 'files.trashNoteDays', { days: 18 })).toContain('18')
+      expect(placeholders(DICTS[loc]['files.purgeIn'])).toEqual(['when'])
+      expect(placeholders(DICTS[loc]['files.purgeInShort'])).toEqual(['when'])
     }
     expect(translate('en', 'files.deleteBody')).toContain('retention period set by your team at the time of deletion')
-    expect(translate('en', 'files.trashNote')).toContain('Changing the retention period does not change dates for items already in the trash')
+    expect(translate('en', 'files.trashNoteDays', { days: 1 })).toBe("Items are removed for good 1 day after they're deleted.")
+    expect(translate('en', 'files.trashNoteDays', { days: 30 })).toBe("Items are removed for good 30 days after they're deleted.")
+    expect(translate('en', 'files.trashCopies', { n: 3 })).toBe('3 copies')
   })
   test('Korean engine guidance uses the translated owner role', () => {
     for (const key of ['engines.betaHint', 'engines.choiceDesc'] as const) {

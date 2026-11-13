@@ -85,7 +85,7 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -123,6 +123,8 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
   onFocus?: (e: FocusEvent<HTMLElement>) => void
   onBlur?: (e: FocusEvent<HTMLElement>) => void
   onKeyDown?: (e: KeyboardEvent<HTMLElement>) => void
+  /** a button row that opens and closes what follows it (the trash's copies of one file): its aria-expanded */
+  expanded?: boolean
 }) {
   const page = scale === 'page'
   const cls = clsx(
@@ -177,7 +179,7 @@ export function ListRow({ to, state, onClick, icon, lead, name, nameTitle, meta,
       {body}
     </Link>
   ) : onClick || rowMenu ? (
-    <button ref={rowRef as Ref<HTMLButtonElement>} title={rowTitle} type="button" onClick={click} disabled={disabled} className={cls} data-testid={testId} {...events} {...link}>
+    <button ref={rowRef as Ref<HTMLButtonElement>} title={rowTitle} type="button" onClick={click} disabled={disabled} aria-expanded={expanded} className={cls} data-testid={testId} {...events} {...link}>
       {body}
     </button>
   ) : (

@@ -2962,7 +2962,7 @@ export class MockServer {
     remove: (c) => {
       const n = this.files.get(c.query.path!) ?? fail('not_found', 404)
       this.files.delete(c.query.path!)
-      const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n }
+      const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), ...(n.type === 'folder' ? { type: 'folder' as const } : {}), node: n }
       this.trash.push(item)
       // a team skill's file or folder in the trash is a change of 팀 스킬 › 최근 변경 (server/src/skills/changes.ts)
       if (c.query.path!.startsWith('skills/')) this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: c.query.path!, change: 'delete', from: null, byAi: false, kind: n.type === 'folder' ? 'folder' : null })
@@ -2986,12 +2986,26 @@ export class MockServer {
       this.versions.push({ ...v, id: uuidv7(), version: this.versions.filter((x) => x.path === v.path).length + 1, kind: 'restore', createdAt: now(), author: { id: c.user.id, name: c.user.name }, savedBy: null, savedTurnId: null })
       return { path: v.path, conflict: false, entry: this.entry(v.path, this.files.get(v.path)!, c.user) }
     },
-    trash: () => ({ items: this.trash.map(({ node: _n, ...t }) => t), nextCursor: null }),
+    // like server/src/team-files/service.ts trash(): newest first, `mine` (deleted by the caller), only what the caller
+    // could restore (write access to the original path), pages by `cursor` (the last id of the page before)
+    trash: (c) => {
+      const mine = c.query.mine === '1' || c.query.mine === 'true'
+      const limit = Math.min(Number(c.query.limit ?? 50) || 50, 200)
+      const all = [...this.trash]
+        .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+        .filter((x) => (!mine || x.deletedBy?.id === c.user.id) && this.access(x.originalPath, c.user) === 'write')
+        .filter((x) => !c.query.cursor || x.id < c.query.cursor)
+      const page = all.slice(0, limit).map(({ node: _n, ...t }) => t)
+      return { items: page, nextCursor: all.length > limit ? page[page.length - 1]!.id : null }
+    },
     restoreTrash: (c) => {
       const t = this.trash.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (this.access(t.originalPath, c.user) !== 'write') fail('not_found', 404)
       this.trash = this.trash.filter((x) => x.id !== t.id)
-      this.files.set(t.originalPath, t.node)
-      return { entry: this.entry(t.originalPath, t.node, c.user) }
+      // a taken name gets " (restored)" (the server: in the team's language), as another copy of it came back first
+      const to = this.files.has(t.originalPath) ? t.originalPath.replace(/(\.[^./]+)?$/, (ext: string) => ` (restored)${ext}`) : t.originalPath
+      this.files.set(to, t.node)
+      return { entry: this.entry(to, t.node, c.user) }
     },
     attachTeamFile: (c) => {
       const path: string = c.body.path

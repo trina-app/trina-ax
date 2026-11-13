@@ -60,6 +60,7 @@ The server works out who loses or gains access, and the Save button says it. Not
 
 - **Upload** files or whole folders from the Files screen.
 - **History**: every change keeps a version you can open or restore.
+- **Trash**: **Files › Trash** lists what you could restore, by name and the place it was in ("price-sheet.xlsx · Company-wide › Sales"). A file deleted more than once is one row with its copies: **Restore** brings back the latest, and opening the row restores any other copy. If the list has other people's deletes, **Deleted by me** shows only yours. Items are removed for good after the team's retention period (Admin › Team settings, 30 days by default); each row says when.
 - **Formats**: the AI reads text from PDF, Office and HWP/HWPX files, and sees photos and scanned pages as images (admins can turn that off). Linux servers run no OCR.
 - **Confirmation**: when the AI would write restricted content somewhere more people can see, the server asks first.
 
