@@ -25009,3 +25009,35 @@ default.
   error wiring, autofocus); its two other users are unchanged. One short line on top, short notes of the popup's own
   (the team dialog's shared words stay), the 7 days under Member. Red only after Send (no error on leaving a field).
 - **Unchanged:** what is sent and the 7-day wait.
+
+## Admin › AI accounts: provider logos and one state per row, like Team settings (fix/providers-page, 2026-11-13, QA TC-191)
+
+- **Logos.** Each provider and account shows its provider's mark: `web/public/icons/connectors/claude.svg` (Claude) and
+  `codex.svg` (the OpenAI mark), the files Connected apps already uses, on the same white tile (LogoTile), so they read
+  in dark mode. The API engine and a gateway's key show a plain plug icon (no brand). No new brand files.
+- **As simple as Team settings.** A provider row: mark, name, one state, the switch; a problem stays as one line (the
+  fix, e.g. a command). Moved into the opened row: how it signs in, every model, the version, when it was checked,
+  **Check again**, the Experimental note of the API engine (was a second badge and an orange sentence; the closed row
+  says "Not set up" and "Set it up"). An account row: mark, name (…last 4 of a key), the plan in short ("Claude
+  subscription · Max", was "Claude subscription (Pro, Max, Team) (max)") and one state; a problem adds one short link
+  ("Replace the key", "Connect it again"). Who uses it, this month's tokens and cost, last used, expiry and the
+  server's longer explanation open under the name. Check again, Move up / Move down join the ⋯ menu (were three icon
+  buttons on every row). "Accounts, in the order they are used" is "Accounts"; the two-line "Order of use…" note is
+  behind **How order works**.
+- The page keeps its name, AI accounts; the rename asked in QA TC-192 is a separate PR (fix/providers-rename) that
+  waits for a product decision.
+- Version impact: **patch** (web UI only; no API or data change).
+
+## Admin: "AI accounts" is called "Providers" (fix/providers-rename, 2026-11-13, QA TC-192; waiting for a product decision)
+
+- **Reverses** "Plain words for members" (2026-11-11) for the admin page only: Admin › AI accounts is called
+  **Providers** again (ko **AI 제공사**, id Penyedia AI, ja AIプロバイダー, es Proveedores de
+  IA), as the QA report asked. Korean: "AI 제공사" is the word the Korean strings already use for Anthropic and OpenAI
+  ("AI 제공사(Anthropic·OpenAI)"); "AI 계정" read as the accounts only. Every pointer follows: the sidebar and the phone
+  back label (was "Team AI accounts"), Members' no-AI hints, the welcome line, the file list problem, handover, the
+  server's messages that name the page (`admin/engines.ts`, `system/messages*.ts`, `chat/i18n.ts`,
+  `credentials/i18n.ts`; the Linux ones still said "AI engines") and the guides. The "queue is long" message points to
+  Team settings, where "Answers at the same time" is now. The stored chat-error words in `shared/src/api/errors.ts`
+  (LEGACY_CHAT_ERRORS) keep their old text: they match answers already saved. The members' own Settings page
+  (`settings.providers`) keeps "AI accounts" (ko AI 계정) until the owner decides.
+- Version impact: **patch** (wording only; no API or data change).

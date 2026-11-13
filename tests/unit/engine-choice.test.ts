@@ -113,7 +113,7 @@ describe('enforcement', () => {
       const member = await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))
       expect(member).toMatchObject({ status: 409, reason: 'engine_off' })
       expect(LOCALES.map((l) => tr('engineOff', l))).toContain(member.message!)
-      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › AI accounts, or pick another one.')
+      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › Providers, or pick another one.')
       expect((await h.api('carol').call(API.chatEngines)).engines.map((e) => e.id)).toEqual(['claude-code'])
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })

@@ -1,0 +1,54 @@
+# Admin › AI accounts: provider logos and a simple view like Team settings
+
+- Date (UTC): 2026-11-13 04:07
+- Branch: `fix/providers-page`
+- Status: done
+- Where: web/src/pages/admin (Engines.tsx, Credentials.tsx), web/src/i18n, docs/site. Why: web UI only (see docs/REPOSITORY-RULES.md)
+- Version impact: patch: a clearer screen; no API, data or behaviour change
+
+## Goal
+
+QA TC-191. Admin › AI accounts shows a grey key on every account, every model name and a check time on each
+provider, plan names in brackets, two or three badges, long problem sentences, up/down/refresh/menu buttons on every row
+and a two-line "Order of use" note. Office workers read it as a wall of text. The page should read like Team settings:
+per provider its logo, name, one state and the switch; per account its logo, name, plan and one state; details one
+click away.
+
+## Scope
+
+In:
+- Logos: the Claude and Codex (OpenAI) marks already in web/public/icons/connectors (claude.svg, codex.svg) on a
+  white tile (LogoTile, as on Connected apps), so they read in dark mode; the API engine gets a plain plug icon.
+- Provider row: logo, name, one state badge, switch. Removed from the row: the dim "how it signs in · all models ·
+  checked at" line and the Experimental badge (both in the opened row), the refresh button (in the opened row as
+  "Check again"). The API engine's orange sentence becomes one short muted line with "Set up".
+- Account row: logo, name, plan in short ("Claude subscription · Max"), one state badge; one short line only when it
+  has a problem ("Refused · replace the key"). Who uses it, tokens this month, last used and the server's long
+  explanation open under the row. Move up / down and Check again go into the ⋯ menu.
+- "Accounts, in the order they are used" → "Accounts"; the bottom note → a "How order works" link that opens it.
+Out: the rename to "Providers" (QA TC-192) is a separate PR, fix/providers-rename, waiting for a product decision
+(it reverses DECISIONS "Plain words for members"). The URL stays /admin/providers; no server change; Settings › own accounts layout.
+
+## Steps
+
+1. Plan (this file).
+2. Short plan names and fix links in 5 languages; docs/site.
+3. Provider and account rows as above.
+4. typecheck, check:i18n, check:docs, unit tests of the area, test:web, build:web, full web e2e; screenshots
+   1440/390 light and dark.
+
+## Risks
+
+Shared CredentialRow is also used by the members' own accounts list (Team settings) and Settings; their delete button
+stays. Plain-words check: no "token", "engine" or "model" on the closed rows; "Providers" in English, plain words in the
+other languages.
+
+## Tests
+
+`bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, tests/unit for admin/credentials/engines,
+`bun run test:web`, `bun run build:web`, full web e2e.
+
+## Result
+
+Built as planned in PR #686 (the rename split out to fix/providers-rename on the coordinator's request). Differences: the account's plan sits on its own line under the name (it wrapped badly on a
+phone beside the badge); "How order works" is hidden on the phone's list of providers (no accounts are shown there).
