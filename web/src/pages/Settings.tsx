@@ -30,6 +30,7 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
@@ -613,7 +614,9 @@ const DEVICE_ICON = { phone: Smartphone, tablet: Tablet, laptop: Laptop, compute
 function Security({ all = false }: { all?: boolean }) {
   const t = useT()
   const locale = useLocale()
-  const [sessions, setSessions] = useState<Session[] | null>(null)
+  // as this window last read them (store/listCache.ts): shown at once on a visit after the first, read again behind
+  const [sessions, setSessions] = useState<Session[] | null>(() => peekCached<Session[]>('settings:sessions') ?? null)
+  useEffect(() => { if (sessions) rememberCached('settings:sessions', sessions) }, [sessions])
   // what the read threw, kept until a read works (components/LoadError.tsx)
   const [error, setError] = useState<unknown>(null)
   const load = async () => {

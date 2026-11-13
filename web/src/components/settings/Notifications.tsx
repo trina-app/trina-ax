@@ -7,6 +7,7 @@ import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { useInboxUnread, useNoticeUnread } from '../../store/inbox'
 import { ErrorNote, Skeleton, Switch, useMediaQuery } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
@@ -169,6 +170,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   return null
 }
 
+const PREFERENCES_KEY = 'settings:notificationPreferences'
+
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
@@ -177,13 +180,16 @@ export function Notifications() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const whole = useInboxUnread(), notices = useNoticeUnread()
   const unread = phone ? notices : whole
-  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
+  // as this window last had them (store/listCache.ts): a visit after the first shows the switches at once and reads
+  // them again behind it
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(() => peekCached<NotificationPreferences>(PREFERENCES_KEY) ?? null)
+  useEffect(() => { if (preferences) rememberCached(PREFERENCES_KEY, preferences) }, [preferences])
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
   /** what the server has, as its last answer said (a read, or a save's answer): what a failed save goes back to */
-  const saved = useRef<NotificationPreferences | null>(null)
+  const saved = useRef<NotificationPreferences | null>(preferences)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
   /** `keepError`: the read after a failed save, which leaves that save's message up */
   const load = useCallback(async (keepError = false) => {

@@ -10,6 +10,7 @@ import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useFileLists } from './store/fileLists'
+import { useListCache } from './store/listCache'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
 import { useAiAccess } from './store/aiAccess'
@@ -112,8 +113,8 @@ function useSettingsOverlay() {
 }
 
 /** Everything one person's window keeps in memory of their own: chats, the messages waiting to be sent, the projects
- * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards and the
- * chat counted as on screen. */
+ * seen, rooms (and their side chats), people, the AI engine picker's list, the unread Inbox count, job cards, the
+ * chat counted as on screen and the lists kept by key (store/listCache.ts: skills, Search, Settings, tasks, 활동). */
 function dropPersonStores() {
   // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
   resetOptimistic()
@@ -122,6 +123,7 @@ function dropPersonStores() {
   useSendQueue.getState().reset()
   useProjects.getState().reset()
   useFileLists.getState().reset()
+  useListCache.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
   useAiAccess.getState().reset()

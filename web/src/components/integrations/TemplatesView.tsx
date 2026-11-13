@@ -18,6 +18,7 @@ import { connectorFor, connectorLogo } from '../../lib/connectors'
 import { connectionRowStatus, isEmptyAccess } from '../../lib/integrations'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { formatDate } from '../../lib/format'
 import { Badge, Button, IconButton, Modal, Skeleton, confirmDialog } from '../ui'
 import { OwnKeyDialog } from './AnswerDialog'
@@ -43,6 +44,7 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
  * connection's address). ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's
  * Connect. Returns the rows (sorted by name, with their names for the page's own sorting), whether both lists are in,
  * and the dialog to render. */
+const TEMPLATES_KEY = 'connectors:templates'
 export function useFromTeam({ team, latest, version, query, onOpen, onConnected }: {
   team: Integration[] | null
   latest?: Integration[]
@@ -52,8 +54,10 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
   onConnected: (i: Integration, signIn: { window: Window | null } | null) => void
 }) {
   const t = useT()
-  const [items, setItems] = useState<MyIntegrationTemplate[]>([])
-  const [loaded, setLoaded] = useState(false)
+  // as this window last read them (store/listCache.ts): Connectors shows them at once on a visit after the first
+  const [items, setItems] = useState<MyIntegrationTemplate[]>(() => peekCached<MyIntegrationTemplate[]>(TEMPLATES_KEY) ?? [])
+  const [loaded, setLoaded] = useState(() => peekCached(TEMPLATES_KEY) !== undefined)
+  useEffect(() => { if (loaded) rememberCached(TEMPLATES_KEY, items) }, [items, loaded])
   const [open, setOpen] = useState<MyIntegrationTemplate | null>(null)
   const gen = useRef(0)
   const load = async (): Promise<MyIntegrationTemplate[] | null> => {

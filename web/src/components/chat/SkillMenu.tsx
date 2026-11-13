@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { skillSummary, skillTitle, type SkillInfo } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
+import { readCached, useListCache } from '../../store/listCache'
 import { SkillFormDialog } from '../skills/SkillForm'
 
 /** The skills that fit what is typed after "/" (null: not a skill command, the menu stays closed). All of them. */
@@ -36,23 +37,30 @@ export function scrollToShow(row: { top: number; height: number }, view: { scrol
 }
 
 /** `projectId`: the chat's project (its own skills join the list, with their badge); none outside a project. */
+const NO_SKILLS: SkillInfo[] = []
+
 export function useSkillMenu(text: string, setText: (s: string) => void, projectId?: string | null) {
   const t = useT()
-  const [skills, setSkills] = useState<SkillInfo[] | null>(null)
+  // the list as this window last read it (store/listCache.ts) shows at once; it is read again each time a message
+  // starts with "/" (a skill saved a moment ago shows up without a reload)
+  const listKey = `skills:menu:${projectId ?? ''}`
+  const kept = useListCache((s) => s.data[listKey] as SkillInfo[] | undefined)
+  const [failed, setFailed] = useState(false)
   const [active, setActive] = useState(0)
   const [closedFor, setClosedFor] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
   const [form, setForm] = useState<SkillInfo | null>(null)
   const wanted = text.startsWith('/')
-  // loaded each time a message starts with "/" (a skill saved a moment ago shows up without a reload)
+  // none when it could not be read (and nothing was kept)
+  const skills = wanted ? kept ?? (failed ? NO_SKILLS : null) : null
   useEffect(() => {
-    if (!wanted) { setSkills(null); return }
-    if (skills) return
+    if (!wanted) return
     let live = true
-    api.call(API.listSkills, projectId ? { query: { projectId } } : undefined).then((r) => live && setSkills(r.items), () => live && setSkills([]))
+    setFailed(false)
+    readCached(listKey, () => api.call(API.listSkills, projectId ? { query: { projectId } } : undefined).then((r) => r.items)).catch(() => live && setFailed(true))
     return () => { live = false }
-  }, [wanted, skills, projectId])
+  }, [wanted, listKey, projectId])
   const hits = useMemo(() => (skills && closedFor !== text ? matchSkills(skills, text) : null), [skills, text, closedFor])
   const open = !!hits?.length
   useEffect(() => setActive(0), [text])

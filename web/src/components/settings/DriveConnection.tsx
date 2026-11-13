@@ -4,6 +4,7 @@ import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, confirmDialog } from '../ui'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
@@ -146,9 +147,12 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
  * "Built in" card in Discover, its page and its row among the connections): the status, a connect that ends in
  * `onConnected`, and disconnect (with Google's revocation reported when it could not be done).
  */
+const DRIVE_KEY = 'connectors:drive'
 export function useDriveConnection(onConnected?: (c: Connection) => void) {
   const t = useT()
-  const [connection, setConnection] = useState<Connection | null>(null)
+  // as this window last read it (store/listCache.ts): Connectors shows it at once on a visit after the first
+  const [connection, setConnection] = useState<Connection | null>(() => peekCached<Connection>(DRIVE_KEY) ?? null)
+  useEffect(() => { if (connection) rememberCached(DRIVE_KEY, connection) }, [connection])
   const [revokeWarning, setRevokeWarning] = useState(false)
   // The first load of the status failed: this is not a failed connection, so it has its own message and a Retry.
   const [loadFailed, setLoadFailed] = useState(false)

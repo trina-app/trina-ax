@@ -25,6 +25,7 @@ import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { useActivityUnread } from '../store/inbox'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
+import { peekCached, rememberCached } from '../store/listCache'
 import { useRooms } from '../store/rooms'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
@@ -138,6 +139,9 @@ function ActivityOpened({ id }: { id: string | null }) {
   )
 }
 
+/** what the page keeps between visits */
+type KeptPage = { items: InboxNotification[]; cursor: string | null; serverUnread: number }
+
 /** `chats`: the conversations only (opened from 대화): rows of rooms, without the DMs tab */
 function ActivityPage({ chats }: { chats: boolean }) {
   const t = useT(), locale = useLocale()
@@ -151,18 +155,23 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
-  const [items, setItems] = useState<InboxNotification[] | null>(null)
-  const [cursor, setCursor] = useState<string | null>(null)
+  // the list as this window last showed it (store/listCache.ts): a visit after the first shows it at once and reads
+  // it behind it
+  const feedKey = `feed:page:${chats ? 'chats' : 'all'}`
+  const [kept] = useState(() => peekCached<KeptPage>(feedKey))
+  const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
   const [error, setError] = useState<string | null>(null)
   // the server's unread count with the last read (this page's part of it: the conversation rows on 대화's page)
-  const [serverUnread, setServerUnread] = useState(0)
+  const [serverUnread, setServerUnread] = useState(kept?.serverUnread ?? 0)
+  useEffect(() => { rememberCached<KeptPage>(feedKey, items ? { items, cursor, serverUnread } : undefined) }, [feedKey, items, cursor, serverUnread])
   // the older page on its way (its cursor), and how many reads have ended: the reading of older pages looks again
   // after each, so a read that lands meanwhile never leaves it waiting
   const [paging, setPaging] = useState<string | null>(null)
   const [ended, setEnded] = useState(0)
-  const life = useRef(0), sequence = useRef(0), shown = useRef(0)
+  const life = useRef(0), sequence = useRef(0), shown = useRef(items?.length ?? 0)
   // what is on screen, for the reads that land later (a page goes on only where the list still ends)
-  const itemsRef = useRef<InboxNotification[] | null>(null), cursorRef = useRef<string | null>(null), pagingRef = useRef<string | null>(null)
+  const itemsRef = useRef<InboxNotification[] | null>(items), cursorRef = useRef<string | null>(cursor), pagingRef = useRef<string | null>(null)
   const setList = (next: InboxNotification[] | null) => { itemsRef.current = next; shown.current = next?.length ?? 0; setItems(next) }
   const setEnd = (next: string | null) => { cursorRef.current = next; setCursor(next) }
   const searchRef = useRef<HTMLInputElement>(null)

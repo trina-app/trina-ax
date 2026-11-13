@@ -9,16 +9,20 @@ import { SLACK, type MySlack } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
+import { peekCached, rememberCached } from '../../store/listCache'
 import { outcomeText } from '../../lib/slackSignIn'
 import { Button, ErrorNote, confirmDialog } from '../ui'
 
+const SLACK_KEY = 'connectors:slack'
 export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }) {
   const t = useT(), locale = useLocale()
   const [params, setParams] = useSearchParams()
   // the outcome of a sign-in, said once: taken out of the address so a reload or a shared link does not say it again
   const [outcome] = useState(() => params.get('slack'))
   useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
-  const [me, setMe] = useState<MySlack | null>(null)
+  // as this window last read it (store/listCache.ts): the line shows at once on a visit after the first
+  const [me, setMe] = useState<MySlack | null>(() => peekCached<MySlack>(SLACK_KEY) ?? null)
+  useEffect(() => { if (me) rememberCached(SLACK_KEY, me) }, [me])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const load = useCallback(() => { api.call(SLACK.mySlack).then(setMe, () => {}) }, [])

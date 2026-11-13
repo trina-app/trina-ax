@@ -1,0 +1,1 @@
+- Going back to Team skills, Scheduled tasks, Activity, Mentions, a thread, or Settings › Connectors and Notifications now shows what was there at once and updates it in the background, without the loading placeholder. Team skills loads its lists side by side instead of one after another, and Search opened again within half a minute shows its lists without loading them again.
