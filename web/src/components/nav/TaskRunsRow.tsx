@@ -3,7 +3,9 @@
 // drawer's history and a project's chat list, the run chats of one task (Chat.schedule) are one row instead: the task's
 // name with a clock, the newest run's time and its mark (a red dot for a failed run, amber for problems, the spinner
 // while one runs), semibold while any run has an answer I have not seen. It opens the task's page, whose "Runs" list
-// opens each run's chat. The run chats stay in Search, the task page and, pinned, in 고정.
+// opens each run's chat. The run chats stay in Search, the task page and, pinned, in 고정. Its clock comes after the
+// name, so the name starts where every other chat's starts (QA TC-990). A list with rows of its own (a project's page)
+// draws the task's row with its own row (`task` of foldRuns) from the same pieces here: TaskRunsIcon, TaskRunsMark.
 import clsx from 'clsx'
 import { CalendarClock } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
@@ -18,13 +20,14 @@ import { useSessionMarkers } from '../../store/sessionMarkers'
 import { ListRow } from '../list/List'
 import { SessionMarker } from '../chat/ChatState'
 
-type Run = Chat & { schedule: NonNullable<Chat['schedule']> }
+export type Run = Chat & { schedule: NonNullable<Chat['schedule']> }
 const isRun = (c: Chat): c is Run => !!c.schedule && !c.pinnedAt
 
 /** A list's rows with the runs of each task folded into one row where its newest run is (`chats` in the list's order,
  * newest first). `row`: the list's own row for every other chat. `pool`: the whole list when `chats` is one of its
- * groups (a date, a project): the task's row is in the group of its newest run only, and counts all of its runs. */
-export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o: { projectTag?: boolean; pool?: readonly Chat[] } = {}): ReactNode[] {
+ * groups (a date, a project): the task's row is in the group of its newest run only, and counts all of its runs. `task`:
+ * the list's own row for a task (newest run first), where the list's rows are not ListRows. */
+export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o: { projectTag?: boolean; pool?: readonly Chat[]; task?: (runs: Run[]) => ReactNode } = {}): ReactNode[] {
   const byTask = new Map<string, Run[]>()
   for (const c of o.pool ?? chats) if (isRun(c)) byTask.set(c.schedule.id, [...(byTask.get(c.schedule.id) ?? []), c])
   // newest first whatever the list's sort (by title, by creation)
@@ -33,13 +36,40 @@ export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o:
     if (!isRun(c)) return [<Fragment key={c.id}>{row(c)}</Fragment>]
     const runs = byTask.get(c.schedule.id)
     if (!runs || runs[0]!.id !== c.id) return []
-    return [<TaskRunsRow key={`task:${c.schedule.id}`} runs={runs} projectTag={o.projectTag} />]
+    return [o.task ? <Fragment key={`task:${c.schedule.id}`}>{o.task(runs)}</Fragment> : <TaskRunsRow key={`task:${c.schedule.id}`} runs={runs} projectTag={o.projectTag} />]
   })
 }
 
 /** Any run with an answer I have not seen (its "?" or dot): the folded row reads semibold. `here`: the chat on screen
  * in a visible window, which has no marker (the person is reading it; its seen goes to the server). */
 export const runsUnread = (runs: readonly Chat[], here: string | null) => runs.some((c) => needsMe(markerOf(c, { here: c.id === here })))
+
+/** The task's page (its "Runs" list opens each run's chat) */
+export const taskRunsPath = (runs: readonly Run[]) => `/scheduled/${encodeURIComponent(runs[0]!.schedule.id)}`
+
+/** The clock after a task row's name: it says the row is a scheduled task */
+export function TaskRunsIcon() {
+  const t = useT()
+  return <CalendarClock size={13} className="shrink-0 text-faint" role="img" aria-label={t('scheduled.runsRowIcon')} data-testid="task-runs-icon" />
+}
+
+/** How the task's runs went, before its time: the spinner while one runs, a red dot for a failed newest run, amber for
+ * problems, nothing for a good one */
+export function TaskRunsMark({ runs }: { runs: readonly Run[] }) {
+  const t = useT()
+  const running = runs.find((c) => c.runState === 'running' || c.runState === 'queued')
+  const outcome = runs[0]!.schedule.outcome
+  const tone = running ? null : outcome === 'failed' ? 'danger' : outcome === 'problems' ? 'warn' : null
+  if (running) return <SessionMarker marker={{ kind: 'running', reason: running.runState === 'queued' ? 'queued' : 'running' }} label={t('scheduled.run.running')} />
+  if (!tone) return null
+  return <span role="img" aria-label={t(tone === 'danger' ? 'scheduled.run.error' : 'scheduled.run.problems')} className={clsx('size-2 shrink-0 rounded-full', tone === 'danger' ? 'bg-danger' : 'bg-warn')} data-testid="task-runs-mark" />
+}
+
+/** The row's data-* (tests and styles): the task, unread, how its newest run went */
+export const taskRunsAttrs = (runs: readonly Run[], unread: boolean) => {
+  const running = runs.some((c) => c.runState === 'running' || c.runState === 'queued')
+  return { 'data-schedule-id': runs[0]!.schedule.id, 'data-unread': unread ? '' : undefined, 'data-outcome': running ? 'running' : runs[0]!.schedule.outcome ?? undefined }
+}
 
 /** One task's runs as one row (`runs`: newest first, at least one). */
 export function TaskRunsRow({ runs, projectTag = false }: { runs: Run[]; projectTag?: boolean }) {
@@ -50,31 +80,25 @@ export function TaskRunsRow({ runs, projectTag = false }: { runs: Run[]; project
   // the chat on screen in a visible window has no marker (the person is reading it)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
   const unread = runsUnread(runs, here)
-  const running = runs.find((c) => c.runState === 'running' || c.runState === 'queued')
-  const tone = running ? null : task.outcome === 'failed' ? 'danger' : task.outcome === 'problems' ? 'warn' : null
   const project = useProjects((s) => (projectTag && newest.projectId && (!s.listed || s.listed.has(newest.projectId)) ? s.byId[newest.projectId] ?? null : null))
   const selected = useLocation().pathname === `/scheduled/${task.id}`
   return (
     <ListRow
-      to={`/scheduled/${encodeURIComponent(task.id)}`}
+      to={taskRunsPath(runs)}
       selected={selected}
       unread={unread}
       testId="task-runs-row"
-      link={{ 'data-schedule-id': task.id, 'data-unread': unread ? '' : undefined, 'data-outcome': running ? 'running' : task.outcome ?? undefined }}
+      link={taskRunsAttrs(runs, unread)}
       name={
         <span className="flex min-w-0 items-center gap-1.5">
-          <CalendarClock size={13} className="shrink-0 text-faint" role="img" aria-label={t('scheduled.runsRowIcon')} />
           <span className="truncate">{name}</span>
+          <TaskRunsIcon />
         </span>
       }
       end={
         <span className="flex shrink-0 items-center gap-2 self-center">
           {project && <span className="max-w-24 truncate text-meta text-faint" title={project.name} data-testid="task-runs-project">{project.name}</span>}
-          {running ? (
-            <SessionMarker marker={{ kind: 'running', reason: running.runState === 'queued' ? 'queued' : 'running' }} label={t('scheduled.run.running')} />
-          ) : tone ? (
-            <span role="img" aria-label={t(tone === 'danger' ? 'scheduled.run.error' : 'scheduled.run.problems')} className={clsx('size-2 rounded-full', tone === 'danger' ? 'bg-danger' : 'bg-warn')} data-testid="task-runs-mark" />
-          ) : null}
+          <TaskRunsMark runs={runs} />
           <time dateTime={newest.updatedAt} className="text-meta font-normal text-faint tabular-nums">{listTime(newest.updatedAt, locale, t('sidebar.yesterday'))}</time>
         </span>
       }

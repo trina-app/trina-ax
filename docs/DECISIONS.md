@@ -5091,7 +5091,7 @@ Changed 2026-11-07: the hours depend on the plan (Starter 50, Team 100, Business
   this run's outcome; only for the task's owner, from the chat's scheduled turn; none once the task is deleted, so its
   runs are ordinary chats again). 최근 기록, the phone drawer's history (by date or by project) and a project's chat list
   draw the runs of one task as one row (`components/nav/TaskRunsRow.tsx`), where its newest run is: the task's name with
-  a clock, the newest run's time, a red dot when it failed (amber for problems, the spinner while one runs), semibold
+  a clock after the name (so the name starts where other chats' names start; QA TC-990), the newest run's time, a red dot when it failed (amber for problems, the spinner while one runs), semibold
   while any run has an answer not seen yet. It opens the task page; each run there opens its chat, which marks it seen.
   Folding is in the web app only: Search, the task page and a pinned run (고정) still show the run chats themselves.
   Renaming or deleting the task sends `chat.updated` for its newest run chats (at most 200), so open lists redraw the
@@ -17777,7 +17777,8 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   its hint: "다음 답부터 트리나가 이 프로젝트의 파일과 지침을 봐요." Choosing an existing project still uses 저장, because the
   "프로젝트 멤버와 공유" switch for sharing projects lives in that dialog (left as is).
 - **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
-  모여요." and, while it has fewer than three, **기존 대화 가져오기** (my own recent chats with no project, not shared, not a
+  모여요." and, for a member, **기존 대화 가져오기** at the end of the 트리나 기록 heading's line, however many chats it has
+  (QA TC-1001: it showed while fewer than three, and a scheduled task's runs counted, so it came and went) (my own recent chats with no project, not shared, not a
   room's; one PATCH each; a line says files Trina saved in them stay where they are); no instructions: what they are for
   · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일). Since fix/project-page-empty-affordances (owner,
   2026-11-13: empty, these looked like plain text and were missed): for whoever may fill them, empty 지침 and 파일 are
@@ -17785,6 +17786,10 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
   **+ 파일 올리기**, the latter to the same folder in 파일); filled, they are the one-line rows again (the 수정 / 열기
   action comes back with them), and someone who cannot edit sees the rows. 트리나 기록 is a small section label, and 기존
   대화 가져오기 is the app's secondary button with an icon. The create dialog does not change.
+  The list's rows are one row shape (pages/Projects.tsx ProjectRowBody, QA TC-990): a scheduled task's runs folded into
+  one row look like a chat's (the title at the same x in the same type, its clock after the title, not before), every
+  row has the same height, and each keeps the "···" slot at its end so the times line up and the menu showing on hover
+  moves nothing.
 - **Sharing later**: a personal project's 멤버 line says "나만 봐요 · 멤버 추가" (the menu's 팀 프로젝트로 공유 goes). 멤버 추가
   opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
   instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
