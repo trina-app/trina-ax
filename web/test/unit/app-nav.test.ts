@@ -15,16 +15,16 @@ describe('where Back goes', () => {
   test('a tab\'s root: nowhere (no swipe); Android goes to the start tab from another tab, else leaves', () => {
     expect(appNavOf(entry('ai', 0, 0, '/'), '/', true)).toEqual({ canGoBack: false, home: true })
     expect(appNavOf(entry('chats', 4, 4, '/rooms'), '/rooms', true)).toEqual({ canGoBack: false, home: false })
-    // 프로젝트 (QA TC-255): its list is a root like the others; Android's Back goes to 트리나 from there
-    expect(appNavOf(entry('projects', 2, 2, '/projects'), '/projects', true)).toEqual({ canGoBack: false, home: false })
-    expect(appNavOf(entry('me', 1, 1, '/settings'), '/settings', true)).toEqual({ canGoBack: false, home: false })
-    // an entry kept from before 프로젝트 (the old 파일 tab's): not taken for the start tab
+    // 파일: its places are a root like the others; Android's Back goes to 트리나 from there
     expect(appNavOf(entry('files', 2, 2, '/files'), '/files', true)).toEqual({ canGoBack: false, home: false })
+    expect(appNavOf(entry('me', 1, 1, '/settings'), '/settings', true)).toEqual({ canGoBack: false, home: false })
+    // an entry kept from the old 프로젝트 tab takes its first screen's tab: 모든 프로젝트 is 트리나's
+    expect(appNavOf(entry('projects', 2, 2, '/projects'), '/projects', true)).toEqual({ canGoBack: false, home: true })
   })
 
-  test('the team folder under 프로젝트 goes back to the list, then nowhere', () => {
-    expect(appNavOf(entry('projects', 4, 2, '/projects', '/files', '/files?path=a'), '/files', true)).toEqual({ canGoBack: true, home: false })
-    expect(appNavOf(entry('projects', 3, 2, '/projects', '/files'), '/files', true)).toEqual({ canGoBack: true, home: false })
+  test('a folder under 파일\'s places goes back to them, then nowhere', () => {
+    expect(appNavOf(entry('files', 4, 2, '/files', '/files?path=a', '/files?path=a%2Fb'), '/files?path=a%2Fb', true)).toEqual({ canGoBack: true, home: false })
+    expect(appNavOf(entry('files', 3, 2, '/files', '/files?path=a'), '/files?path=a', true)).toEqual({ canGoBack: true, home: false })
   })
 
   test('a screen above its tab\'s root goes back, also one the trail no longer reaches', () => {
@@ -33,7 +33,7 @@ describe('where Back goes', () => {
     // a page of another tab pushed onto this stack (a room's link in an AI chat): back to where it came from
     expect(appNavOf(entry('ai', 2, 0, '/', '/c/x', '/rooms/r1'), '/rooms/r1', true)).toEqual({ canGoBack: true, home: true })
     // an entry with no base of its own: as far back as its trail goes
-    const { base: _base, ...noBase } = entry('projects', 7, 0, '/files', '/files?path=a').scr
+    const { base: _base, ...noBase } = entry('files', 7, 0, '/files', '/files?path=a').scr
     expect(appNavOf({ idx: 7, scr: noBase }, '/files', true)).toEqual({ canGoBack: true, home: false })
     expect(appNavOf({ idx: 7, scr: { ...noBase, trail: [item('/files')] } }, '/files', true)).toEqual({ canGoBack: false, home: false })
   })

@@ -3,7 +3,7 @@
 // row, the suggestions and the line above the box. The owner who put the AI step off ("나중에 하기") gets the card, not
 // the setup row (which only led back to the AI step); once AI answers, the row comes back (on a phone Home's quiet
 // "설정 이어서 하기 · n/4" under the box, counting the steps a phone shows (no 도구 연결, QA TC-271); on a computer the
-// sidebar's setup row stands for it), the AI step recorded done, so it counts 1/5 on a phone and leads on to 회사 소개.
+// list panel's setup row stands for it), the AI step recorded done, so it counts 1/5 on a phone and leads on to 회사 소개.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
@@ -60,7 +60,7 @@ const routes: Record<string, (body: any) => Response> = {
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
 const computerMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
-/** a phone's width: Home's own quiet setup row under the box (on a computer the sidebar's row stands for it) */
+/** a phone's width: Home's own quiet setup row under the box (on a computer the list panel's row stands for it) */
 const phoneWidth = () => { g.matchMedia = (q: string) => ({ ...computerMedia(), matches: q === '(max-width: 767.98px)' }) }
 /** Home's quiet row: "설정 이어서 하기 · n/total" */
 const rowText = (n: number, total: number) => `${ko('setupRow.resume')} · ${n}/${total}`
@@ -100,7 +100,10 @@ afterAll(() => {
 })
 
 const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status: { kind: 'signed-in', me: meOf(role) } } as never)
-const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
+/** on a phone the new-chat box is /new (`/` is 트리나's list there: docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") */
+const onPhone = () => !!(g.matchMedia as ((q: string) => { matches: boolean }) | undefined)?.('(max-width: 767.98px)').matches
+const boxAt = (e: InitialEntry): InitialEntry => (e === '/' && onPhone() ? '/new' : e)
+const home = () => mount(<MemoryRouter initialEntries={[boxAt('/')]}><Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
   test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone: its own five with the AI step)', async () => {
@@ -255,8 +258,8 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
   function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p> }
   /** Home at the last entry: one entry is the tab's first page (a landing); after others, a page reached in the app */
   const open = (entries: InitialEntry[] = ['/']) => mount(
-    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
-      <Routes><Route path="/" element={<Home />} /><Route path="*" element={<Where />} /></Routes>
+    <MemoryRouter initialEntries={entries.map(boxAt)} initialIndex={entries.length - 1}>
+      <Routes><Route path="/" element={<Home />} /><Route path="/new" element={<Home />} /><Route path="*" element={<Where />} /></Routes>
     </MemoryRouter>,
   )
   const where = (m: Awaited<ReturnType<typeof open>>) => m.find('where')?.textContent ?? (m.find('composer-input') ? '/' : null)

@@ -1,7 +1,6 @@
 // 파일 beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), with the server's `navRail` switch on:
 // the places on the left (최근 파일, 팀 폴더, 프로젝트 폴더, 내 파일, 휴지통), the folder or the file on the right, the place
-// on screen marked. The person's own folder is "내 파일" (decision Q4), on the list and in the folder's own rows. With
-// the switch off the Files page is as it was ("내 폴더", its tabs; files.spec.ts and the other suites run with it off).
+// on screen marked. The person's own folder is "내 파일" (decision Q4), on the list and in the folder's own rows.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, reset, signIn } from './helpers'
@@ -9,10 +8,10 @@ import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
 
-async function start(page: Page, on = true) {
+async function start(page: Page) {
   await page.setViewportSize({ width: 1440, height: 860 })
   await reset(page)
-  await navRail(page, on)
+  await navRail(page)
   await signIn(page)
 }
 const panel = (page: Page) => page.getByTestId('files-panel')
@@ -58,12 +57,4 @@ test('the places: 최근 파일, the team\'s top folders, project folders, 내 �
   await row.click()
   await expect(page).toHaveURL(/\/files\?path=marketing/)
   await expect(page.getByTestId('side-panel').or(page.getByTestId('file-panel')).first()).toBeVisible()
-})
-
-test('with the switch off, Files is the page it was: its tabs, "내 폴더", no panel', async ({ page }) => {
-  await start(page, false)
-  await page.goto('/files?path=users%2Folga')
-  await expect(page.getByRole('tab', { name: t['files.trash'] })).toBeVisible()
-  await expect(page.locator('main').getByText('내 폴더').first()).toBeVisible()
-  await expect(panel(page)).toHaveCount(0)
 })
