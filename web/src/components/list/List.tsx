@@ -4,7 +4,7 @@
 // min-h-row-min, size-list-icon, text-row-read, font-row-read, text-list-head, …), which have a computer's values and a
 // phone's: so a row looks the same in every list of one screen size, and a list never sets its own sizes.
 //   ListRow     a row: icon, name, an optional second line (meta), something at its end; unread and selected states
-//   ListIcon    a row's icon: a bare 16px icon on a computer, a 40px round tile on a phone (as the 대화 tab's faces)
+//   ListIcon    a row's icon: a bare 16px icon on a computer, a 32px round tile on a phone (as the 대화 tab's faces)
 //   ListSection a section with a header that folds it (▸, its icon, its name, an action at its end)
 //   ListHeading a header that does not fold (the phone's 대화 kinds, a settings group)
 // Rows with a menu or drag of their own (a chat: nav/ChatItem.tsx; a room: nav/RoomsList.tsx, pages/Rooms.tsx) keep
@@ -59,7 +59,7 @@ export function ListRow({ to, state, onClick, icon, name, nameTitle, meta, end, 
   link?: RowLink
 }) {
   const cls = clsx(
-    // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 56px)
+    // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 48px)
     'flex min-h-row-min w-full gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]',
     (to || onClick) && !disabled && 'hover:bg-hover',
     meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',

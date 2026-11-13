@@ -2,7 +2,7 @@
 // accent colour is for the one thing to do on a screen, not for every face).
 // The photo's address carries its version (shared/src/avatar.ts avatarUrl), so the browser keeps it for good and a new
 // photo is a new address. A photo that does not load falls back to the letter. `size="fill"`: the picture fills the box
-// it sits in (a list row's icon box, components/list/List.tsx ListIcon: 16px on a computer, 40px on a phone), its letter
+// it sits in (a list row's icon box, components/list/List.tsx ListIcon: 16px on a computer, 32px on a phone), its letter
 // in the list's face size (index.css --text-list-face).
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'

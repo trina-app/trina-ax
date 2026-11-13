@@ -158,7 +158,6 @@ No pair in use is below its floor. `web/test/unit/design-contrast.test.ts` (with
 | auth-title | 20px / 28px | 20px / 28px | 600 | `text-title font-semibold` | The sign-in card title. |
 | panel-title | 18px / 28px | 18px / 28px | 600 -0.025em | `text-lg font-semibold tracking-tight` | A list panel's title beside the rail (트리나, 대화, 프로젝트, 파일, 활동) and Admin's side list (관리): one step above its section headers. |
 | dialog-title | 17px / 24px | 17px / 24px | 600 | `text-title-sm font-semibold` | Modal title, Settings' window title. |
-| list-name | 16px / 24px | 17px / 24px | 500 | `text-base font-medium` | Names in the 대화 list. |
 | header-name | 17px / 24px | 17px / 24px | 600 | `text-title-sm font-semibold` | The room header's name (a DM's header has the person's title under the name in `text-xs text-muted`, as the people list), the thread's and the side chat's header, the side panel's file or deck name. |
 | section-title | 17px / 24px | 17px / 24px | 600 | `text-title-sm font-semibold` | Admin Card title (`Card`, framed or flat), `SettingsSection`, the sections of a Settings page (`Section`, `PrefSection`), Admin home's sections, the sections of Connectors, Plugins and folder access, the deck progress card. Ask-card headers and home cards stay `text-sm font-semibold` (15px): they head one card's rows, not a part of the page. |
 | reading | 16px / 28px | 17px / 28px | 400 | `text-reading leading-7` | Answers (.answer prose text-reading leading-7) and the user message bubble (26px on phones: max-md:leading-reading). |

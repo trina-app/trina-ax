@@ -378,7 +378,7 @@ function RunList({ s, tz, runs }: { s: Schedule; tz: string | null; runs?: RunsS
             <ListRow key={r.id} to={r.chatId ? `/c/${r.chatId}` : undefined} testId={r.chatId ? 'schedule-run-link' : 'schedule-run'}
               link={{ 'data-outcome': r.status, 'data-run': r.id }}
               name={
-                // the dot in the name's line (not a row icon: on a phone that is a 40px tile)
+                // the dot in the name's line (not a row icon: on a phone that is a 32px tile)
                 <span className="flex min-w-0 items-center gap-2">
                   <span aria-hidden className={clsx('size-2 shrink-0 rounded-full', tone ? DOT[tone] : 'bg-accent motion-safe:animate-pulse')} />
                   {r.startedAt ? <time dateTime={r.startedAt} className="truncate">{formatDateTime(r.startedAt, locale, tz || undefined)}</time> : <span className="truncate">{runLabel(r, t)}</span>}
