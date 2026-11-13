@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, Sparkles, SquareCheck, RefreshCw, Trash2, Upload, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
+import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -46,6 +46,8 @@ import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
+import { readProjectList, useProjects } from '../store/projects'
+import { FOLDER_PAGE, keptFolder, readFolder } from '../store/teamFiles'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults, FileNameResults } from '../components/FileContentSearch'
 import FileUploads from '../components/FileUploads'
@@ -72,6 +74,9 @@ const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: Fi
 
 /** how long a finger stays on a row to select it (phones), and how far it may move meanwhile (more is a scroll) */
 const LONG_PRESS_MS = 500
+/** the projects list is read again when the Files screen opens, at most this often (a project made or renamed here is in
+ * the projects store at once) */
+const PROJECTS_AGE_MS = 15_000
 const LONG_PRESS_SLOP = 10
 
 /** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
@@ -172,7 +177,8 @@ function Files() {
     else n.delete('view')
     setParams(n)
   }
-  const [tree, setTree] = useState<TreeResponse | null>(null)
+  // a folder seen a moment ago shows as it was at once and is read again behind it (store/teamFiles.ts)
+  const [tree, setTree] = useState<TreeResponse | null>(() => keptFolder(path))
   /** the listing that failed (kept until a listing works: the notice stays while it reads again, components/LoadError.tsx) */
   const [error, setError] = useState<unknown>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -194,10 +200,14 @@ function Files() {
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   // the projects the person can see, by folder: a folder's menu opens its project or makes it one
-  const [projects, setProjects] = useState<Project[]>([])
-  const loadProjects = useCallback(() => api.call(API.listProjects).then((r) => setProjects(r.items), () => {}), [])
+  // (the projects store's list, the one the 트리나 panel and Trina history read: read again when this screen opens, at
+  // most every PROJECTS_AGE_MS, and after an access change or a moved folder; never a second request at once)
+  const listed = useProjects((s) => s.listed)
+  const projectsById = useProjects((s) => s.byId)
+  const projects = useMemo(() => (listed ? [...listed].flatMap((id) => projectsById[id] ?? []) : []), [listed, projectsById])
+  const loadProjects = useCallback((fresh = true) => readProjectList(fresh ? {} : { minAgeMs: PROJECTS_AGE_MS }), [])
   useEffect(() => {
-    void loadProjects()
+    void loadProjects(false)
     return accessChanged.on(() => void loadProjects())
   }, [loadProjects])
   const byFolder = useMemo(() => projectsByFolder(projects), [projects])
@@ -254,10 +264,12 @@ function Files() {
   /** only the latest listing request may set the table: an older answer arriving last (the first listing of a slow
    * folder, after the reload an upload asked for) showed the folder without the new file */
   const loads = useRef(0)
-  const load = useCallback(async () => {
+  /** `shown`: the folder just opened, which joins a read of it on its way (a project's page may have started one); any
+   * other load follows a change or an event, so it reads again */
+  const load = useCallback(async (o?: { shown?: boolean }) => {
     const mine = ++loads.current
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200 } })
+      const r = await readFolder(path, { fresh: o?.shown !== true })
       if (mine !== loads.current) return
       setTree(r)
       setError(null)
@@ -291,9 +303,12 @@ function Files() {
   }, [path])
 
   useEffect(() => {
-    setTree(null)
+    const kept = keptFolder(path)
+    setTree(kept)
+    // shown before: a not_found now means access changed while away, as while it is open
+    if (kept) shown.current = path
     setError(null)
-    void load()
+    void load({ shown: true })
   }, [load])
 
   /** the folder on screen and its listing: an upload that ends may have started in another folder, or on another visit */
@@ -334,7 +349,7 @@ function Files() {
     const current = () => listing === loads.current
     setLoadingMore(true)
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200, cursor: tree.nextCursor } })
+      const r = await api.call(API.tree, { query: { path, limit: FOLDER_PAGE, cursor: tree.nextCursor } })
       if (!current()) return
       setTree((cur) => (cur && cur.path === from ? { ...cur, entries: [...cur.entries, ...r.entries], nextCursor: r.nextCursor } : cur))
     } catch (e) {
