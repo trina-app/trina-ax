@@ -5284,7 +5284,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.privateChatsChoose": "共有するチャットを選ぶ",
   "projects.privateChatsTitle": "自分だけが見られるチャット",
   "projects.privateChatsHint": "共有したチャットだけをメンバーが見られます。共有すると会話全体が見えるようになり、元に戻せません。",
-  "projects.privateChatsShare": "共有…",
+  "projects.privateChatsShare": "共有",
   "projects.privateChatsDismiss": "このお知らせを閉じる",
   "projects.shareConfirmChats": "これまでの自分のチャット{n, plural, one {#件} other {#件}}は自分だけのままです(あとで共有できます)。",
   "projects.shareConfirmFinal": "自分だけのプロジェクトには戻せません。",

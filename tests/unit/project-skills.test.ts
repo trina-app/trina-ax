@@ -262,7 +262,9 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
     return { turnId: r.turnId as string, content: done.data.message.content as string, card }
   }
-  const projectChat = async (user: string, projectId: string | null = '01900000-0000-7000-8000-00000000f001') => (await h.api(user).call(API.createChat, { body: projectId ? { projectId } : {} })).id
+  // the person's own chat in the project ("Only me": a team project's new chats are shared by default, docs/DECISIONS.md
+  // "Team project chats shared by default")
+  const projectChat = async (user: string, projectId: string | null = '01900000-0000-7000-8000-00000000f001') => (await h.api(user).call(API.createChat, { body: projectId ? { projectId, private: true } : {} })).id
   const unreadable = () => h.ctx.db.query("DELETE FROM folder_rules WHERE folder_id = (SELECT id FROM folders WHERE path = 'projects/falcon') AND subject_type = 'group' AND subject_id = 'finance'").run()
   const readable = () => h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, (SELECT id FROM folders WHERE path = 'projects/falcon'), 'group', 'finance', 'read')").run(crypto.randomUUID())
 

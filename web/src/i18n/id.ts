@@ -5328,7 +5328,7 @@ export const id: Record<MessageKey, string> = {
   "projects.privateChatsChoose": "Pilih obrolan untuk dibagikan",
   "projects.privateChatsTitle": "Obrolan yang hanya Anda lihat",
   "projects.privateChatsHint": "Anggota melihat obrolan setelah Anda membagikannya. Berbagi menampilkan seluruh percakapan dan tidak bisa dibatalkan.",
-  "projects.privateChatsShare": "Bagikan…",
+  "projects.privateChatsShare": "Bagikan",
   "projects.privateChatsDismiss": "Sembunyikan catatan ini",
   "projects.shareConfirmChats": "{n} obrolan Anda sejauh ini tetap milik Anda (Anda bisa membagikannya nanti).",
   "projects.shareConfirmFinal": "Proyek ini tidak bisa kembali menjadi hanya untuk Anda.",

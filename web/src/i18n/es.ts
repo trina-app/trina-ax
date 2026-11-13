@@ -5284,7 +5284,7 @@ export const es: Record<MessageKey, string> = {
   "projects.privateChatsChoose": "Elegir chats para compartir",
   "projects.privateChatsTitle": "Chats que solo ves tú",
   "projects.privateChatsHint": "Los miembros ven un chat cuando lo compartes. Compartir muestra toda la conversación y no se puede deshacer.",
-  "projects.privateChatsShare": "Compartir…",
+  "projects.privateChatsShare": "Compartir",
   "projects.privateChatsDismiss": "Ocultar esta nota",
   "projects.shareConfirmChats": "{n, plural, one {Tu # chat hasta ahora sigue siendo tuyo (puedes compartirlo más tarde).} other {Tus # chats hasta ahora siguen siendo tuyos (puedes compartirlos más tarde).}}",
   "projects.shareConfirmFinal": "No podrá volver a ser solo tuyo.",

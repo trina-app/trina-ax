@@ -5328,7 +5328,7 @@ export const ko = {
   "projects.privateChatsChoose": "공유할 채팅 고르기",
   "projects.privateChatsTitle": "나만 보는 채팅",
   "projects.privateChatsHint": "공유한 채팅만 멤버가 봐요. 공유하면 지금까지의 대화가 모두 보이고 되돌릴 수 없어요.",
-  "projects.privateChatsShare": "공유…",
+  "projects.privateChatsShare": "공유",
   "projects.privateChatsDismiss": "이 안내 닫기",
   "projects.shareConfirmChats": "지금까지의 내 채팅 {n}개는 계속 나만 봐요(나중에 공유할 수 있어요).",
   "projects.shareConfirmFinal": "다시 나만 보는 프로젝트로 되돌릴 수 없어요.",
