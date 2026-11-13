@@ -1,0 +1,1 @@
+- A chat open on screen that you can no longer open (you were taken out of its project, or it was deleted for good) now shows "This chat can't be opened" at once, instead of its old messages and a box that cannot send; one moved to the trash shows the trash line, as after a reload.
