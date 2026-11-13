@@ -2354,17 +2354,14 @@ export class MockServer {
     },
     getChat: (c) => {
       const x = this.chats.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      // a shared chat of a project in the trash: 404, with why for its members (chat/shared.ts chatFor; QA TC-1060)
+      const s = this.sharedChats.get(x.id)
+      const tp = s && this.projects.find((y) => y.id === s.projectId)
+      if (tp?.inTrash) fail('not_found', 404, undefined, undefined, this.projectWasMember(tp, c.user) ? { reason: 'project_in_trash', projectId: tp.id } : undefined)
       // a shared chat of a project the caller was taken out of: 404 with the project's name (QA TC-1067)
       const pr = x.projectId ? this.projects.find((p) => p.id === x.projectId) : undefined
       if (pr && !x.deletedAt && this.sharedChats.has(x.id) && this.formerMembers.has(`${pr.id}:${c.user.id}`) && !this.projectSees(pr, c.user)) this.notFoundFor(pr.id, c.user.id)
       return x
-  }
-      const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      // a shared chat of a project in the trash: 404, with why for its members (chat/shared.ts chatFor; QA TC-1060)
-      const s = this.sharedChats.get(chat!.id)
-      const p = s && this.projects.find((x) => x.id === s.projectId)
-      if (p?.inTrash) fail('not_found', 404, undefined, undefined, this.projectWasMember(p, c.user) ? { reason: 'project_in_trash', projectId: p.id } : undefined)
-      return chat
     },
     getChatQueue: (c) => {
       const assistant = this.messages.find(m => m.chatId === c.params.id && m.status === 'streaming')

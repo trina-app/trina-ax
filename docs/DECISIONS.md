@@ -26479,6 +26479,17 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   its creator restores it".
 - **No Trina history where nobody can ask** (TC-1066): a project page of a non-member owner or admin, or of a project
   in the trash, has no "Trina history" heading and no "Ask here…" empty line (their own chats stay in their lists).
+- **Review of #769** (security, no blocking finding; three points fixed in the PR):
+  1. `canRestore` and the restore route judge the creator by the restore's own rule (`TeamFiles.mayRestoreTrash`:
+     `trashVisible`, write by the project folder's parked rules), not by reading it: a creator who only reads it gets
+     no Restore, never a Restore that ends in 404.
+  2. `DELETE /api/files/trash/:id` on a team project's own folder (non-member admins reach it there now) deletes the
+     project for good by the same function as `DELETE /api/projects/:id` (`chat/project-delete.ts
+     deleteProjectForGood`): its shared chats to their creators' Deleted history (or for good), its private chats
+     without project, its row and folder marker gone, audited `project.delete`. The two never differ. (An older
+     project on a folder outside projects/ keeps the folder-only purge it had: the project stays for an admin.)
+  3. A restore that brings a project back (`TeamFiles.restoreTrash`, from Files › Trash or its page) writes the
+     `project.restore` audit row itself, once, from either place (the project route no longer writes its own).
 - Tests: `tests/unit/b-project-trash-members.test.ts`, `tests/security/project-trash-members.test.ts`,
   `tests/security/r2-trash-home.test.ts` #5 (the owner now sees the project's folder in her files trash), the matrix
   case; web unit `project-members-only.test.tsx`, `project-list-menu.test.tsx`, `trash-list.test.ts`; e2e

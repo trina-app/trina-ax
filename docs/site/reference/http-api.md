@@ -172,7 +172,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/files/restore` | Signed in | Restore an old version of a file. |
 | `GET` | `/api/files/trash` | Signed in | Trash items the caller could restore (write access to the original path; a team project's own folder, named as the project: the owner, admins and its creator while a member). |
 | `POST` | `/api/files/trash/:id/restore` | Signed in | Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken). |
-| `DELETE` | `/api/files/trash/:id` | Admin | Delete a trashed item for good (admin or owner). |
+| `DELETE` | `/api/files/trash/:id` | Admin | Delete a trashed item for good (admin or owner). A team project's own folder: the project is deleted for good with it, as DELETE /api/projects/:id does. |
 | `POST` | `/api/uploads` | Signed in | Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/. In a shared project chat the caller sees: saved in the project's chat attachments folder (named in the team's language, made when missing; a taken name gets " (2)") and attached as a team file (source team); 403 shared_upload_read_only without write access there. |
 | `GET` | `/api/uploads/:id/thumbnail` | Signed in | Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it). |
 | `POST` | `/api/attachments/team-file` | Signed in | Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn). |

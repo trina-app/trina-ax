@@ -31,6 +31,8 @@ import { pluginsOf } from '../plugins/manager'
 import { registerFileListRoutes } from './file-list'
 import { fileListOf } from '../file-list/service'
 import { getChatRuntime } from '../chat/runtime'
+import { deleteProjectForGood } from '../chat/project-delete'
+import { HttpError } from '../http/errors'
 import { openableTurnChats } from '../chat/version-chats'
 import type { HistoryResponse } from '@mycel/shared/api'
 
@@ -200,7 +202,18 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))
     kit.handle(API.trash, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.trash(auth.user.id, { mine: query.mine, cursor: query.cursor, limit: query.limit })))
     kit.handle(API.restoreTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => svc.restoreTrash(auth.user.id, params.id)))
-    kit.handle(API.purgeTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => { svc.purgeTrash(params.id, auth.user.id) }))
+    kit.handle(API.purgeTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
+      // a team project's own folder: deleted for good as the project is (DELETE /api/projects/:id), its shared chats to
+      // their creators' trash and its row gone, never only its folder (docs/DECISIONS.md "A team project in the trash")
+      const project = svc.trashedProjectOf(params.id)
+      if (project) {
+        if (!svc.mayRestoreTrash(auth.user.id, params.id)) throw new HttpError('not_found')
+        const rt = getChatRuntime(ctx)
+        const r = rt.store.projectRow(project.id)
+        if (r) return deleteProjectForGood(ctx, rt, r, auth.user.id, c.get('locale'))
+      }
+      svc.purgeTrash(params.id, auth.user.id)
+    }))
 
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {

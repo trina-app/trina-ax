@@ -141,6 +141,42 @@ describe('its creator restores it', () => {
     expect([card?.inTrash, card?.trashed?.by?.id, card?.canRestore]).toEqual([true, 'carol', undefined])
   })
 
+  test('a creator who only reads it (no write by its own rules): no Restore offered, and none taken (review #769 1)', async () => {
+    const p = await h.api('alice').call(API.createProject, { body: { name: 'Creator reads', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+    db().query("UPDATE folder_rules SET access = 'read' WHERE subject_type = 'user' AND subject_id = 'alice' AND folder_id = (SELECT id FROM folders WHERE path = ?)").run(p.folderPath)
+    await h.api('carol').call(API.deleteProject, { params: { id: p.id } })
+    const trashId = (db().query('SELECT trashed_with FROM projects WHERE id = ?').get(p.id) as { trashed_with: string }).trashed_with
+    const card = await h.api('alice').call(API.getProject, { params: { id: p.id }, query: { manage: '1' } })
+    expect([card.wasMember, card.canRestore]).toEqual([true, undefined])
+    expect((await errOf(h.api('alice').call(API.restoreProject, { params: { id: p.id } }))).status).toBe(403)
+    expect((await errOf(h.api('alice').call(API.restoreTrash, { params: { id: trashId } }))).status).toBe(404)
+    expect((await h.api('alice').call(API.trash, { query: { limit: 200 } })).items.some((x) => x.id === trashId)).toBe(false)
+  })
+
+  test('restored from Files › Trash: audited as project.restore, as from its page (review #769 3)', async () => {
+    const { p, trashId } = await trashed('Audited restore')
+    await h.api('carol').call(API.restoreTrash, { params: { id: trashId } })
+    const rows = db().query("SELECT actor_id AS actor, detail FROM audit_log WHERE action = 'project.restore' AND target = ?").all(p.id) as { actor: string; detail: string }[]
+    expect(rows.map((x) => [x.actor, JSON.parse(x.detail).name])).toEqual([['carol', 'Audited restore']])
+    // and its page's Restore writes exactly one too
+    await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
+    await h.api('alice').call(API.restoreProject, { params: { id: p.id } })
+    expect((db().query("SELECT count(*) AS n FROM audit_log WHERE action = 'project.restore' AND target = ?").get(p.id) as { n: number }).n).toBe(2)
+  })
+
+  test('Delete for good from Files › Trash is the project\'s own delete: its shared chats to their creators\' trash, the row gone (review #769 2)', async () => {
+    const { p, chat, trashId } = await trashed('Purged from Files')
+    await h.api('carol').call(API.purgeTrash, { params: { id: trashId } })
+    expect(db().query('SELECT 1 FROM projects WHERE id = ?').get(p.id)).toBeNull()
+    expect(db().query('SELECT 1 FROM trash_items WHERE id = ?').get(trashId)).toBeNull()
+    const c = db().query('SELECT project_id, shared_at, deleted_at, deleted_by FROM chats WHERE id = ?').get(chat.id) as { project_id: string | null; shared_at: string | null; deleted_at: string | null; deleted_by: string | null }
+    expect([c.project_id, c.shared_at, !!c.deleted_at, c.deleted_by]).toEqual([null, null, true, 'carol'])
+    // in bob's (its creator's) Deleted history
+    expect((await h.api('bob').call(API.listChats, { query: { trash: '1' } })).items.some((x) => x.id === chat.id)).toBe(true)
+    const a = db().query("SELECT actor_id AS actor, detail FROM audit_log WHERE action = 'project.delete' AND target = ?").get(p.id) as { actor: string; detail: string }
+    expect([a.actor, JSON.parse(a.detail).sharedChats]).toEqual(['carol', 1])
+  })
+
   test('deleted for good: gone for its members, as before', async () => {
     const { p } = await trashed('For good')
     await h.api('carol').call(API.deleteProject, { params: { id: p.id } })
