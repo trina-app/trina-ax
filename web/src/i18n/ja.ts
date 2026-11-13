@@ -5209,6 +5209,7 @@ export const ja: Record<MessageKey, string> = {
   "filesPanel.recent": "最近のファイル",
   "filesPanel.recentEmpty": "最近変わったファイルはありません。",
   "filesPanel.team": "チームフォルダー",
+  "filesPanel.teamAll": "チームフォルダー全体",
   "filesPanel.projects": "プロジェクトフォルダー",
   "scheduled.sourceMineFiles": "自分のファイル",
   "schedules.saveFolderNoneFiles": "なし（自分のファイルにだけ保存）",

@@ -13,6 +13,7 @@ import { setNavigator } from '../lib/nav'
 import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
 import { useNavRail } from '../lib/navRail'
+import { newChatPath } from '../lib/newChat'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -70,7 +71,7 @@ export default function Layout() {
         setSearchOpen(true)
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
-        navigate('/')
+        navigate(newChatPath())
       } else if (e.key === 'Escape') {
         const step = escapeAction({ dialog: !!document.querySelector('[role="dialog"]:not([data-drawer])'), drawer: useUi.getState().drawerOpen, expanded: panelExpandedNow() })
         if (step === 'drawer') setDrawer(false)
@@ -122,7 +123,8 @@ export default function Layout() {
   // new page
   const phone = !useMediaQuery('(min-width: 768px)')
   // the new navigation (a computer only in this phase: the phone's tabs come later)
-  const rail = useNavRail() && !phone
+  const navRailOn = useNavRail()
+  const rail = navRailOn && !phone
   // whether the rail's list panel shows (RailColumns sets it while the rail is on): the skip link "목록으로" goes there
   const [listShown, setListShown] = useState(false)
   // a phone's panel makes the page inert, which takes the focus from what opened it: it goes back there when the panel
@@ -170,7 +172,8 @@ export default function Layout() {
             one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
         {rail ? (
           <RailColumns onList={setListShown} />
-        ) : (
+        ) : navRailOn && phone ? null : (
+          // (a phone with the new navigation's tabs has no sidebar or drawer: nothing of it is mounted)
           <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
             <Sidebar />
           </div>

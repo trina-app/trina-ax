@@ -52,6 +52,7 @@ import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { useNavRail } from '../lib/navRail'
+import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
@@ -517,7 +518,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
 
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
-      { key: 'act:chat', kind: 'action', icon: AskAi, title: t('sidebar.askAi', { name: aiName(t) }), href: '/' },
+      { key: 'act:chat', kind: 'action', icon: AskAi, title: t('sidebar.askAi', { name: aiName(t) }), href: newChatPath() },
       { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]

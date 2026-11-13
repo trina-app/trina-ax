@@ -17,8 +17,11 @@
 // A tap never adds a history entry (lib/screenHistory.ts switchTab): another tab puts its own stack back where it was
 // left, the tab on show goes back to its root, so the phone's Back never walks from one tab into another. The tab
 // marked is the stack's: a page opened from 나 (연결한 서비스, a notice's page) keeps 나 marked.
+// With the new navigation (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 · 나") the
+// third tab is 파일 (the team folder's places) and 트리나 opens on its list; the AI chats' mark that was on ☰ (a dot,
+// amber while a chat waits on me, else the accent for a new answer: store/sessionMarkers.ts) is on 트리나's tab.
 import clsx from 'clsx'
-import { FolderKanban, MessageCircle, Sparkles, UserRound } from 'lucide-react'
+import { FolderKanban, FolderOpen, MessageCircle, Sparkles, UserRound } from 'lucide-react'
 import { useEffect, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
@@ -27,7 +30,10 @@ import { useRealPath } from '../lib/realPath'
 import { badgeText, totalUnread } from '../lib/rooms'
 import { settleOpened, stackNow, switchTab } from '../lib/screenHistory'
 import { aiName, hidesTabs, tabOf, TAB_ROOT, type Tab } from '../lib/tabs'
+import { useNavRail } from '../lib/navRail'
+import { useChats } from '../store/chats'
 import { useNoticeUnread } from '../store/inbox'
+import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
@@ -48,6 +54,13 @@ export function BottomTabs() {
   const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
+  const v2 = useNavRail()
+  const attention = useAttention()
+  // 트리나's mark counts the AI chats of the chat list: read it whichever tab opens first, as the rail does
+  const chatsLoaded = useChats((s) => s.chatsLoaded)
+  useEffect(() => {
+    if (v2 && !chatsLoaded) void useChats.getState().loadChats(true).catch(() => {})
+  }, [v2, chatsLoaded])
   // the signed-in app shows its first entry: one opened from outside gets its parents put under it
   useEffect(() => settleOpened(), [])
   if (hidesTabs(path)) return null
@@ -59,7 +72,19 @@ export function BottomTabs() {
   }
   return (
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden in-[.keyboard-open]:hidden" data-bottom-bar data-testid="bottom-tabs">
-      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon active={current === 'ai'} />} label={aiName(t)} testId="tab-ai" onClick={go('ai')} />
+      <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<AiTabIcon active={current === 'ai'} />} label={aiName(t)} testId="tab-ai" onClick={go('ai')}>
+        {v2 && attention.chats > 0 &&
+          (attention.chatAsk ? (
+            <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-ai-mark" data-ask="">
+              <span aria-hidden>?</span>
+              <span className="sr-only">{t('marker.chats', { n: attention.chats })}</span>
+            </span>
+          ) : (
+            <span className="absolute -top-0.5 left-1/2 ml-2.5 size-2.5 rounded-full bg-accent ring-2 ring-canvas" data-testid="tab-ai-mark">
+              <span className="sr-only">{t('marker.chats', { n: attention.chats })}</span>
+            </span>
+          ))}
+      </TabLink>
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
         {aiWaits ? (
           <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
@@ -70,7 +95,11 @@ export function BottomTabs() {
           unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />
         )}
       </TabLink>
-      <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<FolderKanban size={22} aria-hidden />} label={t('tabs.projects')} testId="tab-projects" onClick={go('projects')} />
+      {v2 ? (
+        <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />
+      ) : (
+        <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<FolderKanban size={22} aria-hidden />} label={t('tabs.projects')} testId="tab-projects" onClick={go('projects')} />
+      )}
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>
         {inbox > 0 && <Count n={inbox} label={t('notifications.unread', { count: inbox })} testId="tab-me-unread" />}
       </TabLink>

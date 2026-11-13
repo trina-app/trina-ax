@@ -12,6 +12,9 @@
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the page's parent (lib/screens.ts) in place of this entry (lib/back.ts), so the phone's own back never loops; it is
 // named after where it goes ("‹ 트리나", "‹ 설정": lib/backStack.ts useBackLabel). Every button is 44 px.
+// With the new navigation's tabs (lib/tabs.ts phoneTabsV2) there is no ☰: 트리나's list (/) and 파일's places (/files)
+// draw their own bar (components/panels/PhoneTrinaHome.tsx, FilesPanel.tsx), and the new chat (/new) has ‹ back to the
+// list (or to its project) with the AI's name.
 import clsx from 'clsx'
 import { ChevronLeft, Menu, MessageCirclePlus, Search } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -21,6 +24,7 @@ import { useBackLabel } from '../lib/backStack'
 import { activityInChats, parentOf, rootTab } from '../lib/screens'
 import { stackNow } from '../lib/screenHistory'
 import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
+import { useNavRail } from '../lib/navRail'
 import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
@@ -43,13 +47,15 @@ export function PhoneTopBar() {
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
   // the team folder draws its own bar (pages/Files.tsx), as Admin does
-  if (hidesTabs(path) || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
+  const v2 = useNavRail()
+  // (/new hides the tab bar, not this bar: its message box is at the bottom, ‹ goes back to the list)
+  if ((hidesTabs(path) && path !== '/new') || (v2 && path === '/') || path === '/files' || path.startsWith('/files/') || path === '/admin' || path.startsWith('/admin/')) return null
   // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
   const home = path === '/' && !new URLSearchParams(search).has('project')
   const rooms = path === '/rooms'
   // Activity opened from 대화's 멘션·스레드 row is that row's page (lib/screens.ts CHATS_ACTIVITY)
   const titleKey = path === '/activity' && activityInChats(search) ? 'feed.chats' : pageTitleKey(path)
-  const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
+  const title = path === '/' || path === '/new' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
   // a tab's own list other than these two (프로젝트's) at the bottom of its stack: no ‹, it is where the tab starts (the
   // list opened on top of another tab's screens, from search, keeps its ‹ back there)
   const root = !!rootTab(`${path}${search}`) && !stackNow()?.below

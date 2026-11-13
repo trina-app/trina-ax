@@ -5253,6 +5253,7 @@ export const en: Record<MessageKey, string> = {
   "filesPanel.recent": "Recent files",
   "filesPanel.recentEmpty": "No files have changed lately.",
   "filesPanel.team": "Team folders",
+  "filesPanel.teamAll": "Everything in the team folder",
   "filesPanel.projects": "Project folders",
   "scheduled.sourceMineFiles": "my files",
   "schedules.saveFolderNoneFiles": "None (saves in My files only)",

@@ -5209,6 +5209,7 @@ export const es: Record<MessageKey, string> = {
   "filesPanel.recent": "Archivos recientes",
   "filesPanel.recentEmpty": "No ha cambiado ningún archivo últimamente.",
   "filesPanel.team": "Carpetas del equipo",
+  "filesPanel.teamAll": "Toda la carpeta del equipo",
   "filesPanel.projects": "Carpetas de proyectos",
   "scheduled.sourceMineFiles": "mis archivos",
   "schedules.saveFolderNoneFiles": "Ninguna (solo guarda en Mis archivos)",

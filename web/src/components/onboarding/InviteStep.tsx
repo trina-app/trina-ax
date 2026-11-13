@@ -9,6 +9,7 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { teamFolderPath } from '../../lib/newChat'
 import type { WelcomeProgress } from '@mycel/shared/api'
 import { t as tNow, useT } from '../../i18n'
 import { SKILL_CATALOG } from '../../lib/nav'
@@ -116,7 +117,7 @@ export function EmptyTeamLine({ steps }: { steps?: EmptyTeamSteps }) {
       <span aria-hidden> · </span>
       {steps
         ? <button type="button" className={link} onClick={steps.files} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</button>
-        : <Link to="/files" className={link} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</Link>}
+        : <Link to={teamFolderPath()} className={link} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</Link>}
     </p>
   )
 }

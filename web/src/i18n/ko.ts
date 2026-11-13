@@ -5253,6 +5253,7 @@ export const ko = {
   "filesPanel.recent": "최근 파일",
   "filesPanel.recentEmpty": "최근에 바뀐 파일이 없어요.",
   "filesPanel.team": "팀 폴더",
+  "filesPanel.teamAll": "팀 폴더 전체",
   "filesPanel.projects": "프로젝트 폴더",
   "scheduled.sourceMineFiles": "내 파일",
   "schedules.saveFolderNoneFiles": "없음 (내 파일에만 저장)",

@@ -28,6 +28,11 @@
 // no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6").
+// With the new navigation's phone tabs (the server's `navRail` switch; docs/DECISIONS.md "Phone tabs: 트리나 · 대화 · 파일 ·
+// 나") a phone's `/` is 트리나's list (components/panels/PhoneTrinaHome.tsx) and this page is `/new`: a `/` that carries a
+// question or a project (a skill's or a file's link, a project's new chat, an old bookmark, a notification) goes there
+// with it, and a computer's `/new` comes back to `/` (lib/newChat.ts homeRoute). An owner landing on the list still
+// goes to the unfinished welcome steps first.
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
@@ -45,6 +50,9 @@ import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
+import { homeRoute } from '../lib/newChat'
+import { useNavRail } from '../lib/navRail'
+import { PhoneTrinaHome } from '../components/panels/PhoneTrinaHome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { OftenAsked } from '../components/OftenAsked'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -64,11 +72,25 @@ import { useNavRail } from '../lib/navRail'
 // Files from this computer dropped anywhere on Home (a new chat, also a project's: ?project=) go into the box, as on a
 // chat's page (pages/Chat.tsx): the same overlay, the box's own checks (QA TC-071).
 export default function Home() {
+  const location = useLocation()
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const route = homeRoute(location.pathname, location.search, phone, useNavRail())
+  if ('to' in route) return <Navigate to={route.to} state={location.state} replace />
+  if (route.list) return <TrinaListHome />
   return (
     <FileDropZone className="h-full" data-testid="home-drop">
       <HomePage />
     </FileDropZone>
   )
+}
+
+/** 트리나's list as a phone's `/` (see the top of this file): an owner who left the welcome steps unfinished lands on them
+ * first, as on Home. */
+function TrinaListHome() {
+  const location = useLocation()
+  const resuming = useResumeOnLanding(isLanding(location), true)
+  if (resuming) return <div className="h-full" data-testid="home-resuming" />
+  return <PhoneTrinaHome />
 }
 
 function HomePage() {

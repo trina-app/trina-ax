@@ -345,6 +345,8 @@ function ProjectRow({ project: p, onRenamed, onDeleted, onMembers }: { project: 
 export function ProjectList() {
   const t = useT()
   const locale = useLocale()
+  // the new navigation: the files are their own tab (파일), so the list has no 팀 폴더 row
+  const placesTab = useNavRail()
   const [items, setItems] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // ?new=1 (from Search's "New project") opens the form at once; closing it drops the parameter
@@ -433,10 +435,13 @@ export function ProjectList() {
               {items.map((p, i) => <ProjectRow key={p.id} project={p} onRenamed={renamed} onDeleted={onDeleted(p, i)} onMembers={() => setMembers(p)} />)}
             </PhoneListGroup>
           )}
-          {/* the team folder, always the last row (QA TC-255): 프로젝트 › 팀 폴더 reaches every file, with its Trash inside */}
-          <PhoneListGroup testId="projects-team-folder">
-            <PhoneListRow icon={<FolderOpen size={16} />} to="/files" title={t('files.root')} testId="projects-team-folder-row" />
-          </PhoneListGroup>
+          {/* the team folder, always the last row (QA TC-255): 프로젝트 › 팀 폴더 reaches every file, with its Trash inside; with
+              the new navigation the files are their own tab (파일), so not here */}
+          {!placesTab && (
+            <PhoneListGroup testId="projects-team-folder">
+              <PhoneListRow icon={<FolderOpen size={16} />} to="/files" title={t('files.root')} testId="projects-team-folder-row" />
+            </PhoneListGroup>
+          )}
         </div>
       ) : (
       <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
