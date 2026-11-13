@@ -35,12 +35,13 @@ import { mayUseDevEnv, teamSetting } from '../setting'
 import { activePeople } from '../../team-files/service'
 import { projectZoneFolders } from '../../policy/zone'
 import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
+import { macConfig, macSystem } from './system-mac'
 import { END_NOTE, endRow, type EndReason } from './end'
 
 export const MAX_WAITING_PER_PERSON = 3
@@ -60,18 +61,28 @@ export interface Space { userId: string; chatId: string | null; projectId: strin
 
 // ---------------- configuration ----------------
 
-export interface SrtConfig { base: string; id: string; system: SrtSystem; planFile: string }
+export interface SrtConfig { base: string; id: string; system: SrtSystem; planFile: string; problem?: string }
 
 let systemOverride: SrtSystem | null = null
-let configOverride: (Partial<SrtConfig> & { plan?: DevEnvPlan | null }) | null = null
-/** tests: a fake system, other folders, a plan (the real file must belong to root) */
-export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { plan?: DevEnvPlan | null }) | null = null) { systemOverride = s; configOverride = c; reset() }
+let configOverride: (Partial<SrtConfig> & { plan?: DevEnvPlan | null; platform?: DevPlatform }) | null = null
+/** tests: a fake system, other folders, a plan (the real file must belong to root), the platform of the host lists
+ * (a fake system: Linux unless it says darwin, so the tests read the same on a Mac) */
+export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { plan?: DevEnvPlan | null; platform?: DevPlatform }) | null = null) { systemOverride = s; configOverride = c; reset() }
+/** the platform of the runs: this machine's, or the tests' */
+const runPlatform = (): DevPlatform => configOverride?.platform ?? (systemOverride ? 'linux' : devPlatform())
 
 export function srtConfig(env: Record<string, string | undefined> = process.env): SrtConfig {
   const id = configOverride?.id ?? env.MYCEL_LABEL ?? 'mycel'
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
-  const system = systemOverride ?? (env.MYCEL_DEV_ENV_SRT_DIRECT === '1' ? directSystem() : systemdSystem(id))
-  return { id, base, system, planFile: configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json') }
+  const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
+  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
+  if (devPlatform() === 'darwin') {
+    const m = macConfig(base, env)
+    if (!m.ok) return { id, base, system: directSystem(), planFile, problem: m.reason }
+    return { id, base, system: macSystem(m.c), planFile }
+  }
+  return { id, base, system: systemdSystem(id), planFile }
 }
 
 const listEnv = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
@@ -135,8 +146,10 @@ export const newRunId = () => {
 export async function srtProblem(c = srtConfig()): Promise<string> {
   const p = planState(c)
   if (!p.ok) return p.reason
-  if (!systemOverride) {
-    const { SRT_PATHS } = await import('./config')
+  if (c.problem) return c.problem
+  if (!systemOverride && devPlatform() === 'darwin') {
+    for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.cliMac, SRT_PATHS.cliFull, SRT_PATHS.runWrapMac, SRT_PATHS.sudo, '/usr/bin/sandbox-exec']) if (!fs.existsSync(f)) return `${f} is missing: run scripts/install-macos.sh again (the dev environment step)`
+  } else if (!systemOverride) {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
     for (const b of ['bwrap', 'socat', 'rg']) if (!['/usr/bin', '/bin', '/usr/local/bin'].some((d) => fs.existsSync(path.join(d, b)))) return `${b} is missing`
   }
@@ -239,6 +252,15 @@ export function connectedSources(ctx: Pick<AppContext, 'db'>): string[] {
  * the run gets the lists only (fail closed). */
 export const fullAvailable = () => !!systemOverride || fs.existsSync(SRT_PATHS.cliFull)
 
+/** macOS: where the dev server of a run listens (127.0.0.1 and the run's port), for the preview. macOS shares localhost,
+ * so the server reaches it directly (Linux needs a port-forward into the run's network namespace: not built yet).
+ * Null on Linux, or when the run is not there. */
+export function previewTarget(runId: string): { host: '127.0.0.1'; port: number } | null {
+  const sys = srtConfig().system as SrtSystem & { slotOf?: (id: string) => { port: number } | null }
+  const s = sys.slotOf?.(runId)
+  return s ? { host: '127.0.0.1', port: s.port } : null
+}
+
 /** The network of runs now: the team's choice cut to the plan ('offline' wins). */
 export function networkNow(ctx: AppContext): 'open' | 'offline' {
   const l = limitsFor(ctx)
@@ -272,6 +294,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
     connectedSources: connectedSources(ctx),
+    platform: runPlatform(),
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
@@ -298,9 +321,9 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform() }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
-    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings),
+    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }
   } catch (e) { release(); releaseSkills(); throw e }

@@ -50,6 +50,12 @@ export type BoxShellInput = z.infer<typeof BoxShellInput>
 
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
+/** How the AI starts and tests a dev server. Linux: each run has its own localhost. macOS (a Mac team server): one
+ * localhost for the whole Mac, and a run may listen on and reach only its own port, $PORT (srt-mac.mjs). */
+export const DEV_SERVER_TEXT = process.platform === 'darwin'
+  ? 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port works), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev -- --port $PORT & sleep 5; curl -s localhost:$PORT; kill %1. '
+  : 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
+
 export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
@@ -61,7 +67,7 @@ export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
   + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  + 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
+  + DEV_SERVER_TEXT
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
   + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
