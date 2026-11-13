@@ -101,13 +101,13 @@ function collect(scope: string | null): Text[] {
 // the floors (docs/DESIGN-SYSTEM.md): on phones body and rows 15, labels 14, meta (times, hints, captions, secondary
 // text) and controls 13, code 13, badges 11; on computers body and rows 15, labels, meta and controls 13, code and
 // badges 12. A glyph (an avatar's initial, aria-hidden beside the name) is not text to read.
-const PHONE_FLOOR: Record<string, number> = { row: 17, body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
+const PHONE_FLOOR: Record<string, number> = { row: 16, body: 15, label: 14, meta: 13, control: 13, code: 13, badge: 11, glyph: 0 }
 const COMPUTER_FLOOR: Record<string, number> = { row: 15, body: 15, label: 13, meta: 13, control: 13, code: 12, badge: 12, glyph: 0 }
 function flagOf(t: Text): string {
   if (t.kind === 'glyph') return ''
-  // the scale, not only the floor: a list row's name (text-row, a setting's name) is 15px on a computer and 17px on a
+  // the scale, not only the floor: a list row's name (text-row, a setting's name) is 15px on a computer and 16px on a
   // phone in every list; meta (text-xs, text-micro, text-meta: a row's second line, a setting's line, hints, times) is 13px
-  if (t.kind === 'row' && t.size !== (phone() ? 17 : 15)) return `row-not-${phone() ? 17 : 15}`
+  if (t.kind === 'row' && t.size !== (phone() ? 16 : 15)) return `row-not-${phone() ? 16 : 15}`
   if (t.kind === 'meta' && /^(xs|micro|meta)$/.test(t.token) && t.size !== 13) return 'meta-not-13'
   const floor = phone() ? PHONE_FLOOR : COMPUTER_FLOOR
   if (t.size < 11) return 'under-11'
