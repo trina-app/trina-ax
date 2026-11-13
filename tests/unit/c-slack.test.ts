@@ -329,7 +329,7 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_signin_flows').all())).not.toContain(params(url.href).state!)
   })
 
-  test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {
+  test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept (nor revoked)', async () => {
     const p = params((await start('carol')).json.authorizationUrl)
     const code = 'code-carol-0001'
     fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
@@ -337,7 +337,9 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0NOMAIL' })
     expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { detail: string }).detail).toContain('"via":"slack_signin"')
     expect(fake.of('openid.connect.token').at(-1)!.token).toBeNull()
-    expect(fake.of('auth.revoke').at(-1)!.token).toBe('xoxp-user-U0NOMAIL')
+    // this workspace's token (Slack's one user token for that person and app, maybe their working one): not kept, and
+    // not revoked either; one of another workspace or none named is (below)
+    expect(fake.of('auth.revoke').some((c) => c.token === 'xoxp-user-U0NOMAIL')).toBe(false)
     const dm = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0NOMAIL'))
     expect(dm!.args.text).toContain('Carol Park (@carol)')
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_links').all())).not.toContain('xoxp-')

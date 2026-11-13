@@ -148,9 +148,11 @@ export function startFakeSlack(): FakeSlack {
           case 'conversations.replies': {
             const id = args.channel ?? '', c = fake.channels[id]
             if (!c || !sees(id)) return json({ ok: false, error: 'channel_not_found' })
+            // oldest first, in pages (the cursor is the offset here)
             const all = c.messages.filter((m) => m.ts === args.ts || m.thread_ts === args.ts).sort((a, b) => Number(a.ts) - Number(b.ts))
-            const limit = Number(args.limit ?? 1000)
-            return json({ ok: true, messages: all.slice(0, limit).map(msgOf), has_more: all.length > limit })
+            const limit = Number(args.limit ?? 1000), from = Number(args.cursor ?? 0)
+            const more = from + limit < all.length
+            return json({ ok: true, messages: all.slice(from, from + limit).map(msgOf), has_more: more, response_metadata: { next_cursor: more ? String(from + limit) : '' } })
           }
           case 'conversations.history': {
             const id = args.channel ?? '', c = fake.channels[id]

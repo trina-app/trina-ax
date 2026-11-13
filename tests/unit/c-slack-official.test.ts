@@ -209,6 +209,9 @@ describe('one sign-in links and lets the AI read Slack, through the hosting serv
     return token
   }
   const kept = (user: string) => h.ctx.db.query('SELECT slack_user_id, scopes FROM slack_user_tokens WHERE user_id = ?').get(user) as { slack_user_id: string; scopes: string } | null
+  // the describe before used an older hosting service (404 on signin/read/*), which is remembered for 10 minutes:
+  // "I updated them" asks it again
+  beforeAll(async () => { expect((await call('dana', 'POST', '/api/admin/slack/read-scopes/recheck', {})).json.readScopes).toBeNull() })
 
   test('Sign in with Slack is Slack\'s OAuth page with the user scopes only, and keeps the user token sealed', async () => {
     const started = await call('erin', 'POST', '/api/slack/signin', {})
@@ -232,11 +235,13 @@ describe('one sign-in links and lets the AI read Slack, through the hosting serv
 
   test('a linked person allows reading: no app session is needed, but it must be the linked Slack account', async () => {
     expect((await call('alice', 'GET', '/api/slack/me')).json).toMatchObject({ read: false, readOffered: true })
-    // another Slack account allows it: refused, and its token revoked at once
+    // another Slack account allows it: refused; that token is this workspace's (Slack's one token for bob and this app,
+    // maybe bob's working one): dropped, never revoked
     await call('alice', 'POST', '/api/slack/signin', { read: true })
     const wrong = tokenFor('U0BOB', 2)
     expect(outcome(await open(null, broker.slackReturn('read')))).toBe('read_other_account')
-    expect(await waitFor(() => fake.userTokens[wrong]!.revoked === true)).toBe(true)
+    await Bun.sleep(100)
+    expect(fake.userTokens[wrong]!.revoked).toBeUndefined()
     expect(kept('alice')).toBeNull()
     // the linked one, from a browser with no session (the phone's browser): allowed
     await call('alice', 'POST', '/api/slack/signin', { read: true })
@@ -247,9 +252,15 @@ describe('one sign-in links and lets the AI read Slack, through the hosting serv
   })
 
   test('Slack refuses the user scopes: linking is not hurt, Admin › Slack asks to update the permissions', async () => {
+    // an error in the address only ends that flow (anyone can type one)
     await call('bob', 'POST', '/api/slack/signin', { read: true })
-    // (the browser is bob's own: a refusal in anyone else's browser marks nothing team-wide)
     expect(outcome(await open('bob', broker.slackReturn('read', { error: 'missing_scope' })))).toBe('scopes_missing')
+    expect((await admin()).readScopes).not.toBe('missing')
+    // the hosting service's own answer at redeem marks the app (audited)
+    await call('bob', 'POST', '/api/slack/signin', { read: true })
+    broker.readError = 'missing_scope'
+    expect(outcome(await open(null, broker.slackReturn('read')))).toBe('scopes_missing')
+    expect(h.ctx.db.query("SELECT json_extract(detail, '$.reason') r FROM audit_log WHERE action = 'slack.read_scopes' ORDER BY id DESC").get()).toEqual({ r: 'broker' })
     const a = await admin()
     expect(a.readScopes).toBe('missing')
     expect(a.userScopes).toEqual(userScopes.split(','))
@@ -265,6 +276,12 @@ describe('one sign-in links and lets the AI read Slack, through the hosting serv
       const r = await call('bob', 'POST', '/api/slack/signin', { read: true })
       expect(r.status).toBe(409)
       expect(r.json.error.params.reason).toBe('read_unavailable')
+      // remembered: nothing offers reading, and the next sign-in calls the hosting service once (the old sign-in)
+      expect((await call('bob', 'GET', '/api/slack/me')).json.readOffered).toBe(false)
+      const reads = broker.of('readStart').length, starts = broker.of('signinStart').length
+      expect(new URL((await call('erin', 'POST', '/api/slack/signin', {})).json.authorizationUrl).pathname).toBe('/openid/connect/authorize')
+      expect(broker.of('readStart').length).toBe(reads)
+      expect(broker.of('signinStart').length).toBe(starts + 1)
     } finally { broker.readSupported = true }
     const token = Object.entries(fake.userTokens).find(([, v]) => v.user === 'U0ERIN')![0]
     expect((await call('erin', 'DELETE', '/api/slack/me')).json).toMatchObject({ link: null, read: false })

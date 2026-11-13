@@ -4281,7 +4281,7 @@ export const es: Record<MessageKey, string> = {
   "slack.link.alsoRead": "Después Slack le pide que permita a {product} leer Slack como usted, para que pueda leer los hilos sobre los que pregunta.",
   "slack.mine.signInRead": "Inicie sesión con su cuenta de Slack de {workspace}: así se vincula y {product} puede leer Slack como usted.",
   "slack.admin.readTitle": "Actualizar los permisos de Slack",
-  "slack.admin.readOwn": "Las personas todavía no pueden permitir que {product} lea Slack: a la aplicación de Slack le faltan permisos. En [Configuración de la aplicación de Slack › OAuth & Permissions], añada estos User Token Scopes y vuelva a instalar la aplicación:",
+  "slack.admin.readOwn": "Para que las personas permitan a {product} leer Slack, la aplicación de Slack necesita más permisos. En [Configuración de la aplicación de Slack › OAuth & Permissions], añada estos User Token Scopes, vuelva a instalar la aplicación y pulse Ya los actualicé:",
   "slack.admin.readOwnAsk": "Las personas todavía no pueden permitir que {product} lea Slack: el propietario del equipo debe actualizar los permisos de la aplicación de Slack.",
   "slack.admin.readOfficial": "Las personas todavía no pueden permitir que {product} lea Slack. Añada {product} a Slack de nuevo para aprobar los nuevos permisos.",
   "slack.admin.readRecheck": "Ya los actualicé",

@@ -73,3 +73,12 @@ the flow's own person's browser), a refused flow could revoke a token still in u
 one), and the DM button vanished with the "working…" message (that message now stays). Left: a hard-deleted account's
 token row goes by cascade without a revoke at Slack (accounts are normally disabled, which revokes);
 `assistant.search.context` instead of the legacy `search.messages`.
+
+Second review (PR #674, 2026-11-13), fixed: Slack messages shown to the AI taint the chat (tools, and the thread in the
+instructions via `TurnToolProvider.seen`, marked after a new session starts); the team's own app asks for the user scopes
+only after "I updated them" (Slack shows its own error page with no way back for scopes an app lacks); long threads are
+read to the end with the question last; a hosting service without `signin/read/*` is remembered for 10 minutes; the
+official app waits out Slack's minute before answering again; `read_scopes = 'missing'` only from what the server
+learned, audited; a disabled account's token is revoked at once (`Services.accountHooks`); a token not kept is revoked
+only when it cannot be anyone's working token here (contract text for flows 7 and 9 too); a message's own lines are
+indented in what the AI reads.

@@ -55,7 +55,7 @@ four steps.
 - **Sign in with Slack** to link your own account works the same way through the hosting service (its one redirect
   URL is registered in the app). With reading (`signin/read/*`, "Reading Slack" below) the hosting service exchanges
   Slack's code and hands this server your user token sealed; an older hosting service without those calls signs you in
-  the old way (it checks Slack's answer, revokes your user token at once and says only who signed in), and reading is
+  the old way (it checks Slack's answer, keeps no user token and says only who signed in), and reading is
   then not offered. This server checks that it is a person of this workspace, as before. No https address is needed
   here.
 - **Removed in Slack** (the app removed from the workspace, its token revoked, or the hosting service's operator
@@ -174,18 +174,31 @@ log line, prompt or chat.
   "working…" (to the asker only); it opens Slack's page directly, needs no sign-in here when it comes back (the
   Slack account that allows it must be the linked one), and then the question is answered again with the thread. The
   answer is never held back for it. The one-time link page goes straight on to Slack's page after **Link**.
-- **The Slack app has no user scopes yet** (an app made from an older manifest, or the official app before its update):
-  Slack refuses the page; linking goes on at the old sign-in in the same click (no reading), and Admin › Connected apps
-  › Slack shows **Update Slack permissions**: the team's own app: add the User Token Scopes below in *OAuth &
-  Permissions*, reinstall the app, then **I updated them**; the official app: **Add to Slack** again to approve them. A
-  grant with fewer scopes than asked: linked, the token revoked, the same prompt. Slack's refusal only counts for the
-  prompt when it comes back to the browser of the person whose sign-in it was (anyone can type an error into an
-  address).
-- **A refused sign-in never ends someone's reading**: Slack gives the same user token again when the same person allows
-  the same app again, so a token a refused flow got is revoked only when it is not the one kept for that Slack user.
-  The button in Slack and a sign-in from the app do not cancel each other; the buttons are at most 10 an hour.
-- **Ends**: Unlink, a disabled or deleted account, Remove, another workspace saved, or Slack refusing the token (the
-  person removed the app's access in Slack): the token is revoked at Slack (`auth.revoke`) and deleted.
+- **The team's own app asks for the user scopes only once the owner says it has them.** An app made from an older
+  manifest has none, and Slack then shows its own error page ("Invalid permissions requested") with no way back, so
+  nobody could link. Until then Sign in with Slack links only (the old sign-in), and Admin › Connected apps › Slack
+  shows **Update Slack permissions**: add the User Token Scopes below in *OAuth & Permissions*, reinstall the app, then
+  **I updated them** (audited); from then on the one sign-in also lets the AI read. The official app asks for them
+  unless Slack or the hosting service said no (then: **Add to Slack** again to approve them). A hosting service without
+  `signin/read/*` (404) is remembered for 10 minutes: nothing offers reading meanwhile, and linking calls it once.
+- **Only what the server itself learned marks the app as missing the scopes** (`slack.read_scopes` in the audit log): a
+  grant with fewer scopes, or the hosting service's `missing_scope`; never an error in a browser's address (anyone can
+  type one). If Slack does come back with such an error, linking goes on at the old sign-in in the same click.
+- **A token a sign-in gave but that is not kept** (a refused flow, fewer scopes, the old sign-in's) is dropped, and
+  revoked at Slack only when it cannot be anyone's working token here (another workspace, or a workspace Slack did not
+  name): Slack gives one user token per person and app, the same again each time they allow it, so revoking it could
+  end someone's reading. The button in Slack and a sign-in from the app do not cancel each other; the buttons are at
+  most 10 an hour.
+- **Ends**: Unlink, a disabled or deleted account (revoked as the account is changed), Remove, another workspace saved,
+  or Slack refusing the token (the person removed the app's access in Slack): the token is revoked at Slack
+  (`auth.revoke`) and deleted.
+- **Outside content**: whatever Slack messages the AI was shown (a tool's answer, or the thread in its instructions)
+  marks the chat as holding other people's words, as a web page or a connection's answer does: from then on a change at
+  a connection (even one always allowed), a memory and the like wait for the person's yes.
+- **Long threads**: the thread is read to its end (pages of 200, at most 10) and the first message and the newest are
+  kept, the question always last. The official app reads only the first 15 (Slack's limit, below), says so, and still
+  puts the question last. After **Allow reading Slack** the official app waits out the rest of Slack's minute before it
+  answers again with the thread.
 - **Post to channel**: Slack messages from the conversation the answer goes back to need no notice; any other (another
   channel, a DM, a search result) is named in the notice ("Slack #random", "Slack direct messages"; never a person).
 - **Slack's limit for the official app.** Slack limits `conversations.history` and `conversations.replies` to 1
@@ -220,8 +233,11 @@ must add two signed calls (contract: `shared/src/cloud-protocol/slack-broker.ts`
    otherwise); call `auth.test` with that token (the same user and workspace). Seal the user token exactly like the bot
    token (fresh X25519, HKDF with `SLACK_BROKER_SEAL_INFO`, AES-256-GCM) but with the additional data
    `slackBrokerUserSealAad(installId, slackTeamId, slackUserId)`. Keep no copy, never call Slack with it again, never
-   log it; revoke it (`auth.revoke`) if anything fails after the exchange. A bot token Slack might return alongside is
-   never handed out. `scopes`: `authed_user.scope` split by commas.
+   log it. If anything fails after the exchange, drop it: revoke it (`auth.revoke`) only when it cannot be anyone's
+   working token for this owner (another workspace, an organization-wide grant, another app's), because Slack gives one
+   user token per person and app, the same again each time they allow it. The same rule for `signin/redeem` (flow 7),
+   which today revokes at once. A bot token Slack might return alongside is never handed out. `scopes`:
+   `authed_user.scope` split by commas.
 4. Rate limits as for `signin/start` (per owner and address). Nothing else changes: the team server revokes a user
    token itself (`auth.revoke` with the token), and an older hosting service (404 on these paths) keeps today's
    sign-in working.
@@ -251,7 +267,7 @@ Nothing here is deployed by this repository; the control plane implements and de
 
 The redirect URL is for "Sign in with Slack": OAuth v2 with the user scopes above (the token is kept, "Reading Slack"),
 or, while the Slack app has no user scopes, OpenID Connect (`openid` and `profile`, asked for in its own flow; that
-token is revoked at once and never kept). The app-level token needs `connections:write` (Socket Mode). The bot reads no
+token is never kept, and revoked only when it is of another workspace). The app-level token needs `connections:write` (Socket Mode). The bot reads no
 channel history; no files, no slash command.
 
 ## Limits

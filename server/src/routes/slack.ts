@@ -64,6 +64,8 @@ export const slackRoutes: RouteModule = {
     try { slackOf(ctx).refresh() } catch (e) { ctx.log.error('slack connector failed to start; it stays off', { err: String(e) }) }
     // the AI reads Slack as the person (integrations/slack/read.ts): its tools and its section of the instructions
     registerSlackRead(ctx)
+    // a disabled or deleted account: its Slack link goes (database trigger) and its user token is revoked at Slack now
+    ;(ctx.services.accountHooks ??= []).push({ disabled: () => { void slackOf(ctx).sweepUserTokens() } })
   },
   register(kit, ctx) {
     const slack = () => slackOf(ctx)

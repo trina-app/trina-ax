@@ -4325,7 +4325,7 @@ export const id: Record<MessageKey, string> = {
   "slack.link.alsoRead": "Lalu Slack meminta Anda mengizinkan {product} membaca Slack sebagai Anda, agar ia bisa membaca utas yang Anda tanyakan.",
   "slack.mine.signInRead": "Masuk dengan akun Slack Anda di {workspace}: ini menautkannya dan membuat {product} bisa membaca Slack sebagai Anda.",
   "slack.admin.readTitle": "Perbarui izin Slack",
-  "slack.admin.readOwn": "Orang belum bisa mengizinkan {product} membaca Slack: aplikasi Slack kekurangan izin. Di [Pengaturan aplikasi Slack › OAuth & Permissions], tambahkan User Token Scopes ini, lalu pasang ulang aplikasinya:",
+  "slack.admin.readOwn": "Agar orang bisa mengizinkan {product} membaca Slack, aplikasi Slack memerlukan izin tambahan. Di [Pengaturan aplikasi Slack › OAuth & Permissions], tambahkan User Token Scopes ini, pasang ulang aplikasinya, lalu tekan Sudah saya perbarui:",
   "slack.admin.readOwnAsk": "Orang belum bisa mengizinkan {product} membaca Slack: pemilik tim harus memperbarui izin aplikasi Slack.",
   "slack.admin.readOfficial": "Orang belum bisa mengizinkan {product} membaca Slack. Tambahkan {product} ke Slack lagi untuk menyetujui izin baru.",
   "slack.admin.readRecheck": "Sudah saya perbarui",

@@ -99,6 +99,9 @@ export function messageLines(msgs: Msg[], names: ReadonlyMap<string, string>, ma
     const who = typeof m.user === 'string' ? names.get(m.user) ?? m.user : typeof m.username === 'string' ? clean(m.username) : typeof m.bot_id === 'string' ? 'a bot' : 'someone'
     let body = typeof m.text === 'string' ? slackPlain(m.text, names) : ''
     if (body.length > MESSAGE_CHARS) body = `${body.slice(0, MESSAGE_CHARS)}… (cut)`
+    // a message's own lines are indented under it: no line of a message can pass for another message (its author and
+    // time) or start a line of its own in the instructions
+    body = body.replace(/\r?\n/g, '\n    ')
     const files = Array.isArray(m.files) ? m.files.map((f) => (f && typeof (f as { name?: unknown }).name === 'string' ? clean((f as { name: string }).name).slice(0, 120) : null)).filter(Boolean) : []
     const thread = typeof m.reply_count === 'number' && Number.isSafeInteger(m.reply_count) && m.reply_count > 0 && m.thread_ts === m.ts ? ` [thread: ${m.reply_count} replies, thread_ts=${m.ts}]` : ''
     return `[${timeOf(m.ts as string)}] ${clean(who).replace(/</g, '‹')}: ${body}${files.length ? ` (files: ${files.join(', ').replace(/</g, '‹')})` : ''}${thread} (ts=${m.ts})`
@@ -115,6 +118,33 @@ export function messageLines(msgs: Msg[], names: ReadonlyMap<string, string>, ma
   }
   const left = lines.length - 1 - rest.length
   return [...kept, ...(left > 0 ? [`(${left} earlier messages left out)`] : []), ...rest].join('\n')
+}
+
+/** A thread's messages, oldest first: its first message and the newest after it (Slack answers conversations.replies
+ * oldest first, so a long thread is read to its end: pages of 200, at most 10). The official app reads one page of 15
+ * (Slack's limit for apps outside the Marketplace: about once a minute), so a long thread shows its start only;
+ * `more` says so. */
+export async function threadOf(s: SlackConnector, token: string, channel: string, ts: string, keep: number): Promise<{ msgs: Msg[]; more: boolean }> {
+  if (s.config()?.mode === 'official') {
+    s.repliesAt.set(channel, s.now())
+    const r = await s.api.call('conversations.replies', token, { channel, ts, limit: OFFICIAL_PAGE }, { noWait: true })
+    return { msgs: Array.isArray(r.messages) ? r.messages as Msg[] : [], more: r.has_more === true }
+  }
+  const all: Msg[] = []
+  let cursor: string | undefined, capped = false
+  for (let page = 0; ; page++) {
+    if (page === 10) { capped = true; break }
+    const r = await s.api.call('conversations.replies', token, { channel, ts, limit: 200, ...(cursor ? { cursor } : {}) }, { noWait: true })
+    if (Array.isArray(r.messages)) all.push(...(r.messages as Msg[]))
+    const next = (r.response_metadata as { next_cursor?: unknown } | undefined)?.next_cursor
+    if (r.has_more !== true || typeof next !== 'string' || !next) break
+    cursor = next
+  }
+  // (each page repeats the thread's first message, as Slack does)
+  const seen = new Set<string>()
+  const uniq = all.filter((m) => typeof m.ts === 'string' && !seen.has(m.ts) && !!seen.add(m.ts))
+  const root = uniq[0], rest = uniq.slice(1), kept = rest.slice(-Math.max(0, keep - 1))
+  return { msgs: root ? [root, ...kept] : [], more: capped || rest.length > kept.length }
 }
 
 /** What kind of conversation, and its name, as the person may see it (conversations.info with their token). */
@@ -170,7 +200,16 @@ export const SLACK_TOOL_DESCRIPTIONS = {
 
 function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool[] {
   const official = () => s.config()?.mode === 'official'
-  const remember = (chatId: string, sources: ReadSource[]) => { try { addSources(ctx.db, chatId, sources) } catch (e) { s.log.warn('slack read scope failed', { err: String(e) }) } }
+  /** What a read showed: in the chat's read scope, and the chat is tainted (other people's words: from now on a change
+   * at a connection, a memory and the like wait for the person's yes, as after a web page or a connection's answer) */
+  const remember = (chatId: string, sources: ReadSource[]) => {
+    try {
+      ctx.db.transaction(() => {
+        addSources(ctx.db, chatId, sources)
+        ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chatId)
+      })()
+    } catch (e) { s.log.warn('slack read scope failed', { err: String(e) }) }
+  }
   return [
     {
       name: 'slack_read_thread', description: SLACK_TOOL_DESCRIPTIONS.slack_read_thread, inputSchema: schema(ThreadInput), readOnly: true,
@@ -181,11 +220,11 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
         if ('error' in tk) return text(tk.error, true, 'slack_read_thread -> not allowed')
         try {
           const conv = await conversationOf(s, tk.token, a.data.channel)
-          const r = await s.api.call('conversations.replies', tk.token, { channel: a.data.channel, ts: a.data.thread_ts, limit: official() ? OFFICIAL_PAGE : (a.data.limit ?? 100) }, { noWait: true })
-          const msgs = Array.isArray(r.messages) ? r.messages as Msg[] : []
+          const r = await threadOf(s, tk.token, a.data.channel, a.data.thread_ts, a.data.limit ?? 100)
+          const msgs = r.msgs
           remember(t.chatId, [sourceOf(conv, userId)])
           const names = await namesOf(s, s.botToken() ?? tk.token, msgs)
-          const more = (r.has_more === true) ? `\n(more replies exist${official() ? '; this Slack app reads 15 at a time, about once a minute' : ''})` : ''
+          const more = r.more ? (official() ? '\n(the thread has more replies than shown: this Slack app reads only the first 15, about once a minute; the newest may be missing, so say so or use slack_search for them)' : '\n(earlier replies left out: the first message and the newest are shown)') : ''
           return text(`A Slack thread in ${whereWords(conv)} (channel=${conv.id}, thread_ts=${a.data.thread_ts}), ${msgs.length} messages, oldest first. ${DATA_NOTE}\n<slack_messages>\n${messageLines(msgs, names, TOOL_CHARS)}\n</slack_messages>${more}`, false, `slack_read_thread -> ${msgs.length} messages`)
         } catch (e) { return text(refusal(s, userId, e), true, `slack_read_thread -> error (${e instanceof SlackApiError ? e.code : 'unknown'})`) }
       },
@@ -284,19 +323,24 @@ export async function askedContext(s: SlackConnector, bot: string, userId: strin
   const root = q.threadTs ?? q.ts
   const head = `This chat answers a question asked in Slack: workspace "${clean(team).replace(/</g, '‹')}", ${where} (channel=${q.channel}${q.threadTs ? `, thread_ts=${q.threadTs}` : ''}). Your answer goes back to the asker in Slack${q.kind === 'channel' ? ' (only they see it; they may post it to the thread)' : ''}: write for Slack, short and plain.`
   let thread = ''
+  const seen: ReadSource[] = []
   if (q.threadTs || q.kind === 'im') {
     const token = user?.token ?? (q.kind === 'im' ? bot : null)
     if (!token) thread = 'The messages of this Slack thread are not available: the user has not allowed reading Slack yet (Slack shows them an Allow reading Slack button). Answer from the question alone, and say so if the thread is needed.'
     else {
       try {
-        const r = await s.api.call('conversations.replies', token, { channel: q.channel, ts: root, limit: s.config()?.mode === 'official' ? OFFICIAL_PAGE : THREAD_MESSAGES }, { noWait: true })
-        const msgs = (Array.isArray(r.messages) ? r.messages as Msg[] : []).slice(-THREAD_MESSAGES)
+        const r = await threadOf(s, token, q.channel, root, THREAD_MESSAGES)
+        const msgs = r.msgs.filter((m) => m.ts !== q.ts)
+        // the question itself always last (a long thread read only from its start, by the official app, has it not)
+        msgs.push({ ts: q.ts, user: q.user, text: q.text })
         const names = await namesOf(s, bot, msgs)
-        if (msgs.length) {
-          thread = `The Slack thread's messages so far, oldest first (the last is the question). ${DATA_NOTE}\n<slack_thread>\n${messageLines(msgs, names, THREAD_CHARS)}\n</slack_thread>${r.has_more === true ? '\n(the thread has more replies than shown: read them with slack_read_thread)' : ''}`
-          // what it shows counts as read (only this conversation: posting back to it needs no notice)
-          if (q.kind === 'channel') addSources(s.ctx.db, chatId, [sourceOf(conv, userId)])
-          else addSources(s.ctx.db, chatId, [{ type: 'slack', id: q.channel, userId, kind: 'dm' }])
+        if (msgs.length > 1) {
+          const official = s.config()?.mode === 'official'
+          thread = `The Slack thread's messages so far, oldest first (the last is the question). ${DATA_NOTE}\n<slack_thread>\n${messageLines(msgs, names, THREAD_CHARS)}\n</slack_thread>${r.more ? (official ? '\n(the thread has more replies than shown: this Slack app reads only its first 15 messages, about once a minute, so replies between them and the question are missing; say so if they matter)' : '\n(earlier replies left out: read them with slack_read_thread)') : ''}`
+          // what it shows counts as read (only this conversation: posting back to it needs no notice) and as outside
+          // content; marked by the turn once its session starts (TurnToolProvider seen: a new chat's first turn clears
+          // the marks when it starts, after this)
+          seen.push(q.kind === 'channel' ? sourceOf(conv, userId) : { type: 'slack', id: q.channel, userId, kind: 'dm' })
         }
       } catch (e) {
         const code = e instanceof SlackApiError ? e.code : 'unknown'
@@ -307,7 +351,7 @@ export async function askedContext(s: SlackConnector, bot: string, userId: strin
       }
     }
   }
-  s.asked.set(chatId, { text: [head, thread].filter(Boolean).join('\n'), until: s.now() + 30 * 60_000 })
+  s.asked.set(chatId, { text: [head, thread].filter(Boolean).join('\n'), until: s.now() + 30 * 60_000, seen })
 }
 
 /** The provider chat turns ask for this person's Slack tools and section (chat/tools.ts buildToolSet). */
@@ -333,12 +377,13 @@ export function slackReadProvider(ctx: AppContext): TurnToolProvider {
       // a chat of a Slack thread: where the question was asked, and (its first turn) the thread so far
       const asked = s.asked.get(b.chatId)
       if (asked) s.asked.delete(b.chatId)
-      if (asked && asked.until > s.now()) lines.push(asked.text)
+      let seen: ReadSource[] = []
+      if (asked && asked.until > s.now()) { lines.push(asked.text); seen = asked.seen }
       else {
         const t = ctx.db.query('SELECT channel_id, thread_ts FROM slack_threads WHERE chat_id = ? AND user_id = ? LIMIT 1').get(b.chatId, b.userId) as { channel_id: string; thread_ts: string } | null
         if (t) lines.push(`This chat continues a question asked in Slack (channel=${t.channel_id}, thread_ts=${t.thread_ts}).${tools.length ? ' Read the thread again with slack_read_thread when it matters.' : ''}`)
       }
-      return { tools, prompt: lines.join('\n') }
+      return { tools, prompt: lines.join('\n'), ...(seen.length ? { seen } : {}) }
     },
   }
 }

@@ -4281,7 +4281,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.link.alsoRead": "続いてSlackが、{product}があなたとしてSlackを読むことの許可を求めます。許可すると、質問したスレッドを読めるようになります。",
   "slack.mine.signInRead": "{workspace}のSlackアカウントでサインインしてください。連携と同時に、{product}があなたとしてSlackを読めるようになります。",
   "slack.admin.readTitle": "Slackの権限を更新",
-  "slack.admin.readOwn": "まだ{product}にSlackの読み取りを許可できません。Slackアプリに権限が不足しています。[Slackアプリの設定 › OAuth & Permissions]で次のUser Token Scopesを追加し、アプリを再インストールしてください：",
+  "slack.admin.readOwn": "{product}にSlackの読み取りを許可できるようにするには、Slackアプリに追加の権限が必要です。[Slackアプリの設定 › OAuth & Permissions]で次のUser Token Scopesを追加し、アプリを再インストールしてから「更新しました」を押してください：",
   "slack.admin.readOwnAsk": "まだ{product}にSlackの読み取りを許可できません。チームのオーナーがSlackアプリの権限を更新する必要があります。",
   "slack.admin.readOfficial": "まだ{product}にSlackの読み取りを許可できません。{product}をもう一度Slackに追加して、新しい権限を承認してください。",
   "slack.admin.readRecheck": "更新しました",

@@ -73,9 +73,9 @@ const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page
 }
 
 /** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
-/** "Update Slack permissions" (docs/SLACK.md "Reading Slack"): people cannot let the AI read Slack because the Slack app
- * lacks the user scopes. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job),
- * then "I updated them" lets the next sign-in ask again. The official app: Add to Slack again approves them. */
+/** "Update Slack permissions" (docs/SLACK.md "Reading Slack"): people cannot let the AI read Slack until the Slack app
+ * has the user scopes. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job),
+ * then "I updated them": sign-ins ask for them from then on. The official app: Add to Slack again approves them. */
 function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onChange: (v: SlackAdmin | undefined) => void }) {
   const t = useT(), locale = useLocale()
   const act = useAction()
@@ -192,7 +192,9 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   {/* saving the own app's tokens again at the https address: the owner's (an admin cannot) */}
                   {!s.redirectUrl && !official && owner && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                   {/* the Slack app does not give people's read permissions (yet): one prompt to update them */}
-                  {s.readScopes === 'missing' && s.enabled && <ReadScopes s={s} owner={owner} onChange={set} />}
+                  {/* the own app: until the owner says it has the user scopes (sign-ins do not ask for them before); the
+                      official app: only when Slack or the hosting service said no */}
+                  {s.enabled && (official ? s.readScopes === 'missing' : s.readScopes !== 'ok') && <ReadScopes s={s} owner={owner} onChange={set} />}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {s.reading > 0 && <span data-testid="slack-reading">{t('slack.admin.reading', { n: s.reading })}</span>}

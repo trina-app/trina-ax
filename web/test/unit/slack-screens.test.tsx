@@ -41,7 +41,7 @@ const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   manifest: '{"display_information":{"name":"Trina AX"}}', createUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D',
   signIn: false, redirectUrl: 'https://team.example/api/integrations/slack/oauth/callback', readScopes: null, userScopes: ['channels:history', 'search:read'], reading: 0, ...o,
 })
-const on = (o: Partial<SlackAdmin> = {}) => base({ enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', appId: 'A0APP', state: 'connected', linked: 2, signIn: true, ...o })
+const on = (o: Partial<SlackAdmin> = {}) => base({ enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', appId: 'A0APP', state: 'connected', linked: 2, signIn: true, readScopes: 'ok', ...o })
 
 const realResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver
 beforeAll(async () => {
@@ -73,7 +73,7 @@ beforeEach(() => {
     calls.push(what)
     bodies[what] = typeof init?.body === 'string' ? init.body : ''
     if (what === 'GET /api/admin/slack') adminQueries.push(url.search)
-    if (what === 'POST /api/admin/slack/read-scopes/recheck') return json({ ...admin, readScopes: null })
+    if (what === 'POST /api/admin/slack/read-scopes/recheck') return json({ ...admin, readScopes: admin.mode === 'official' ? null : 'ok' })
     if (what === 'GET /api/admin/slack') return json(admin)
     if (what === 'GET /api/credentials/sealing-key') return json(sealingKey)
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
@@ -458,8 +458,9 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
 })
 
 describe('Admin › Connected apps › Slack: reading Slack needs the app\'s permissions', () => {
-  test('the own app without the user scopes: Update Slack permissions, the scopes to add with their Slack page, I updated them', async () => {
-    admin = on({ readScopes: 'missing', userScopes: ['channels:history', 'search:read'], reading: 0 })
+  test('the own app not confirmed to have the user scopes: Update Slack permissions, the scopes to add with their Slack page, I updated them', async () => {
+    // not confirmed yet (null): the own app's sign-ins do not ask for the user scopes until the owner says it has them
+    admin = on({ readScopes: null, userScopes: ['channels:history', 'search:read'], reading: 0 })
     const m = await page()
     await m.until(() => m.find('slack-read-scopes'), 'the prompt')
     expect(m.get('slack-read-scopes').textContent).toContain('Update Slack permissions')

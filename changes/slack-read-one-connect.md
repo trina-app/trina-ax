@@ -5,4 +5,5 @@
 - An answer that used Slack messages from another channel or a DM asks first before **Post to channel**.
 - The AI no longer offers a "connect card" for Slack; it says how to link Slack instead.
 - Admin › Connected apps › Slack shows **Update Slack permissions** when the Slack app does not have the permissions
-  for reading yet.
+  for reading yet. A team's own Slack app: add the listed permissions in Slack, reinstall the app, then press **I updated
+  them**; until then Sign in with Slack links the account as before.

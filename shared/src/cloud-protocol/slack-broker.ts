@@ -59,8 +59,8 @@
 //      SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH?state=<returnState>&handoff=<one-time> (or &error=…).
 //   7. signin/redeem   { handoff, codeVerifier }            → { slackUserId, slackTeamId, enterpriseId }
 //      The control plane exchanges the code (openid.connect.token), checks the id_token (issuer, audience, time, nonce,
-//      and that it names the owner's installed workspace), revokes the person's user token at once and answers only
-//      who signed in. No user token ever leaves the control plane.
+//      and that it names the owner's installed workspace) and answers only who signed in. No user token ever leaves the
+//      control plane, and it keeps none. Revoking: see "Dropping a user token" below.
 //   8. signin/read/start   { returnState, codeChallenge }   → { authorizationUrl, expiresAt }
 //      "Sign in with Slack" that also lets the AI read Slack as the person (docs/SLACK.md "Reading Slack"): Slack's OAuth
 //      v2 page (SLACK_INSTALL_AUTHORIZE_URL) with ONLY `user_scope` = SLACK_BROKER_USER_SCOPES (no bot `scope`), the
@@ -73,7 +73,13 @@
 //      and hands the person's user token (xoxp) to the owner SEALED like a bot token, with
 //      slackBrokerUserSealAad(installId, slackTeamId, slackUserId) as the additional data. It keeps no copy (it never
 //      calls Slack with it again); a bot token Slack returns alongside is never handed out. `scopes`: what Slack granted
-//      the user token. The owner keeps it sealed and revokes it (auth.revoke) itself when the person unlinks.
+//      the user token. The owner keeps it sealed and revokes it (auth.revoke) itself when the person unlinks. A failure
+//      after the exchange: the token is dropped as below.
+//   Dropping a user token (7 and 9, anything not handed out): Slack gives ONE user token per person and app, the same
+//      again each time the person allows it, so a token of the owner's installed workspace may be that person's working
+//      token at the owner (reading Slack). It is only dropped, never revoked. It is revoked (auth.revoke) only when it
+//      cannot be anyone's working token for this owner: another workspace, an organization-wide (Enterprise Grid)
+//      grant, or a grant of another app. The team server applies the same rule to its own app's sign-ins.
 //      Older control planes do not have 8 and 9 (404): the owner then uses 6 and 7 (linking only, no reading).
 //
 // Request:  POST, body = JSON (at most SLACK_BROKER_MAX_BODY_BYTES, strict: unknown keys are refused), header
@@ -352,7 +358,7 @@ export function parseSlackBrokerAuthorization(header: string | null | undefined)
 
 /** The owner's return address after "Add to Slack" or "Sign in with Slack": only ever built from the owner's own
  * address (the control plane's records). */
-export function slackBrokerReturnUrl(ownerAddress: string, path: typeof SLACK_BROKER_TEAM_INSTALL_RETURN_PATH | typeof SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH, returnState: string, result: { handoff: string } | { error: 'consent_denied' | 'provider_error' }): string {
+export function slackBrokerReturnUrl(ownerAddress: string, path: typeof SLACK_BROKER_TEAM_INSTALL_RETURN_PATH | typeof SLACK_BROKER_TEAM_SIGNIN_RETURN_PATH, returnState: string, result: { handoff: string } | { error: 'consent_denied' | 'provider_error' | 'missing_scope' }): string {
   const u = new URL(ownerAddress.replace(/\/+$/, '') + path)
   u.searchParams.set('state', returnState)
   if ('handoff' in result) u.searchParams.set('handoff', result.handoff)

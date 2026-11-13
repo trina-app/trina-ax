@@ -4324,7 +4324,7 @@ export const ko = {
   "slack.link.alsoRead": "그다음 Slack이 {product}가 내 Slack을 읽어도 되는지 물어요. 허용하면 내가 묻는 스레드를 읽을 수 있어요.",
   "slack.mine.signInRead": "{workspace}의 내 Slack 계정으로 로그인하세요. 한 번에 연결되고 {product}가 내 Slack을 읽을 수 있어요.",
   "slack.admin.readTitle": "Slack 권한 업데이트",
-  "slack.admin.readOwn": "아직 사람들이 {product}에게 Slack 읽기를 허용할 수 없어요. Slack 앱에 권한이 빠져 있어요. [Slack 앱 설정 › OAuth & Permissions]에서 아래 User Token Scopes를 추가하고 앱을 다시 설치해 주세요:",
+  "slack.admin.readOwn": "사람들이 {product}에게 Slack 읽기를 허용하려면 Slack 앱에 권한이 더 필요해요. [Slack 앱 설정 › OAuth & Permissions]에서 아래 User Token Scopes를 추가하고 앱을 다시 설치한 뒤 업데이트했어요를 눌러 주세요:",
   "slack.admin.readOwnAsk": "아직 사람들이 {product}에게 Slack 읽기를 허용할 수 없어요. 팀장이 Slack 앱 권한을 업데이트해야 해요.",
   "slack.admin.readOfficial": "아직 사람들이 {product}에게 Slack 읽기를 허용할 수 없어요. {product}를 Slack에 다시 추가해서 새 권한을 승인해 주세요.",
   "slack.admin.readRecheck": "업데이트했어요",

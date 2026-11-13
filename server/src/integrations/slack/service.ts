@@ -46,6 +46,7 @@ import { placesText, postCheck } from './post-check'
 import { confidentialChat } from '../../safe-ops/confidential'
 import { clip, plain, questionText, say } from './text'
 import { askedContext } from './read'
+import type { ReadSource } from '../../chat/read-scope'
 
 export const LINK_TTL_MS = 10 * 60_000
 const LINK_PER_HOUR = 10
@@ -183,7 +184,9 @@ export class SlackConnector {
   private pending: { installId: string; actor: string; origin: string | null; until: number; tries: number } | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
   /** what the next turn of a chat gets about the Slack question it answers (read.ts askedContext), taken once */
-  readonly asked = new Map<string, { text: string; until: number }>()
+  readonly asked = new Map<string, { text: string; until: number; seen: ReadSource[] }>()
+  /** the official app: when a conversation's replies were last read (Slack: about once a minute), by channel */
+  readonly repliesAt = new Map<string, number>()
   /** Slack people's names read for the AI (read.ts), 10 minutes */
   readonly names = new Map<string, { name: string; at: number }>()
 
@@ -444,7 +447,7 @@ export class SlackConnector {
       emailSetByOther: this.emailSetByOther(userId),
       read: !!l && this.readsSlack(userId),
       // reading can be allowed: linked, sign-in ready, and the Slack app gives the user scopes (or it is not known yet)
-      readOffered: !!l && this.signInReady(cfg) && cfg?.read_scopes !== 'missing',
+      readOffered: !!l && this.signInReady(cfg) && !!cfg && this.asksUserScopes(cfg),
     }
   }
 
@@ -637,7 +640,7 @@ export class SlackConnector {
     const redirect = this.redirectUri(cfg.link_origin)
     if (!redirect) throw new SlackError('https_needed', 'conflict')
     if (!this.person(userId)) throw new SlackError('signin_off', 'conflict')
-    const oauth = cfg.read_scopes !== 'missing'
+    const oauth = this.asksUserScopes(cfg)
     if (kind === 'read' && !oauth) throw new SlackError('read_unavailable', 'conflict')
     this.flowLimit(userId, client)
     const state = crypto.randomBytes(32).toString('base64url'), nonce = crypto.randomBytes(32).toString('base64url')
@@ -681,16 +684,35 @@ export class SlackConnector {
   }
 
   /** Whether the Slack app gives the user scopes, as the last sign-in found (Admin › Slack). */
-  private noteReadScopes(v: 'ok' | 'missing') {
-    this.db.query('UPDATE slack_config SET read_scopes = ? WHERE id = 1 AND read_scopes IS NOT ?').run(v, v)
+  /** Only from what the server itself learned (a grant's scopes, the hosting service's answer), never from a browser's
+   * address; audited when it changes. */
+  private noteReadScopes(v: 'ok' | 'missing', reason: string) {
+    const cfg = this.config()
+    if (this.db.query('UPDATE slack_config SET read_scopes = ? WHERE id = 1 AND read_scopes IS NOT ?').run(v, v).changes) audit(this.db, { actor: null, action: 'slack.read_scopes', target: cfg?.team_id ?? null, detail: { value: v, reason } })
+  }
+
+  /** The hosting service answered 404 to signin/read/start (an older one): not asked again for a while */
+  private brokerReadOffUntil = 0
+
+  /** Does "Sign in with Slack" ask Slack for the user scopes now? The team's own app: only once the owner said they were
+   * added ("I updated them") or a person was granted them: an app without them makes Slack show its own error page
+   * ("Invalid permissions requested") with no way back, so nobody could link. The official app: unless Slack or the
+   * hosting service said no. */
+  private asksUserScopes(cfg: ConfigRow): boolean {
+    if (cfg.mode === 'official') return cfg.read_scopes !== 'missing' && this.now() >= this.brokerReadOffUntil
+    return cfg.read_scopes === 'ok'
   }
 
   /** Admin › Slack "I updated the permissions": the next sign-in asks Slack for the user scopes again. */
+  /** Admin › Slack "I updated them": the team's own app now has the user scopes (the owner says so: sign-ins ask for
+   * them from now on); the official app: asked again at the next sign-in. */
   recheckReadScopes(actor: string): SlackAdmin {
     const cfg = this.config()
-    if (cfg?.read_scopes === 'missing') {
-      this.db.query('UPDATE slack_config SET read_scopes = NULL WHERE id = 1').run()
-      audit(this.db, { actor, action: 'slack.read_scopes_recheck', target: cfg.team_id })
+    if (cfg?.secret_enc) {
+      const v = cfg.mode === 'official' ? null : 'ok'
+      this.db.query('UPDATE slack_config SET read_scopes = ? WHERE id = 1').run(v)
+      this.brokerReadOffUntil = 0
+      audit(this.db, { actor, action: 'slack.read_scopes_recheck', target: cfg.team_id, detail: { mode: cfg.mode } })
     }
     return this.adminView()
   }
@@ -710,9 +732,8 @@ export class SlackConnector {
     const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
     if (input.error) {
       if (f.method === 'oauth' && SCOPE_REFUSED.has(input.error)) {
-        // the redirect's error is only the browser's word: the team-wide mark (Admin › Slack's prompt, no reading
-        // offered) only when the browser is the flow's own person's; anyone else can just end their own flow
-        if (browser?.userId === f.user_id) this.noteReadScopes('missing')
+        // the redirect's error is only the browser's word (anyone can type it into an address): it ends this flow and
+        // marks nothing team-wide
         // linking goes on with the old sign-in, in the same click; reading cannot
         if (f.kind === 'link') return this.fallBackToOidc(f, out, end)
         return end('scopes_missing')
@@ -742,23 +763,24 @@ export class SlackConnector {
       const token = typeof u?.access_token === 'string' && USER_TOKEN.test(u.access_token) ? u.access_token : null
       const slackUser = typeof u?.id === 'string' && ID.test(u.id) ? u.id : null
       // (a bot token Slack might return alongside is the app's own: never kept, never revoked here)
-      if (!token || !slackUser || u!.token_type !== 'user') { if (token && slackUser) this.dropGrant(token, slackUser); else if (token) void this.revokeToken(token); return fail('signin_failed') }
-      if ((r.team as { id?: unknown } | undefined)?.id !== cfg.team_id) { this.dropGrant(token, slackUser); return fail('outsider') }
+      if (!token || !slackUser || u!.token_type !== 'user') { if (token) this.dropGrant(token, (r.team as { id?: unknown } | undefined)?.id); return fail('signin_failed') }
+      if ((r.team as { id?: unknown } | undefined)?.id !== cfg.team_id) { this.dropGrant(token, (r.team as { id?: unknown } | undefined)?.id); return fail('outsider') }
       // Slack itself says whose token it is: the same person of this workspace
       let who: Record<string, unknown> & { scopes: string[] | null }
-      try { who = await this.api.call('auth.test', token) } catch { this.dropGrant(token, slackUser); return fail('signin_failed') }
-      if (who.user_id !== slackUser || who.team_id !== cfg.team_id) { this.dropGrant(token, slackUser); return fail('outsider') }
+      try { who = await this.api.call('auth.test', token) } catch { this.dropGrant(token, cfg.team_id); return fail('signin_failed') }
+      if (who.user_id !== slackUser || who.team_id !== cfg.team_id) { this.dropGrant(token, who.team_id); return fail('outsider') }
       const scopes = typeof u!.scope === 'string' ? u!.scope.split(',').map((x) => x.trim()).filter(Boolean) : (who.scopes ?? [])
       return this.signedIn(f, cfg, creds.bot, me, slackUser, { token, scopes }, fail, out)
     }
     let r: Record<string, unknown>
     try { r = await this.api.call('openid.connect.token', '', { client_id: cfg.client_id, client_secret: creds.clientSecret, code: input.code, grant_type: 'authorization_code', redirect_uri: f.redirect_uri }, { noAuth: true }) }
     catch (e) { this.log.warn('slack sign-in exchange failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); return fail('signin_failed') }
-    // the old sign-in's user token is never kept: revoked whatever the id_token turns out to be
+    // the old sign-in's user token is never kept: dropped, and revoked when it cannot be anyone's working token here
+    // (another workspace, or a workspace not known: dropGrant)
     const userToken = typeof r.access_token === 'string' ? r.access_token : null
     let claims: Record<string, unknown>
-    try { claims = idTokenClaims(r.id_token) } catch { return fail('signin_failed') }
-    finally { if (userToken) void this.api.call('auth.revoke', userToken).catch(() => {}) }
+    try { claims = idTokenClaims(r.id_token) } catch { if (userToken) this.dropGrant(userToken, null); return fail('signin_failed') }
+    if (userToken) this.dropGrant(userToken, claims['https://slack.com/team_id'])
     const nowS = this.now() / 1000
     if (claims.iss !== 'https://slack.com' || claims.aud !== cfg.client_id || typeof claims.exp !== 'number' || claims.exp < nowS - 60 || typeof claims.nonce !== 'string' || sha(claims.nonce) !== f.nonce_hash) return fail('signin_failed')
     const slackUser = claims['https://slack.com/user_id']
@@ -789,7 +811,7 @@ export class SlackConnector {
   private async signedIn(f: SigninFlowRow, cfg: ConfigRow, bot: string, me: { name: string; username: string }, slackUser: string, grant: { token: string; scopes: string[] } | null, fail: (r: string) => FlowOut, out: (r: string) => FlowOut): Promise<FlowOut> {
     if (f.kind === 'read') {
       const link = this.linkOf(f.user_id, cfg)
-      if (!link || link.slack_user_id !== slackUser) { if (grant) this.dropGrant(grant.token, slackUser); return fail('read_other_account') }
+      if (!link || link.slack_user_id !== slackUser) { if (grant) this.dropGrant(grant.token, cfg.team_id); return fail('read_other_account') }
       if (!grant) return fail('signin_failed')
       if (!this.keepUserToken(f.user_id, cfg.team_id!, slackUser, grant)) return fail('scopes_missing')
       this.db.query("UPDATE slack_signin_flows SET state = 'done', reason = NULL WHERE id = ?").run(f.id)
@@ -798,7 +820,7 @@ export class SlackConnector {
       return out('read_allowed')
     }
     const res = await this.linkSignedIn(f, cfg, bot, me, slackUser, fail, out)
-    if (res.result !== 'linked') { if (grant) this.dropGrant(grant.token, slackUser); return res }
+    if (res.result !== 'linked') { if (grant) this.dropGrant(grant.token, cfg.team_id); return res }
     if (grant && this.keepUserToken(f.user_id, cfg.team_id!, slackUser, grant)) audit(this.db, { actor: f.user_id, action: 'slack.read_allowed', target: f.user_id, detail: { slackUser, team: cfg.team_id, via: 'slack_signin' } })
     return res
   }
@@ -834,12 +856,12 @@ export class SlackConnector {
    * sign-in, reading is refused. */
   private async startBrokerSignIn(userId: string, sessionId: string, client: string, cfg: ConfigRow, kind: 'link' | 'read', question: Question | null): Promise<{ authorizationUrl: string }> {
     if (!this.available(cfg) || !this.broker || !this.person(userId)) throw new SlackError('signin_off', 'conflict')
-    if (kind === 'read' && cfg.read_scopes === 'missing') throw new SlackError('read_unavailable', 'conflict')
+    const oauth = this.asksUserScopes(cfg)
+    if (kind === 'read' && !oauth) throw new SlackError('read_unavailable', 'conflict')
     this.flowLimit(userId, client)
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
-    const oauth = cfg.read_scopes !== 'missing'
     this.newFlow({ id, userId, sessionId, client, stateHash: sha(state), nonceHash: '', redirect: `${cfg.link_origin ?? ''}${SLACK_CALLBACK_PATH}`, via: 'broker', kind, method: oauth ? 'oauth' : 'oidc', question, verifier: sealed })
     const failed = (e: unknown) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id); return brokerRefusal(e) }
     if (oauth) {
@@ -848,6 +870,9 @@ export class SlackConnector {
         // sign-in, reading is not offered. Anything else (not reachable, its limit, not served): said as for any start
         const older = e instanceof SlackBrokerError && e.status === 404 && e.code !== 'not_installed'
         if (!older) throw failed(e)
+        // remembered for 10 minutes: Settings and Slack's button stop offering it, and linking goes straight to the
+        // old sign-in (one call to the hosting service per link, not two)
+        this.brokerReadOffUntil = this.now() + 10 * 60_000
         if (kind === 'read') { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id); throw new SlackError('read_unavailable', 'conflict') }
         this.log.info('slack reading through the hosting service is not available; linking only')
         this.db.query("UPDATE slack_signin_flows SET method = 'oidc' WHERE id = ?").run(id)
@@ -872,18 +897,18 @@ export class SlackConnector {
     const refused = (e: unknown, what: string) => {
       const code = e instanceof SlackBrokerError ? e.code : 'unreachable'
       this.log.warn(`slack ${what} through the hosting service failed`, { reason: code })
-      if (code === 'missing_scope') { this.noteReadScopes('missing'); return fail('scopes_missing') }
+      if (code === 'missing_scope') { this.noteReadScopes('missing', 'broker'); return fail('scopes_missing') }
       return fail(code === 'outsider' ? 'outsider' : code === 'invalid_handoff' ? 'signin_expired' : 'signin_failed')
     }
     if (f.method === 'oauth') {
       if (!cfg.install_id) return fail('signin_off')
       let got: { slackUserId: string; slackTeamId: string; scopes: string[]; userToken: string }
       try { got = await this.broker.redeemRead(handoff, verifier, cfg.install_id) } catch (e) { return refused(e, 'read sign-in') }
-      if (got.slackTeamId !== cfg.team_id) { this.dropGrant(got.userToken, got.slackUserId); return fail('outsider') }
+      if (got.slackTeamId !== cfg.team_id) { this.dropGrant(got.userToken, got.slackTeamId); return fail('outsider') }
       // Slack itself says whose token it is (the hosting service checked too)
       let who: Record<string, unknown>
-      try { who = await this.api.call('auth.test', got.userToken) } catch { this.dropGrant(got.userToken, got.slackUserId); return fail('signin_failed') }
-      if (who.user_id !== got.slackUserId || who.team_id !== cfg.team_id) { this.dropGrant(got.userToken, got.slackUserId); return fail('outsider') }
+      try { who = await this.api.call('auth.test', got.userToken) } catch { this.dropGrant(got.userToken, cfg.team_id); return fail('signin_failed') }
+      if (who.user_id !== got.slackUserId || who.team_id !== cfg.team_id) { this.dropGrant(got.userToken, who.team_id); return fail('outsider') }
       return this.signedIn(f, cfg, creds.bot, me, got.slackUserId, { token: got.userToken, scopes: got.scopes }, fail, out)
     }
     let who: { slackUserId: string; slackTeamId: string }
@@ -896,12 +921,12 @@ export class SlackConnector {
   // ---------------------------------------------------------------- the person's user token (reading Slack)
   private userTokenAad(userId: string) { return `slack:user-token:${userId}` }
 
-  /** Keep the person's user token sealed (another one before it is revoked). Only with every user scope: else revoked
+  /** Keep the person's user token sealed (another one before it is revoked). Only with every user scope: else dropped
    * and the app is marked as missing them (Admin › Slack). */
   private keepUserToken(userId: string, team: string, slackUser: string, grant: { token: string; scopes: string[] }): boolean {
     if (USER_SCOPES.some((sc) => !grant.scopes.includes(sc))) {
-      this.noteReadScopes('missing')
-      this.dropGrant(grant.token, slackUser)
+      this.noteReadScopes('missing', 'granted_fewer')
+      this.dropGrant(grant.token, team)
       this.log.info('slack user token without every read scope; not kept')
       return false
     }
@@ -914,7 +939,7 @@ export class SlackConnector {
       ON CONFLICT(user_id) DO UPDATE SET team_id = excluded.team_id, slack_user_id = excluded.slack_user_id, scopes = excluded.scopes, token_enc = excluded.token_enc, key_version = excluded.key_version, updated_at = excluded.updated_at`)
       .run(userId, team, slackUser, grant.scopes.join(','), sealed.enc, sealed.keyVersion, now, now)
     if (old && old !== grant.token) void this.revokeToken(old)
-    this.noteReadScopes('ok')
+    this.noteReadScopes('ok', 'granted')
     return true
   }
 
@@ -956,11 +981,13 @@ export class SlackConnector {
     if (this.db.query('DELETE FROM slack_user_tokens WHERE user_id = ?').run(userId).changes) audit(this.db, { actor: null, action: 'slack.read_ended', target: userId, detail: { reason } })
   }
 
-  /** A token a refused sign-in gave: revoked at Slack, unless it is the very token kept for that Slack user (Slack gives
-   * the same user token again when the same person allows the same app again: revoking it would end their reading) */
-  private dropGrant(token: string, slackUser: string) {
-    const rows = this.db.query('SELECT * FROM slack_user_tokens WHERE slack_user_id = ?').all(slackUser) as UserTokenRow[]
-    if (rows.some((r) => this.openUserToken(r) === token)) return
+  /** A token a sign-in gave that is not kept (refused, or the old sign-in's). Slack gives one user token per person and
+   * app, the same again each time they allow it: a token of this workspace may be someone's working token (kept here,
+   * or kept at their next allow), so it is only dropped; revoked only when it cannot be anyone's working token here
+   * (another workspace, an organization-wide grant, or a workspace not known). `team`: the workspace Slack named. */
+  private dropGrant(token: string, team: unknown) {
+    const ours = this.config()?.team_id
+    if (typeof team === 'string' && !!ours && team === ours) return
     void this.revokeToken(token)
   }
 
@@ -1003,6 +1030,12 @@ export class SlackConnector {
           .get(q.team, q.channel, root, f.user_id)
         if (!busy) break
         await Bun.sleep(1000)
+      }
+      // the official app: Slack reads a conversation's replies about once a minute; the thread was read when the
+      // question came, so wait out the rest of that minute rather than answer again without it
+      if (this.config()?.mode === 'official') {
+        const wait = (this.repliesAt.get(q.channel) ?? 0) + 61_000 - this.now()
+        if (wait > 0 && !this.closed) await Bun.sleep(Math.min(wait, 61_000))
       }
       const cfg = this.config()
       if (this.closed || !cfg || !this.available(cfg) || q.team !== cfg.team_id) return

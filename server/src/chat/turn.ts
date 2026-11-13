@@ -669,6 +669,9 @@ export class TurnExec {
       }
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
+    // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
+    // the read scope and marked, after a new session cleared the marks
+    if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint() }
     // a shared project chat: other people's messages on this branch are outside content (remember protection; no
     // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
     // only what everyone who sees the chat may read (chat/shared.ts)

@@ -24383,3 +24383,13 @@ Activity cleared notices one click at a time.
   `search.messages`; it is left for later (it needs other scopes).
 - **Migration:** `348_c_slack_read.sql` (`slack_user_tokens`; `slack_signin_flows.kind/method/question`;
   `slack_config.read_scopes`).
+- **Review of #674 (2026-11-13), changed:** the team's own app asks Slack for the user scopes only after the owner's
+  "I updated them" or a grant that had them (`read_scopes = 'ok'`): Slack shows its own error page with no way back for
+  scopes an app lacks, so asking an older app for them would stop linking. `read_scopes = 'missing'` comes only from
+  what the server learned itself (fewer scopes granted, the hosting service's `missing_scope`), never from a browser's
+  address, and is audited (`slack.read_scopes`). Slack messages shown to the AI taint the chat (`session_tainted`), as a
+  connection's answer does, also the thread in the instructions (marked by the turn after a new session starts:
+  `TurnToolProvider.seen`). A token not kept is dropped and revoked only when it cannot be anyone's working token here
+  (one token per person and app). Long threads are read to the end; the question is always last. A hosting service
+  without `signin/read/*` is remembered for 10 minutes. A disabled or deleted account's token is revoked at once
+  (`Services.accountHooks`).
