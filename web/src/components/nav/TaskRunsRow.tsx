@@ -24,7 +24,7 @@ const isRun = (c: Chat): c is Run => !!c.schedule && !c.pinnedAt
 /** A list's rows with the runs of each task folded into one row where its newest run is (`chats` in the list's order,
  * newest first). `row`: the list's own row for every other chat. `pool`: the whole list when `chats` is one of its
  * groups (a date, a project): the task's row is in the group of its newest run only, and counts all of its runs. */
-export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o: { projectTag?: boolean; pool?: readonly Chat[] } = {}): ReactNode[] {
+export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o: { projectTag?: boolean; menuSpace?: boolean; pool?: readonly Chat[] } = {}): ReactNode[] {
   const byTask = new Map<string, Run[]>()
   for (const c of o.pool ?? chats) if (isRun(c)) byTask.set(c.schedule.id, [...(byTask.get(c.schedule.id) ?? []), c])
   // newest first whatever the list's sort (by title, by creation)
@@ -33,7 +33,7 @@ export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o:
     if (!isRun(c)) return [<Fragment key={c.id}>{row(c)}</Fragment>]
     const runs = byTask.get(c.schedule.id)
     if (!runs || runs[0]!.id !== c.id) return []
-    return [<TaskRunsRow key={`task:${c.schedule.id}`} runs={runs} projectTag={o.projectTag} />]
+    return [<TaskRunsRow key={`task:${c.schedule.id}`} runs={runs} projectTag={o.projectTag} menuSpace={o.menuSpace} />]
   })
 }
 
@@ -41,8 +41,10 @@ export function foldRuns(chats: readonly Chat[], row: (c: Chat) => ReactNode, o:
  * in a visible window, which has no marker (the person is reading it; its seen goes to the server). */
 export const runsUnread = (runs: readonly Chat[], here: string | null) => runs.some((c) => needsMe(markerOf(c, { here: c.id === here })))
 
-/** One task's runs as one row (`runs`: newest first, at least one). */
-export function TaskRunsRow({ runs, projectTag = false }: { runs: Run[]; projectTag?: boolean }) {
+/** One task's runs as one row (`runs`: newest first, at least one). `menuSpace`: among chat rows with a "···" (the
+ * Trina list, the filtered history): its project and time in the same trailing tag as theirs, its mark in their marker's
+ * spot, so every row's tag ends at the same edge. */
+export function TaskRunsRow({ runs, projectTag = false, menuSpace = false }: { runs: Run[]; projectTag?: boolean; menuSpace?: boolean }) {
   const t = useT(), locale = useLocale()
   const newest = runs[0]!
   const task = newest.schedule
@@ -67,16 +69,25 @@ export function TaskRunsRow({ runs, projectTag = false }: { runs: Run[]; project
           <span className="truncate">{name}</span>
         </span>
       }
-      end={
-        <span className="flex shrink-0 items-center gap-2 self-center">
-          {project && <span className="max-w-24 truncate text-meta text-faint" title={project.name} data-testid="task-runs-project">{project.name}</span>}
-          {running ? (
-            <SessionMarker marker={{ kind: 'running', reason: running.runState === 'queued' ? 'queued' : 'running' }} label={t('scheduled.run.running')} />
-          ) : tone ? (
-            <span role="img" aria-label={t(tone === 'danger' ? 'scheduled.run.error' : 'scheduled.run.problems')} className={clsx('size-2 rounded-full', tone === 'danger' ? 'bg-danger' : 'bg-warn')} data-testid="task-runs-mark" />
-          ) : null}
-          <time dateTime={newest.updatedAt} className="text-meta font-normal text-faint tabular-nums">{listTime(newest.updatedAt, locale, t('sidebar.yesterday'))}</time>
+      tag={
+        // the project is cut first; the time always shows
+        <span className="flex min-w-0 justify-end">
+          {project && <span className="min-w-0 truncate" title={project.name} data-testid="task-runs-project">{project.name}</span>}
+          <time dateTime={newest.updatedAt} className="shrink-0 whitespace-pre">{project ? ' · ' : ''}{listTime(newest.updatedAt, locale, t('sidebar.yesterday'))}</time>
         </span>
+      }
+      menuSpace={menuSpace}
+      end={
+        (running || tone) && (
+          // in the "···" spot of the chat rows around it (ChatItem's marker), else after the tag
+          <span className={clsx('flex shrink-0 items-center self-center', menuSpace && 'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 max-md:right-4')}>
+            {running ? (
+              <SessionMarker marker={{ kind: 'running', reason: running.runState === 'queued' ? 'queued' : 'running' }} label={t('scheduled.run.running')} />
+            ) : (
+              <span role="img" aria-label={t(tone === 'danger' ? 'scheduled.run.error' : 'scheduled.run.problems')} className={clsx('size-2 rounded-full', tone === 'danger' ? 'bg-danger' : 'bg-warn')} data-testid="task-runs-mark" />
+            )}
+          </span>
+        )
       }
     />
   )

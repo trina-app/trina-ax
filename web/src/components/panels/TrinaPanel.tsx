@@ -19,6 +19,7 @@ import { Tooltip } from '../Tooltip'
 import { TrinaList } from './TrinaList'
 import { SetupRow } from '../onboarding/SetupRow'
 import { AiMark } from '../rooms/AiFace'
+import { headBox } from '../list/List'
 import { PanelFrame, panelRow, panelRowActive } from './PanelFrame'
 
 const onMac = () => platform() === 'mac' || platform() === 'ios'
@@ -60,7 +61,7 @@ export function TrinaPanel() {
     >
       {filtered ? (
         <>
-          <div className="flex h-row items-center gap-1 pr-1 pl-3 text-meta text-faint" data-testid="recents-filter-label">
+          <div className={`${headBox} pr-1 pl-3 text-meta text-faint`} data-testid="recents-filter-label">
             <span className="min-w-0 flex-1 truncate">{viewWords(view, t)}</span>
             <Tooltip label={t('sidebar.filter.clear')}>
               <button type="button" onClick={() => view.setView(DEFAULT_RECENTS_VIEW)} aria-label={t('sidebar.filter.clear')} className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
