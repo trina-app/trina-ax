@@ -463,7 +463,7 @@ function PluginDetail({ p, c, fileInstall, reload, put, review, onBack }: { p: I
 
 const sectionTitle = 'mb-3 text-title-sm font-semibold'
 /** two columns of cards; a phone, one row each with a hairline between (as Connectors' Discover) */
-const pluginListCls = 'grid gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
+const pluginListCls = 'grid grid-cols-1 gap-3 md:grid-cols-2 max-md:gap-0 max-md:divide-y max-md:divide-line max-md:border-y max-md:border-line'
 
 export default function Plugins() {
   const t = useT()
