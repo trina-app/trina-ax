@@ -11,7 +11,7 @@ Costs are estimates of the equivalent API price, not bills. Subscription connect
 
 ## Your own usage
 
-Open **Settings › Usage** (your photo at the bottom of the bar on the left › **Settings**; on a phone the **나** tab). It shows your answers, tokens and estimated cost, and how full each limit that applies to you is. You only ever see your own numbers.
+Open **Settings › Usage** (your photo at the bottom of the bar on the left › **Settings**; on a phone the **Me** tab). It shows your answers, tokens and estimated cost, and how full each limit that applies to you is. You only ever see your own numbers.
 
 ![Settings › Usage: Your usage, your answers by model for this month, and answers, tokens and estimated cost](../images/usage/mine.webp "Your own usage, in Settings")
 

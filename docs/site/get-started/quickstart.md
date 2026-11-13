@@ -42,7 +42,7 @@ Open http://127.0.0.1:19760 and sign in as `alice` with `teamax-demo-1`. The oth
 ![The Trina AX sign-in page with Username and Password fields and a Sign in button](../images/quickstart/sign-in.webp "The sign-in page")
 
 #### Check folder permissions
-Open **Files → shared → 팀-용어집.md**. Then sign in as `bob` in a private window. Bob sees the finance group, but not the marketing group.
+Open **Files → Company-wide → 팀-용어집.md**. Then sign in as `bob` in a private window. Bob sees the finance group, but not the marketing group.
 
 ![Files: the team's folders listed beside the bar on the left, the shared folder open and the glossary file shown in the side panel](../images/quickstart/files-glossary.webp "The glossary file, open in Files")
 :::

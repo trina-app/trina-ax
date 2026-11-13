@@ -21,18 +21,18 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { ROOT } from './site'
 
-type Locator = { fill(v: string): Promise<void>; first(): Locator; getByText(t: string | RegExp, o?: Record<string, unknown>): Locator; screenshot(o: Record<string, unknown>): Promise<Buffer>; click(o?: Record<string, unknown>): Promise<void>; waitFor(o?: Record<string, unknown>): Promise<void>; boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> }
+type Locator = { fill(v: string): Promise<void>; first(): Locator; filter(o: { hasText: string | RegExp }): Locator; getByText(t: string | RegExp, o?: Record<string, unknown>): Locator; screenshot(o: Record<string, unknown>): Promise<Buffer>; click(o?: Record<string, unknown>): Promise<void>; waitFor(o?: Record<string, unknown>): Promise<void>; boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> }
 type Page = {
   goto(url: string): Promise<unknown>; locator(s: string): Locator; getByRole(r: string, o?: Record<string, unknown>): Locator; getByText(t: string | RegExp, o?: Record<string, unknown>): Locator
   screenshot(o: Record<string, unknown>): Promise<Buffer>; waitForTimeout(ms: number): Promise<void>; waitForLoadState(s: string): Promise<void>
-  keyboard: { press(k: string): Promise<void> }; evaluate<T>(fn: (arg: string) => T, arg: string): Promise<T>; setViewportSize(s: { width: number; height: number }): Promise<void>
+  keyboard: { press(k: string): Promise<void>; type(t: string): Promise<void> }; mouse: { move(x: number, y: number): Promise<void> }; evaluate<T>(fn: (arg: string) => T, arg: string): Promise<T>; setViewportSize(s: { width: number; height: number }): Promise<void>
   addStyleTag(o: { content: string }): Promise<unknown>; close(): Promise<void>
 }
 type Context = { newPage(): Promise<Page>; close(): Promise<void>; request: { post(url: string, o: { data: unknown }): Promise<{ ok(): boolean; status(): number }> } }
 type Browser = { newContext(o: Record<string, unknown>): Promise<Context>; close(): Promise<void> }
 
 const OUT = path.join(ROOT, 'docs/site/images')
-const HIDE = '[data-testid="dev-banner"]{display:none!important} *{caret-color:transparent!important} ::-webkit-scrollbar{display:none}'
+const HIDE = '[data-testid="dev-banner"],[data-testid="demo-bar"]{display:none!important} *{caret-color:transparent!important} ::-webkit-scrollbar{display:none}'
 
 interface Shot {
   /** docs/site/images/<file>.webp */
@@ -54,8 +54,14 @@ interface Shot {
   as?: { user: string; password: string }
   /** also taken with --mock, on MOCK_SEED's data */
   mockToo?: boolean
+  /** taken only with --acme, on the Acme demo company that scripts/docs/acme-scene.ts filled */
+  acme?: boolean
+  /** a fixed part of the page in CSS pixels, instead of `crop` */
+  clip?: { x: number; y: number; width: number; height: number }
 }
 
+/** the settings dialog focuses its close button, which then shows a focus ring in the shot */
+const blur = async (p: Page) => { await p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur(), ''); await p.waitForTimeout(300) }
 const click = (sel: string) => async (p: Page) => { await p.locator(sel).first().click(); await p.waitForTimeout(400) }
 /** Slack, not added yet, where the hosting service serves the server (Add to Slack offered) */
 const SLACK_NEW = { mode: 'own', official: true, enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0 }
@@ -66,6 +72,8 @@ const GOOGLE_HOSTED = { hosted: true, active: false, canGoBack: true, by: null, 
 /** after Save: the company's app, set by the owner */
 const GOOGLE_OWN = { ...GOOGLE_HOSTED, active: true, by: { id: 'olga', name: 'Olga' }, at: '2026-11-13T02:00:00.000Z' }
 const BOB = { user: 'bob', password: 'bob password 1' }
+/** Acme's Marketing member, the person the --acme shots follow (scripts/docs/acme-scene.ts) */
+const JORDAN = { user: 'jordan', password: 'teamax-demo-1' }
 /** the dialog opened from Gmail's Team settings, then Next `n` times (step 3 with the ID and secret, so step 4 opens) */
 const ownAppDialog = (n: number) => async (p: Page) => {
   await p.locator('[data-testid="gsign-use"]').click(); await p.waitForTimeout(400)
@@ -98,31 +106,73 @@ const SHOTS: Shot[] = [
   { file: 'quickstart/files-glossary', path: '/files?path=shared', mockToo: true, prepare: async (p) => {
     await p.locator('main').getByText(/용어집|glossary/i).first().click(); await p.waitForTimeout(800)
   } },
-  { file: 'chats/home', path: '/', crop: 'main' },
-  { file: 'chats/project', path: '/projects', prepare: async (p) => { await p.locator('main a[href^="/projects/"]').first().click(); await p.waitForTimeout(800) }, crop: 'main' },
-  { file: 'files/files', path: '/files', crop: 'main' },
-  { file: 'files/folder-permissions', path: '/admin/folders', crop: 'main' },
-  { file: 'skills/team-skills', path: '/skills', crop: 'main' },
-  { file: 'mcp/connected', path: '/settings/integrations', crop: '[data-testid="settings-dialog"]' },
-  // Discover is on the same page, under the connections
-  { file: 'mcp/discover', path: '/settings/integrations', prepare: async (p) => { await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'start' }), '[data-testid="connector-discover-title"]'); await p.waitForTimeout(600) }, crop: '[data-testid="settings-dialog"]' },
-  { file: 'mcp/add', path: '/settings/integrations', prepare: async (p) => {
+  // Acme (--acme): `bun run demo:company` filled by scripts/docs/acme-scene.ts. Shots as Jordan Lee, a Marketing member
+  // (the demo's three personas get a demo-only Home); admin screens as the owner acme-admin.
+  // Overview and the bar on the left
+  { file: 'overview/app', path: '/', acme: true, as: JORDAN },
+  { file: 'concepts/rail', path: '/', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 380, height: 420 } },
+  // Chats and projects
+  { file: 'chats/home', path: '/', acme: true, as: JORDAN, crop: 'main' },
+  { file: 'chats/trina-list', path: '/', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 328, height: 330 } },
+  { file: 'chats/steps', path: '/', acme: true, as: JORDAN, prepare: async (p) => {
+    // the brand-voice chat: a short answer with plain steps (the campaign summary's steps are search patterns)
+    await p.locator('[data-testid="trina-list"] a').filter({ hasText: /brand voice/i }).first().click(); await p.waitForTimeout(1200)
+    await p.getByText(/^\d+ steps?$/).first().click(); await p.waitForTimeout(600)
+  }, crop: 'main' },
+  { file: 'chats/trina-drawer-phone', path: '/', phone: true, acme: true, as: JORDAN, prepare: click('[data-testid="menu-open"]') },
+  { file: 'chats/rooms-list', path: '/rooms', acme: true, as: JORDAN, clip: { x: 0, y: 0, width: 328, height: 330 } },
+  { file: 'chats/room', path: '/rooms', acme: true, as: JORDAN, prepare: async (p) => {
+    await p.locator('#rail-panel').getByText('Marketing', { exact: true }).first().click(); await p.waitForTimeout(1200)
+  }, crop: 'main' },
+  { file: 'chats/thread', path: '/rooms', acme: true, as: JORDAN, prepare: async (p) => {
+    await p.locator('#rail-panel').getByText('Marketing', { exact: true }).first().click(); await p.waitForTimeout(1200)
+    await p.getByText(/^\d+ replies$/).first().click(); await p.waitForTimeout(900)
+    // the message's hover bar stays out of the shot
+    await p.mouse.move(640, 790); await p.waitForTimeout(300)
+  }, crop: 'main' },
+  { file: 'chats/rooms-phone', path: '/rooms', phone: true, acme: true, as: JORDAN },
+  { file: 'chats/projects-panel', path: '/projects', acme: true, as: JORDAN },
+  { file: 'chats/project', path: '/projects', acme: true, as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1000) }, crop: 'main' },
+  // Files
+  { file: 'files/files', path: '/files', acme: true, as: JORDAN, crop: 'main' },
+  { file: 'files/files-phone', path: '/files', phone: true, acme: true, as: JORDAN },
+  { file: 'files/folder-permissions', path: '/admin/folders', acme: true, crop: 'main' },
+  { file: 'files/by-person', path: '/admin/folders', acme: true, prepare: async (p) => {
+    await p.getByText('By person', { exact: true }).first().click(); await p.waitForTimeout(800)
+    await p.locator('main').getByText('Jordan Lee', { exact: true }).first().click(); await p.waitForTimeout(900)
+  }, crop: 'main' },
+  // Team skills and connections
+  { file: 'skills/team-skills', path: '/skills', acme: true, as: JORDAN, crop: 'main' },
+  { file: 'skills/slash-menu', path: '/', acme: true, as: JORDAN, prepare: async (p) => {
+    await p.locator('[data-testid="composer"] textarea, [data-testid="composer"] [contenteditable]').first().click(); await p.keyboard.press('/'); await p.waitForTimeout(700)
+  }, crop: 'main' },
+  { file: 'mcp/connected', path: '/settings/integrations', acme: true, as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },
+  { file: 'mcp/add', path: '/settings/integrations', acme: true, as: JORDAN, prepare: async (p) => {
     await p.locator('[data-testid="connector-add"]').first().click(); await p.waitForTimeout(700)
   }, crop: '[role="dialog"]:not([data-testid="settings-dialog"]) >> nth=-1' },
-  { file: 'scheduled/list', path: '/scheduled', mockToo: true },
-  { file: 'scheduled/task', path: '/scheduled', prepare: async (p) => { await p.locator('main a[href^="/scheduled/"]').first().click(); await p.waitForTimeout(800) }, crop: 'main' },
-  { file: 'scheduled/new-task', path: '/scheduled', prepare: async (p) => { await p.getByRole('button', { name: /New task/ }).first().click(); await p.waitForTimeout(400) }, crop: 'main', },
-  { file: 'scheduled/list-phone', path: '/scheduled', phone: true, mockToo: true },
-  { file: 'usage/mine', path: '/settings/usage', crop: '[data-testid="settings-dialog"]' },
-  { file: 'usage/team', path: '/admin/usage', crop: 'main' },
-  { file: 'admin/home', path: '/admin', mockToo: true },
-  { file: 'admin/engines', path: '/admin/engines', crop: 'main' },
-  { file: 'admin/engines-open', path: '/admin/engines', prepare: click('[data-testid="engine-open"]'), crop: '[data-testid="engine-card"]', pad: 16 },
-  { file: 'admin/activity-log', path: '/admin/audit', crop: 'main' },
-  { file: 'settings/account-menu', path: '/', mockToo: true, prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]', pad: 24 },
-  { file: 'settings/settings', path: '/settings/profile', crop: '[data-testid="settings-dialog"]' },
-  { file: 'settings/settings-phone', path: '/settings/profile', phone: true },
-  { file: 'search/palette', path: '/', mockToo: true, prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(600) }, crop: '[data-testid="search-palette"]' },
+  // Scheduled tasks
+  { file: 'scheduled/list', path: '/scheduled', acme: true, as: JORDAN },
+  { file: 'scheduled/task', path: '/scheduled', acme: true, as: JORDAN, prepare: async (p) => { await p.locator('main a[href^="/scheduled/"]').first().click(); await p.waitForTimeout(800) }, crop: 'main' },
+  { file: 'scheduled/new-task', path: '/scheduled', acme: true, as: JORDAN, prepare: async (p) => { await p.getByRole('button', { name: /New task/ }).first().click(); await p.waitForTimeout(400) }, crop: 'main', },
+  { file: 'scheduled/list-phone', path: '/scheduled', phone: true, acme: true, as: JORDAN },
+  // Usage
+  { file: 'usage/mine', path: '/settings/usage', acme: true, as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },
+  { file: 'usage/team', path: '/admin/usage', acme: true, crop: 'main' },
+  // Admin (the owner)
+  { file: 'admin/team-menu', path: '/', acme: true, prepare: click('[data-testid="sidebar-team"]'), crop: '[data-testid="team-dropdown"]', pad: 8 },
+  { file: 'admin/home', path: '/admin', acme: true },
+  { file: 'admin/admin-phone', path: '/admin', phone: true, acme: true },
+  { file: 'admin/ai-settings', path: '/admin/settings', acme: true, crop: 'main' },
+  { file: 'admin/engines', path: '/admin/engines', acme: true, crop: 'main' },
+  { file: 'admin/engines-open', path: '/admin/engines', acme: true, prepare: click('[data-testid="engine-open"]'), crop: '[data-testid="engine-card"]', pad: 16 },
+  { file: 'admin/activity-log', path: '/admin/audit', acme: true, crop: 'main' },
+  // Your account and search
+  { file: 'settings/account-menu', path: '/', acme: true, as: JORDAN, prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]', pad: 24 },
+  { file: 'settings/settings', path: '/settings/profile', acme: true, as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },
+  { file: 'settings/settings-phone', path: '/settings/profile', phone: true, acme: true, as: JORDAN },
+  { file: 'settings/me-phone', path: '/settings', phone: true, acme: true, as: JORDAN },
+  { file: 'search/palette', path: '/', acme: true, as: JORDAN, prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(600) }, crop: '[data-testid="search-palette"]' },
+  { file: 'search/messages', path: '/', acme: true, as: JORDAN, prepare: async (p) => { await p.keyboard.press('Meta+k'); await p.waitForTimeout(500); await p.keyboard.type('banner'); await p.waitForTimeout(1200) }, crop: '[data-testid="search-palette"]' },
   // Slack (docs/site/use/slack.md), from the mock server (--mock): the hosting service serves it, workspace "Acme"
   { file: 'slack/connected-apps', path: '/admin/connectors', mock: { slack: { admin: SLACK_NEW } }, prepare: async (p) => {
     await p.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: 'center' }), '[data-testid="connector-card"][data-id="slack"]'); await p.waitForTimeout(400)
@@ -150,14 +200,40 @@ const SHOTS: Shot[] = [
   { file: 'google-own-app/row-company-phone', path: '/admin/connectors/gmail', phone: true, mock: { googleOwnApp: GOOGLE_OWN }, prepare: ownAppRow, crop: '[data-testid="gsign-row"]' },
 ]
 
+/** The website's guides (trina-ax-website src/content/guides*.ts, public/images/guide/<name>.webp): one whole window per
+ * guide at 1440×900, as a member or the owner. `--guides <folder> --member <user>:<password>` writes them there; the
+ * owner is --url's DOCS_SHOT_USER. Korean guides come from `bun run demo --locale ko`, English ones from Acme (--acme). */
+const guideShots = (member: { user: string; password: string }): Shot[] => {
+  const typeSlash = async (p: Page) => { await p.locator('[data-testid="composer"] textarea, [data-testid="composer"] [contenteditable]').first().click(); await p.keyboard.press('/'); await p.waitForTimeout(700) }
+  return [
+    { file: 'first-question', path: '/', as: member },
+    { file: 'team-files', path: '/files', as: member },
+    { file: 'use-skills', path: '/', as: member, prepare: typeSlash },
+    { file: 'schedules', path: '/scheduled', as: member, prepare: async (p) => { await p.locator('main button').filter({ hasText: /New task|새 작업/ }).first().click(); await p.waitForTimeout(500) } },
+    { file: 'integrations', path: '/settings/integrations', as: member, prepare: blur },
+    { file: 'apps', path: '/settings/apps', as: member, prepare: blur },
+    { file: 'skills', path: '/skills' },
+    { file: 'folder-permissions', path: '/admin/folders' },
+    { file: 'invite', path: '/', prepare: async (p) => { await p.locator('[data-testid="sidebar-team"]').click(); await p.waitForTimeout(400); await p.locator('[data-testid="team-dropdown"]').getByText(/Invite people|초대/).first().click(); await p.waitForTimeout(900) } },
+    { file: 'ai-connection', path: '/admin/engines' },
+    { file: 'usage-limits', path: '/admin/usage' },
+    { file: 'backup', path: '/admin/system' },
+  ]
+}
+
 function args() {
   const a = process.argv.slice(2)
   const get = (k: string) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : undefined }
   const url = get('--url')?.replace(/\/+$/, '')
   if (!url) throw new Error('Usage: DOCS_SHOT_USER=… DOCS_SHOT_PASSWORD=… bun scripts/docs/screenshots.ts --url https://team.example.com [--only <file prefix>] [--mock]')
   const mock = a.includes('--mock')
-  // the mock server's seeded owner is olga (web/test/mock/serve.ts)
-  return { url, only: get('--only'), mock, user: process.env.DOCS_SHOT_USER ?? (mock ? 'olga' : 'dion'), password: process.env.DOCS_SHOT_PASSWORD ?? '' }
+  const acme = a.includes('--acme')
+  // the mock server's seeded owner is olga (web/test/mock/serve.ts); Acme's owner is acme-admin (its password is in the
+  // demo's data folder, owner-password)
+  const member = get('--member')?.split(':')
+  const guides = get('--guides')
+  if (guides && !member?.[1]) throw new Error('--guides needs --member <user>:<password>')
+  return { url, only: get('--only'), mock, acme, guides, member: member ? { user: member[0]!, password: member.slice(1).join(':') } : undefined, user: process.env.DOCS_SHOT_USER ?? (mock ? 'olga' : acme ? 'acme-admin' : 'dion'), password: process.env.DOCS_SHOT_PASSWORD ?? '' }
 }
 
 async function webp(page: Page, png: Buffer): Promise<Buffer> {
@@ -187,14 +263,17 @@ async function main() {
     const key = `${phone}-${signedOut}-${as?.user ?? ''}`
     if (contexts.has(key)) return contexts.get(key)!
     const ctx = await browser.newContext({
-      viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 800 }, deviceScaleFactor: 2,
+      viewport: phone ? { width: 390, height: 844 } : o.guides ? { width: 1440, height: 900 } : { width: 1280, height: 800 }, deviceScaleFactor: 2,
       colorScheme: 'light', locale: 'en-US', timezoneId: 'Asia/Seoul', isMobile: phone, hasTouch: phone,
     })
     if (!signedOut) {
       // sign in through the form, as a person would (the API refuses requests without the browser's own headers)
       const p = await ctx.newPage()
       await p.goto(`${o.url}/login`)
-      await p.locator('input[type="text"], input[autocomplete="username"], input[name="username"]').first().fill(as?.user ?? o.user)
+      const username = p.locator('input[type="text"], input[autocomplete="username"], input[name="username"]').first()
+      // a demo company's sign-in page starts with its persona; the form is behind "Sign in with another account"
+      if (o.acme) { await p.waitForTimeout(1500); await p.getByText(/Sign in with another account/).first().click().catch(() => undefined) }
+      await username.fill(as?.user ?? o.user)
       await p.locator('input[type="password"]').first().fill(as?.password ?? o.password)
       await p.keyboard.press('Enter')
       await p.waitForTimeout(2000)
@@ -212,9 +291,13 @@ async function main() {
   }
   const encoder = await signedOut.newPage()
   const failed: string[] = []
-  const todo = SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && (!!x.mock === o.mock || (o.mock && !!x.mockToo)))
+  const todo = o.guides ? guideShots(o.member!).filter((x) => !o.only || x.file.startsWith(o.only)) : SHOTS.filter((x) => (!o.only || x.file.startsWith(o.only)) && (o.acme ? !!x.acme : !x.acme && (!!x.mock === o.mock || (o.mock && !!x.mockToo))))
   // the --only of a mock shot without --mock (or the other way round) takes nothing: say so
-  if (!todo.length) console.error(`No shot to take${o.only ? ` for --only ${o.only}` : ''}${SHOTS.some((x) => (!o.only || x.file.startsWith(o.only)) && !!x.mock !== o.mock) ? (o.mock ? ': these shots need a development server, without --mock' : ': these shots need --mock and the web e2e mock server') : ''}`)
+  const only = (x: Shot) => !o.only || x.file.startsWith(o.only)
+  const why = o.acme ? ': these shots are not Acme ones (leave out --acme)'
+    : SHOTS.some((x) => only(x) && x.acme) ? ': these shots need --acme and the Acme demo company'
+    : SHOTS.some((x) => only(x) && !!x.mock !== o.mock) ? (o.mock ? ': these shots need a development server, without --mock' : ': these shots need --mock and the web e2e mock server') : ''
+  if (!todo.length) console.error(`No shot to take${o.only ? ` for --only ${o.only}` : ''}${why}`)
   for (const s of todo) {
     const ctx = await contextFor(!!s.phone, !!s.signedOut, s.as)
     const page = await ctx.newPage()
@@ -223,12 +306,14 @@ async function main() {
       if (s.mock?.googleOwnApp) await control(ctx, 'google-own-app', s.mock.googleOwnApp)
       for (const g of s.mock?.googleApps ?? []) await control(ctx, 'google-apps', g)
       await page.goto(o.url + s.path)
-      await page.waitForLoadState('networkidle')
+      // a page that keeps a request open (the apps page's downloads) never goes quiet: take it after the wait
+      await page.waitForLoadState('networkidle').catch(() => undefined)
       await page.addStyleTag({ content: HIDE })
       await page.waitForTimeout(500)
       if (s.prepare) await s.prepare(page)
       let png: Buffer
-      if (s.crop) {
+      if (s.clip) png = await page.screenshot({ clip: s.clip })
+      else if (s.crop) {
         const el = page.locator(s.crop).first()
         await el.waitFor({ timeout: 5000 })
         const box = await el.boundingBox()
@@ -236,7 +321,7 @@ async function main() {
         const pad = s.pad ?? 0
         png = await page.screenshot({ clip: { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad), width: box.width + pad * 2, height: Math.min(box.height + pad * 2, 1600) } })
       } else png = await page.screenshot({})
-      const out = path.join(OUT, `${s.file}.webp`)
+      const out = path.join(o.guides ?? OUT, `${s.file}.webp`)
       fs.mkdirSync(path.dirname(out), { recursive: true })
       fs.writeFileSync(out, await webp(encoder, png))
       console.log(`${s.file}.webp  ${Math.round(fs.statSync(out).size / 1024)} KB`)
