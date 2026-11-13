@@ -80,7 +80,8 @@
      boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
      blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
      --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
-     step up (the @media block below); leading-reading is the line of room messages and the message boxes. In rem, as
+     step up in reading, label, base and code, and keep xs, sm and micro (the @media block below); leading-reading is the line
+     of room messages and the message boxes. In rem, as
      Tailwind's own, so the person's text size (lib/textSize.ts: the root font size) scales them; the px are at 기본. */
   --text-reading: 1rem; /* 16px */
   --text-label: 0.8125rem; /* 13px */
@@ -190,7 +191,8 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   .presence-dot[data-presence-dot='away'] { background: Canvas; box-shadow: inset 0 0 0 2px CanvasText, 0 0 0 2px Canvas; }
 }
 
-/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
+/* Phones (below 768px, where the phone top bar and the tabs show): the text sizes at the phone floor (xs, sm and micro as
+   on computers, the others one step up; badges stay 11px)
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
    reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it

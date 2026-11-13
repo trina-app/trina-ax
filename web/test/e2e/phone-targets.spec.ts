@@ -326,11 +326,12 @@ for (const width of [768, 1440])
     expect(await page.getByTestId('login-username').evaluate((el) => getComputedStyle(el).fontSize)).toBe('15px')
   })
 
-// measured on dev before the third round's change: computers keep these exactly
-const KEPT = { notFound: 20, attachItem: 36, crumb: 28, folderRow: 36 }
+// computers keep the desktop layout: these were 20 / 36 / 28 / 36 before computers read at 15px (22px lines, docs/DECISIONS.md
+// "Computers read at the phone's sizes"); each grew by the 2px of the line, nothing else changed
+const KEPT = { notFound: 22, attachItem: 38, crumb: 30, folderRow: 38 }
 
 for (const width of [768, 1440])
-  test(`a computer or tablet at ${width} px keeps the ＋ menu, the picker and the 404 link as they were`, async ({ page }) => {
+  test(`a computer or tablet at ${width} px keeps the ＋ menu, the picker and the 404 link at their computer sizes`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
     await signIn(page)

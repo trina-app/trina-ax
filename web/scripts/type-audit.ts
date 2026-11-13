@@ -11,13 +11,14 @@
 // flagged groups, per width). Dev tool, not part of the build.
 //
 //   bun web/scripts/type-audit.ts --base http://127.0.0.1:19100 --user kim --password-file ./owner-pw \
-//     [--member mia --member-password-file ./mia-pw] [--out type-audit] [--width 390,1440 --height 844] [--only drawer,admin]
+//     [--member mia --member-password-file ./mia-pw] [--out type-audit] [--width 390,1440 | --width 1440 [--height 900]] [--only drawer,admin]
 //     [--anon-only] [--file shared/a.txt]
 //
 // Passwords: --password-file / --member-password-file, or TYPE_AUDIT_PASSWORD / TYPE_AUDIT_MEMBER_PASSWORD in the
 // environment (never on the command line). --out defaults to a new folder under the OS temp directory.
 // Run it only against a test server: it saves the visible text of every screen to audit.csv, makes one failed sign-in
-// (the login error view) and marks the rooms it opens as read.
+// per width (the login error view) and marks the rooms it opens as read (the 390 pass reads them first, so run
+// --width 1440 alone to measure a computer's unread badges).
 // Content: the more the server has (rooms, a chat with an answer, files, a skill, a project, a schedule), the more
 // screens have something to measure. Views whose content is missing are listed as skipped in the summary.
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'

@@ -13049,13 +13049,15 @@ English at the same px; Slack's computer sizes are 15 / 13.
 - **One change at the root.** `@theme` sets `--text-xs` 13px / 18px and `--text-sm` 15px / 22px for every width, and the
   app's tokens `--text-micro` 13px, `--text-nano` 12px, `--text-reading` 16px with `--leading-reading` 26px. About 1,900
   uses follow without a class change. `text-base` stays 16px, `text-label` 13px (the size of meta; a label differs by
-  its weight, 500), the code tokens stay. Two hard-coded sizes moved onto tokens: the side chat's note (`text-micro`) and
-  the certificate fingerprint in Admin › System (`text-code-sm`).
-- **Phones unchanged.** The `max-width: 767.98px` block is as it was (body 15, label 14, reading 17, base 17); its nano
+  its weight, 500), the code tokens stay. Two hard-coded 11px sizes moved onto tokens, on phones too (13px there): the
+  side chat's note (`text-micro`) and the certificate fingerprint in Admin › System (`text-code-sm`). Inline code in a
+  small answer is the text's size (13px) on computers too, as on phones, not 0.85em (11px).
+- **Phones unchanged** but for those two notes. The `max-width: 767.98px` block is as it was (body 15, label 14, reading 17, base 17); its nano
   stays 11px, so a computer's badge (12px) is 1px larger than a phone's. Raising the phone's body to 16 is a separate
   decision (the audit recommends it).
-- **Rows keep their heights.** 36px rows, 32 / 36px buttons and fields: 15px text leaves 7px above and below. A computer's
-  field stays under 16px (iOS's zoom rule is for touch screens only).
+- **Fixed heights stay.** 36px rows, 32 / 36px buttons and fields (`h-*`): 15px text leaves 7px above and below. A row
+  sized by its padding grows by the 2px of the 22px line (menu items, the file picker's rows and crumbs, the 404 link:
+  `phone-targets.spec.ts` measures them). A computer's field stays under 16px (iOS's zoom rule is for touch screens).
 - **Checked at 1440.** `type-audit.ts` now opens every view at 390×844 and 1440×900 (`--width 390,1440`, one section per
   width; a computer's floor is body 15, labels, meta and controls 13, code and badges 12). The phone's drawer and
   long-press sheets are skipped at 1440.
