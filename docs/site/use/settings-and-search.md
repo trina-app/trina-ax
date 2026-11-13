@@ -7,25 +7,27 @@ Everything about your own account is one click away: your photo at the bottom of
 
 ## The account menu
 
-Click your photo at the bottom of the bar on the left. On a phone, open the **나** tab.
+Click your photo at the bottom of the bar on the left. On a phone, open the **Me** tab.
 
 ![The account menu: your name, email and role, then Show me as away, your status, Settings and Sign out](../images/settings/account-menu.webp "The account menu")
 
 | Item | Does |
 |---|---|
-| **Show me as away** (자리 비움으로 표시) | Others see you as away until you turn it back |
-| **Set your status** (상태 설정) | A short status with an emoji, shown next to your name |
+| **Show me as away** | Others see you as away until you turn it back |
+| **Set your status** | A short status with an emoji, shown next to your name |
 | **Settings** | Opens the Settings window, at your profile |
 | **Sign out** | Ends this session |
 
-Your usage is in **Settings › Usage**, and chats you deleted are in **삭제한 기록** (Deleted history) under your Trina
-list.
+Your usage is in **Settings › Usage**, and chats you deleted are in **Deleted history**, in the **⋯** menu next to **Recent** in your Trina
+list (on a phone, at the bottom of the **☰** menu on the **Trina** tab).
 
 ### Switching teams
 
-In the desktop app, click your team's logo at the top of the bar on the left and pick **다른 팀으로 전환** (Switch
-team): it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **나** tab, under
+In the desktop app, click your team's logo at the top of the bar on the left and pick **Switch
+team**: it lists your teams, the same as the app's **Team** menu (⌘1–9). In the phone app it is in the **Me** tab, under
 your team. In a web browser each team has its own address, so there is nothing to switch.
+
+![The team menu under the team's logo: the team's address, Invite people and Admin](../images/admin/team-menu.webp "The team menu")
 
 ## The Settings window
 
@@ -35,7 +37,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 | Group | Sections |
 |---|---|
 | **Account** | Profile, Security & devices, Browser, Usage, Memory |
-| **Connections** | Connectors, Providers (when the team lets members add their own accounts), AI apps |
+| **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), AI apps |
 | **App** | Notifications, Apps, About |
 
 **Connectors** holds your connections to other services: Google Drive, Gmail and the other Google apps, Slack, and the
@@ -60,11 +62,13 @@ Press **Esc** or choose **✕**. You are back where you were.
 
 On a phone, Settings fills the screen. The section list comes first, and **←** goes back to it.
 
+![The Me tab on a phone: your name, Activity, your status, then the Settings sections](../images/settings/me-phone.webp "The Me tab on a phone")
+
 ![Settings on a phone: the Profile section full screen, with a back arrow and a close button](../images/settings/settings-phone.webp "Settings on a phone")
 
 ## Search with ⌘K
 
-Press **⌘K** (Ctrl+K on Windows), or choose **Search** (검색) under **Ask Trina**.
+Press **⌘K** (Ctrl+K on Windows), or choose **Search** under **Ask Trina**.
 
 ![The search window: a search box, type tabs from All to Apps, and quick actions](../images/search/palette.webp "Search")
 
@@ -75,3 +79,5 @@ Press **⌘K** (Ctrl+K on Windows), or choose **Search** (검색) under **Ask Tr
 - **Files sent in conversations** are found by name on the All and Files tabs, after your team's files: the file, who sent it, where and when. Only files of messages you can see are found. Choose one to open the conversation at the message it was sent with.
 - **Every word counts**, in any order: "견적서 보내" finds "견적서를 보내드렸어요" in messages, chats and file names.
 - **Keys:** ↑ and ↓ move, Enter opens, ← and → change the tab, Esc closes.
+
+![Search finding a word in a room message: who wrote it, in which room, and when](../images/search/messages.webp "Search finds messages too")

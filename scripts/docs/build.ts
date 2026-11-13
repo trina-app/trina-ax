@@ -239,7 +239,10 @@ function postProcess(ctx: Ctx, page: Page, html: string): { html: string; toc: T
   // an image alone in a paragraph is a screenshot: a figure, its title as the caption, larger on click
   html = html.replace(/<p><img src="([^"]+)" alt="([^"]*)"(?: title="([^"]*)")?\s*\/?><\/p>/g, (_m, src: string, alt: string, title: string | undefined) => {
     const url = esc(resolveLink(ctx, page, unesc(src), false))
-    return `<figure class="shot"><button class="shot-zoom" type="button" data-src="${url}" aria-label="Enlarge: ${alt}"><img src="${url}" alt="${alt}" loading="lazy" decoding="async"></button>${title ? `<figcaption>${title}</figcaption>` : ''}</figure>`
+    // shots are taken at twice the size: shown at their own width at most, so a narrow list or a phone stays narrow
+    const size = imageSize(path.join(ROOT, path.dirname(page.file), unesc(src)))
+    const dims = size ? ` width="${Math.round(size.width / 2)}" height="${Math.round(size.height / 2)}"` : ''
+    return `<figure class="shot"><button class="shot-zoom" type="button" data-src="${url}" aria-label="Enlarge: ${alt}"><img src="${url}" alt="${alt}"${dims} loading="lazy" decoding="async"></button>${title ? `<figcaption>${title}</figcaption>` : ''}</figure>`
   })
   return { html, toc }
 }
@@ -407,4 +410,17 @@ export function build(argv: string[]) {
 if (import.meta.main) {
   const r = build(process.argv.slice(2))
   console.log(`Docs site: ${r.pages} pages → ${path.relative(process.cwd(), r.out) || r.out}`)
+}
+
+/** The pixel size of a WebP or PNG screenshot, from its header; null for anything else or a file that is not there. */
+export function imageSize(file: string): { width: number; height: number } | null {
+  let b: Buffer
+  try { b = fs.readFileSync(file) } catch { return null }
+  if (b.toString('ascii', 1, 4) === 'PNG') return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) }
+  if (b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WEBP') return null
+  const kind = b.toString('ascii', 12, 16)
+  if (kind === 'VP8X') return { width: 1 + b.readUIntLE(24, 3), height: 1 + b.readUIntLE(27, 3) }
+  if (kind === 'VP8L') { const n = b.readUInt32LE(21); return { width: 1 + (n & 0x3fff), height: 1 + ((n >> 14) & 0x3fff) } }
+  if (kind === 'VP8 ') return { width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff }
+  return null
 }

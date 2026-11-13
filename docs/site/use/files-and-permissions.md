@@ -50,9 +50,13 @@ The server works out who loses or gains access, and the Save button says it. Not
 `skills/` holds instructions that every member's AI follows. Write access there makes someone a skill manager. Before the AI saves into `skills/`, the server asks a person to confirm. The same goes for a group's `groups/<group>/skills/`: every member of that group's AI follows it, and any member who may write the group's folder changes it.
 :::
 
+![Folder permissions by person: pick someone to see which team folders they can open, and why](../images/files/by-person.webp "Folder permissions, by person")
+
 ## Working with files
 
-![The Files screen: the team folder with groups, projects, shared, skills and users](../images/files/files.webp "The Files screen")
+![The Files screen: the team folder with Company-wide, Groups, Projects, Team skills and Personal](../images/files/files.webp "The Files screen")
+
+![Files on a phone: Recent files, Team folders, Project folders, My files and Trash](../images/files/files-phone.webp "Files on a phone")
 
 - **Upload** files or whole folders from the Files screen.
 - **History**: every change keeps a version you can open or restore.

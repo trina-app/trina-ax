@@ -153,9 +153,9 @@ h1 { flex: 1; font: 400 40px/1.15 var(--serif); letter-spacing: -0.015em; margin
 
 /* screenshots */
 .shot { margin: 6px 0 22px; }
-.shot-zoom { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); cursor: zoom-in; box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06); }
+.shot-zoom { display: block; width: fit-content; max-width: 100%; margin: 0 auto; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); cursor: zoom-in; box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06); }
 .shot-zoom:hover { border-color: var(--line-strong); }
-.shot img { display: block; width: 100%; height: auto; }
+.shot img { display: block; max-width: 100%; height: auto; }
 .shot figcaption { margin-top: 8px; font-size: 13.5px; color: var(--muted); text-align: center; }
 .step .shot { margin-top: 12px; }
 .lightbox { max-width: min(1400px, 96vw); max-height: 94vh; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 64px rgb(0 0 0 / 0.35); }
