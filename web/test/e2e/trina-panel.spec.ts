@@ -31,7 +31,8 @@ async function start(page: Page, who?: typeof MEMBER, width = 1440) {
 }
 const panel = (page: Page) => page.getByTestId('trina-panel')
 const labels = (page: Page) => panel(page).getByTestId('trina-label')
-const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate')
+// a row's title (not its project's tag, chat-row-project, which is also cut with "…")
+const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate:not([data-testid])')
 
 test('order 고정 · 최근 기록; a project\'s chat in 최근 기록 with its project\'s name; no project groups, no 모든 프로젝트', async ({ page }) => {
   await start(page)

@@ -272,10 +272,10 @@ test('a sheet\'s item that opens a screen already in the stack (예약 작업 �
   // the phone's ＋ (a bottom sheet, with #453) or the page's own menu
   await page.getByTestId('new-task-phone').or(page.getByTestId('new-task')).filter({ visible: true }).first().click()
   await page.getByTestId('new-task-chat').filter({ visible: true }).first().click()
-  // the new-chat box on its own page (/new), a step under the 트리나 list
-  await expect(page).toHaveURL(/\/new/)
+  // the new-chat box: Home (`/`), the 트리나 tab's root
+  await expect(page).toHaveURL(/\/(\?.*)?$/)
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await page.waitForTimeout(500)
-  await expect(page).toHaveURL(/\/new/)
+  await expect(page).toHaveURL(/\/(\?.*)?$/)
   expect(await idx(page)).toBeLessThanOrEqual(1)
 })

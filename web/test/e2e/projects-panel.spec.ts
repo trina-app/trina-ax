@@ -21,6 +21,8 @@ test('a computer: the rail\'s 프로젝트 opens the list with 팀 and 내 secti
   await signIn(page)
   const team = await project(page, 'Acme launch', 'team')
   await project(page, 'Acme notes', 'personal')
+  // made over the API: a reload reads the list again
+  await page.reload()
   await openRail(page, 'projects')
   await expect(page).toHaveURL(/\/projects$/)
   const panel = page.getByTestId('projects-panel')
@@ -63,6 +65,7 @@ test('a phone: the 프로젝트 tab shows the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await project(page, 'Acme launch', 'team')
+  await page.reload()
   await page.getByTestId('tab-projects').click()
   await expect(page).toHaveURL(/\/projects$/)
   await expect(page.getByTestId('tab-projects')).toHaveAttribute('aria-current', 'page')
