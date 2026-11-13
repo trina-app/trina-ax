@@ -9,7 +9,7 @@
 // `badge`: the request's count for the app icon (iOS shows it only when the person allowed badges).
 import { validPushBadge, type PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'
-import { appData, type SendOutcome } from './fcm.ts'
+import { appData, type CredentialAlarm, type SendOutcome } from './fcm.ts'
 
 export interface ApnsConfig {
   keyId: string
@@ -30,7 +30,20 @@ export interface ApnsDeps {
   now(): number
   production?: string
   sandbox?: string
+  /** APNs refused OUR key, team id or topic (not a device token): the operators must act (bun.ts reports it) */
+  alarm?: CredentialAlarm
 }
+
+/**
+ * APNs reasons that mean our own provider token, key, team or topic was refused, for every device alike
+ * (developer.apple.com "Handling notification responses from APNs"). ExpiredProviderToken counts only when it comes
+ * back for a token signed just now. A device's own reasons (Unregistered, BadDeviceToken, 410) are not here: one dead
+ * phone is not an operator problem.
+ */
+export const APNS_CREDENTIAL_REASONS = new Set([
+  'InvalidProviderToken', 'ExpiredProviderToken', 'MissingProviderToken', 'BadCertificate', 'BadCertificateEnvironment',
+  'TopicDisallowed', 'BadTopic', 'MissingTopic', 'Forbidden',
+])
 
 /** Room notices (room.dm, room.mention, …): the app's extension may put who and where in the title. Nothing else. */
 export const mutableCode = (code: string) => code.startsWith('room.')
@@ -50,7 +63,10 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
     if (!fresh && cached && nowS - cached.iat < APNS_JWT_MAX_AGE_S) return cached.jwt
     key ??= importEs256(cfg.privateKeyPem)
     const k = await key
-    if (!k) return null
+    if (!k) {
+      deps.alarm?.('apns', 'key_unreadable')
+      return null
+    }
     const jwt = await signJwt(k, { alg: 'ES256', kid: cfg.keyId }, { iss: cfg.teamId, iat: nowS })
     cached = { jwt, iat: nowS }
     return jwt
@@ -99,6 +115,8 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
         if (r.status === 200) return 'sent'
         if (r.status === 410 || r.reason === 'Unregistered' || r.reason === 'BadDeviceToken') return 'token_invalid'
         if (r.status === 403 && (r.reason === 'ExpiredProviderToken' || r.reason === 'InvalidProviderToken')) cached = null
+        if (r.reason && APNS_CREDENTIAL_REASONS.has(r.reason)) deps.alarm?.('apns', r.reason)
+        else if (r.status === 403 && !r.reason) deps.alarm?.('apns', 'http_403')
         return 'provider_error'
       } catch {
         return 'provider_error'

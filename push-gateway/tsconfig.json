@@ -1,4 +1,4 @@
 {
   "extends": "../tsconfig.json",
-  "include": ["src", "../shared/src/cloud-protocol/push-gateway.ts"]
+  "include": ["src", "../shared/src/cloud-protocol/push-gateway.ts", "../shared/src/sentry-report.ts"]
 }

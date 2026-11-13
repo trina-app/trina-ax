@@ -17,6 +17,8 @@ Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall o
 | `litestream.yml` | continuous registry replication to `teamax-ops/relay/litestream` |
 | `registry-backup.{sh,service,timer}` | daily `VACUUM INTO` → age (organisation recovery key) → `teamax-ops/relay/daily/` |
 | `mycel-relay-cli` | the relay's operator commands on the host (break glass) |
+| `relay-checkin.sh` | Sentry cron check-ins around the timers' jobs (`/usr/local/sbin/relay-checkin`) |
+| `litestream-check.{sh,service,timer}` | every 15 min: is Litestream running and is the replica keeping up |
 
 ## Owner steps (once)
 
@@ -50,6 +52,40 @@ Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall o
    (same hosts) Email Obfuscation off, Rocket Loader off; WebSockets on.
 9. **First deploy**: `sudo relay-deploy /path/teamax-relay-<v>.tar.zst` → `https://relay.example.com/healthz` 200.
    Check that the origin refuses a direct TLS connection: `curl -vk https://<static ip>/healthz` must fail the handshake.
+
+## Error reports and check-ins
+
+Off until you set a key. Put the Sentry project's DSN in `/etc/mycel-relay/relay.env`:
+
+```sh
+RELAY_SENTRY_DSN=https://<public key>@<host>/<project id>   # empty (the default): nothing is sent
+RELAY_SENTRY_ENV=production                                  # optional, the environment name
+```
+
+The relay reads it when it starts, so the next `relay-deploy` picks it up; the timers read the file on every run. A host set up before this change needs `setup-host.sh` from the new bundle once: it installs the check-in
+wrapper, the Litestream check and its timer, and the unit that tags reports with the instance.
+
+What is sent:
+
+- **Errors** from the relay (`shared/src/sentry-report.ts`, the same rules as the team server's opt-in reports, docs/DECISIONS.md
+  "Error reports to Sentry"): a crash (uncaught exception, unhandled rejection; the relay still exits and systemd
+  restarts it), a start that failed, and every error line of the relay log. A report holds the error type, the log
+  event name (`request_failed`, `ops_keys_unusable`, …), the error message with addresses, paths, host names, emails,
+  secrets, long ids and non-English text taken out, stack frames (the last two parts of a file name, function, line),
+  and the tags `release` (`relay@<version>`), `environment` and `instance` (`a` or `b`). At most one copy of the same
+  error a minute and 30 reports a minute.
+- **Check-ins** (Sentry Crons; the monitor is created by its first check-in). Each run sends `in_progress`, then `ok` or
+  `error`, with a random check-in id, the environment and the schedule. A check-in that cannot be sent never changes
+  the job's result.
+
+  | Monitor slug | Job | Schedule (UTC) |
+  |---|---|---|
+  | `relay-registry-backup` | `registry-backup.service` | daily 18:40, 30 min margin |
+  | `relay-cf-ips-refresh` | `cf-ips-refresh.service` | Mondays 03:17, 45 min margin (the timer waits up to 30 min) |
+  | `relay-litestream` | `litestream-check.service` | every 15 min: error when `litestream` is not active, its replica cannot be listed, or the registry changed more than 15 min after the newest replica file |
+
+Never sent: client addresses, request paths, host names, headers, cookies, team names or ids, team keys, operator keys,
+registry contents, job output. The relay log never holds the first four either (`relay/src/log.ts`).
 
 ## Deploy, roll back
 

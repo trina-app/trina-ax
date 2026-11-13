@@ -54,6 +54,7 @@ Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loo
 | `--health-listen` | `RELAY_HEALTH_LISTEN` | | loopback `host:port` answering `/healthz` for THIS process (a/b deploy) |
 | | `RELAY_HSTS` | 1 | `Strict-Transport-Security: max-age=31536000` on team answers without one (https addresses only) |
 | | `RELAY_ACCOUNT_HOST`, `RELAY_STATUS_HOST` | account.treesoop.com, status.treesoop.com | named on the billing-suspension and cloud-offline pages |
+| | `RELAY_SENTRY_DSN`, `RELAY_SENTRY_ENV` | (off), production | error reports and the timers' check-ins to the operators' Sentry project ([deploy/README.md](deploy/README.md#error-reports-and-check-ins)) |
 
 SIGTERM: stop accepting, GOAWAY(restart) to team servers (they reconnect at once), 1012 to browser WebSockets (they
 resume), wait for running HTTP streams up to `RELAY_GRACE_MS`. On Linux the listener uses `reusePort`, so a new

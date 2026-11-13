@@ -13,6 +13,7 @@ import { TEXT } from '../../server/src/notifications/text.ts'
 import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
 import { memoryState } from '../../push-gateway/src/state.ts'
 import { EVENT_TEXT, alertBody } from '../../push-gateway/src/text.ts'
+import { gatewayReportsFrom } from '../../push-gateway/src/report.ts'
 
 // ------------------------------------------------------------------ fixtures
 
@@ -66,9 +67,11 @@ const defaultResponder: Responder = (c) => {
   return new Response(null, { status: 200, headers: { 'apns-id': 'x' } })
 }
 
-function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: Set<string>; replaceEnv?: GatewayEnv; fcmTimeoutMs?: number } = {}) {
+function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: Set<string>; replaceEnv?: GatewayEnv; fcmTimeoutMs?: number; failed?: (e: unknown) => void } = {}) {
   const calls: Call[] = []
   const logs: LogLine[] = []
+  /** credential alarms (error reports when PUSH_GATEWAY_SENTRY_DSN is set) */
+  const alarms: string[] = []
   const clock = { t: T0 }
   const mem = memoryState({ blocked: o.blocked })
   const respond = o.respond ?? defaultResponder
@@ -82,11 +85,13 @@ function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: 
     log: (l) => logs.push(l),
     state: mem.state,
     fcmTimeoutMs: o.fcmTimeoutMs,
+    alarm: (provider, reason) => alarms.push(`${provider}:${reason}`),
+    failed: o.failed,
   })
   const handle = (req: Request, ip = IP) => gw.handle(req, ip)
   const send = (text: string, team: Team = TEAM, opts?: Parameters<typeof signedRequest>[3]) => handle(signedRequest(team, text, clock.t, opts))
   const apnsCalls = () => calls.filter((c) => c.url.includes('push.apple.com'))
-  return { gw, handle, calls, logs, clock, mem, send, apnsCalls }
+  return { gw, handle, calls, logs, clock, mem, send, apnsCalls, alarms }
 }
 
 async function expectError(r: Response, error: keyof typeof PUSH_GATEWAY_ERRORS) {
@@ -664,3 +669,105 @@ describe('push gateway: configuration, text and logs', () => {
     for (const c of h.calls) if (c.headers.get('authorization')?.startsWith('bearer ')) expect(text).not.toContain(c.headers.get('authorization')!.slice(7, 40))
   })
 })
+
+// ------------------------------------------------------------------ error reports (report.ts)
+
+describe('push gateway: our credentials refused are reported, dead device tokens are not', () => {
+  test('APNs: a refused provider token, key, team or topic alarms with its reason; a dead device does not', async () => {
+    const cases: [number, string | null, string[]][] = [
+      [403, 'InvalidProviderToken', ['apns:InvalidProviderToken']], [403, 'MissingProviderToken', ['apns:MissingProviderToken']],
+      [400, 'TopicDisallowed', ['apns:TopicDisallowed']], [400, 'BadTopic', ['apns:BadTopic']], [403, 'BadCertificate', ['apns:BadCertificate']],
+      [403, null, ['apns:http_403']],
+      // one phone: not an operator problem
+      [410, 'Unregistered', []], [410, null, []], [400, 'BadDeviceToken', []],
+      // Apple's own trouble or a busy device: logged as 502, not a credential alarm
+      [500, 'InternalServerError', []], [503, 'ServiceUnavailable', []], [429, 'TooManyRequests', []], [400, 'PayloadTooLarge', []],
+    ]
+    for (const [status, reason, want] of cases) {
+      const h = harness({ respond: () => new Response(reason ? JSON.stringify({ reason }) : null, { status }) })
+      await h.send(body())
+      expect({ status, reason, alarms: h.alarms }).toEqual({ status, reason, alarms: want })
+    }
+    // ExpiredProviderToken once is renewed silently; for a token signed just now it is our key's fault
+    const once = harness({ respond: (c, n) => (n === 1 ? json(403, { reason: 'ExpiredProviderToken' }) : defaultResponder(c, n)) })
+    await expectOk(await once.send(body()))
+    expect(once.alarms).toEqual([])
+    const always = harness({ respond: () => json(403, { reason: 'ExpiredProviderToken' }) })
+    await always.send(body())
+    expect(always.alarms).toEqual(['apns:ExpiredProviderToken'])
+    // a key that cannot be read
+    const badKey = harness({ env: { APNS_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----' } })
+    await expectError(await badKey.send(body()), 'provider_error')
+    expect(badKey.alarms).toEqual(['apns:key_unreadable'])
+  })
+
+  test('FCM: a refused service account alarms; UNREGISTERED, a bad token and SENDER_ID_MISMATCH do not', async () => {
+    const fcmError = (status: number, s: string, message: string, errorCode?: string) => json(status, {
+      error: { code: status, message, status: s, details: errorCode ? [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode }] : [] },
+    })
+    const cases: [Response, string[]][] = [
+      [fcmError(401, 'UNAUTHENTICATED', 'Request had invalid authentication credentials.'), ['fcm:UNAUTHENTICATED']],
+      [fcmError(403, 'PERMISSION_DENIED', 'Permission denied on resource project.'), ['fcm:PERMISSION_DENIED']],
+      [fcmError(401, 'UNAUTHENTICATED', 'Auth error from APNS or Web Push Service', 'THIRD_PARTY_AUTH_ERROR'), ['fcm:THIRD_PARTY_AUTH_ERROR']],
+      [new Response('forbidden', { status: 403 }), ['fcm:http_403']],
+      [fcmError(404, 'NOT_FOUND', 'Requested entity was not found.', 'UNREGISTERED'), []],
+      [fcmError(400, 'INVALID_ARGUMENT', 'The registration token is not a valid FCM registration token', 'INVALID_ARGUMENT'), []],
+      [fcmError(403, 'PERMISSION_DENIED', 'SenderId mismatch', 'SENDER_ID_MISMATCH'), []],
+      [fcmError(500, 'INTERNAL', 'Internal error', 'INTERNAL'), []],
+      [fcmError(429, 'RESOURCE_EXHAUSTED', 'Quota', 'QUOTA_EXCEEDED'), []],
+    ]
+    for (const [res, want] of cases) {
+      const h = harness({ respond: (c, n) => (c.url.startsWith('https://fcm.') ? res.clone() : defaultResponder(c, n)) })
+      await h.send(android())
+      expect(h.alarms).toEqual(want)
+    }
+    // the OAuth exchange refused (a deleted or disabled key) alarms; Google's 5xx does not
+    for (const [status, want] of [[400, ['fcm:oauth_400']], [401, ['fcm:oauth_401']], [503, []]] as const) {
+      const h = harness({ respond: (c, n) => (c.url.includes('oauth2') ? json(status, { error: 'invalid_grant' }) : defaultResponder(c, n)) })
+      await expectError(await h.send(android()), 'provider_error')
+      expect(h.alarms).toEqual([...want])
+    }
+    // a service account that is set but cannot be read alarms once, at start
+    const broken = harness({ env: { FCM_SERVICE_ACCOUNT: '{"type":"service_account"}' } })
+    expect(broken.alarms).toEqual(['fcm:service_account_invalid'])
+  })
+
+  test('a send that throws is answered 500 internal and handed to the report', async () => {
+    const failures: unknown[] = []
+    const h = harness({ failed: (e) => failures.push(e) })
+    const throwing = Object.assign(Object.create(h.mem.state) as typeof h.mem.state, { admitKey: async () => { throw new TypeError('state broke') } })
+    const gw = createGateway(ENV, { fetch: async () => new Response(null), now: () => h.clock.t, log: () => {}, state: throwing, failed: (e) => failures.push(e) })
+    const r = await gw.handle(signedRequest(TEAM, body(), h.clock.t), IP)
+    await expectError(r, 'internal')
+    expect(failures.length).toBe(1)
+    expect((failures[0] as Error).message).toBe('state broke')
+  })
+
+  test('gatewayReportsFrom: no key, no reporter, no alarm; with a key an alarm is one event without tokens or keys', async () => {
+    expect(gatewayReportsFrom({}, { build: 'abc' })).toEqual({ reporter: null, invalid: false })
+    expect(gatewayReportsFrom({ PUSH_GATEWAY_SENTRY_DSN: '  ' }, { build: 'abc' })).toEqual({ reporter: null, invalid: false })
+    expect(gatewayReportsFrom({ PUSH_GATEWAY_SENTRY_DSN: 'not a key' }, { build: 'abc' })).toEqual({ reporter: null, invalid: true })
+
+    const posts: { url: string; body: string }[] = []
+    const fake = async (url: string, init: RequestInit) => { posts.push({ url, body: String(init.body) }); return new Response(null, { status: 200 }) }
+    const reports = gatewayReportsFrom({ PUSH_GATEWAY_SENTRY_DSN: 'https://0123abcd@o1.ingest.example.test/42', PUSH_GATEWAY_SENTRY_ENV: 'staging' }, { build: 'abcdef012345', fetch: fake, now: () => T0 })
+    // the real path: APNs refuses our key while a team sends to a phone
+    const h = harness({ respond: () => json(403, { reason: 'InvalidProviderToken' }) })
+    const gw = createGateway(ENV, {
+      fetch: async () => json(403, { reason: 'InvalidProviderToken' }), now: () => h.clock.t, log: () => {}, state: h.mem.state, alarm: reports.alarm,
+    })
+    await gw.handle(signedRequest(TEAM, body(), h.clock.t), IP)
+    await gw.handle(signedRequest(TEAM, body({ notificationId: 'n2' }), h.clock.t), IP)
+    await reports.reporter!.flush(1000)
+    expect(posts.length).toBe(1) // the same refusal again within a minute is not sent twice
+    expect(posts[0]!.url).toBe('https://o1.ingest.example.test/api/42/envelope/')
+    const event = JSON.parse(posts[0]!.body.split('\n')[2]!)
+    expect(event.release).toBe('push-gateway@abcdef012345')
+    expect(event.environment).toBe('staging')
+    expect(event.tags).toEqual({ provider: 'apns', reason: 'InvalidProviderToken' })
+    expect(event.exception.values[0].type).toBe('CredentialRejected')
+    expect(event.exception.values[0].value).toBe("APNs refused the gateway's credentials")
+    for (const s of [IOS_TOKEN, TEAM.pub, TEAM.keyId, IP, 'room.message', 'n1', ENV.APNS_KEY_ID!, ENV.APNS_TEAM_ID!, 'BEGIN']) expect(posts[0]!.body).not.toContain(s)
+  })
+})
+
