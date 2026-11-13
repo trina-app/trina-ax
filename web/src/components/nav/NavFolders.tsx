@@ -48,7 +48,8 @@ function nameCheck(t: T, kind: NavFolderKind, except?: string) {
   }
 }
 
-/** What changes my folders, each with its question and its error said in a toast. */
+/** What changes my folders, each with its question and its error said in a toast. Each shows at once and goes back
+ * when the server refuses it (store/navFolders.ts, lib/optimistic.ts: the toast is the server's words). */
 export function useFolderActions(kind: NavFolderKind) {
   const t = useT()
   const locale = useLocale()
@@ -61,29 +62,27 @@ export function useFolderActions(kind: NavFolderKind) {
     async create(): Promise<NavFolder | null> {
       const name = await promptDialog({ title: t('navFolders.new'), label: t('navFolders.nameLabel'), confirm: t('navFolders.make'), validate: nameCheck(t, kind), maxLength: 200 })
       if (!name?.trim()) return null
-      return createFolder(kind, name.trim()).catch(fail)
+      return createFolder(kind, name.trim())
     },
     async rename(f: NavFolder) {
       const name = await promptDialog({ title: t('navFolders.rename'), label: t('navFolders.nameLabel'), initial: f.name, confirm: t('common.save'), validate: nameCheck(t, kind, f.id), maxLength: 200 })
       if (!name?.trim() || name.trim() === f.name) return
-      await renameFolder(f, name.trim()).catch(fail)
+      await renameFolder(f, name.trim())
     },
     /** asks first only when something is in it (`count`: what I can see in it now) */
     async remove(f: NavFolder, count: number) {
       if (count > 0 && !(await confirmDialog({ title: t('navFolders.deleteTitle', { name: f.name }), body: t(kind === 'chats' ? 'navFolders.deleteBodyChats' : 'navFolders.deleteBodyRooms'), confirm: t('navFolders.delete'), danger: true }))) return
-      await deleteFolder(f).catch(fail)
+      await deleteFolder(f)
     },
     async move(f: NavFolder, by: -1 | 1) {
       await moveFolder(useNavFolders.getState().folders ?? [], f, by).catch(fail)
     },
-    /** a chat or room into a folder (or out: null), said in a toast (a keyboard or a screen reader hears where it went) */
+    /** a chat or room into a folder (or out: null), said in a toast once the server has it (a keyboard or a screen
+     * reader hears where it went); the row moves at once */
     async file(id: string, to: NavFolder | null, from?: NavFolder | null) {
-      try {
-        if (kind === 'chats') await fileChat(id, to?.id ?? null)
-        else await fileRoom(id, to?.id ?? null)
-      } catch (e) {
-        return fail(e)
-      }
+      const r = kind === 'chats' ? await fileChat(id, to?.id ?? null) : await fileRoom(id, to?.id ?? null)
+      if (!r.ok) return null
+      if (!r.newest) return true
       if (to) toast({ level: 'success', text: t('navFolders.moved', { name: to.name }) })
       else if (from) toast({ level: 'success', text: t('navFolders.takenOut', { name: from.name }) })
       return true

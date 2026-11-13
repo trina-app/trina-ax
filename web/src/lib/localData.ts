@@ -15,6 +15,8 @@ export const TAB_STACKS_KEY = 'mycel.tabStacks.v3'
 const OLD_TAB_STACKS_KEYS = ['mycel.tabStacks', 'mycel.tabStacks.v2']
 /** what each place of the rail had open (lib/rail.ts), this browser tab */
 export const RAIL_LAST_KEY = 'mycel.rail.last'
+/** the notice 활동 last opened and its page (components/panels/ActivityPanel.tsx), this browser tab */
+export const ACTIVITY_OPENED_KEY = 'mycel.activity.opened'
 
 /** Why an upload stops when the person signs out or the session ends, as opposed to a cancel: nothing is dropped on the
  * server (a request would be refused), and the same person can go on from the chunks that are there. */
@@ -55,6 +57,6 @@ export function clearLocalData(s: Store | null = local()) {
     for (const k of keys) s.removeItem(k)
   } catch { /* storage blocked */ }
   try {
-    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, ...OLD_TAB_STACKS_KEYS, RAIL_LAST_KEY]) sessionStorage.removeItem(k)
+    if (typeof sessionStorage !== 'undefined') for (const k of [TAB_STACKS_KEY, ...OLD_TAB_STACKS_KEYS, RAIL_LAST_KEY, ACTIVITY_OPENED_KEY]) sessionStorage.removeItem(k)
   } catch { /* storage blocked */ }
 }

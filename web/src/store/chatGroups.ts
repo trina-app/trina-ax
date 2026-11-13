@@ -55,13 +55,13 @@ export function readChatGroups(o: { minAgeMs?: number } = {}): Promise<void> {
   if (o.minAgeMs && !stale && lastRead && Date.now() - lastRead < o.minAgeMs) return Promise.resolve()
   stale = false
   const mine = generation
-  const edits = optimisticEdits(isChatPin)
+  const edits = optimisticEdits(isChatPinOrTrash)
   inFlight = api.call(API.listChatGroups).then(
     (groups) => {
       if (mine !== generation) return
-      // a pin made here while it was asked (lib/optimistic.ts): this answer may be from before it and would move the
-      // row back for a moment, read once more instead
-      if (edits !== optimisticEdits(isChatPin)) {
+      // a pin or a delete made here while it was asked (lib/optimistic.ts): this answer may be from before it and would
+      // move the row back for a moment, read once more instead
+      if (edits !== optimisticEdits(isChatPinOrTrash)) {
         again = true
         return
       }
@@ -84,15 +84,31 @@ export function readChatGroups(o: { minAgeMs?: number } = {}): Promise<void> {
 }
 
 const isChatPin = (key: string) => key.startsWith('chat:') && key.endsWith(':pin')
+const isChatTrash = (key: string) => key.startsWith('chat:') && key.endsWith(':trash')
+const isChatPinOrTrash = (key: string) => isChatPin(key) || isChatTrash(key)
+const chatIdOf = (key: string) => key.slice('chat:'.length, key.lastIndexOf(':'))
 const byPinTime = (a: Chat, b: Chat) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
 
-/** a read's 고정 with the chats whose pin is still on its way as they are on screen (the read may be from before it) */
+/** a read's 고정 with the chats whose pin or trash is still on its way as they are on screen (the read may be from before
+ * it), and none of those in the trash on its way among the other rows (the list would put them back) */
 function withPendingPins(groups: ChatGroups): ChatGroups {
-  const pending = new Set(optimisticPendingKeys(isChatPin).map((k) => k.slice('chat:'.length, -':pin'.length)))
+  const pending = new Set(optimisticPendingKeys(isChatPinOrTrash).map(chatIdOf))
   if (!pending.size) return groups
   const shown = useChatGroups.getState().groups?.pinned ?? []
   const pinned = [...groups.pinned.filter((c) => !pending.has(c.id)), ...shown.filter((c) => pending.has(c.id))].sort(byPinTime)
-  return { ...groups, pinned }
+  const trashing = new Set(optimisticPendingKeys(isChatTrash).map(chatIdOf))
+  if (!trashing.size) return { ...groups, pinned }
+  const keep = (c: Chat) => !trashing.has(c.id)
+  return { ...groups, pinned, other: { ...groups.other, items: groups.other.items.filter(keep) }, folders: groups.folders.map((f) => ({ ...f, top: f.top.filter(keep) })), projects: groups.projects.map((p) => ({ ...p, top: p.top.filter(keep) })) }
+}
+
+/** A chat put in the trash here: out of the Trina list's heads at once (고정 and the first rows; the read after it
+ * corrects the counts). */
+export function hideChatInGroups(chatId: string): void {
+  const g = useChatGroups.getState().groups
+  if (!g) return
+  const keep = (c: Chat) => c.id !== chatId
+  useChatGroups.setState({ groups: { ...g, pinned: g.pinned.filter(keep), other: { ...g.other, items: g.other.items.filter(keep) }, folders: g.folders.map((f) => ({ ...f, top: f.top.filter(keep) })), projects: g.projects.map((p) => ({ ...p, top: p.top.filter(keep) })) } })
 }
 
 /** A chat pinned or unpinned here: its row in 고정 at once, the most recently pinned first (the read a moment after it

@@ -5,20 +5,25 @@ import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
-import { useChats } from '../store/chats'
+import { trashChat } from '../components/chat/chatActions'
 import { useMe } from '../store/session'
 import { chatTrashDays } from '../lib/chat-trash'
-import { toast } from '../store/ui'
 import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, pageColumn } from '../components/ui'
+
+/** a row back in the list where it was (`before`: the list when it left) */
+function putBack(cur: Chat[], c: Chat, before: Chat[]): Chat[] {
+  if (cur.some((x) => x.id === c.id)) return cur
+  const after = new Set(before.slice(before.findIndex((x) => x.id === c.id) + 1).map((x) => x.id))
+  const at = cur.findIndex((x) => after.has(x.id))
+  return at < 0 ? [...cur, c] : [...cur.slice(0, at), c, ...cur.slice(at)]
+}
 
 export default function Trash() {
   const t = useT()
   const locale = useLocale()
   const days = chatTrashDays(useMe())
-  const upsert = useChats((s) => s.upsertChat)
   const [items, setItems] = useState<Chat[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
   const load = async () => {
     try {
       setItems((await api.call(API.listChats, { query: { trash: '1', limit: 100 } })).items)
@@ -47,18 +52,8 @@ export default function Trash() {
               </span>
               <Button
                 size="sm"
-                busy={busy === c.id}
-                onClick={async () => {
-                  setBusy(c.id)
-                  try {
-                    upsert(await api.call(API.restoreChat, { params: { id: c.id } }))
-                    setItems((cur) => cur?.filter((x) => x.id !== c.id) ?? null)
-                  } catch (e) {
-                    toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-                  } finally {
-                    setBusy(null)
-                  }
-                }}
+                // the row leaves at once and the chat is back in my lists; a refusal puts the row back with a toast
+                onClick={() => void trashChat(c, false, { onShown: (_, inTrash) => setItems((cur) => (cur ? (inTrash ? putBack(cur, c, items ?? []) : cur.filter((x) => x.id !== c.id)) : cur)) })}
               >
                 <RotateCcw size={14} aria-hidden /> {t('common.restore')}
               </Button>

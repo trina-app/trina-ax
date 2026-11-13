@@ -24345,6 +24345,32 @@ audit). Each shows at once, goes back on a refusal and ignores an answer that is
   then writes nothing (its change's answer reads again).
 - Not here: `setMuted` (no caller) is unchanged; there is no "mark as unread" in rooms or Activity.
 
+## Optimistic chats, history and list folders (feat/optimistic-chats, 2026-11-13)
+
+Batch A of the audit after "Optimistic changes: the screen first, the server after": the same helper
+(`web/src/lib/optimistic.ts`) for the rest of a Trina chat's own changes and for my list folders.
+- **A chat's values** (`changeChat` in `components/chat/chatActions.ts`, keys `chat:<id>:title|engine|project|folder`):
+  rename, the engine / model picker (pages/Chat.tsx), 프로젝트로 옮기기 (ChatProject.tsx `moveChat`, the dialog closes at
+  once; into a project the chat also leaves its list folder, as the server does) and a list folder
+  (store/navFolders.ts `fileChat`). The new value and the server's stamp (`updatedAt`, now) show at once, so the row goes
+  to the top of 최근 기록 when it is changed, not when the answer lands; a refusal puts both back. The "moved" toast
+  comes with the server's answer. With "프로젝트 멤버와 공유" on, the move still waits (the share widens who sees it).
+- **Trash and back** (`trashChat`, key `chat:<id>:trash`): after the confirm the chat leaves 최근 기록, 고정 and the heads
+  of the groups at once; "삭제했어요" with its 되돌리기 comes with the answer. 복원 (삭제한 기록, the chat's banner) and
+  되돌리기 bring it back at once, unpinned and in no folder, as the server restores it. Deleting forever is not
+  optimistic.
+- **Reads and events from before a change**: the chats store keeps the pending fields of a chat (`keepPending`) and
+  ignores a `chat.updated` of a chat whose trash change is pending; the groups read counts trash changes with the pins
+  and drops pending-trash rows; a list read keeps a chat leaving or coming back as it is on screen.
+- **List folders** (store/navFolders.ts, keys `navfolder:<id>:make|name|delete`, `room:<id>:folder`): a new folder is
+  there at once with a client id (a rename, delete or a room dropped on it waits for the server's id), a rename and a
+  delete show at once (delete: its rooms back in their place; refused, the folder and its rooms come back), a room
+  moves into or out of a folder at once. The folders read reads again when a change was made during it and keeps the
+  pending ones as on screen. store/rooms.ts is not changed: a rooms read or `room.updated` from before a room's folder
+  change gets its folder put back by a subscription in navFolders.ts.
+- Not here: marking a chat seen (left as it is), a project page's own row list on a failed move out of it (it shows the
+  row again only after a reload; pages/Projects.tsx is batch C's).
+
 ## Projects and Files lists open at once (fix/desktop-list-cache, 2026-11-13)
 
 Measured with the e2e mock at 1440: each visit to 프로젝트 showed the skeleton and read `GET /api/projects?manage=1`
