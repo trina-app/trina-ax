@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
-import { optimisticPending } from '../lib/optimistic'
+import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -210,15 +210,29 @@ export function keepChatPlace(chatId: string, place: ChatPlace | null) {
   while (chatPlaces.size > CHAT_PLACES) chatPlaces.delete(chatPlaces.keys().next().value!)
 }
 
-/** A chat read or heard while my pin or unpin of it is still on its way (lib/optimistic.ts, components/chat/chatActions.ts
- * togglePin): it keeps the pin on screen (the copy may be from before it; the pin's own answer decides). */
-function keepPendingPin(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
-  if (!optimisticPending(`chat:${c.id}:pin`)) return c
+/** A chat's fields that a change made here (lib/optimistic.ts, components/chat/chatActions.ts) sets, by its key's field */
+const PENDING_FIELDS: Record<string, (keyof Chat)[]> = { pin: ['pinnedAt'], title: ['title'], engine: ['engine', 'model'], project: ['projectId', 'folderId'], folder: ['folderId'] }
+
+/** A chat read or heard while a change of mine to it (a pin, its name, engine, project, folder) is still on its way: it
+ * keeps that value on screen (the copy may be from before it; the change's own answer decides). */
+function keepPending(s: Pick<ChatsState, 'chats' | 'others'>, c: Chat): Chat {
+  const fields = Object.keys(PENDING_FIELDS).filter((f) => optimisticPending(`chat:${c.id}:${f}`))
+  if (!fields.length) return c
   const now = s.chats.find((x) => x.id === c.id) ?? s.others[c.id]
   if (!now) return c
-  const { pinnedAt: _was, ...rest } = c
-  return now.pinnedAt ? { ...rest, pinnedAt: now.pinnedAt } : rest
+  const out: Record<string, unknown> = { ...c }
+  for (const k of fields.flatMap((f) => PENDING_FIELDS[f]!)) {
+    if (now[k] === undefined) delete out[k]
+    else out[k] = now[k]
+  }
+  // a name, engine or project stamps the chat: the row stays where it went
+  if (now.updatedAt > c.updatedAt && fields.some((f) => f !== 'pin' && f !== 'folder')) out.updatedAt = now.updatedAt
+  return out as Chat
 }
+
+/** a delete or restore of mine of the chat is still on its way (what is on screen decides, not a read or an event) */
+const trashPending = (id: string) => optimisticPending(`chat:${id}:trash`)
+const isChatEdit = (key: string) => key.startsWith('chat:')
 
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
 
@@ -492,11 +506,16 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       const cursor = reset ? undefined : get().chatsCursor ?? undefined
       if (!reset && !cursor) return
+      const edits = optimisticEdits(isChatEdit)
       const page = await api.call(API.listChats, { query: { limit: PAGE, cursor } })
       if (session !== generation) return
+      // a change of a chat made here while it was asked (lib/optimistic.ts): the page may be from before it, ask again
+      if (edits !== optimisticEdits(isChatEdit)) return get().loadChats(reset)
       set((s) => {
-        const items = page.items.map((c) => keepPendingPin(s, c))
-        const merged = reset ? items : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
+        // a chat going to the trash or coming back from it stays as it is on screen
+        const items = page.items.filter((c) => !trashPending(c.id) || s.chats.some((x) => x.id === c.id)).map((c) => keepPending(s, c))
+        const kept = reset ? s.chats.filter((c) => trashPending(c.id) && !items.some((x) => x.id === c.id)) : []
+        const merged = reset ? (kept.length ? sortChats([...items, ...kept]) : items) : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
       })
     },
@@ -713,9 +732,11 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         case 'chat.updated': {
           const { chatId, change, chat } = ev.data
+          // my delete or restore of it on its way: its answer decides (an event from before it would undo it on screen)
+          if (trashPending(chatId)) return
           // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
           if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
-          else if (chat) get().upsertChat(keepPendingPin(get(), chat))
+          else if (chat) get().upsertChat(keepPending(get(), chat))
           return
         }
         case 'turn.request': {
