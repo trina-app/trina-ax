@@ -111,7 +111,9 @@ const theRoom = (kind: RoomKind, title: string) => { const k = kindLine(kind, ti
 /** theRoom at the start of a sentence */
 const TheRoom = (kind: RoomKind, title: string) => `The${theRoom(kind, title).slice(3)}`
 
-type Found = { one: Mine & { view: Room } } | { many: (Mine & { view: Room })[] } | null
+/** `exact`: an id, or a name given in full (not a part of a title, nor a title inside a longer name): post_to_room asks
+ * about a teammate next to a match that is not exact */
+type Found = ({ one: Mine & { view: Room } } | { many: (Mine & { view: Room })[] }) & { exact: boolean } | null
 
 /**
  * The room `ref` names among mine: an id (also inside a #[name](room:<id>) token the person picked), else a name: the
@@ -126,7 +128,7 @@ export function findRoom(db: Database, userId: string, ref: string): Found {
   const mine = myRooms(db, userId)
   if (isUuid7(id)) {
     const hit = mine.find((m) => m.room.id === id)
-    return hit ? { one: { ...hit, view: roomOut(db, hit.room, hit.me) } } : null
+    return hit ? { one: { ...hit, view: roomOut(db, hit.room, hit.me) }, exact: true } : null
   }
   const full = norm(raw.replace(/^#+/, '')), cut = norm(strip(raw.trim()))
   const qs = [...new Set([full, cut].filter((q) => q.length > 0))]
@@ -147,7 +149,51 @@ export function findRoom(db: Database, userId: string, ref: string): Found {
   }
   if (!hits.length) return null
   const views = hits.slice(0, 10).map((m) => ({ ...m, view: roomOut(db, m.room, m.me) }))
-  return views.length === 1 ? { one: views[0]! } : { many: views }
+  return views.length === 1 ? { one: views[0]!, exact: best >= 90 } : { many: views, exact: best >= 90 }
+}
+
+/** A teammate post_to_room can reach (findPeople): `dmRoomId` is our 1:1 chat when there is one I am in; `exact`: the
+ * name or username was given in full, not a part of it. */
+export interface Teammate { id: string; name: string; dmRoomId: string | null; exact: boolean }
+/** How post_to_room names a teammate found by findPeople (`room: "person:<id>"`), for the candidates it gives back */
+export const PERSON_REF = 'person:'
+
+/**
+ * The teammates `ref` names (post_to_room "tell bob …", docs/DECISIONS.md "post_to_room to a person"): the active people
+ * of this team but me, the same people the app's new 1:1 chat may open (Rooms.openDm), so nothing becomes reachable that
+ * was not. `person:<id>` is that person; else a name: the person's name as a whole beats a part of it (two letters at
+ * least), the username counts in full only, and "님" or "씨" after it are dropped as for rooms. Several equally good
+ * matches: the first 10 of them and how many there are (`total`; the AI asks). None: null.
+ */
+export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[]; total: number } | null {
+  const raw = ref.trim()
+  const people = db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]
+  const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
+    .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
+  const out = (p: { id: string; name: string }, exact: boolean): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact })
+  if (raw.startsWith(PERSON_REF)) {
+    const p = people.find((x) => x.id === raw.slice(PERSON_REF.length))
+    return p ? { one: out(p, true) } : null
+  }
+  const qs = [...new Set([norm(raw.replace(/^@+/, '')), norm(strip(raw.replace(/^@+/, '')))].filter((q) => q.length > 0))]
+  if (!qs.length) return null
+  let best = 0
+  let hits: (typeof people)[number][] = []
+  for (const p of people) {
+    const name = norm(p.name), user = norm(p.username)
+    let score = 0
+    for (const q of qs) {
+      if (q === name) score = Math.max(score, 90)
+      else if (q === user) score = Math.max(score, 80)
+      else if (q.length >= 2 && name.length >= 2 && name.includes(q)) score = Math.max(score, 60)
+    }
+    if (!score) continue
+    if (score > best) { best = score; hits = [] }
+    if (score === best) hits.push(p)
+  }
+  if (!hits.length) return null
+  const found = hits.slice(0, 10).map((p) => out(p, best >= 80))
+  return found.length === 1 ? { one: found[0]! } : { many: found, total: hits.length }
 }
 
 /** The room's title as titleOf gives it, from the rows alone (no counts): what a name is matched against. */

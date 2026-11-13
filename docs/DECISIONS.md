@@ -17779,7 +17779,12 @@ making a project must be as light as a folder in Google Drive. Plan: the coordin
 - **The project page**: the box says "이 프로젝트에서 트리나에게 묻기"; with no chats "아직 없어요. 여기서 물어보면 이 프로젝트에
   모여요." and, while it has fewer than three, **기존 대화 가져오기** (my own recent chats with no project, not shared, not a
   room's; one PATCH each; a line says files Trina saved in them stay where they are); no instructions: what they are for
-  · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일).
+  · 쓰기; no files: "아직 파일이 없어요 · 올리기" (its folder in 파일). Since fix/project-page-empty-affordances (owner,
+  2026-11-13: empty, these looked like plain text and were missed): for whoever may fill them, empty 지침 and 파일 are
+  each a light bordered box (the line's name, one muted line on what it is for, one secondary button **+ 지침 쓰기** /
+  **+ 파일 올리기**, the latter to the same folder in 파일); filled, they are the one-line rows again (the 수정 / 열기
+  action comes back with them), and someone who cannot edit sees the rows. 트리나 기록 is a small section label, and 기존
+  대화 가져오기 is the app's secondary button with an icon. The create dialog does not change.
 - **Sharing later**: a personal project's 멤버 line says "나만 봐요 · 멤버 추가" (the menu's 팀 프로젝트로 공유 goes). 멤버 추가
   opens the people picker; before it saves, a confirm says plainly that they can see and edit its files and
   instructions, that my chats so far stay mine, and that it cannot go back to only me. A member whose team lets only
@@ -26038,6 +26043,81 @@ desktop bridge's optional `copyImage`); no API, setting or data change.
 - **Not done**: "Share to a conversation…": there is no flow that forwards a file or message to another room (the
   only share is an AI answer to a room, `chat/ShareToRoom.tsx`); building one is its own task. "Save for later" has no
   counterpart.
+
+## The browser pane follows the app's theme; calm site question and Stop (fix/browser-pane-calm-colours, 2026-11-13, the owner, QA TC-906)
+
+- **Why:** the owner's screenshot (11-13): beside a light chat window the pane was near-black, with an orange bar, a
+  black Stop pill and a black site-question card with a thick orange border ("너무 주황색에 검은색임"). The orange bar and
+  the orange page wash came from desktop builds before 0.5.0 (fixed by "AI가 브라우저를 쓰는 동안" above). What was still
+  true on dev: the pane's colours followed the **computer's** look (`prefers-color-scheme`), so a computer in dark mode
+  drew a dark pane beside a team page set to Light; Stop was a solid ink pill; the site card kept a 2 px accent border.
+- **Now:** the team page tells the desktop app the look chosen in Settings (`DesktopBridge.setTheme`, optional; called
+  from `web/src/lib/theme.ts applyTheme`), and the app sets Electron's `nativeTheme.themeSource` to it (light, dark or
+  system). The pane's toolbar, the window's colour and the app's own screens follow. **Side effect: sites open in the
+  in-app browser now follow the app's theme too** (their `prefers-color-scheme` is the app's choice, not the
+  computer's): with the app on Light and the computer on Dark, a site that has a dark look shows its light one. Only the
+  team page can set it; a site in the in-app browser has no bridge (e2e). Older pages never call it (the pane follows the
+  computer, as before); older desktop apps lack it.
+- **Look** (`desktop/src/ui/ui.css`, the existing tokens from `web/src/theme.edition.css`): "Trina is using the
+  browser" in regular weight with the pulsing accent dot as its one accent; **Stop** an ordinary secondary button
+  (`--panel`, 1 px `--field-border`); the site question an ordinary card (`--panel`, 1 px `--line`, 10 px radius), title
+  and muted body, **Allow once** the only primary (accent) button, Always allow / Allow all websites / Deny secondary
+  (Deny no longer red). This replaces "Stop as a solid ink pill" and "the site question card keeps its accent border"
+  above; the 2 px accent line over the page stays the signal. Empty pane: the muted hint centred on `--bg`.
+- **Resize edge** (QA TC-907): already shipped in 0.5.0 (`common/pane-width.ts`). Hardened: the toolbar page is told the
+  edge again after it loads, and an older answer to its first ask never replaces a width it was told.
+- Tests: `tests/unit/e-pane-width.test.ts` (colours, one primary button, the theme wiring, the edge re-tell),
+  e2e `desktop/e2e/pane-look.spec.ts` (setTheme sets themeSource and the window colour; a site in the pane cannot call it; screenshots of the empty pane).
+- Version impact: **patch** (visual fix; one optional bridge call, no data change).
+
+## post_to_room to a person (feat/ai-send-to-person, 2026-11-13, the owner, QA TC-898..901)
+
+"Tell bob the meeting is at 10 tomorrow" (in Korean "bob에게 내일 회의 10시라고 보내줘") in my own AI chat said "no room
+matching" when bob and I had never chatted: post_to_room only found rooms I am in. Amends "post_to_room" above. Plan:
+docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
+
+- **A teammate by name.** `room` is matched against my rooms first, as before. When none matches, against the team's
+  active people but me (`rooms/reader.ts findPeople`): the whole name beats a part of it (two letters at least), the
+  username counts only in full, "님"/"씨" after it are dropped. Several equally good: nothing is posted and the AI gets
+  the first 10 (and how many match) as `room="person:<id>"` to ask the user, then calls again with the chosen one. The
+  people are matched also when rooms match (review, 2026-11-13): a room match that is only a part of a name gives way to
+  every other person who matches (a 1:1 chat with "Hana Kim" for "Hana" while Hana Park matches too; one with "Bob" for
+  "Bob Kim"), an exact one (`findRoom`'s `exact`) to a person named in full; the people a listed 1:1 chat stands for
+  are not listed twice. A 1:1 chat found only because its name is a part of the name typed ("Al" for "Alice", who left;
+  "민수" for "김민수 씨"), with no person of that name: asked too, as the one candidate. Either way the user is asked:
+  with "Always allow" a wrong guess would post with no card.
+  Disabled and deleted accounts and I myself are never found, by name or by `person:<id>`; the answer for them is the
+  same as for nobody.
+- **The 1:1 chat is made on Send, not before.** With a 1:1 chat already there it is that room, unchanged. With none,
+  the card asks "Send this to {name} in a new 1:1 chat?" ("{name}님과의 새 1:1 대화로 보낼까요?"); the checks of
+  "대화방에 보내기" run with that person as the audience (`answer-share.ts preparePendingDm`: who cannot see a source or
+  open a linked file, hidden answers, the sending budget), and nothing is made. On Send the check runs again, the chat is
+  made by the app's own rule (`Rooms.openDm`: an active person of this team, not me; nobody new becomes reachable), then
+  checked once more as that room and sent. A key names a 1:1 chat by its two people (`keyRoomOf`, `dm:<dm_key>`), so the
+  card's key is the made room's key when nothing changed; a change refuses ("ask again"). [보내지 않기], no answer, or a
+  refusal before the chat is made leaves no room behind. A change found after it is made leaves an empty 1:1 chat, as
+  opening one in the app does. The person turned off while the card waited: refused, nothing made. The check after the
+  yes takes the sending budget before the chat is made, and the made room's check takes none (`prepareShare`
+  `budget: false`): two sends from the budget, as for a room, and a refusal for the budget leaves nothing behind.
+- **Own words.** `own_words: true` posts `text` as my own message with no AI-answer quote (no `answer_at`), for what I
+  dictated ("X라고 보내줘"). Not with `note` (refused: the text is the whole message). The card labels it "Your message,
+  sent under your name" and shows exactly what goes; it is never cut (a text too long is refused before the card).
+  [파일도 함께 보내기] is not offered with it: a copy stands in for a link only inside the AI's quote (`attachedLinksOn`),
+  so the card says who cannot open a linked file and the user decides. The
+  same checks run: the AI wrote the words and may have read things the other person cannot. Without it, nothing changes:
+  the text is quoted as the AI's answer. Not chosen: a separate `message` field (two text fields for one message, and the
+  AI could fill both).
+- **Audit.** The `room.answer_share` row adds `ownWords: true` and `openedDm: true` when they apply. Making the 1:1
+  chat gets no row of its own: as for every 1:1 chat (`Rooms.openDm`), the audit log is the admins' and must not tell
+  them who talks to whom; the row names the room by its kind only.
+- **Always allow.** The owner, 2026-11-13: always allow covers a new 1:1 chat too. With it on, the message goes out with
+  no card, also a first message that opens a new 1:1 chat; the checks still run and the chat is still made only when it
+  goes (not offered on a card with [파일도 함께 보내기], as before).
+- **Unchanged.** Always one card unless "Always allow" is on;
+  every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
+  template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
+  `own_words`, and to ask when several match.
+- No migration.
 
 ## The member picker shows faces — 멤버 추가에 얼굴 (fix/member-picker-avatars, 2026-11-13, product owner)
 
