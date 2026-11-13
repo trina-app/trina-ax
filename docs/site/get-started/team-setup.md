@@ -30,11 +30,11 @@ At the end, **You're all set** offers to try that skill yourself first. It shows
 
 ## While the deck builds
 
-The deck is an ordinary chat with Trina. On a computer you see it in your list of Trina chats on the left, beside the steps; you can open it at any time. On a phone it is in Trina history in the ☰ menu.
+The deck is an ordinary chat with Trina. On a computer you see it in your list of Trina chats on the left, beside the steps; you can open it at any time. On a phone it is in your Trina chats on the **트리나** tab (behind its ☰ button in the older layout).
 
 ## Coming back
 
-- **Continue setup · 2/4** shows on the left on every page until the steps are finished. It opens the steps where you stopped. On a phone it is in the ☰ menu, and Home shows the same row under the message box.
+- **Continue setup · 2/4** shows on the left on every page until the steps are finished. It opens the steps where you stopped. On a phone it is on the **트리나** tab (behind its ☰ button in the older layout, where Home also shows the same row under the message box).
 - Opening the app on Home also brings you back to the steps, once per browser session.
 - ✕ hides the row. **Show setup again** in Admin › Home brings it back.
 

@@ -4779,7 +4779,7 @@ export const id: Record<MessageKey, string> = {
   "setupRow.hide": "Sembunyikan penyiapan",
   "setupRow.hidden": "Penyiapan disembunyikan · bisa ditampilkan lagi dari beranda Admin",
   "setupRow.show": "Tampilkan penyiapan lagi",
-  "setupRow.back": "Lanjutkan penyiapan tampil lagi",
+  "setupRow.back": "Penyiapan tampil lagi",
   "welcome.progress.invite": "Undang tim",
   "welcome.profile.save": "Simpan dan lanjut",
   "welcome.profile.files": "Tambahkan berkas profil jika ada",

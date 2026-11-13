@@ -1906,7 +1906,7 @@ export const en: Record<MessageKey, string> = {
   'members.invites': 'Invite links',
   'members.invitesDesc': 'No emails are sent. Copy the link and share it over Slack, WhatsApp, email or anything else.',
   'members.scheduleReviews': 'Scheduled tasks waiting for a check',
-  'members.scheduleReviewsDesc': 'These were made without their confirmation card and are paused. They run again only after their owner checks them in Scheduled. Only the owner sees the title and instruction.',
+  'members.scheduleReviewsDesc': 'These were made without their confirmation card and are paused. They run again only after their owner checks them on the Scheduled page. Only the owner sees the title and instruction.',
   'members.scheduleReviewSince': 'paused since {date}',
   'members.noGroups': 'No groups',
   'members.usedBy': 'Used by {name}',
