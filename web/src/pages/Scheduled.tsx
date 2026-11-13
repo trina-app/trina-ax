@@ -175,7 +175,7 @@ function ScheduleCard({ s }: { s: Schedule }) {
     // a lapsed save folder: the task opens with its card to check it again ("다시 확인")
     <Link to={`/scheduled/${s.id}`} state={s.saveLapsed ? { recheck: true } : undefined} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
       <span className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
+        <span className="min-w-0 truncate text-row font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
       <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{s.templateId ? schedulePreview(s) : <WithRoomNames text={s.prompt} />}</span>

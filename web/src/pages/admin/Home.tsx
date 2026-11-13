@@ -141,7 +141,7 @@ function Area({ id, to, icon: Icon, title, state, line, meta, problems = 0 }: { 
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{title}</span>
+          <span className="truncate text-row font-medium">{title}</span>
           {problems > 0 && <Badge tone="warn">{t('adminHome.toFix', { count: problems })}</Badge>}
         </span>
         {state.error ? (

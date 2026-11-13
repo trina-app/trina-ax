@@ -316,7 +316,7 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
           <ScrollText size={16} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-row font-medium">
             <span className="truncate" data-testid="skill-name">{shown}</span>
             {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
             {/* a project skill whose name a wider skill already has: that one runs (a project only adds names) */}

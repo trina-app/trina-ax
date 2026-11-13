@@ -16,6 +16,7 @@
 // An admin (docs/DECISIONS.md "Admins manage Slack", 2026-11-13): the same page with "Add to Slack", on/off and Remove
 // of the official app, but never the team's own app: no four steps, no "Replace tokens", no Remove of it; one line says
 // only the team owner can (the server refuses them too).
+import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
@@ -29,6 +30,7 @@ import { Badge, Button, Field, confirmDialog, inputCls, useMediaQuery } from '..
 import { AppDetail } from '../../components/integrations/AppDetail'
 import { Card, Loadable, useAction, useLoad } from './common'
 import { isOwner, useMe } from '../../store/session'
+import { settingDesc, settingName } from '../../components/settings/SettingRow'
 
 const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
   off: { key: 'slack.state.off', tone: 'neutral' },
@@ -229,8 +231,8 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                       <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
                     </p>
                   )}
-                  <p className="text-sm font-medium text-ink">{t('admin.onComputer')}</p>
-                  <p className="mt-1 text-sm text-muted">{t('admin.onComputerSlack')}</p>
+                  <p className={settingName}>{t('admin.onComputer')}</p>
+                  <p className={clsx('mt-0.5', settingDesc)}>{t('admin.onComputerSlack')}</p>
                 </Card>
               ) : (!s.tokens || replacing) && (
                 <Card flat title={t('slack.admin.setupTitle')} testId="slack-setup">

@@ -277,7 +277,7 @@ function PluginCard({ id, testId, kinds, name, official, line, lineTone, foot, a
       <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left -outline-offset-2 max-md:min-h-12 max-md:items-center" onClick={onOpen} data-testid="plugin-open">
         <PluginTile kinds={kinds} />
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1 text-sm font-medium">
+          <span className="flex items-center gap-1 text-row font-medium">
             <span className="truncate">{name}</span>
             {official && <OfficialMark size={14} />}
           </span>

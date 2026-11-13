@@ -11808,6 +11808,37 @@ own rows (17 px names, 40 px round faces, 64 px rows), while 프로젝트 and �
   a computer's values in `@theme` and a phone's in their own `@media (max-width: 767.98px)` block, apart from the global
   type scale. The 트리나 drawer's rows use the same size (17 px words, 20 px icons).
 
+## Settings rows: one component, the lists' sizes (fix/type-consistency, 2026-11-13, product owner)
+
+넣을 곳: `web/src/components/settings/SettingRow.tsx` (`SettingRow`, `settingName`, `settingDesc`), the list rows that
+keep their own markup, and the checks (`web/test/e2e/type-scale.spec.ts`, `web/test/unit/type-scale-source.test.ts`,
+`web/scripts/type-audit.ts`). 이유: the owner, 2026-11-13, on the dev build after #697 (list components) and #705 (the
+computer's type scale): "Activity is way too small, Settings is too big. Is there no design system?" Each PR was checked
+alone; nobody had looked at them together. A sweep of every route and dialog at 390 and 1440 px (owner, member, signed
+out) found why: Settings had three row components with three sets of sizes (`pages/Settings.tsx` Row: name 15/400, hint
+13; `PrefRow`: name 15/500, line 15; Admin `SettingRow`: name 15/500, line 15), so on a computer a page of settings was
+names and lines at the body size; on a phone every one of them was 15 px while the 대화 tab and 나's own rows are 17 px.
+Activity's page drew its rows by hand at 15 px (`text-sm`, the name `font-bold` 700) beside 17 px lists on a phone, and
+so did Files, a project's files, Scheduled, Skills, the connectors, a room's people and Admin's lists.
+
+- **One settings row**: `SettingRow` (moved from `pages/admin/common.tsx`, which re-exports it): the name `text-row
+  font-medium text-ink` (15 px computer, 17 px phone), the line `text-meta text-muted` (13 px). `PrefRow` is `SettingRow
+  inline belowFull` (what is under it, quiet hours' times, takes the whole width); Settings' profile `Row` is `SettingRow divided` (hairlines, a 288 px control column). A screen never sets a
+  setting's sizes itself; a row with its own layout (push and desktop notices, the on-computer notes) takes
+  `settingName` / `settingDesc`.
+- **Every list's name is `text-row`** (or `rowName`), its second line `text-meta`; an empty list's note is body
+  (`text-sm`), not a row. Hints and times are `text-xs` on every width (the `max-md:text-sm` left from when computers
+  were smaller is gone).
+- **Left as they are**: headings (`text-base` section titles, page titles, the empty state's title; phase 2,
+  feat/heading-levels), answers' tables (body 15 px inside 16 px answers), a dense log or data table (Admin › Activity
+  log, usage, storage: body), a folder tree, the install pictures (drawn small, aria-hidden), and the chat header's
+  project (a chip on a phone, words on a computer).
+- **Checks**: `type-scale.spec.ts` opens the main screens at 390 and 1440 px and fails when a row's name, a setting's
+  name or line, meta or body leaves the scale or anything but a badge is under 12 px; `type-scale-source.test.ts` fails
+  a one-off `text-[…]` size, a per-width size switch, or a setting drawn by hand (a `text-sm font-medium` name over a
+  `text-sm text-muted` line) in Settings, Admin or the connector pages; `type-audit.ts` flags rows and meta
+  off the scale, not only under the floor.
+
 ## The Trina list: pinned, folders, projects, other chats (feat/nav-rail-rest, 2026-11-13, navigation redesign P2)
 
 넣을 곳: Team AX core (`server/src/chat/chat-groups.ts`, `shared/src/api/chats.ts` `listChatGroups`,

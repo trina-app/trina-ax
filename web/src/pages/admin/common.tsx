@@ -446,39 +446,5 @@ export function SettingsSection({ title, desc, actions, children, testId, id, he
   )
 }
 
-/**
- * One setting as one row: its name, a short line on what it does under it, and the control on the right. Below 768 px
- * a wide control (a select, a text field, the logo's buttons) goes under the line; an `inline` one (a switch, a short
- * number) stays on the right of the name, as on a phone's Settings, with the line under the name. `id` is the control's
- * id: the name labels it and the line describes it. `more`: the longer details, behind "Learn more" (kept in the page,
- * hidden, so the row reads short). `heading`: the name is a heading, for a row whose control is not one field (the team
- * logo). `below`: under the line, always shown (an error, a state).
- */
-export function SettingRow({ id, title, desc, more, control, below, heading, inline, testId, attrs }: {
-  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; inline?: boolean; testId?: string; attrs?: Record<string, string>
-}) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const descId = id ? `${id}-desc` : undefined
-  return (
-    <div className={clsx('flex py-4 md:flex-row md:items-start md:gap-8', inline ? 'items-start gap-4' : 'flex-col gap-3')} data-testid={testId} {...attrs}>
-      <div className="min-w-0 flex-1">
-        {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
-        {(desc || more) && (
-          <div className="mt-1 text-sm text-muted">
-            {desc && <span id={descId}>{desc}</span>}
-            {desc && more && ' '}
-            {more && (
-              <button type="button" aria-expanded={open} className="touch-hit font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
-                {t(open ? 'common.less' : 'teamSettings.learnMore')}
-              </button>
-            )}
-          </div>
-        )}
-        {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
-        {below}
-      </div>
-      {control && <div className={clsx('flex shrink-0 md:justify-end md:pt-0.5', inline ? 'pt-0.5 max-md:items-center max-md:gap-2' : 'justify-start')}>{control}</div>}
-    </div>
-  )
-}
+/** One setting as one row: the shared settings row (components/settings/SettingRow.tsx), kept importable from here. */
+export { SettingRow } from '../../components/settings/SettingRow'

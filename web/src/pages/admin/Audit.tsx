@@ -25,7 +25,7 @@ import { useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
-const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
+const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-md:min-h-10'
 
 export default function Audit() {
   const t = useT()
@@ -155,7 +155,7 @@ export default function Audit() {
   const search = (
     <label className={clsx(ctl, 'flex min-w-0 flex-1 items-center gap-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent sm:min-w-48')}>
       <Search size={14} className="shrink-0 text-faint" aria-hidden />
-      <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+      <input type="search" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
     </label>
   )
 
@@ -170,7 +170,7 @@ export default function Audit() {
             <div className={clsx(ctl, 'flex w-full min-w-0 items-center pr-0 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-md:min-h-11')} data-testid="activity-search-field">
               <label className="flex min-w-0 flex-1 items-center gap-2 self-stretch">
                 <Search size={14} className="shrink-0 text-faint" aria-hidden />
-                <input type="search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
+                <input type="search" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" placeholder={t('activity.search')} aria-label={t('activity.search')} value={q} onChange={(e) => setQ(e.target.value)} data-testid="activity-search" />
               </label>
               <span className="-my-px flex shrink-0">
                 <PhoneFilters icon active={(f.kind ? 1 : 0) + (f.who ? 1 : 0) + (f.range !== 'any' ? 1 : 0)} testId="activity-more">

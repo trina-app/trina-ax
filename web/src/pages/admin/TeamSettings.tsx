@@ -426,7 +426,7 @@ export function TeamIconRow() {
                   background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
                 <figure key={scheme} className="m-0 min-w-0" data-testid={`team-icon-preview-${scheme}`}>
-                  <div className={clsx('flex items-center gap-2 rounded-xl border px-3.5 py-3 text-[0.9375rem] font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
+                  <div className={clsx('flex items-center gap-2 rounded-xl border px-3.5 py-3 text-sm font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
                     <img src={logoSrc} alt="" width={20} height={20} className="size-5 shrink-0 rounded-md object-cover" data-testid="team-icon-preview-logo" />
                     <span className="truncate">{me.team.name}</span>
                   </div>

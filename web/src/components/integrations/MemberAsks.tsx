@@ -54,7 +54,7 @@ export function MemberAsks({ asks, onAdd }: { asks: ReturnType<typeof useMemberA
             <li key={r.service} className="flex flex-wrap items-center gap-3 px-2 py-2.5" data-testid="member-ask" data-service={r.service}>
               <LogoTile src={logoOf(r.service)} className="size-9" />
               <span className="min-w-0 flex-[1_1_10rem]">
-                <span className="block truncate text-sm font-medium">{name}</span>
+                <span className="block truncate text-row font-medium">{name}</span>
                 <span className="block truncate text-xs text-muted" title={r.askers.map((a) => a.name).join(', ')}>{who}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end">

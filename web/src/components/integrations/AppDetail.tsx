@@ -87,7 +87,7 @@ export function AppDetail({ testId, state, logo, name, byLine, actions, status, 
             <div className="min-w-0 flex-[1_1_12rem]">
               {/* a phone: the name wraps, never cut (QA TC-266); the state and ⋯ go on their own line under it */}
               <Title ref={titleRef} id={titleId} tabIndex={inSettings ? -1 : undefined} className="text-display font-semibold tracking-tight break-words outline-none">{name}</Title>
-              <p className="mt-0.5 text-sm text-muted" data-testid="app-by">{byLine}</p>
+              <p className="mt-0.5 text-meta text-muted" data-testid="app-by">{byLine}</p>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button:first-child]:flex-1" data-testid="app-actions">{actions}</div>}
           </div>

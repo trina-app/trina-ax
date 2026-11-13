@@ -337,7 +337,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
             <li key={k} className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-row" data-subject={k} data-access={n.access}>
               {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">{label}</p>
+                <p className="truncate text-row font-medium text-ink">{label}</p>
                 {second && <p className="text-xs [overflow-wrap:anywhere] text-faint sm:truncate" data-testid="sharing-row-second">{second}</p>}
               </div>
               {always ? (

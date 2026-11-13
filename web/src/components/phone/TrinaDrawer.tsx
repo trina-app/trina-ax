@@ -85,7 +85,7 @@ function DrawerBody({ close }: { close: () => void }) {
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       {/* the drawer is the AI's history: the AI's one name there, as on its tab, with the product's mark */}
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
+        <Link to="/" onClick={close} className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo-phone" />
           <span>{aiName(t)}</span>
         </Link>
@@ -167,7 +167,7 @@ function StatusRow({ onOpen }: { onOpen: () => void }) {
         onOpen()
         openStatusDialog(e.currentTarget)
       }}
-      className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-sm text-ink hover:bg-hover"
+      className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-row text-ink hover:bg-hover"
       data-testid="my-status-row"
     >
       <span aria-hidden className="flex size-4 shrink-0 items-center justify-center leading-none">

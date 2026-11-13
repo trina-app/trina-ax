@@ -63,7 +63,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                   <PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
-                      <span className="truncate font-medium text-ink">{name}</span>
+                      <span className="truncate text-row font-medium text-ink">{name}</span>
                       <StatusEmoji userId={user.id} tap className="self-center" />
                       <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}

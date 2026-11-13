@@ -139,7 +139,7 @@ function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
     <li>
       <Link to={`/admin/providers/${e.id}`} className="flex min-h-12 items-center gap-3 py-2 text-sm -outline-offset-2 hover:bg-hover" data-testid="engine-row" data-engine={e.id} data-look={look || undefined}>
         <ProviderLogo mark={ENGINE_MARK[e.id]} small />
-        <span className="min-w-0 flex-1 truncate font-medium text-ink">{e.label}</span>
+        <span className="min-w-0 flex-1 truncate text-row font-medium text-ink">{e.label}</span>
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}
         <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
       </Link>

@@ -263,7 +263,7 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
                 <span className="flex size-5 shrink-0 items-center justify-center text-faint" aria-hidden>
                   <ShieldCheck size={15} />
                 </span>
-                <span className="min-w-0 flex-1 text-sm font-medium text-ink">{t('skillMgr.ownerAdmins')}</span>
+                <span className="min-w-0 flex-1 text-row font-medium text-ink">{t('skillMgr.ownerAdmins')}</span>
                 <span className="shrink-0 px-2.5 text-label text-muted">{t('skillMgr.always')}</span>
               </li>
               {grants.map((g, i) => {

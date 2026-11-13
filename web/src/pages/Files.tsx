@@ -1285,8 +1285,8 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   if (!phone) return <>{children}</>
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="flex min-w-0 items-center gap-2">{children}</span>
-      {meta && <span className="truncate text-xs text-muted" data-testid="file-row-meta">{meta}</span>}
+      <span className="flex min-w-0 items-center gap-2 text-row">{children}</span>
+      {meta && <span className="truncate text-meta text-muted" data-testid="file-row-meta">{meta}</span>}
     </span>
   )
 }
@@ -1350,7 +1350,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     { label: t('files.move'), icon: icon(FolderInput), onSelect: run(onMove), disabled: !changeable, describedBy: fixedWhy, testId: 'file-move' },
     { label: t('files.moveToTrash'), icon: icon(Trash2), onSelect: run(onDelete), danger: true, disabled: !changeable, describedBy: fixedWhy, testId: 'file-trash' },
   ]
-  const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:text-sm'
+  const why = 'px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3'
   const footer = (aiWhy || fixedWhy) && (
     <>
       {aiWhy && <p id={aiWhy} className={why} data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly', { name: aiName(t) })}</p>}

@@ -60,7 +60,7 @@ export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onCo
         <li key={app.id} className="flex items-center gap-3 p-2" data-testid={`ai-app-${app.id}`}>
           <AiAppLogo app={app} className="size-9" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{appName(app, t)}</span>
+            <span className="block truncate text-row font-medium">{appName(app, t)}</span>
             <span className="mt-0.5 block truncate text-xs text-muted">{t(`aiApps.${app.id}.desc`)}</span>
           </span>
           {mine.length > 0 && (

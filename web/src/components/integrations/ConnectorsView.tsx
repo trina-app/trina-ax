@@ -92,7 +92,7 @@ export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) 
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={c.onOpen} data-testid="connector-open">
         <LogoTile src={c.logo} className="size-10 rounded-xl p-2" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{c.name}</span>
+          <span className="block truncate text-row font-medium">{c.name}</span>
           <span className="mt-0.5 line-clamp-1 text-xs text-muted">{c.line}</span>
         </span>
       </button>
@@ -144,7 +144,7 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
     <li className="flex items-center gap-3 border-b border-line py-2.5 last:border-b-0 max-md:py-2" data-testid={testId} data-id={id} data-state={status}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left -outline-offset-2 max-md:min-h-11" onClick={onOpen} data-testid="connector-row-open">
         {logo ? <LogoTile src={logo} className="size-10 rounded-xl p-2" /> : <InitialTile name={name} />}
-        <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+        <span className="min-w-0 truncate text-row font-medium">{name}</span>
         {team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
       </button>
       {note}
