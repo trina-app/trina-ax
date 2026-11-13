@@ -97,7 +97,7 @@ function Mark({ mark, item }: { mark: RailMark; item: RailItem }) {
     return (
       <span className={clsx(at, 'min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas')} data-testid={testId} data-mark="ask">
         <span aria-hidden>?</span>
-        <span className="sr-only">{item === 'chats' ? t('rooms.aiWaits') : t('marker.card')}</span>
+        <span className="sr-only">{t('marker.card')}</span>
       </span>
     )
   if (mark.kind === 'dot')

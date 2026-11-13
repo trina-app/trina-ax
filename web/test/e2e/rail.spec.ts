@@ -123,10 +123,6 @@ test('marks: 대화 counts conversations, 활동 the notices that are not conver
   await expect(page.getByTestId('rail-files-mark')).toHaveCount(0)
   await openRail(page, 'chats')
   await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity-unread')).toContainText('2')
-  // a room's AI waits on me: "?" on 대화
-  expect((await page.request.post('/__test/rooms', { data: { rooms: [{ ...rooms[0], aiWaits: true }, ...rooms.slice(1)] } })).ok()).toBeTruthy()
-  await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-mark', 'ask')
-  await expect(page.getByTestId('rail-chats-mark')).toContainText(t['rooms.aiWaits'])
 })
 
 for (const w of [1024, 1100] as const)

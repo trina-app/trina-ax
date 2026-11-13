@@ -31,13 +31,13 @@ describe('the words and the tokens (lib/rooms.ts)', () => {
 
   test('a picked "@전체" is a token of its own kind and goes as the flag, never as a person', () => {
     const picked = [{ start: 0, end: 3, id: ALL_MENTION_ID, name: '전체' }, { start: 4, end: 8, id: BEN.id, name: BEN.name }]
-    const tokens = mentionTokens('@전체 @Ben 봐요', picked, true)
+    const tokens = mentionTokens('@전체 @Ben 봐요', picked)
     expect(tokens).toEqual([{ start: 0, end: 3, kind: 'all', id: ALL_MENTION_ID }, { start: 4, end: 8, kind: 'person', id: BEN.id }])
     expect(tokenMentions(tokens)).toEqual([BEN.id])
     expect(tokenMentionsAll(tokens)).toBe(true)
     // broken by an edit, or only typed: no flag
-    expect(tokenMentionsAll(mentionTokens('@전채 봐요', picked.slice(0, 1), true))).toBe(false)
-    expect(tokenMentionsAll(mentionTokens('@전체 봐요', [], true))).toBe(false)
+    expect(tokenMentionsAll(mentionTokens('@전채 봐요', picked.slice(0, 1)))).toBe(false)
+    expect(tokenMentionsAll(mentionTokens('@전체 봐요', []))).toBe(false)
   })
 
   test('a sent message: its "@전체" in any language stands out; it mentions everyone but its sender', () => {
@@ -103,8 +103,8 @@ const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')
 type Box = FakeElement & { value: string; selectionStart: number; selectionEnd: number }
 
 /** the box of a room of this kind with these members, me signed in with this role */
-async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[]; aiMentions?: boolean } = {}) {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member' }, server: o.aiMentions === false ? {} : { roomAiMentions: true } } as unknown as Me } })
+async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[] } = {}) {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member' }, server: {} } as unknown as Me } })
   const members = o.members ?? [ME, BEN, CY]
   const r = room({ kind: o.kind ?? 'team', ...(o.kind === 'dm' || o.kind === 'all' || o.kind === 'group' ? { groupId: null, name: null } : {}), memberCount: members.length })
   sent = []
@@ -161,11 +161,11 @@ async function openEdit(m: Mounted, text: string): Promise<Box> {
 }
 const people = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `사람${i + 1}` }))
 
-test('the row right under the AI: its word and how many it notifies; found by any word, not by a person\'s name', async () => {
+test('the first row: its word and how many it notifies; found by any word, not by a person\'s name', async () => {
   const { m, box } = await open()
   await typeText(box, '@')
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
-  expect(rows(m)).toEqual([`ai:${ko('rooms.aiName')}${ko('rooms.aiMention')}`, `all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
+  expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
   expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 방의 2명에게 알림')
   for (const q of ['all', 'channel', 'everyone', '전체']) {
     await act(async () => { setValue.call(box, ''); box.setSelectionRange(0, 0); box.dispatchEvent(new FakeEvent('input', { bubbles: true })); box.dispatchEvent(new FakeEvent('keyup', { bubbles: true })) })
@@ -179,8 +179,8 @@ test('the row right under the AI: its word and how many it notifies; found by an
   expect(rows(m)).toEqual(['BBen'])
 }, DOM_TEST_MS)
 
-test('the server takes no "@트리나" (Me.server.roomAiMentions absent, the default since the side chat): no AI row in the "@" list', async () => {
-  const { m, box } = await open({ aiMentions: false })
+test('"@트리나" is text: no AI row in the "@" list', async () => {
+  const { m, box } = await open()
   await typeText(box, '@')
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
@@ -299,7 +299,7 @@ test('a DM has no row; the everyone room has it for owners and admins only', asy
 }, DOM_TEST_MS)
 
 test('a sent message: "@전체" stands out as a mention of me (not for its sender); the edit form keeps it', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: { roomAiMentions: true } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: {} } as unknown as Me } })
   const r = room()
   const theirs = message({ roomId: r.id, seq: 1, author: BEN, body: '@everyone 3pm', mentionsAll: true })
   const html = renderToStaticMarkup(<RoomMessages roomId={r.id} messages={[theirs]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
@@ -335,22 +335,17 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
   expect(rows(m2).some((x) => x.startsWith('all:'))).toBe(false)
 }, DOM_TEST_MS)
 
-test('a sent "@트리나": it stands out only while the server takes it (Me.server.roomAiMentions, as the "@" list); off, it is plain text, in a thread too', async () => {
+test('a sent "@트리나" is plain text, in a thread too', async () => {
   const r = room()
   const said = message({ roomId: r.id, seq: 1, author: BEN, body: '@트리나 hello' })
   const reply = message({ roomId: r.id, seq: 2, author: BEN, body: '@트리나 hi', threadRootId: said.id })
-  // (mounted: a static render reads the session's first state, without Me)
-  const marked = async (on: boolean, variant?: 'reply') => {
-    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: on ? { roomAiMentions: true } : {} } as unknown as Me } })
-    const m = await mount(variant ? <RoomMessages roomId={r.id} messages={[reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" threadRootId={said.id} /> : <RoomMessages roomId={r.id} messages={[said]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' }, server: {} } as unknown as Me } })
+  for (const variant of [undefined, 'reply' as const]) {
+    const m = await mount(variant ? <RoomMessages roomId={r.id} messages={[reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" /> : <RoomMessages roomId={r.id} messages={[said]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} />)
     await m.settle()
     const html = m.html()
     await m.unmount()
-    expect(html).toMatch(/@트리나(<\/span>)? h/)
-    return /<span class="font-medium text-accent-text"[^>]*>@트리나<\/span>/.test(html)
+    expect(html).toMatch(/@트리나 h/)
+    expect(/<span class="font-medium text-accent-text"[^>]*>@트리나<\/span>/.test(html)).toBe(false)
   }
-  expect(await marked(true)).toBe(true)
-  expect(await marked(false)).toBe(false)
-  expect(await marked(true, 'reply')).toBe(true)
-  expect(await marked(false, 'reply')).toBe(false)
 }, DOM_TEST_MS)

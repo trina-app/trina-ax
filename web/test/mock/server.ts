@@ -622,7 +622,6 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
-    this.roomAiMentions = true
     this.navRail = false
     this.nextArtifact = null
     this.projects = []
@@ -763,8 +762,6 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
-  /** POST /__test/room-ai-mentions {on}: "@트리나" in a room (Me.server.roomAiMentions); on in the mock, off on a real server */
-  roomAiMentions = true
   /** POST /__test/nav-rail {on}: the new navigation (Me.server.navRail); off in the mock as on a real server, so every
    * suite runs today's layout and the new suites turn it on (docs/AGENTS/plan/20261112-1839-nav-rail.md §5.1) */
   navRail = false
@@ -1348,9 +1345,6 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
-        // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions);
-        // POST /__test/room-ai-mentions {on: false} turns it off until the next reset
-        ...(this.roomAiMentions ? { roomAiMentions: true as const } : {}),
         ...(this.navRail ? { navRail: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
@@ -2432,7 +2426,6 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
     },
-    getRoomAi: (c) => (this.rooms.some((r) => r.id === c.params.id) ? { answering: 0, mine: [] } : fail('not_found', 404)),
     // "팀 파일" in a room's box (server/src/routes/rooms.ts attachRoomTeamFile, short): a team file I may read becomes my
     // upload in a room of POST /__test/rooms; the room's other people (its peers) who cannot open it are counted
     attachRoomTeamFile: (c) => {
@@ -5224,7 +5217,6 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
-    else if (p === '/__test/room-ai-mentions') this.roomAiMentions = body.on !== false
     else if (p === '/__test/nav-rail') this.navRail = body.on === true
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'

@@ -27,10 +27,10 @@
 // are taken out (forgetMember), when they hide the room (a hidden room is never pinned: pinning one is refused), with
 // the room and with the person.
 //
-// The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
-// and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
-// answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
-// 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
+// send() is the one place a person's message is written. "@트리나" in a room asks nothing (docs/DECISIONS.md "Room
+// @트리나 code removed"): the AI answers beside the room, in the ✦ side chat. The room AI's earlier answers stay in
+// room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
+// everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
 import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
@@ -54,9 +54,8 @@ import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
 import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
-import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
-import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
+import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 
@@ -88,14 +87,14 @@ export interface SharedAnswerMark { at: number; cut: boolean; people: number; co
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
+/** what send() takes from the request besides its body: the person's language for its refusals */
+export interface SendOptions { locale?: Locale }
+
 export class Rooms {
   private lastSync = 0
   private sendBudget = new Map<string, { tokens: number; at: number }>()
   /** the sending budget's clock (tests fix it) */
   clock: () => number = () => Date.now()
-  /** someone left this room, or members' view of its history changed: its refused AI previews are decided again
-   * (rooms/ai-redecide.ts redecideRoomSoon, set at start; not imported here, which would be a cycle) */
-  onAccessChanged?: (roomId: string) => void
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
   private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
@@ -478,7 +477,6 @@ export class Rooms {
   }
   private afterDrop(roomId: string, gone: readonly string[], r: { lines: string[]; archived: boolean }) {
     for (const u of new Set(gone)) {
-      roomAiOf(this.ctx).stopFor(roomId, u)
       this.ctx.services.realtime.forgetReplay(u)
       this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
     }
@@ -489,10 +487,9 @@ export class Rooms {
   }
 
   /** Someone is out of a room: their member row, notices, the threads they followed, their reactions, their pin and their
-   * list folder's row of it (chat/nav-folders.ts) there go, and so do the folders they let @트리나 save new files in
+   * list folder's row of it (chat/nav-folders.ts) there go, and so do the folders they let the AI save new files in
    * there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
-    this.onAccessChanged?.(roomId)
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
     dropGrantsOf(this.db, { id: roomId }, userId)
@@ -594,15 +591,13 @@ export class Rooms {
   }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
-   * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
-   * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
-   * are the AI's words, not a call), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * mentions nobody (nor "@전체", whatever its text says: "@Name" in the answer is the AI's words), and never quotes a message (replyToId); it may be a reply in a thread (a side
    * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
    * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
-  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
+  send(userId: string, roomId: string, b: SendInput, o: SendOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
@@ -636,11 +631,6 @@ export class Rooms {
       const revoked = roomFilesOf(this.ctx).revokedTeamCopies(userId, roomId, fileIds)
       if (revoked.ids.length) fail('forbidden', tr('roomTeamFileNoAccess', o.locale ?? DEFAULT_LOCALE, { names: revoked.names.join(', ') }), { params: { reason: 'team_file_access', files: revoked.ids.join(',') } })
     }
-    // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
-    // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
-    // question stops the send. Off: the text is an ordinary message.
-    const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
-    const ask = !answer && this.ctx.config.roomAiMentions && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom
@@ -670,7 +660,6 @@ export class Rooms {
     const row = messageRow(this.db, roomId, id)!
     this.messageEvent('room.message', row, this.notify(row))
     if (root) this.afterReply(root)
-    if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
 
@@ -1110,8 +1099,6 @@ export class Rooms {
     for (const [roomId, g] of groupOut) this.afterDrop(roomId, g.users, g.r)
     for (const [roomId, users] of removed) {
       for (const u of users) {
-        // out of a team room or the everyone room: their questions there stop too
-        roomAiOf(this.ctx).stopFor(roomId, u)
         // events about this room sit in their replay buffer: a window resuming from before now reloads instead
         this.ctx.services.realtime.forgetReplay(u)
         this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
@@ -1130,7 +1117,6 @@ export class Rooms {
    * ('members' is the change that makes an open room load its newest page and thread again). */
   private historiesOpened(opened: readonly { roomId: string; userId: string }[], added?: ReadonlyMap<string, string[]>) {
     for (const o of opened) if (!added?.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
-    for (const roomId of new Set(opened.map((o) => o.roomId))) this.onAccessChanged?.(roomId)
   }
 
   private drainTimer: ReturnType<typeof setTimeout> | null = null

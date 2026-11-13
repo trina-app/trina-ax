@@ -97,7 +97,6 @@ describe('browser tools', () => {
       ['own chat on the web', { ...base, browserInDesktopApp: true }, true],
       ['no flag', base, false],
       ['confidential', { ...base, browserInDesktopApp: true, confidential: 'chat' }, false],
-      ['room', { ...base, browserInDesktopApp: true, room: { name: 'Sales', kind: 'team', members: 3, asker: user.name } }, false],
       ['shared', { ...base, browserInDesktopApp: true, shared: { project: 'Falcon', audience: 3, asker: user.name } }, false],
     ]
     for (const [name, input, has] of cases) {

@@ -18,8 +18,8 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
 afterEach(() => useRooms.getState().reset())
 
-const render = (ms: ReturnType<typeof message>[], o: { variant?: 'timeline' | 'root' | 'reply'; threadRootId?: string } = {}) =>
-  renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} variant={o.variant} threadRootId={o.threadRootId} />)
+const render = (ms: ReturnType<typeof message>[], o: { variant?: 'timeline' | 'root' | 'reply' } = {}) =>
+  renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} variant={o.variant} />)
 const count = (html: string, s: string) => html.split(s).length - 1
 const bars = (html: string) => html.match(/data-testid="message-hover-bar"/g)?.length ?? 0
 
@@ -44,7 +44,7 @@ test('in order: ✅ 👀 👍, add reaction, reply in thread, more; every button
 test('none on an event line or a deleted message; no thread button on a reply (in the thread, or sent to the room too)', () => {
   const root = uuidv7()
   expect(bars(render([message({ roomId: R, seq: 1, body: '', author: BEN, event: { type: 'left' } }), message({ roomId: R, seq: 2, body: '', deletedAt: at(3) })]))).toBe(0)
-  const inThread = render([message({ roomId: R, seq: 3, body: 'a reply', threadRootId: root })], { variant: 'reply', threadRootId: root })
+  const inThread = render([message({ roomId: R, seq: 3, body: 'a reply', threadRootId: root })], { variant: 'reply' })
   expect(bars(inThread)).toBe(1)
   expect(inThread).not.toContain('data-testid="message-thread"')
   expect(inThread).toContain('data-testid="message-react"')

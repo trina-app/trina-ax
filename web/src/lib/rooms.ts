@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { roomLightsDot, roomUnread, roomWantsMe, ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, roomAiMentions, type Room, type RoomAiRun, type RoomEventLine, type RoomMessage, type Step, type UserRef } from '@mycel/shared/api'
+import { roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -125,41 +125,22 @@ export function insertMention(text: string, start: number, caret: number, name: 
 /** A text with "\n" line breaks only, as a text area gives it back. */
 export const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n')
 
-/** Where a mention's "@" may stand: at the start, or after a space or an opening mark (the server's "@트리나" check,
- * shared roomAiMentions, and mentionParts go by the same rule). */
+/** Where a mention's "@" may stand: at the start, or after a space or an opening mark (the server's "@전체" check,
+ * shared roomMentionAllIn, and mentionParts go by the same rule). */
 export const mentionCanStart = (text: string, at: number) => at === 0 || /[\s([{"'“‘]/.test(text[at - 1] ?? '')
 
 /** A person picked from the "@" list (or "@전체": id ALL_MENTION_ID, name the word it was written with), and where their
  * "@name" went in the message box. */
 export interface PickedMention { start: number; end: number; id: string; name: string }
-/** A mention as the message box shows it: a person the message will notify, everyone in the room ("@전체"), or the AI it
- * will ask ("@트리나"). */
-export interface MentionToken { start: number; end: number; kind: 'person' | 'all' | 'ai'; id: string }
+/** A mention as the message box shows it: a person the message will notify, or everyone in the room ("@전체"). */
+export interface MentionToken { start: number; end: number; kind: 'person' | 'all'; id: string }
 
 /** The mentions in a message box, which are what is sent: the picked people whose "@name" is still whole where it was put
- * and may start a mention there (a letter typed right before it pauses it); with `ai`, every "@<AI name>" the server
- * will take as a call (roomAiMentions with those people's names: a person of that name wins). Text that only looks like
- * a mention (pasted, typed without the list, a picked name broken by an edit) is plain text: it notifies nobody. */
-export function mentionTokens(text: string, picked: readonly PickedMention[], ai: boolean): MentionToken[] {
+ * and may start a mention there (a letter typed right before it pauses it). Text that only looks like a mention
+ * (pasted, typed without the list, a picked name broken by an edit) is plain text: it notifies nobody. */
+export function mentionTokens(text: string, picked: readonly PickedMention[]): MentionToken[] {
   const whole = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
-  // "@전체" is no person: the server's AI check never hears its word
-  const everyone = whole.filter((p) => p.id === ALL_MENTION_ID)
-  let kept = whole.filter((p) => p.id !== ALL_MENTION_ID)
-  // a person's "@name" that an AI name runs past ("@트리" + "나"): the call wins, as on the sent message; the server
-  // asks the AI and the person is not sent (a person whose name goes past the AI name keeps it: roomAiMentions). The
-  // calls are then counted with the names that are sent, as the server counts them
-  let calls = ai ? roomAiMentions(text, kept.map((p) => p.name)) : []
-  for (let i = 0; i < 3 && ai; i++) {
-    const next = kept.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end))
-    if (next.length === kept.length) break
-    kept = next
-    calls = roomAiMentions(text, kept.map((p) => p.name))
-  }
-  const tokens: MentionToken[] = [
-    ...kept.map((p) => ({ start: p.start, end: p.end, kind: 'person' as const, id: p.id })),
-    ...everyone.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end)).map((p) => ({ start: p.start, end: p.end, kind: 'all' as const, id: ALL_MENTION_ID })),
-    ...calls.map((r) => ({ start: r.start, end: r.end, kind: 'ai' as const, id: AI_MENTION_ID })),
-  ]
+  const tokens: MentionToken[] = whole.map((p) => (p.id === ALL_MENTION_ID ? { start: p.start, end: p.end, kind: 'all' as const, id: ALL_MENTION_ID } : { start: p.start, end: p.end, kind: 'person' as const, id: p.id }))
   return tokens.sort((a, b) => a.start - b.start)
 }
 
@@ -253,7 +234,7 @@ export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRo
 
 /** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
  * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
-export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>) => (r.aiWaits ? '?' : r.mentioned ? '@' : badgeText(roomUnread(r)))
+export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>) => (r.mentioned ? '@' : badgeText(roomUnread(r)))
 
 // roomWantsMe, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's badge with them)
 export { roomLightsDot, roomUnread, roomWantsMe }
@@ -298,27 +279,12 @@ export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
  * loadAround.) */
 export const TARGET_PAGES = 10
 
-// ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
-/** The AI's entry in the "@" list fits the query when one of its names starts with it ("" too: it comes first). */
-export function aiMatches(query: string): boolean {
-  const q = query.toLocaleLowerCase()
-  return ROOM_AI_NAMES.some((n) => n.toLocaleLowerCase().startsWith(q))
-}
-
-/** The "@<AI name>" in a message, as pseudo-mentions for mentionParts (so they stand out like a person's). */
-export function aiMentionNames(body: string, people: { name: string }[] = []): { id: string; name: string }[] {
-  if (!roomAiCalled(body, people.map((p) => p.name))) return []
-  return ROOM_AI_NAMES.map((name) => ({ id: AI_MENTION_ID, name }))
-}
-export const AI_MENTION_ID = '@ai'
-
 // ---------------- "@전체" (docs/DECISIONS.md "@전체") ----------------
 /** "@전체" in the "@" list and in the box (no person has this id: user ids start with a letter or a digit). */
 export const ALL_MENTION_ID = '@all'
 /** Slack's words, which find "@전체" in the "@" list in every language too (beside each language's own word). */
 const MENTION_ALL_ALIASES = ['all', 'channel', 'everyone', 'みんな']
-/** "@전체"'s entry in the "@" list fits the query when one of its words starts with it ("" too: it comes right after the
- * AI). `words`: each language's word for it (rooms.mentionAll). */
+/** "@전체"'s entry in the "@" list fits the query when one of its words starts with it ("" too: it comes first). `words`: each language's word for it (rooms.mentionAll). */
 export function allMatches(query: string, words: readonly string[]): boolean {
   const q = query.toLocaleLowerCase()
   return [...words, ...MENTION_ALL_ALIASES].some((w) => w.toLocaleLowerCase().startsWith(q))
@@ -330,46 +296,3 @@ export const allMentionNames = (m: { mentionsAll?: boolean }, words: readonly st
 export const mentionsMe = (m: { mentions: readonly string[]; mentionsAll?: boolean; author?: { id: string } | null }, meId: string | null | undefined) =>
   !!meId && (m.mentions.includes(meId) || (!!m.mentionsAll && m.author?.id !== meId))
 
-/** A run of mine in its place: by turn id; steps the newer copy lacks (a state change carries none) are kept. */
-export function withRun(runs: RoomAiRun[], run: RoomAiRun): RoomAiRun[] {
-  const i = runs.findIndex((r) => r.turnId === run.turnId)
-  if (i < 0) return [...runs, run]
-  const prev = runs[i]!
-  const next = { ...run, steps: run.steps.length ? run.steps : prev.steps }
-  return runs.map((r, j) => (j === i ? next : r))
-}
-
-/** A step of one of my runs: replaced by id, or added at the end. */
-export function withRunStep(runs: RoomAiRun[], turnId: string, step: Step): RoomAiRun[] {
-  return runs.map((r) => {
-    if (r.turnId !== turnId) return r
-    const i = r.steps.findIndex((s) => s.id === step.id)
-    return { ...r, state: r.state === 'queued' ? 'running' : r.state, position: 0, steps: i < 0 ? [...r.steps, step] : r.steps.map((s, j) => (j === i ? step : s)) }
-  })
-}
-
-/** queue.position of a run of mine (0: it runs now). */
-export function withRunPosition(runs: RoomAiRun[], turnId: string, position: number): RoomAiRun[] {
-  return runs.map((r) => (r.turnId === turnId && (r.state === 'queued' || r.state === 'running') ? { ...r, state: position > 0 ? 'queued' : 'running', position } : r))
-}
-
-/** Is the run still working (its block shows the steps and Stop)? */
-export const runActive = (r: Pick<RoomAiRun, 'state'>) => r.state === 'queued' || r.state === 'running'
-
-/** What my question's answer is doing now, in plain words (the room shows no search patterns or paths): finding files,
- * reading a document (its name without folders or extension), looking at the web, or working. */
-export type RoomStepWords = { kind: 'find' } | { kind: 'read'; name: string } | { kind: 'web' } | { kind: 'work' }
-const FIND_TOOLS = new Set(['glob', 'grep', 'list', 'find_skills'])
-export function roomStepWords(step: Pick<Step, 'kind' | 'tool' | 'label'>): RoomStepWords {
-  if (step.kind === 'web_search' || step.tool === 'web_fetch' || step.tool === 'save_url') return { kind: 'web' }
-  if (step.tool && FIND_TOOLS.has(step.tool)) return { kind: 'find' }
-  // a file of the room read by the AI (room_file, "<verb> · <name>"): said like a team file read
-  if (step.tool === 'read' || step.tool === 'room_file') {
-    // "<verb> · <path>": the file's own name, without its folders and extension
-    const i = step.label.lastIndexOf(' · ')
-    const file = i < 0 ? '' : (step.label.slice(i + 3).split('/').filter(Boolean).at(-1) ?? '')
-    const name = file.replace(/\.[A-Za-z0-9]{1,8}$/, '').trim()
-    return name ? { kind: 'read', name } : { kind: 'find' }
-  }
-  return { kind: 'work' }
-}

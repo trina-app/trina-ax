@@ -13,20 +13,20 @@
 //                        access rules allow today (integrations/connections/store.ts)
 //   {type:'drive_share', id}  what a Google Drive an admin shares with the team returned: its viewers are the active
 //                        people its rule includes today (integrations/google-drive/shares.ts)
-//   {type:'room', id, fromSeq}  messages of a team chat room the AI got as context there (rooms/ai.ts), the oldest of
+//   {type:'room', id, fromSeq}  messages of a team chat room the AI read (room_read, room_file, a side chat), the oldest of
 //                        them at seq fromSeq: its viewers are the room's members today who see the room from before
 //                        that message (rooms/store.ts seesFrom) and to whom no old answer from there on is hidden
 //                        (room_hidden_answers, rooms/history.ts), but for the person who read it: what is hidden from
 //                        them was never given to them
-//   {type:'name', path}  a room session (chat/turn.ts noteRoomTool) and a Slack chat (the sub-folders its listings
+//   {type:'name', path}  a Slack chat (the sub-folders its listings
 //                        showed): a team path whose name the tools showed or
 //                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
 //                        nothing of its content. Its viewers are the people who would see the same name in a listing
 //                        (RuleSet.canList: they may read it, or something below it). Kept as the path: it lives for
-//                        one question (rooms/ai.ts), and a folder renamed meanwhile is judged by the rules at its
+//                        one question, and a folder renamed meanwhile is judged by the rules at its
 //                        old path
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
-// person's own messages do not (in a room session names count too, rooms/ai.ts, and in a Slack chat what list and glob
+// person's own messages do not (in a Slack chat what list and glob
 // showed, integrations/slack/post-check.ts).
 // Stored as {sources, v: 2, unlisted}: a scope started by this build (v 2) also keeps the keys of the file-type sources
 // (folder, root, own folder) that came at least once from something other than a read the answer's source list records
@@ -227,7 +227,7 @@ export function missingReaders(db: Database, rules: RuleSet, sources: readonly R
  * Would a message sent in this room let more people see what `sources` came from (an AI app's connection sending as
  * the person, connectors/remote-mcp/rooms.ts)? Its readers are the room's members who will see it: everyone in it, or
  * for a thread reply those who see its first message (`root`). A member whose account cannot read now (disabled: a
- * 1:1 chat keeps them) still counts and reads nothing, as in the room's AI (rooms/ai.ts decide): they would read the
+ * 1:1 chat keeps them) still counts and reads nothing, as in the old room AI: they would read the
  * message once enabled again. null = no.
  */
 export function roomWidening(db: Database, roomId: string, sources: ReadSource[], root?: { id: string; seq: number }, reader?: string | null): Widening | null {
@@ -236,7 +236,7 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
   const people = activePeople(db)
   // who will see it: everyone in the room; for a thread reply those who see its first message: in a team room or the
   // everyone room every member to whom it is not hidden (one whose history is not open yet too: it opens to them, and
-  // then they see the thread), elsewhere who was in the room before it (rooms/ai.ts readers, the same audience)
+  // then they see the thread), elsewhere who was in the room before it (the same audience)
   const history = !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind IN ('team', 'all')").get(roomId)
   const target = (db.query(`SELECT m.user_id FROM room_members m WHERE m.room_id = ?1 AND (?3 OR COALESCE(m.history_from_seq, m.visible_from_seq) < ?2)
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.message_id = ?4)`)
