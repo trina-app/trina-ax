@@ -293,7 +293,7 @@ describe("a project's page", () => {
       expect(m.get('project-files').textContent).toContain('1 item')
       release()
       await m.settle(50)
-      expect([count(/^GET \/api\/projects\//), count(/^GET \/api\/chats\?projectId=/), count(TREE('projects/acme-launch'))]).toEqual([1, 1, 1])
+      expect([count(/^GET \/api\/projects\/[^/?]+(\?|$)/), count(/^GET \/api\/chats\?projectId=/), count(TREE('projects/acme-launch'))]).toEqual([1, 1, 1])
     } finally {
       await m.unmount()
     }
@@ -324,11 +324,11 @@ describe("a project's page", () => {
     const m = await projectPage()
     try {
       await m.until(() => m.find('project-members-only'), 'the page')
-      holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+      holdOnly = new RegExp(`^GET /api/projects/${P1}(\\?|$)`)
       const release = held()
       // a read on its way (an access change reads the page again), then a new name saved here
       accessChanged.emit()
-      await until(() => count(new RegExp(`^GET /api/projects/${P1}`)) === 2, 'the read again')
+      await until(() => count(new RegExp(`^GET /api/projects/${P1}(\\?|$)`)) === 2, 'the read again')
       await m.click('project-menu')
       await m.click('project-rename')
       const field = await m.until(() => m.container.ownerDocument!.body.querySelector('[data-testid="dialog-input"]'), 'the prompt')
@@ -353,7 +353,7 @@ describe("a project's page", () => {
     )
     try {
       await m.until(() => m.find('files-screen'), 'the Files screen')
-      expect(count(/^GET \/api\/projects\//)).toBe(1)
+      expect(count(/^GET \/api\/projects\/[^/?]+(\?|$)/)).toBe(1)
       expect(count(/^GET \/api\/files\/tree/)).toBe(0)
     } finally {
       await m.unmount()
@@ -380,7 +380,7 @@ describe("a project's page", () => {
     )
     try {
       await moved.until(() => moved.find('files-screen'), 'the Files screen')
-      expect(count(/^GET \/api\/projects\//)).toBe(1)
+      expect(count(/^GET \/api\/projects\/[^/?]+(\?|$)/)).toBe(1)
     } finally {
       await moved.unmount()
     }
@@ -389,7 +389,7 @@ describe("a project's page", () => {
   test('an access change while the page is open: nothing of it is kept until the project is read again', async () => {
     const m = await projectPage()
     await m.until(() => chatTitles(m).length === 2, 'the page')
-    holdOnly = new RegExp(`^GET /api/projects/${P1}`)
+    holdOnly = new RegExp(`^GET /api/projects/${P1}(\\?|$)`)
     const release = held()
     accessChanged.emit()
     expect(useProjectPage.getState().pages[P1]).toBeUndefined()
