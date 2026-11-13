@@ -757,6 +757,9 @@ function ProjectPage() {
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
   const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
+  // empty folder comes back (a folder with files becomes its one line)
+  const filesBox = filesEmpty || (!files && p.canEdit)
   // a team project in place has members (a personal one is mine alone; one in the trash is nobody's until restored)
   const hasMembers = !p.folderPath.startsWith('users/') && !p.inTrash
   // in the trash: no name menu (its note has 되돌리기 and 완전히 삭제; renaming it is not needed there)
@@ -850,7 +853,7 @@ function ProjectPage() {
           {(!outside || hasMembers) && (
             <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="divide-y divide-line">
-                {!outside && !p.instructions && p.canEdit ? (
+                {!outside && !p.instructions?.trim() && p.canEdit ? (
                   // none yet, for whoever may edit: a box that says what they are for, with one clear button (filled,
                   // it is the one quiet line below again)
                   <EmptySideBox
@@ -872,7 +875,7 @@ function ProjectPage() {
                     // phones: the same 수정 as in the name's menu above, so not a second button here
                     action={p.canEdit ? <button type="button" className={`${sideAction} max-md:hidden`} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
                   >
-                    {p.instructions ? (
+                    {p.instructions?.trim() ? (
                       <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" />
                     ) : (
                       // none yet, for someone who cannot edit them (who may, has the box above): what they are for
@@ -882,11 +885,12 @@ function ProjectPage() {
                     )}
                   </DisclosureRow>
                 )}
-                {!outside && filesEmpty && (
+                {!outside && filesBox && (
                   // no files yet, for whoever may add them: a box that says what they are for, with one clear button
-                  // to the project's folder in 파일, where files are uploaded (a phone: its header is still the row to
-                  // the project's files screen)
+                  // to the project's folder in 파일, where files are uploaded (a phone: the project's files screen, as
+                  // its header row, so Back comes here the same way)
                   <EmptySideBox
+                    loading={!files}
                     testId="project-files"
                     icon={<Folder size={16} />}
                     label={t('files.title')}
@@ -902,12 +906,12 @@ function ProjectPage() {
                     line={t('projects.page.filesEmptyHint', { ai: aiName(t) })}
                     lineTestId="project-files-empty"
                   >
-                    <Button size="sm" onClick={() => navigate(folderLink)} data-testid="project-files-upload">
+                    <Button size="sm" onClick={() => navigate(phone ? `/projects/${p.id}/files` : folderLink)} data-testid="project-files-upload">
                       <Plus size={14} aria-hidden /> {t('projects.page.uploadFiles')}
                     </Button>
                   </EmptySideBox>
                 )}
-                {!outside && phone && !filesEmpty && (
+                {!outside && phone && !filesBox && (
                   // a phone: one row to the project's files, a screen of this tab (Back comes here)
                   <div data-testid="project-files">
                     <Link to={`/projects/${p.id}/files`} className="flex min-h-12 items-center gap-2.5 py-3 text-sm" data-testid="project-files-open">
@@ -918,7 +922,7 @@ function ProjectPage() {
                     </Link>
                   </div>
                 )}
-                {!outside && !phone && !filesEmpty && (
+                {!outside && !phone && !filesBox && (
                   <DisclosureRow
                     testId="project-files"
                     icon={<Folder size={16} />}
@@ -1006,12 +1010,13 @@ function ProjectPage() {
 /** An empty Instructions or Files of a project's page, for whoever may fill it: a light box with the line's name, one
  * short line on what it is for, and one clear button (owner 2026-11-13: empty, the quiet lines were easy to miss). The
  * filled ones stay the one-line DisclosureRows. `head`: a header of its own in place of the icon and name (a phone's
- * files row, which is a link). */
-function EmptySideBox({ icon, label, head, line, lineTestId, testId, children }: { icon: ReactNode; label: string; head?: ReactNode; line: string; lineTestId: string; testId: string; children: ReactNode }) {
+ * files row, which is a link). `loading`: what is in it is not known yet: the same box with grey bars in place of the
+ * line and the button. */
+function EmptySideBox({ icon, label, head, line, lineTestId, testId, loading, children }: { icon: ReactNode; label: string; head?: ReactNode; line: string; lineTestId: string; testId: string; loading?: boolean; children: ReactNode }) {
   return (
     // no hairlines of the column around a box: its own edge is the line
     <div className="border-b-0! py-2" data-testid={testId}>
-      <div className="rounded-xl border border-line px-3.5 pt-2 pb-3.5" data-empty="true">
+      <div className="rounded-xl border border-line px-3.5 pt-2 pb-3.5" data-empty={loading ? undefined : 'true'} data-loading={loading ? 'true' : undefined}>
         {head ? (
           <div className="flex">{head}</div>
         ) : (
@@ -1022,10 +1027,21 @@ function EmptySideBox({ icon, label, head, line, lineTestId, testId, children }:
             <span className="min-w-0 truncate font-medium">{label}</span>
           </div>
         )}
-        <p className="mt-0.5 text-sm leading-5 break-keep text-muted" data-testid={lineTestId}>
-          {line}
-        </p>
-        <div className="mt-3">{children}</div>
+        {loading ? (
+          <div aria-hidden>
+            <div className="mt-0.5 flex h-5 items-center">
+              <div className="h-3.5 w-4/5 animate-pulse rounded bg-subtle" />
+            </div>
+            <div className="mt-3 h-8 w-28 animate-pulse rounded-lg bg-subtle max-md:h-11" />
+          </div>
+        ) : (
+          <>
+            <p className="mt-0.5 text-sm leading-5 break-keep text-muted" data-testid={lineTestId}>
+              {line}
+            </p>
+            <div className="mt-3">{children}</div>
+          </>
+        )}
       </div>
     </div>
   )
