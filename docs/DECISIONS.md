@@ -27099,6 +27099,56 @@ phase 4.
   Inbox notice only (nothing is pushed).
 - Version impact: **minor**.
 
+## Chats shared with people and groups: the Share dialog (feat/shared-chats-p4, 2026-11-14, product owner)
+
+Where: Team AX core (`web/src/components/chat/{ChatShareDialog,ChatTitleMenu,chatMenuItems,chatActions,WhoSees,SharedChat,copyChatLink}.tsx`,
+`web/src/components/{ProjectParticipants,WideningDraftHost}.tsx`, `web/src/pages/{Chat,Activity}.tsx`,
+`web/src/pages/admin/Members.tsx`, `web/src/lib/sharedChat.ts`, `web/src/store/wideningDraft.ts`, `web/src/i18n/*`).
+Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` phase 4 (QA TC-1405), with the UX review's decisions
+written there. Builds on "Chats shared with people and groups" (phase 3, the server).
+
+- **One item.** "Share…" in the chat title menu and every row's "⋯" (`lib/sharedChat.ts shareKindOf`): a chat outside
+  projects that is mine opens the Share dialog; my private chat in a team project the project members' share as before;
+  my chat in a personal project the dialog that explains it and offers Move… (after the move the Share item's dialog
+  opens again on the moved chat). No item on a shared project chat, someone else's chat, a side chat, a confidential or
+  scheduled task's chat, a chat in the trash, or while safe operations are on. The old "Share with project members"
+  label is gone (one word for both kinds; the project page's import note says "Share…").
+- **The dialog (Drive's model).** The project dialogs' people-and-groups search (`ParticipantPicker`, now with a
+  placeholder, keys it never offers, and a read-only form) with the creator's row "Started this chat" (no ✕); a pick is
+  "new", a saved row taken out is struck through with Undo (its accessible name now starts with the word it shows:
+  "Undo · Keep Bob", axe's label-content rule). Save (Share while not shared) is off with no change. ✕, Esc, the scrim
+  and a phone's Back with unsaved changes ask "Discard changes?" [Keep editing] [Discard] (`confirmDialog` got a
+  `cancel` label); after a phone's Back answered Keep editing the sheet is made again, so it holds a Back entry again. A
+  failed or offline save keeps the picks and says so above the button; a refusal shows the server's words.
+- **The check comes on Save, not while picking.** The server's check of what new people would see is rate-limited
+  (a room-send token, no free probe), so the dialog does not call it per pick: Save answers `confirm` and its lines show
+  in place (the provenance warning, memories, "{n} answers here used places {names} can't open" with "Show answers ›"),
+  the button reads "Share anyway" and sends the key back; changing the picks drops the confirm and asks again. The
+  widening list is phase 1's component with the chat as its target, in place of the body (‹ back to the picks).
+- **A phone's answer of the list.** The draft (store/wideningDraft.ts, now with `chatId`) is kept first. Opened from
+  the chat's own dialog the answer is on the same screen, which a phone's screen history replaces, so "‹ Back to
+  sharing" goes back to the chat's address (not a step back) and the dialog opens again on the list with the picks.
+  Dialogs held by the app rather than a page (`ChatShareHost`, `WideningDraftHost`) close when the address changes
+  after the page took their history entry.
+- **Recipients.** Their list and Activity show the chat ("{name} shared a chat with you" with its title under it; "This
+  chat is no longer shared with you" with no link once gone). "Hide from my list" in the row and title menus (the title
+  menu goes to Home first: the chat on screen would be seen, which brings it back), with Undo in the toast; opening it
+  brings it back. Taken out while it is open: "This chat is no longer shared with you" with Go to Home (known on the
+  screen that showed it as someone else's shared chat; the server's 404 stays the same for everyone).
+  "Continue in a chat only you see" opens Home's box with my last question (no project).
+- **The line under the box.** "{n} people can see this chat."; for its creator a button to the Share dialog ("Change
+  who sees it"). Someone not told how many (a group in it, S8) reads "Shared with {names}" (the creator and the rows by
+  name) and the header's mark says "Shared chat"; the copy-link toast says "the people it's shared with can open it".
+- **Admin.** The delete-account dialog counts the person's shared chats with others' messages and says to disable the
+  account instead to keep them (`GET /api/admin/users/:id/shared-chats`; a count that can't be read leaves the line out).
+- **Audit screen.** `chat.share` reads "Shared a chat" for both kinds, its details say with whom ("The project's
+  members" or "People and groups chosen by its creator", from `detail.kind`; an older entry is a project's); the two
+  actions phase 3 added (`chat.audience`, `chat.unshared_rollback`) have words too.
+- **Not in this phase.** No "Chats shared with me" preference: it governs the push, which waits for the push gateway
+  (phase 3's follow-up). No upload line under the chips: computer files stay refused in a people-shared chat until
+  chat-scoped storage (S6).
+- Version impact: **minor**.
+
 ## Admin › Folder permissions as two lists, like Drive — 폴더 권한은 목록 두 개 (feat/admin-folder-lists, 2026-11-14, product owner)
 
 넣을 곳: Team AX core (`web/src/pages/admin/Folders.tsx`, `web/src/pages/admin/FolderLists.tsx`), 이유: files and permissions are core. Plan: `docs/AGENTS/plan/20261114-0420-admin-folder-lists.md`. Goes with "Folder access adds up like Google Drive (P2)" (#787, which owns the Share dialog, Limit access, Access removed, the group warning and the Admin notice). The owner: the rule tree and rule words are "too unfamiliar and hard"; sharing should feel like Google Drive shared drives, and Drive has no admin table of rules (its admins change a folder in its own Share dialog).

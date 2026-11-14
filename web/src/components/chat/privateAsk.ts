@@ -28,3 +28,9 @@ export function askPrivately(navigate: NavigateFunction, projectId: string, text
 /** My latest question in a chat, as this window has it ('' when none is loaded). */
 export const lastOwnQuestion = (chatId: string, me: string | undefined): string =>
   (useChats.getState().threads[chatId]?.messages ?? []).filter((m) => m.role === 'user' && !m.local && m.author?.id === me).at(-1)?.content ?? ''
+
+/** "Continue in a chat only you see" from a chat shared with people (no project): Home's box with the question in it,
+ * nothing sent (pages/Home.tsx `?prompt=`). */
+export function askPrivatelyHome(navigate: NavigateFunction, text: string) {
+  navigate(text ? `/?prompt=${encodeURIComponent(text)}` : '/')
+}
