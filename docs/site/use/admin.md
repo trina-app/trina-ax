@@ -75,7 +75,16 @@ Click an engine's name to open its details: how it signs in, every model, when i
 and for the owner and admins the API engine form. Click an account's name for who uses it, this month's use and when it
 was last used. The **⋯** menu of an account has Check again, Move up / down, rename, replace, switch off and delete.
 
-![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
+![The Claude Code row opened: its accounts with Add account, how it signs in, its version and models, when it was last checked, and Check again](../images/admin/engines-open.webp "An engine opened")
+
+## Guests
+
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one room or one project, who
+do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
+their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
+guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)).
+
+![Admin › Members & invites › Guests: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
 
 ## The team's AI settings
 

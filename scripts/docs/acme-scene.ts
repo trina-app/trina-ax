@@ -92,6 +92,39 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
     if (i === 2) throw new Error('the answer was not sent to the room: it still asks for a confirmation')
   }
   log('marketing: Trina\'s answer sent from the side chat')
+  await sharing(baseUrl, log)
+}
+
+/** A guest of the docs: Morgan Reyes from an outside agency, invited into one group chat (fictional, like Acme) */
+export const GUEST = { username: 'morgan', name: 'Morgan Reyes', password: 'teamax-guest-1' }
+
+/** What the sharing pictures show, without AI: Jordan's brand-voice chat shared with Alex and Sam (Share…), and a group
+ * chat about the launch email with a guest from an outside agency in it (Invite a guest), who says hello there. */
+export async function sharing(baseUrl: string, log: (s: string) => void = console.log) {
+  const jordan = await signIn(baseUrl, 'jordan')
+  const alex = await signIn(baseUrl, 'alex')
+  // the chat about the brand voice (made by dress above), shared with two people by name
+  const chats = (await jordan.call(API.listChats, { query: { limit: 50 } })).items
+  const voice = chats.find((c) => /brand voice|exclamation/i.test(c.title ?? ''))
+  if (voice) {
+    let key: string | undefined
+    for (let i = 0; i < 3; i++) {
+      const r = await jordan.call(API.putChatAudience, { params: { id: voice.id }, body: { subjects: [{ subjectType: 'user', subjectId: 'alex' }, { subjectType: 'user', subjectId: 'sam' }], ...(key ? { confirmKey: key } : {}) } })
+      if (r.status !== 'confirm') break
+      key = r.confirmKey
+    }
+    log(`shared chat: "${voice.title}" with Alex and Sam`)
+  } else log('shared chat not made: the brand voice chat is missing')
+
+  // a group chat with a guest
+  const room = await jordan.call(API.createRoom, { body: { kind: 'group', userIds: ['alex', 'sam'], name: 'Launch email' } })
+  const send = (api: ApiClient, body: string) => api.call(API.sendRoomMessage, { params: { id: room.id }, body: { body, mentions: [], fileIds: [], clientMessageId: id(), threadRootId: null } })
+  await send(jordan, 'Morgan from the agency joins us here for the launch email. Morgan, the plan is in the Marketing folder, I will paste the key points.')
+  const invite = await jordan.call(API.createGuestInvite, { body: { place: { kind: 'room', id: room.id }, ai: { mode: 'none' }, name: GUEST.name } })
+  const guest = await new ApiClient({ baseUrl }).call(API.acceptInvite, { params: { token: invite.token }, body: { username: GUEST.username, name: GUEST.name, password: GUEST.password, client: 'web', tokenMode: 'bearer' } })
+  await send(new ApiClient({ baseUrl, token: guest.token! }), 'Thanks Jordan! I will send two subject line options by Wednesday.')
+  await send(alex, 'Great, I can review them on Wednesday afternoon.')
+  log('group chat "Launch email": Jordan, Alex, Sam and the guest Morgan')
 }
 
 if (import.meta.main) {
@@ -99,6 +132,8 @@ if (import.meta.main) {
   const d = process.argv.indexOf('--data')
   const url = i > 0 ? process.argv[i + 1] : undefined
   const data = d > 0 ? process.argv[d + 1] : undefined
-  if (!url || !data) throw new Error('Usage: bun scripts/docs/acme-scene.ts --url http://localhost:19830 --data <the demo data folder>')
-  await dress(url, fs.readFileSync(path.join(data, 'owner-password'), 'utf8').trim())
+  if (!url || !data) throw new Error('Usage: bun scripts/docs/acme-scene.ts --url http://localhost:19830 --data <the demo data folder> [--sharing-only]')
+  // --sharing-only: only the shared chat and the guest, on a demo the earlier version of this script filled
+  if (process.argv.includes('--sharing-only')) await sharing(url)
+  else await dress(url, fs.readFileSync(path.join(data, 'owner-password'), 'utf8').trim())
 }

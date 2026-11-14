@@ -12,6 +12,7 @@ Trina AX has a few building blocks. Every other page uses these words.
 | **Owner** | Everything an admin can, plus team-level choices such as updates, restores, removing members and the team name. |
 | **Admin** | Manage members, groups, folder permissions, the team's AI connections and engines, and team settings. Admins cannot read other people's chats. |
 | **Member** | Chat with the AI, use files and skills they may open, and keep personal folders and skills. |
+| **Guest** | Someone from outside the team in one group conversation or one project, and nowhere else. Their AI is off unless the team turns it on. |
 
 A **group** is a set of people, such as Sales or Finance. Folder rules can name groups or people.
 
@@ -31,11 +32,11 @@ A folder or file you cannot open is invisible: in Files, in AI answers, in searc
 
 ## Chats and projects
 
-A **chat** is a conversation with the AI. Only its owner sees it.
+A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or groups. Chats in a team project are seen by the project's members.
 
 A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 
-![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it](../images/concepts/rail.webp "The bar on the left")
+![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it: Ask Trina, Search, Scheduled, Team skills, Pinned and Trina history](../images/concepts/rail.webp "The bar on the left")
 
 ## Skills
 
