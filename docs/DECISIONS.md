@@ -26762,6 +26762,15 @@ connect_service are unchanged.
   the token can be used: the engine's only network is the proxy port, the proxy forwards checked Messages API requests
   and the refresh grant only, and nothing else reaches Anthropic. The rule from "Claude Code 자격 증명 우선순위" still
   holds: no proxy token is injected as a credential in this mode, so there is no silent fallback to the stored login.
+- **Left open (accepted, written down).** ① The engine can read the Mac owner's refresh token, which a Linux engine
+  never holds. Anthropic will not fetch or connect for it any more, but the allowed `web_search` server tool takes any
+  query, so a taken-over engine could put text (the token too) into a search query that the search provider sees.
+  Turning search off for office turns would cost a normal turn a feature; the owner's remedy is the office
+  setup-token mode (r4b "사무실도 구독 setup-token으로"), where the engine holds no real credential. ② Certificates are
+  renewed at server start (made again after a year, valid 825 days). ③ The Claude sign-in process of managed mode
+  (`claude-login:` tokens) still tunnels to `platform.claude.com` directly; it runs the fixed `claude setup-token`, not
+  a turn. ④ The terminator forwards the checked body written again (a duplicate key cannot read differently at the
+  host), with an exact content type; an openssl failure stops the engine core with a clear message (fails closed).
 - **Checked with the real CLI** (Claude Code 2.1.325, outside the sandbox, the Mac's own sign-in, through this proxy):
   a plain answer and a WebSearch answer both worked, every model request went through the checked HTTP path, and the
   CLI trusted a terminated tunnel's CA through `NODE_EXTRA_CA_CERTS`. A real refresh was not forced (that would touch

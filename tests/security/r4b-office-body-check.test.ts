@@ -14,7 +14,7 @@ import net from 'node:net'
 import path from 'node:path'
 import tls from 'node:tls'
 import { execFileSync } from 'node:child_process'
-import { refreshCertificates, startRefreshTerminator, REFRESH_HOST, type RefreshTerminator } from '../../server/src/proxy/refresh-terminator'
+import { refreshBody, refreshCertificates, startRefreshTerminator, REFRESH_HOST, type RefreshTerminator } from '../../server/src/proxy/refresh-terminator'
 import { makeEnv } from '../lib/env'
 import { issueProxyToken, OWN_LOGIN_TURN_HEADER, OWN_LOGIN_UPSTREAM, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_CONNECT_HOSTS } from '../../server/src/proxy/connect'
@@ -202,6 +202,17 @@ describe('TC-359: the refresh host\'s tunnel ends at the refresh terminator', ()
     ]
     for (const [m, p, b] of cases) expect([m, p, (await through(m, p, b)).split('\r\n')[0]]).toEqual([m, p, 'HTTP/1.1 403 Forbidden'])
     expect(refreshSeen).toEqual([])
+  })
+
+  test('what goes out is the checked body written again: a duplicate key cannot read differently at the host', async () => {
+    refreshSeen.length = 0
+    const r = await through('POST', '/v1/oauth/token', '{"grant_type":"authorization_code","code":"c","grant_type":"refresh_token","refresh_token":"old"}')
+    expect(r.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(refreshSeen[0]!.body).toBe('{"grant_type":"refresh_token","code":"c","refresh_token":"old"}')
+    expect(refreshBody('application/x-www-form-urlencoded', 'grant_type=refresh_token&grant_type=authorization_code')).toBeNull()
+    expect(refreshBody('application/x-www-form-urlencoded', 'grant_type=refresh_token&refresh_token=a&refresh_token=b')).toBeNull()
+    expect(refreshBody('application/x-www-form-urlencoded; charset=utf-8', 'grant_type=refresh_token&refresh_token=a')).toEqual({ type: 'application/x-www-form-urlencoded', body: 'grant_type=refresh_token&refresh_token=a' })
+    expect(refreshBody('text/plain; x=application/json', '{"grant_type":"refresh_token"}')).toBeNull()
   })
 
   test('certificates: made on this Mac, owner-only files, no CA key kept, the leaf names only the refresh host', () => {

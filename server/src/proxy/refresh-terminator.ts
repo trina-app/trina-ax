@@ -58,13 +58,24 @@ export function refreshCertificates(dir: string, now = Date.now()): { caPem: str
   return { caPem: fs.readFileSync(f('ca.pem'), 'utf8'), key: fs.readFileSync(f('leaf.key'), 'utf8'), cert: fs.readFileSync(f('leaf.pem'), 'utf8') }
 }
 
-/** what a refresh request may be: grant_type refresh_token, as JSON (Claude Code) or a form */
-function isRefresh(contentType: string, body: string): boolean {
+/** A refresh request rewritten from what was checked (grant_type refresh_token, as JSON (Claude Code) or a form), or
+ * null. The rewritten body goes out, never the raw one: a duplicate key could read differently at the host. */
+export function refreshBody(contentType: string, body: string): { type: string; body: string } | null {
+  const type = contentType.split(';')[0]!.trim().toLowerCase()
   try {
-    if (contentType.includes('application/json')) return (JSON.parse(body) as { grant_type?: unknown }).grant_type === 'refresh_token'
-    if (contentType.includes('application/x-www-form-urlencoded')) return new URLSearchParams(body).get('grant_type') === 'refresh_token'
+    if (type === 'application/json') {
+      const j = JSON.parse(body) as Record<string, unknown>
+      return j && typeof j === 'object' && !Array.isArray(j) && j.grant_type === 'refresh_token' ? { type, body: JSON.stringify(j) } : null
+    }
+    if (type === 'application/x-www-form-urlencoded') {
+      const f = new URLSearchParams(body)
+      if (f.getAll('grant_type').length !== 1 || f.get('grant_type') !== 'refresh_token') return null
+      const keys = [...f.keys()]
+      if (new Set(keys).size !== keys.length) return null
+      return { type, body: f.toString() }
+    }
   } catch {}
-  return false
+  return null
 }
 
 export function startRefreshTerminator(o: {
@@ -92,13 +103,12 @@ export function startRefreshTerminator(o: {
       if (!ip || !ours.has(ip.port)) return new Response('', { status: 403 })
       const url = new URL(req.url)
       if (req.method !== 'POST' || url.pathname !== REFRESH_PATH || url.search) return refuse(`${req.method} ${url.pathname.slice(0, 80)} is not the login refresh`)
-      const ct = req.headers.get('content-type') ?? ''
-      const body = await req.text()
-      if (!isRefresh(ct, body)) return refuse('not a refresh_token grant')
+      const checked = refreshBody(req.headers.get('content-type') ?? '', await req.text())
+      if (!checked) return refuse('not a refresh_token grant')
       let up: Response
       try {
-        up = await fetch(upstream + REFRESH_PATH, { method: 'POST', body, redirect: 'manual',
-          headers: { 'content-type': ct, accept: req.headers.get('accept') ?? 'application/json', ...(req.headers.get('user-agent') ? { 'user-agent': req.headers.get('user-agent')! } : {}) } })
+        up = await fetch(upstream + REFRESH_PATH, { method: 'POST', body: checked.body, redirect: 'manual',
+          headers: { 'content-type': checked.type, accept: req.headers.get('accept') ?? 'application/json', ...(req.headers.get('user-agent') ? { 'user-agent': req.headers.get('user-agent')! } : {}) } })
       } catch { return new Response(JSON.stringify({ error: 'unreachable' }), { status: 502, headers: { 'content-type': 'application/json' } }) }
       if (up.status >= 300 && up.status < 400) { await up.body?.cancel().catch(() => {}); return new Response('', { status: 502 }) }
       return new Response(await up.arrayBuffer(), { status: up.status, headers: { 'content-type': up.headers.get('content-type') ?? 'application/json' } })

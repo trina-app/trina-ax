@@ -120,7 +120,10 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
     // CLAUDE_CONNECT_HOSTS for a running Claude turn's own processes)
     // the refresh host also answers the Messages API: its tunnel ends at the refresh terminator, which passes the
     // refresh only (TC-359)
-    const refresh = startRefreshTerminator({ db: ctx.db, dir: path.join(tunnel.secretsDir, 'claude-refresh-ca'), log: tunnel.log })
+    let refresh: ReturnType<typeof startRefreshTerminator>
+    try { refresh = startRefreshTerminator({ db: ctx.db, dir: path.join(tunnel.secretsDir, 'claude-refresh-ca'), log: tunnel.log }) } catch (e) {
+      throw new CoreUnavailableError(`the Claude sign-in renewal certificate could not be made (${(e as Error).message}): engines will not run without it`)
+    }
     ctx.onClose(() => refresh.stop())
     const modelProxy = { ...tunnel, refreshCaPem: refresh.caPem, connect: { ...tunnel.connect, terminate: { hosts: CLAUDE_CONNECT_HOSTS, dial: refresh.dial } } }
     return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex, proxyPort: tunnel.port } } : {}) } })
