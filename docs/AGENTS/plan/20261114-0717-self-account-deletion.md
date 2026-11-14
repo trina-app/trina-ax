@@ -49,7 +49,7 @@ Out: the Trina Cloud console account and the Play web page (trina-cloud repo); d
 
 ## Risks
 
-- Migration number: B range, check `server/migrations/` on origin/dev right before committing (294 is the highest
+- Migration number: B range, check `server/migrations/` on origin/dev right before committing (296 is the highest
   today).
 - The sweep deletes without a human: only open requests whose date passed, never the owner, one person at a time.
 - The App Review account deletes itself after a review: runbook line in STORE-SUBMISSION.
