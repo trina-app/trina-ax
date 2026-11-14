@@ -17,6 +17,7 @@ import { unshareUncheckedChats } from '../../server/src/chat/shared'
 import { noSearchPath } from '../../server/src/chat/turn'
 import { peopleAudience, peopleChatsLost } from '../../server/src/chat/chat-audience'
 import { buildTurnPrompt, sharedSection } from '../../server/src/chat/prompt'
+import { runAccountCleanups } from '../../server/src/auth/account-removal'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -387,6 +388,21 @@ describe('notices, hiding, lists', () => {
     await ask('bob', id, `x\n${fake({ say: 'y' })}`)
     expect((await h.api('carol').call(API.userSharedChats, { params: { id: 'alice' } })).sharedChats).toBe(before + 1)
     expect((await errOf(h.api('bob').call(API.userSharedChats, { params: { id: 'alice' } }))).status).toBe(403)
+  })
+})
+
+describe('a removed account', () => {
+  test("a recipient's audience row, hidden row and notices go with the account cleanup", async () => {
+    const id = await newChat()
+    const ghost = 'ghost-' + crypto.randomUUID().slice(0, 8)
+    db().query("INSERT INTO users (id, username, name, role) VALUES (?, ?, 'Ghost', 'member')").run(ghost, ghost)
+    await share('alice', id, [{ subjectType: 'user', subjectId: ghost }])
+    db().query('INSERT INTO chat_list_hidden (user_id, chat_id, at) VALUES (?, ?, ?)').run(ghost, id, new Date().toISOString())
+    expect(db().query('SELECT COUNT(*) AS n FROM chat_share_notices WHERE user_id = ?').get(ghost)).toEqual({ n: 1 })
+    db().query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ghost)
+    await runAccountCleanups(h.ctx, ghost)
+    for (const [t, c] of [['chat_audience', 'subject_id'], ['chat_list_hidden', 'user_id'], ['chat_share_notices', 'user_id']] as const)
+      expect(db().query(`SELECT COUNT(*) AS n FROM ${t} WHERE ${c} = ?`).get(ghost), t).toEqual({ n: 0 })
   })
 })
 
