@@ -168,7 +168,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     server.onToast = (t) => {
       setToasts((list) => [...list.filter((x) => x.id !== t.id), t])
       // shorter on phones, where a toast sits over the header
-      setTimeout(() => setToasts((list) => list.filter((x) => x.id !== t.id)), window.matchMedia('(max-width: 767px)').matches ? 7000 : 12_000)
+      setTimeout(() => setToasts((list) => list.filter((x) => x.id !== t.id)), window.matchMedia('(max-width: 767px)').matches ? 7000 : 9000)
     }
     return () => { server.onToast = null }
   }, [server])

@@ -60,7 +60,10 @@ for (const branch of step('banner').suggest!) {
     const prompt = page.getByTestId(`demo-suggest-${branch}`)
     await expect(prompt).toBeVisible()
     await shot(page, `${branch}-4-project`)
-    await prompt.click()
+    // the guide line does the step too: on the first branch it sends the first prompt; the second clicks its button
+    if (branch === step('banner').suggest![0]) await guide(page).click()
+    else await prompt.click()
+    await expect(prompt).toHaveCount(0)
     const send = page.getByTestId('demo-send-to')
     await expect(send).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('demo-compare')).toBeVisible()
@@ -104,6 +107,9 @@ test('free typing gets a short reply with the step\'s question as a button', asy
   await expect(page.getByText(script.fallback.text)).toBeVisible({ timeout: 30_000 })
   const card = page.getByTestId('ask-card').last()
   await expect(card).toBeVisible()
+  // the card is the one thing that glows, and the guide line says so
+  await expect(card).toHaveClass(/demo-glow/)
+  await expect(glowing(page)).toHaveCount(1)
   const home = script.answers.find((a) => a.prompt === script.home.prompt)!
   await choose(card, home.label ?? home.prompt)
   // the picked question is answered in the same reply, and the story goes on

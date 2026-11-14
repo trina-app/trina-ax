@@ -406,7 +406,7 @@ export class DemoServer extends MockServer {
     const place = this.placeOf(chat)
     const answer = this.engine.answerFor(prompt, place)
     // a short title for the history (the button's words), not the prompt cut off
-    if (answer?.label && !chat.title) chat.title = answer.label
+    if (answer && !chat.title) chat.title = answer.label ?? answer.prompt
     if (answer) {
       this.noteExtras(assistant.id, chat, answer)
       await this.playReply(chat, assistant, answer, pub)
@@ -421,6 +421,8 @@ export class DemoServer extends MockServer {
     const i = await this.askCard(chat, assistant, { question: this.script.fallback.question ?? this.script.fallback.text, options: offered.map((a) => ({ label: a.label ?? a.prompt, reply: a })) }, pub)
     const picked = i === null ? undefined : offered[i]
     if (!picked) return
+    // the history names the question that was answered, not the typed words
+    chat.title = picked.label ?? picked.prompt
     this.noteExtras(assistant.id, chat, picked)
     await this.playReply(chat, assistant, picked, pub)
     if (!this.stopped.has(assistant.turnId!)) this.engine.answered(picked.id)
