@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
+import { IsoTime } from './common'
 import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
 import { RoomKind } from './rooms'
@@ -71,12 +72,14 @@ export type PushEventType = z.infer<typeof PushEventType>
  * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
- * taking this server's key because the team address was moved to another key. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'chat.shared'])
+ * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
+ * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
+ * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'chat.shared'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
@@ -101,8 +104,12 @@ export const InboxNotification = z.object({
   /** 'account.deletion_request' only (owners and admins): who asked for their account to be deleted, by display name while the
    * account is there (null once it is deleted), and where the request is now: open (waits for the owner or an admin; link
    * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or
-   * handled (the account was deleted); older servers omit it */
-  deletionRequest: z.object({ name: z.string().nullable(), state: z.enum(['open', 'cancelled', 'handled']) }).optional(),
+   * handled (the account was deleted); dueAt: when the server deletes it by itself (absent from older servers); older
+   * servers omit it */
+  deletionRequest: z.object({ name: z.string().nullable(), state: z.enum(['open', 'cancelled', 'handled']), dueAt: IsoTime.nullable().optional() }).optional(),
+  /** 'account.deletion_due' only (the person themselves): the date their account is deleted while the request is open
+   * (link 'account_deletion' opens Settings › Profile › Delete account), null once it was cancelled or done */
+  deletionDue: z.object({ dueAt: IsoTime.nullable() }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

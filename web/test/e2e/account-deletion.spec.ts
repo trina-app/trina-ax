@@ -1,6 +1,7 @@
-// Settings › Profile › Request account deletion (/settings/account/delete; contract: shared/src/api/account-deletion.ts):
-// a member asks, sees when they asked and can take it back; the owner's Members list marks the person while it is open;
-// the owner cannot ask and is sent to Members & invites. A phone reaches the page from the profile's own row.
+// Settings › Profile › Delete account (/settings/account/delete; contract: shared/src/api/account-deletion.ts): a member
+// sees the date and what goes and stays, confirms with their password (a wrong one is said in the dialog), sees the date
+// and can keep the account; the owner's Members list marks the person with the date while it is open; the owner cannot
+// ask and is sent to Members & invites. A phone reaches the page from the profile's own row.
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
@@ -19,10 +20,17 @@ test('a member asks, the owner sees it in Members, the member takes it back', as
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page, BOB)
   await openPage(page)
-  await expect(page.getByTestId('account-deletion-none')).toContainText('the team owner and the admins are told')
+  await expect(page.getByTestId('account-deletion-none')).toContainText('The team owner and the admins are told')
+  await expect(page.getByTestId('account-deletion-what')).toContainText('only the team owner can read')
+  await expect(page.getByTestId('account-deletion-what')).toContainText('up to 8 weeks')
   await page.getByTestId('account-deletion-request').click()
-  await expect(page.getByText(t['accountDeletion.sent'])).toBeVisible()
-  await expect(page.getByTestId('account-deletion-pending')).toContainText('You asked on')
+  await page.getByTestId('reauth-password').fill('not my password')
+  await page.getByTestId('reauth-confirm').click()
+  await expect(page.getByTestId('account-deletion-none')).toBeVisible()
+  await expect(page.getByRole('dialog')).toContainText('Wrong password')
+  await page.getByTestId('reauth-password').fill(BOB.password)
+  await page.getByTestId('reauth-confirm').click()
+  await expect(page.getByTestId('account-deletion-pending')).toContainText('Your account will be deleted on')
   // asked again after a reload: still pending (the server keeps it)
   await page.reload()
   await expect(page.getByTestId('account-deletion-pending')).toBeVisible()
@@ -33,7 +41,7 @@ test('a member asks, the owner sees it in Members, the member takes it back', as
   await signIn(op)
   await op.goto('/admin/members')
   const row = op.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
-  await expect(row.getByTestId('member-deletion-requested')).toHaveText(t['accountDeletion.badge'])
+  await expect(row.getByTestId('member-deletion-requested')).toContainText('Deleted on')
 
   await page.getByTestId('account-deletion-cancel').click()
   await expect(page.getByText(t['accountDeletion.cancelled'])).toBeVisible()
@@ -48,7 +56,7 @@ test('the owner cannot ask: the page sends them to Members & invites', async ({ 
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   await openPage(page)
-  await expect(page.getByTestId('account-deletion-owner')).toContainText('cannot be deleted by request')
+  await expect(page.getByTestId('account-deletion-owner')).toContainText('cannot be deleted here')
   await expect(page.getByTestId('account-deletion-request')).toHaveCount(0)
   await page.getByTestId('account-deletion-transfer').click()
   await expect(page).toHaveURL(/\/admin\/members$/)
@@ -66,6 +74,8 @@ test('a phone: the profile\'s row opens the page full width; asking and cancelli
   expect(box.x + box.width).toBeLessThanOrEqual(390)
   expect(box.width).toBeGreaterThanOrEqual(340)
   await request.click()
+  await page.getByTestId('reauth-password').fill(BOB.password)
+  await page.getByTestId('reauth-confirm').click()
   await expect(page.getByTestId('account-deletion-pending')).toBeVisible()
   await page.getByTestId('account-deletion-cancel').click()
   await expect(page.getByTestId('account-deletion-none')).toBeVisible()

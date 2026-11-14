@@ -1,5 +1,5 @@
 // Who sees a chat outside projects that its creator shared with chosen people and groups (docs/DECISIONS.md "Chats
-// shared with people and groups"; migration 297). The low-level reads only, with no import from the rest of the chat
+// shared with people and groups"; migration 298). The low-level reads only, with no import from the rest of the chat
 // code, so every place that decides who sees a chat (chat/shared.ts chatFor, the lists, search, the realtime fan-out,
 // attachments, artifacts, export, notifications) can use the same predicate.
 //

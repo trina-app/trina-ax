@@ -24,7 +24,7 @@ export interface ChatRow {
   shared_at: string | null
   /** migration 276: a chat opened from this room's side panel (✦ Trina); null: an ordinary chat */
   side_room_id: string | null
-  /** migration 297: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
+  /** migration 298: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
    * and shared_at stays NULL. null: not shared that way */
   people_shared_at: string | null
 }

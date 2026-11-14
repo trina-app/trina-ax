@@ -1,4 +1,4 @@
-// Rollback guard for chats shared with people and groups (migration 297; docs/DECISIONS.md "Chats shared with people
+// Rollback guard for chats shared with people and groups (migration 298; docs/DECISIONS.md "Chats shared with people
 // and groups", B2 and B3). This build marks every turn it starts (turns.people_checked = 1, set when it moves a
 // queued turn to running, or ends one without running it; a turn waits in the queue with 0) and the turns a chat had
 // when it was first shared (2). Turns still queued are passed over. An older build knows nothing about these chats: it sees an ordinary private chat of its
