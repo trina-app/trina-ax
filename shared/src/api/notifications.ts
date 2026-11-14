@@ -76,8 +76,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
- * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due'])
+ * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
+ * and room_app.leaver to the people who may manage an app in a room when someone who was shown its address can no longer
+ * manage it (room_app_leaver_notices, migration 351; docs/DECISIONS.md "Apps posting in rooms"). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.leaver'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -120,6 +122,12 @@ export const InboxNotification = z.object({
     appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable(),
     day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
   }).optional(),
+  /** 'room_app.leaver' only (the people who may manage the app, docs/DECISIONS.md "Apps posting in rooms"): someone who
+   * was shown the app's address (or a secret Trina made) left the room or the team, or is no longer an admin of a team
+   * room, and still knows it ("Get a new address" in the app's settings). The app, its room (link 'room' while I am
+   * still in it; roomId null else); the names are plain lines. Absent once the app is removed or got a new address, and
+   * from older servers */
+  roomAppLeaver: z.object({ appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable() }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

@@ -40,7 +40,7 @@ function phone(userId: string) {
 async function pausedApp(owner: Client, roomId: string, ownerId: string) {
   const r = await owner.call('POST', `/api/rooms/${roomId}/apps`, { kind: 'other', name: 'Backups' })
   const app = r.app as { id: string }, token = (r.address as string).split('/in/')[1]!
-  h.ctx.db.query('INSERT INTO room_app_days (app_id, day, shown) VALUES (?, ?, ?)').run(app.id, teamDay(h.ctx.db, Date.now()).day, ROOM_APP_DAILY_CAP)
+  h.ctx.db.query("INSERT INTO room_app_days (app_id, day, room_id, kind, shown) VALUES (?, ?, ?, 'other', ?)").run(app.id, teamDay(h.ctx.db, Date.now()).day, roomId, ROOM_APP_DAILY_CAP)
   await settle()
   const res = await h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'one too many' }) })
   expect(res.status).toBe(429)

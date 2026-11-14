@@ -3670,6 +3670,7 @@ export const es: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "Un miembro del equipo pidió que se elimine su cuenta.",
   "notifications.event.account.deletion_due": "Tu solicitud para eliminar la cuenta ya tiene fecha.",
   "notifications.event.room_app.paused": "Una aplicación de una sala llegó a sus mensajes de hoy y se pausó. Vuelve a empezar mañana.",
+  "notifications.event.room_app.leaver": "Alguien que se fue conoce la dirección de una aplicación de una sala. Obtén una dirección nueva en su configuración.",
   "notifications.event.account.reset_link": "Se creó un enlace para restablecer la contraseña de su cuenta.",
   "notifications.resetLink.server": "Se creó en el servidor un enlace para restablecer la contraseña de su cuenta.",
   "notifications.resetLink.by": "{name} creó un enlace para restablecer la contraseña de su cuenta.",

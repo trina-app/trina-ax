@@ -27271,6 +27271,20 @@ guides, "Apps posting here") are phase 2.
     (or a secret Trina made); when one of them can no longer manage the app (left the room or the team, an admin of a
     team room made a member), `RoomApp.leaverKnows` drives "Someone who left knows this address · Get a new address".
     A new address keeps only its caller.
+  - **Leaver notice in Activity.** The people who may manage the app (`mayManageApps`: a team room's owners and admins
+    in it, everyone in a 1:1 or group chat), never the leaver, get `room_app.leaver`: "Someone who left knows the
+    address of <app> · Get a new address". Activity only (not a PushEventType), shown always (no setting). Its own
+    table `room_app_leaver_notices` (in the same unmerged migration 351: the notice tables' event_type CHECK lists are
+    fixed). Source `<app id>.<first 12 of the token hash>`: one notice per person and address, never twice; a new
+    address starts over. Detection does not hang on one code path: `RoomApps.leaverSweep()` checks every app with
+    viewers every 5 minutes and with the hourly prune (routes/room-apps.ts; not under tests). No call from the
+    membership and role code: a room left or a member taken out (Rooms.dropMembers), a group's members changed (team
+    rooms), a role change, a disabled or deleted account are separate paths with no single hook, so a notice may come up
+    to 5 minutes late. "Get a new address" marks them read; removing the app deletes them; the notice's
+    `roomAppLeaver` (app, room while the reader is in it) is absent once either happened. `room_app_viewers.user_id`
+    is kept with a deleted account on purpose (KEPT_WITH_ACCOUNT; it has no foreign key, so the coverage test reads
+    `USER_COLUMNS_WITHOUT_FK` too): the person stays flagged as knowing the address until it changes.
+    Tests: tests/unit/b-room-apps-leaver.test.ts.
   - Requests the limits turn away are counted in memory and written at most once a minute per app. GitHub deliveries
     are also deduplicated by the body's hash (a replay under a new `X-GitHub-Delivery`). App names: lookalikes of a
     person's name (NFKC, lookalike letters, Latin mixed with Cyrillic or Greek) and the AI's or the product's name are

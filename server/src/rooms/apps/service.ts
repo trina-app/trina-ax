@@ -84,6 +84,11 @@ export function teamDay(db: Database, now: number): { day: string; next: string 
 
 export { mayManageApps }
 
+/** The source of a "someone who left knows the address" notice for the app's current address (room_app_leaver_notices,
+ * migration 351): one per person and address; a new address starts over. */
+export const leaverSource = (row: Pick<AppRow, 'id' | 'token_hash'>) => `${row.id}.${row.token_hash.slice(0, 12)}`
+const likePrefix = (id: string) => `${id.replace(/[\\%_]/g, (c) => `\\${c}`)}.%`
+
 const services = new WeakMap<AppContext, RoomApps>()
 export function roomAppsOf(ctx: AppContext): RoomApps {
   let s = services.get(ctx)
@@ -127,6 +132,28 @@ export class RoomApps {
     const viewers = this.db.query(`SELECT v.user_id, EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = v.user_id) inroom,
       EXISTS (SELECT 1 FROM users u WHERE u.id = v.user_id AND u.status = 'active' AND u.deleted_at IS NULL) active FROM room_app_viewers v WHERE v.app_id = ?`).all(row.room_id, row.id) as { user_id: string; inroom: number; active: number }[]
     return viewers.some((v) => !v.inroom || !v.active || !mayManageApps(this.db, room, v.user_id))
+  }
+  /** Tells the people who may manage an app that someone who left knows its address (Activity, 'room_app.leaver'), for
+   * every app with viewers whose leaverKnows holds now. It does not hang on one code path (a room left, a member taken
+   * out, a team left, an admin made a member, an account disabled or deleted): the 5-minute and hourly ticks run it
+   * (routes/room-apps.ts). Idempotent: one notice per person and address (the table's UNIQUE). Returns how many apps had
+   * a leaver. */
+  leaverSweep(): number {
+    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+      WHERE EXISTS (SELECT 1 FROM room_app_viewers v WHERE v.app_id = a.id)`).all() as AppRow[]
+    const n = notificationsOf(this.ctx)
+    let found = 0
+    for (const row of rows) {
+      try {
+        if (!this.leaverKnows(row)) continue
+        found++
+        const room = this.db.query('SELECT * FROM rooms WHERE id = ?').get(row.room_id) as RoomRow | null
+        if (!room) continue
+        const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
+        for (const u of members) if (mayManageApps(this.db, room, u)) n.roomAppLeaver(u, leaverSource(row))
+      } catch (e) { this.ctx.log.warn('room app leaver notice failed', { err: e }) }
+    }
+    return found
   }
   tokenOf(row: AppRow): string {
     try { return (this.vault.decrypt(row.id, TOKEN_KIND, row.token_enc, row.key_version) as { token: string }).token } catch {
@@ -300,6 +327,10 @@ export class RoomApps {
     this.limits.forget(row.id)
     // a new address: only the person who got it knows it now
     this.db.query('DELETE FROM room_app_viewers WHERE app_id = ?').run(row.id)
+    // the "someone who left knows the address" notices of the old address are settled (a later leaver of the new one
+    // makes new ones: their source is the new address's)
+    const read = this.db.query("UPDATE room_app_leaver_notices SET read_at = ? WHERE source_id LIKE ? ESCAPE '\\' AND read_at IS NULL RETURNING user_id").all(nowIso(), likePrefix(row.id)) as { user_id: string }[]
+    for (const u of new Set(read.map((r) => r.user_id))) this.signal(u)
     const now = this.row(row.id)!
     const address = this.addressOf(now, userId)
     return { app: this.out(now), address }
@@ -309,8 +340,9 @@ export class RoomApps {
     const { room, row } = this.mine(userId, roomId, appId)
     this.db.transaction(() => {
       this.db.query('DELETE FROM room_apps WHERE id = ?').run(row.id)
-      // its paused notices go with it (a notice of an app that is gone opens nothing)
-      this.db.query("DELETE FROM room_app_notices WHERE source_id LIKE ? ESCAPE '\\'").run(`${row.id.replace(/[\\%_]/g, (c) => `\\${c}`)}.%`)
+      // its paused and leaver notices go with it (a notice of an app that is gone opens nothing)
+      this.db.query("DELETE FROM room_app_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
+      this.db.query("DELETE FROM room_app_leaver_notices WHERE source_id LIKE ? ESCAPE '\\'").run(likePrefix(row.id))
       audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind } })
     })()
     this.limits.forget(row.id)

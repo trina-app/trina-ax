@@ -3713,6 +3713,7 @@ export const ko = {
   "notifications.event.account.deletion_request": "팀원이 계정 삭제를 요청했어요.",
   "notifications.event.account.deletion_due": "계정 삭제 요청에 날짜가 정해졌어요.",
   "notifications.event.room_app.paused": "대화방의 앱이 오늘 보낼 수 있는 메시지 수에 도달해 멈췄어요. 내일 다시 시작해요.",
+  "notifications.event.room_app.leaver": "대화방을 나간 사람이 대화방 앱의 주소를 알고 있어요. 앱 설정에서 새 주소를 받으세요.",
   "notifications.event.account.reset_link": "내 계정의 비밀번호 재설정 링크가 만들어졌어요.",
   "notifications.resetLink.server": "서버에서 내 계정의 비밀번호 재설정 링크를 만들었어요.",
   "notifications.resetLink.by": "{name} 님이 내 계정의 비밀번호 재설정 링크를 만들었어요.",

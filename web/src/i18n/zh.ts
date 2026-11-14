@@ -5500,6 +5500,7 @@ export const zh: Record<MessageKey, string> = {
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
   "notifications.event.room_app.paused": "群聊中的一个应用已达到今天的消息上限，已暂停。明天会重新开始。",
+  "notifications.event.room_app.leaver": "已离开的人知道群聊中某个应用的地址。请在应用设置中获取新地址。",
   "audit.act.room_app.add": "向群聊添加了应用",
   "audit.act.room_app.update": "更改了群聊中的应用",
   "audit.act.room_app.secret": "更改了应用的密钥",

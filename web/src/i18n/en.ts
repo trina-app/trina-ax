@@ -3714,6 +3714,7 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "A team member asked to have their account deleted.",
   "notifications.event.account.deletion_due": "Your account deletion request now has a date.",
   "notifications.event.room_app.paused": "An app in a room reached its messages for today and was paused. It starts again tomorrow.",
+  "notifications.event.room_app.leaver": "Someone who left knows the address of an app in a room. Get a new address in its settings.",
   "notifications.event.account.reset_link": "A password reset link was made for your account.",
   "notifications.resetLink.server": "A password reset link for your account was made on the server.",
   "notifications.resetLink.by": "{name} made a password reset link for your account.",
