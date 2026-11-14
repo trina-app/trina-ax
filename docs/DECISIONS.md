@@ -26979,3 +26979,48 @@ connect_service are unchanged.
   - tests/unit/update-waits-for-work.test.ts.
   - update-interrupts-answers.test.ts: a cut step, recovery, and schedules during a wait.
   - dev-env-srt.test.ts: a command that cannot finish before the restart is refused, and a job is accepted.
+
+## People who see a shared chat later: nothing new is hidden (feat/shared-chats-p1, 2026-11-14, product owner)
+
+Supersedes "People who see a shared chat later — 나중에 보는 사람" (2026-11-08) and amends "지난 대화" for answers made
+from now on. Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` (phase 1, QA TC-1404); the owner decided
+the recommended design after an independent security and UX review.
+
+- **The rule.** From the cutover (settings `hidden_answers_cutover`, written once by migration 351 when this build
+  first runs) no answer is hidden from anyone who sees a shared project chat or a team room / the everyone room. The
+  read card before reading stays and now says so: "If it reads it, what it finds stays in this chat for everyone who
+  sees the chat, including people who get access later." "Send to a chat room" and the AI's post-to-room card add, for
+  a team room or the everyone room, "Everyone in this room will see it, including people who join later." People
+  removed from a chat's audience still lose the whole chat.
+- **Older answers keep the old hiding only where no card covered them** (rule b): a shared project chat's answer from
+  before the cutover is judged by the 11-08 walk, but a read group a card's yes covered (`y: 1`) never hides; `x: 1`
+  groups and silent groups keep hiding. Migration 351 marks `y` on the groups of every turn whose audit row
+  `chat.shared_read` says `shared`; the card writes it from now on. In rooms, an older message is hidden from a later
+  member only when its scope is closed or not kept, or holds a person's own folder, browser or connection (`user`), a
+  team connection or a shared Drive the member may not read, or the room itself where an older answer hidden from them
+  is (the chain). An older answer that used team folders only becomes visible. The walk only ever shows more than
+  before. Rollback: an older build ignores the cutover and `y` and hides as before (more, never less).
+- **Deviation from the plan (safer):** the plan let an older room answer that "used rooms" become visible. A room
+  source may carry an older answer that used a person's own folder (alice's personal notes summarised from the room
+  by someone else's AI), so a source that is this room is still judged by the older answers hidden in it.
+- **Still written:** `shared_answer_reads` for every answer (and `room_messages.source_scope`); they hide nothing new
+  but feed the warning below. A new answer built on an older hidden one its runner could see is visible (like copying
+  it by hand); a later reader's own AI still gets `WITHHELD_ANSWER` for the older hidden ones.
+- **Explicit widening warns, with the answers.** The project Members dialog, when adding people, says "{n} answers
+  here used places {names} can't open. Adding them shows those answers too." with **Show answers ›**: the list of
+  those answers replaces the dialog's body (chat, who asked, when, the first line, the places by name only where the
+  adder may open them, else "a place you can't open"; with several picks which of them miss it). One function
+  (`chat/widening.ts`) serves the dry run's `hiddenAnswers` and `POST /api/sharing/widening-answers` (whoever may
+  change the members; 403 `widening_not_allowed` to another viewer, 404 to anyone else; the first page takes a
+  room-send token; pages of 20 behind a cursor signed over the target, the picks, the people who gain it and the
+  position, 409 `changed` otherwise). Only answers the adder sees; answers that stay hidden from the new people anyway
+  are not listed. An item opens `/c/<chatId>?answer=<messageId>` (the branch holding it for this view only, scrolled
+  to and lit; gone: "That answer is no longer here."): a new tab on a computer; on a phone the same screen, with the
+  dialog's draft kept (memory and sessionStorage, 30 minutes) and a bar "‹ Back to sharing" that, like the system
+  Back, returns to the opener and reopens the dialog on the list with the picks.
+- **Silent widening is accepted:** joining a group, an admin's rule or role change, or an account enabled again shows
+  the history from the cutover on without a warning, as a Slack channel's history.
+- **Budget:** the count plus the first page under 300 ms for 10,000 shared answers in 50 chats, at most 3 queries and
+  one rule check per place and person set (`tests/unit/b-widening-answers-bench.test.ts`, fails over budget; 10x by
+  hand: `scripts/bench/widening-answers.ts`). New index `shared_answer_reads_chat_msg`.
+- Version impact: **minor**.
