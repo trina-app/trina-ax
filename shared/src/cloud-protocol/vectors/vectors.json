@@ -97,6 +97,28 @@
    ]
   },
   {
+   "command": "idle-wait",
+   "args": {
+    "max": 0,
+    "activity": true
+   },
+   "argv": [
+    "idle-wait",
+    "--json",
+    "--activity",
+    "--max",
+    "0"
+   ]
+  },
+  {
+   "command": "data-grow",
+   "args": {},
+   "argv": [
+    "data-grow",
+    "--json"
+   ]
+  },
+  {
    "command": "reset-link",
    "args": {
     "owner": true
@@ -261,6 +283,19 @@
     "args": {
      "max": 600
     },
+    "stdin": null
+   },
+   {
+    "command": "idle-wait",
+    "args": {
+     "max": 0,
+     "activity": true
+    },
+    "stdin": null
+   },
+   {
+    "command": "data-grow",
+    "args": {},
     "stdin": null
    },
    {
