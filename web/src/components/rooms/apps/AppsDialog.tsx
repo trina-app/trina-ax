@@ -787,7 +787,7 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
   const status = appStatus(app)
   const switches = switchesOf(service)
   // optional events set up in the service that never arrived: "Not set up in Shopify"
-  const missing = notSetUp(service, app as RoomApp & { eventsSeen?: string[] })
+  const missing = notSetUp(service, app)
   const refusedText = useRefusedText()
   // what needs someone, one block, one action each
   const leaver = !!app.leaverKnows && !fresh

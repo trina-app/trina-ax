@@ -115,8 +115,8 @@ export const HUBSPOT_ROWS: Record<'deal' | 'contact' | 'ticket', readonly (reado
  * the {{1.…}} parts into the event's fields when it is pasted. Other reads title, text, link and thread. */
 export const MAKE_BODY = `{"title":"{{1.summary}}","text":"{{1.start}} {{1.location}}","link":"{{1.htmlLink}}","thread":"{{1.id}}"}`
 
-/** The switches of an optional event that never arrived ("Not set up in Shopify"): read from the app's `eventsSeen` when
- * the server sends it; without it nothing is marked. */
+/** The switches of an optional event that never arrived ("Not set up in Shopify"), from the app's `eventsSeen` (shared RoomApp;
+ * older servers omit it, and then nothing is marked). */
 export function notSetUp(s: AppService, app: { eventsSeen?: readonly string[] | null }): Set<string> {
   const seen = app.eventsSeen
   if (!seen) return new Set()

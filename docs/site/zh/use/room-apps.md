@@ -11,19 +11,29 @@ description: 让 Sentry、GitHub、Google Forms 或其他任何服务把更新�
 ## 添加应用
 
 1. 打开群聊，然后选择 **⋯ › 添加应用**。
-2. 选择一个服务。服务按组排列：**表单**（Google 表单、Typeform、Tally、Jotform）、**付款和订单**（Stripe、Shopify）、
+2. 选择一个服务。服务分组列出：**表单**（Google 表单、Typeform、Tally、Jotform）、**付款与订单**（Stripe、Shopify）、
    **工作**（Notion、Zendesk、Jira、HubSpot）和 **开发者**（GitHub、Sentry）。**显示更多服务** 会打开另外几个（Toss
-   Payments、Channel Talk、PortOne）。最后的 **其他应用** 用于其他任何服务，要先起个名字（例如 *备份通知*），它的消息会以
-   这个名字显示。需要特定方案或角色的服务会在它那一行写明（例如 *需要：Notion 付费方案*）。
+   Payments、Channel Talk、PortOne）。最后的 **其他应用** 可以接入其他任何服务。需要特定方案或角色
+   的服务会在它那一行写明（例如 *需要：Notion 付费方案*）。其他应用要先起个名字（例如 *备份通知*），它的消息会以这个名字显示。
 3. 按 Webhook URL 旁边的 **复制**（Google 表单为 **复制代码**），然后按照该服务中的编号步骤操作。在你复制之前，群聊里不会
    添加任何东西，所以你可以先看看，再关闭指南。
 4. 指南会实时显示进展：*正在等待第一条消息*、*已连接*，或者上一次为什么没有显示。**看个示例** 会在指南里显示它的消息会是
    什么样子，不会真的发布。
 
+![添加应用：它的消息会显示在群聊中给每个人看，然后是 Google Forms、其他应用、GitHub 和 Sentry](../../images/room-apps/picker.webp "添加应用")
+
 谁可以添加：在团队群聊或所有人群聊中，是其中的所有者和管理员；在一对一聊天或群组聊天中，是其中的任何人。群聊里的其他人
 可以看到卡片、在话题中回复，并向 Trina 询问。点一下应用的名称，可以看到是谁设置的。
 
 群聊里的每个人都能看到应用的消息，之后加入的人也能看到。请谨慎选择群聊：错误报告或表单回答里可能有客户数据。
+
+### 在群聊中
+
+每条更新都是应用名称下的一张卡片，带有 **应用** 标签、发生了什么、一行状态和在该服务中打开的链接。回复放在卡片的话题里，和
+其他消息一样。群聊的 **✦** 侧边对话提供 **今天发生了什么？**，它会汇总应用的消息，把需要有人处理的放在前面（有 Google 表单的
+群聊还有 **总结今天的回复**）；在话题中则提供 **总结这个话题**。
+
+![一个群聊，里面有来自 Sentry、GitHub 和报名表的卡片，每张都带应用标签，旁边打开的 ✦ 侧边对话中有今天发生了什么？等建议](../../images/room-apps/side-chat.webp "应用卡片和侧边对话")
 
 ### Google 表单
 
@@ -38,44 +48,45 @@ Google 表单没有可以粘贴网址的地方，所以 Trina 会给你一段用
 
 ### 表单、付款和工作工具
 
-Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubSpot 都有自己的指南，步骤用该服务自己的界面名称
-来写。简单来说：
+Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubSpot 各有自己的指南，步骤用的是该服务自己的界面名称。简单来说：
 
-- **Typeform**：表单的 **Connect › Webhooks › Add a webhook**，粘贴、保存并打开。
-- **Tally**：表单的 **Integrations › Webhooks › Connect**，粘贴到 **Endpoint URL**。
-- **Jotform**：表单的 **Settings › Integrations**，搜索 **WebHooks** 并粘贴。
+- **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴、保存并打开。
+- **Tally**：在表单的 **Integrations › Webhooks › Connect** 中，粘贴到 **Endpoint URL**。
+- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks** 并粘贴。
 - **Stripe**（需要 Admin 或 Developer 角色）：**Developers › Workbench › Webhooks › Create an event destination**，勾选指南
-  列出的事件，选择 **Webhook endpoint** 并粘贴到 **Endpoint URL**。
-- **Shopify**（店主或有设置权限的员工）：**Settings › Notifications › Webhooks › Create webhook**，事件选 **Order
-  creation**；也可以为 Order payment、Order cancellation 和 Refund create 再各建一个。
+  列出的事件，选择 **Webhook endpoint**，粘贴到 **Endpoint URL**。
+- **Shopify**（店主或可访问设置的员工）：在 **Settings › Notifications › Webhooks › Create webhook** 中为 **Order
+  creation** 创建；也可以再为 Order payment、Order cancellation 和 Refund create 各创建一个。
 - **Notion**（付费方案）：数据库的 **Automations**，操作选 **Send webhook**；至少勾选标题和 Status。
-- **Zendesk**（Team 方案或更高，管理员）：先建一个 webhook，再建一个触发器，发送指南给你的正文（**复制正文** 在那一步里）。
+- **Zendesk**（Team 方案或更高，管理员）：先创建 webhook，再创建一个触发器，发送指南给出的正文（**复制正文** 就在那一步里）。
 - **Jira**（空间管理员）：空间的 **Space settings › Automation › Create flow**，触发器 **Work item created**，操作 **Send
-  web request**，正文用指南给你的（**复制正文**）。可以再为 **Work item transitioned** 和 **Work item commented** 各建一个
+  web request**，正文用指南给出的（**复制正文**）。可以再为 **Work item transitioned** 和 **Work item commented** 各建一个
   流程，状态变化和评论会进入工作项的话题。
 - **HubSpot**（Data Hub Professional 或 Enterprise）：基于交易的工作流，操作 **Data ops › Send a webhook**，选择
   **Customize request body** 并添加指南列出的键；也可以为联系人和工单各建一个。联系人只显示姓名和公司，从不显示邮箱或电话。
 
-表单回答按填写的内容显示，包括邮箱地址；上传的文件只显示文件名。付款和订单卡片只显示客户的名字（Shopify 还有城市），从不
-显示邮箱、电话或卡号。Stripe、Shopify、Zendesk、Typeform 和 Tally 可以给发送的内容签名：指南里的 **可选：更安全** 可以填入
-服务的签名密钥（或给你一个密钥去粘贴），之后只显示签过名的消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善
-保管。
+表单回答会按原样显示在群聊里，包括电子邮件地址；上传的文件只显示文件名。付款和订单卡片只显示客户的名字（Shopify 还显示城市），
+从不显示邮箱、电话或银行卡。
+
+Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名。指南中的 **可选：提高安全性** 用来填入该服务的签名密钥
+（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善保管。
 
 ### 更多服务
 
 选择器中的 **显示更多服务** 会打开主要在韩国使用的服务，所有人看到的列表都一样。
 
-- **Toss Payments**：开发者中心的 **웹훅 › 웹훅 등록하기**，粘贴 Webhook URL 并勾选 **PAYMENT_STATUS_CHANGED**。卡片显示
-  金额、订单名称和付款方式，从不显示卡号、账户或电话。可选：开发者中心的安全密钥（**API 키 › 보안 키**）。
+- **Toss Payments**：开发者中心的 **웹훅 › 웹훅 등록하기**（Webhooks › Register webhook），粘贴 Webhook URL 并勾选
+  **PAYMENT_STATUS_CHANGED**。卡片显示金额、订单名称和付款方式，从不显示卡号、账户或电话。可选：开发者中心的安全密钥
+  （**API 키 › 보안 키**）。
 - **Channel Talk**：**Settings › Webhook › Create new webhook**，粘贴 Webhook URL 并打开会话和消息通知。新会话显示客户的
   名字和第一条消息，之后的消息（以及打开后团队的回复）进入它的话题。团队自己的群聊从不显示。可选：webhook 的令牌。
-- **PortOne**（V2）：**결제 연동 › 연동 관리 › 결제알림(Webhook) 관리**，webhook 版本选 **결제모듈 V2**，粘贴 Webhook URL。
-  PortOne 只发送付款编号和状态，所以卡片不显示金额或姓名。可选：webhook 密钥（**웹훅 시크릿 발급**）。
+- **PortOne**（V2）：**결제 연동 › 연동 관리 › 결제알림(Webhook) 관리**，webhook 版本选 **결제모듈 V2**（Payment module
+  V2），粘贴 Webhook URL。PortOne 只发送付款编号和状态，所以卡片不显示金额或姓名。可选：webhook 密钥（**웹훅 시크릿 발급**）。
 
 ### 其他应用
 
-能填写 **Slack、Discord 或 JANDI webhook URL** 的工具也可以发到这里：把 Trina 的 Webhook URL 粘贴到那个字段即可。两者都没有
-的工具可以通过 Zapier 或 Make 连接；指南中的 **找不到你的应用？** 各举了一个例子。
+要求填写 **Slack、Discord 或 JANDI 的 webhook URL** 的工具，可以把 Trina 的 Webhook URL 粘贴到那个位置。两者都没有的工具，
+可以通过 Zapier 或 Make 连接；指南中的 **没有你用的应用？** 为两者各举了一个例子。
 
 任何能向 Webhook URL 发送消息的服务（Zapier、Make、Grafana、Uptime Kuma、你自己的脚本）都可以。把 Webhook URL 粘贴到该服务
 发送消息的位置，然后发一条测试消息。指南和应用设置里的 **发送方法** 有可以复制的示例：
@@ -109,6 +120,8 @@ curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"
 Sentry 把它称为内部集成（[Sentry 文档](https://docs.sentry.io/organization/integrations/integration-platform/)）。你需要是
 Sentry 中的所有者或管理者。
 
+![连接 Sentry：带复制按钮的 Webhook URL 框、在 Sentry 中的三个编号步骤、两个可选部分，以及正在等待第一条消息](../../images/room-apps/guide-sentry.webp "Sentry 指南")
+
 - 在 Sentry 中打开 **Settings › Developer Settings › Custom Integrations**，选择 **Create New Integration › Internal
   Integration**。
 - 把 Webhook URL 粘贴到 **Webhook URL**。
@@ -125,18 +138,21 @@ Sentry 中的所有者或管理者。
 - 是谁设置的，以及 **连接方法**（再次查看步骤）。
 - **状态行**：上一条消息、*已暂停* 或 *正在等待第一条消息*。
 - **提醒**，每条只有一个操作：上一次为什么没有显示（**检查密钥**）、*已离开的成员知道这个 Webhook URL*（**重新生成**），
-  以及没有设置密钥的 GitHub 和 Sentry 的 *未签名：知道 Webhook URL 的任何人都能发布*（**提高安全性**）。
+  以及能签名但还没有设置密钥的服务的 *未签名：知道 Webhook URL 的任何人都能发布*（**提高安全性**）。
 - **名称**：它的消息显示的名字。
-- **在此群聊中显示**：要发布的更新类型（适用于会发送多种更新的应用）。
+- **在此群聊中显示**：要发布的更新类型（适用于会发送多种更新的应用）。在服务中从未设置过的可选事件（例如 Shopify 的退款）
+  会显示 *尚未在 Shopify 中设置*，并附有通往那一步的链接。
 - **安静发布**：一行简短显示，没有未读标记和提醒。
 - **发送方法**（其他应用）。
 - **Webhook URL**：再次 **复制**，或 **重新生成**（旧的会立即失效；把新的粘贴到该服务中）。
 - **移除应用**：应用不能再发布；它的消息会保留。
 
+![Sentry 的设置：由 Olga 设置和如何连接、最后一条消息、未签名警告和让它更安全、名称、在此群聊中显示的开关、安静发布、带复制和重新生成的 Webhook URL，以及移除应用](../../images/room-apps/settings.webp "应用的设置")
+
 ## 限制
 
 一个应用每天最多发布 500 条消息（Google 表单：500 条回复）。超过后会暂停到午夜（按团队的时区）：群聊里会出现一行说明，管理
-它的人会收到带有 **立即恢复** 的通知（每天一次）。跳过的表单回复仍在表单的“回复”标签页里。卡片是纯文本：其中的内容不能提及
+它的人会在 **动态** 中（以及手机和浏览器上）收到带有 **立即恢复** 的通知（每天一次）。跳过的表单回复仍在表单的“回复”标签页里。卡片是纯文本：其中的内容不能提及
 任何人、不能运行任何东西，也不能隐藏链接。
 
 ## 当应用无法连接到服务器时

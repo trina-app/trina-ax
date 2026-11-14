@@ -21,12 +21,23 @@ status line changes as things move on.
 4. The guide shows what happens live: *Waiting for the first message*, *Connected*, or why the last try wasn't shown.
    **Show an example** shows, inside the guide, how its messages will look. Nothing is posted.
 
+![Add an app: its messages appear in the room for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
+
 Who can do this: in a team room or the everyone room, its owners and admins; in a 1:1 or a group chat, anyone in it.
 Everyone else in the room sees the cards, replies in their threads and asks Trina about them. A tap on the app's name
 says who set it up.
 
 Everyone in the room sees an app's messages, people who join later too. Pick the room with care: an error report or a
 form answer can hold customer data.
+
+### In the room
+
+Each update is a card under the app's name, with an **APP** tag, what happened, a status line and a link to open it in
+the service. Replies go in the card's thread, as with any message. The room's **✦** side chat offers **What happened
+today?** (Google Forms rooms also **Summarize today's responses**), which sums up the apps' messages with what needs someone first; in a thread it offers **Summarize this
+thread**.
+
+![A room with cards from Sentry, GitHub and a sign-up form, each with an APP tag, and the ✦ side chat open with What happened today?, Catch up, Anything for me? and Summarize](../images/room-apps/side-chat.webp "App cards and the side chat")
 
 ### Google Forms
 
@@ -128,6 +139,8 @@ If nothing arrives, **Recent Deliveries** on the webhook's page in GitHub shows 
 Sentry calls this an internal integration ([Sentry docs](https://docs.sentry.io/organization/integrations/integration-platform/)).
 You need to be an owner or a manager in Sentry.
 
+![Connect Sentry: the Webhook URL box with Copy, three numbered steps in Sentry, two optional sections and Waiting for the first message](../images/room-apps/guide-sentry.webp "The Sentry guide")
+
 - In Sentry open **Settings › Developer Settings › Custom Integrations** and choose **Create New Integration › Internal
   Integration**.
 - Paste the Webhook URL into **Webhook URL**.
@@ -144,20 +157,24 @@ You need to be an owner or a manager in Sentry.
 - Who set it up, and **How to connect** (its steps again).
 - **A status line**: the last message, *Paused*, or *Waiting for the first message*.
 - **Warnings**, each with one action: why the last try wasn't shown (**Check the secret**), *Someone who left knows this
-  Webhook URL* (**Regenerate**), and for GitHub and Sentry without a secret *Not signed: anyone with the Webhook URL can
+  Webhook URL* (**Regenerate**), and, for a service that can sign but has no secret yet, *Not signed: anyone with the Webhook URL can
   post* (**Make it safer**).
 - **Name**: the name its messages show under.
-- **Show in this room**: the kinds of updates to post (for apps that send more than one kind).
+- **Show in this room**: the kinds of updates to post (for apps that send more than one kind). An optional event you
+  never set up in the service (for example Shopify's refunds) says *Not set up in Shopify*, with a link to that step.
 - **Post quietly**: a short line, with no unread mark or alert.
 - **How to send** (Other apps).
 - **Webhook URL**: **Copy** it again, or **Regenerate** it (the old one stops working at once; paste the new one into the
   service).
 - **Remove app**: the app can't post any more; its messages stay.
 
+![Sentry's settings: set up by Olga with How to connect, the last message, a Not signed warning with Make it safer, Name, Show in this room switches, Post quietly, Webhook URL with Copy and Regenerate, and Remove app](../images/room-apps/settings.webp "An app's settings")
+
 ## Limits
 
 An app posts at most 500 messages a day (Google Forms: 500 responses). Past that it pauses until midnight (your team's
-time zone): the room gets one line, and the people who manage it get a notice with **Resume now** (once a day). Form
+time zone): the room gets one line, and the people who manage it get a notice in **Activity** (and on their phone and in their browser) with **Resume now**
+(once a day). Form
 responses it skipped are still in the form's Responses tab. Cards are plain text: nothing in them can mention anyone,
 run anything or hide a link.
 

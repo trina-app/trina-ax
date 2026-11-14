@@ -11,7 +11,8 @@ import { appMessage, mockApp, mockPreset, routeRoomApps, type MockApp } from './
 
 const dir = process.env.ROOM_APPS_SHOTS
 test.skip(!dir, 'ROOM_APPS_SHOTS is not set')
-test.use({ serviceWorkers: 'block', locale: 'en-US', permissions: ['clipboard-read', 'clipboard-write'] })
+// ROOM_APPS_SHOTS_SCALE=2 takes them at the docs' scale (docs/site/use/room-apps.md crops the 1440 light ones)
+test.use({ serviceWorkers: 'block', locale: 'en-US', permissions: ['clipboard-read', 'clipboard-write'], deviceScaleFactor: Number(process.env.ROOM_APPS_SHOTS_SCALE ?? 1) })
 
 const MINA = { id: 'mina', name: 'Mina' }
 const JUN = { id: 'jun', name: 'Jun' }
@@ -235,7 +236,7 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       // the cards, as the server's presets write them (shared plain-text card, the one checked link)
       const P = {
         notion: mockPreset('notion'), typeform: mockPreset('typeform'), tally: mockPreset('tally'), jotform: mockPreset('jotform'),
-        stripe: mockPreset('stripe', { lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' }, signed: true }), shopify: mockPreset('shopify'), zendesk: mockPreset('zendesk'),
+        stripe: mockPreset('stripe', { lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' }, signed: true }), shopify: mockPreset('shopify', { eventsSeen: ['order', 'paid'] }), zendesk: mockPreset('zendesk'),
       }
       const cards: MockMessage[] = [
         { id: id(50), author: MINA, body: '', extra: appMessage(P.stripe, { kind: 'Payment received', title: '$49.00 from Jamie Rivera', details: ['Pro plan (monthly)'], status: 'Status: Succeeded', link: { url: 'https://dashboard.stripe.com/payments/pi_3Q', host: 'dashboard.stripe.com' } }) },
@@ -260,6 +261,8 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await shot('p-settings-stripe-refused')
       await page.getByTestId('apps-back').click()
       await page.getByTestId('apps-list-row').nth(5).click()
+      await page.getByTestId('apps-switch-refund-not-set-up').scrollIntoViewIfNeeded()
+      await shot('p-settings-shopify-not-set-up')
       await page.getByTestId('apps-new-address').click()
       await shot('p-settings-shopify-regenerate')
     })

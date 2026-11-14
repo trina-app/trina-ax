@@ -14,6 +14,10 @@ import { appPath, appPathNow, BASE } from './base'
 import { demoWord } from './words'
 import './demo.css'
 
+/** the demos of every language on the site (web/demo/vite.ts demoLangs), named in their own language */
+const LANGS = __DEMO_LANGS__
+const LANG_NAMES: Record<string, string> = { en: 'English', ko: '한국어', ja: '日本語', es: 'Español', id: 'Bahasa Indonesia' }
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** a route change react-router hears (BrowserRouter follows popstate) */
@@ -377,6 +381,19 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
             <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>
           )}
           <button type="button" className="demo-restart" onClick={() => location.assign(BASE)} data-testid="demo-restart">{demoWord('restart', locale)}</button>
+          {LANGS.length > 1 && (
+            // the other languages' demos (each its own build on the site): a plain link, a new story
+            <span className="demo-langs" data-testid="demo-langs">
+              {LANGS.map((l, i) => (
+                <span key={l.locale}>
+                  {i > 0 && <span aria-hidden> / </span>}
+                  {l.locale === server.script.locale
+                    ? <span aria-current="true">{LANG_NAMES[l.locale] ?? l.locale}</span>
+                    : <a href={l.base} hrefLang={l.locale} lang={l.locale} data-testid={`demo-lang-${l.locale}`}>{LANG_NAMES[l.locale] ?? l.locale}</a>}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       </div>
       {end && popup && (

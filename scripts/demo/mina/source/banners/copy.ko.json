@@ -1,0 +1,22 @@
+{
+  "lang": "ko",
+  "brand": "Steepling",
+  "pouchKind": "Cold brew tea",
+  "pouchName": "유자 진저",
+  "pouchCount": "티백 10개입",
+  "leoFont": "'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif",
+  "leo1": "스티플링 겨울 신제품 출시 안내",
+  "leo2": "유자 진저 콜드브루 티 블렌드가 새로 나왔습니다",
+  "leo3": "출시 기념 20% 할인 이벤트 진행중!!",
+  "leo4": "기간 : 11/23 ~ 12/6",
+  "leo5": "지금 바로 구매하세요~",
+  "leoLogo": "steepling tea",
+  "eyebrow": "NEW · 겨울 한정",
+  "headline": "흐린 아침에,<br><em>작은 햇살 한 잔.</em>",
+  "productLine": "유자 진저 콜드브루. 상큼한 유자에<br>생강의 따뜻함을 더했어요.",
+  "badge": "20% 할인",
+  "badgeDates": "11.23 – 12.6",
+  "cta": "유자 진저 보러 가기 →",
+  "fontLink": "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700;900&display=block\">",
+  "localeCss": "body { word-break: keep-all; } h1 { font-family: 'Noto Serif KR', serif; font-weight: 600; letter-spacing: -.035em; line-height: 1.2; font-variation-settings: normal; } h1 em { font-style: normal; font-weight: 600; color: #1F4D3A; } .eyebrow { letter-spacing: .12em; } .product { letter-spacing: -.01em; } .label .lb-name { font-family: 'Noto Serif KR', serif; font-weight: 600; letter-spacing: -.02em; } .banner h1 { font-size: 56px; } .square h1 { font-size: 78px; } .story h1 { font-size: 96px; } .cta, .offer { letter-spacing: -.01em; }"
+}

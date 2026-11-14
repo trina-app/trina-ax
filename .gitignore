@@ -20,4 +20,4 @@ AuthKey_*.p8
 /editions/trina/demo/
 docs/features.generated.json
 .claude/projects/
-dist-demo/
+dist-demo*/

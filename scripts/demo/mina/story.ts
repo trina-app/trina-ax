@@ -100,7 +100,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       id: 'mail',
       where: { side: 'mkt-room' },
       prompt: a.mail.prompt,
-      steps: [{ label: `Gmail · ${st.gmailSearch} "Chris"`, tool: 'gmail', ms: 1100 }, read(banner), read(square)],
+      steps: [{ label: `Gmail · ${st.gmailSearch}`, tool: 'gmail', ms: 1100 }, read(banner), read(square)],
       text: `${a.mail.intro}\n\n${draft(m.plain)}`,
       ask: confirm(m.plain, true),
     },
