@@ -48,7 +48,7 @@ var lx struct {
 	seccomp      bool
 	kernel       string
 	ldso         map[string]string // allowed engine path -> real path of its ELF interpreter ("" = static)
-	bridgeReal   string
+	bridgeReal   string            // --bridge resolved at start (the start check); every run resolves it again (turnEnv.bridgeReal)
 	libs         []libMount
 	usrLib64     bool
 	plans        *plan.Cache
@@ -402,11 +402,17 @@ type turnEnv struct {
 	sb     sbOpts // a sign-in's terminal (claudelogin.go): the macOS profile only, bwrap passes the descriptor itself
 }
 
-// bridgeReal is this turn's bridge (main.go sets it before the engine starts); the path from the start is only the
-// fallback for callers that run no turn.
+// bridgeReal is this turn's bridge: the one main.go set before a chat turn's engine starts, else --bridge resolved now.
+// A sign-in (claude-login setup-token, codex-login) sets none, and an app-only update switches app/current without
+// restarting the launcher, then the server prunes the old version folder: the path resolved at start (lx.bridgeReal)
+// then names a folder that is gone, bwrap cannot bind it, and the sign-in failed until the launcher restarted (QA
+// TC-2310). lx.bridgeReal is only the start check and the last resort when --bridge does not resolve now.
 func (t *turnEnv) bridgeReal() string {
 	if t.bridge != "" {
 		return t.bridge
+	}
+	if r, err := filepath.EvalSymlinks(*bridgePath); err == nil {
+		return r
 	}
 	return lx.bridgeReal
 }
