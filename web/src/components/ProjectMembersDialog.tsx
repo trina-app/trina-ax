@@ -185,13 +185,11 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   const count = useAccessCount(participants, { projectId: project.id, enabled: editable, removeRules: removing })
   const changed = editable && (!sameParticipants(participants, current) || removing.length > 0)
   // the people and groups being added, as picked ("Sales and Sam"): the widening line and the list's title
-  const addedNames = useMemo(() => {
-    const keys = new Set(current.map(participantKey))
-    return participants.filter((x) => !keys.has(participantKey(x))).map((x) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '').filter(Boolean).join(t('rooms.nameSep'))
-  }, [participants, current, options, t])
+  const adding = useMemo(() => { const keys = new Set(current.map(participantKey)); return participants.filter((x) => !keys.has(participantKey(x))) }, [participants, current])
+  const addedNames = useMemo(() => adding.map((x) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '').filter(Boolean).join(t('rooms.nameSep')), [adding, options, t])
   const widen = editable && !!count?.hiddenAnswers && !!addedNames
-  // nothing to list any more (the picks changed): back to them
-  useEffect(() => { if (listing && !addedNames) setListing(false) }, [listing, addedNames])
+  // nothing to list any more (the picks changed): back to them (not while the names are still being read)
+  useEffect(() => { if (listing && access && !adding.length) setListing(false) }, [listing, access, adding.length])
   const body = useRef<HTMLDivElement>(null)
   const scroller = useCallback(() => body.current?.closest<HTMLElement>('.overflow-y-auto') ?? null, [])
   /** a phone: the answer opens on this screen; the draft first, so Back brings the dialog and its picks back */
