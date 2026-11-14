@@ -31,12 +31,15 @@ import { AppDetail } from '../../components/integrations/AppDetail'
 import { Card, Loadable, useAction, useLoad } from './common'
 import { isOwner, useMe } from '../../store/session'
 import { settingDesc, settingName } from '../../components/settings/SettingRow'
+import { slackView, useSlackRecheck } from '../../lib/slackState'
+import { useBrowserHandoff } from '../../lib/browserHandoff'
+import { BrowserWait } from '../../components/integrations/BrowserWait'
 
-const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
-  off: { key: 'slack.state.off', tone: 'neutral' },
-  connecting: { key: 'slack.state.connecting', tone: 'warn' },
-  connected: { key: 'slack.state.connected', tone: 'ok' },
-  error: { key: 'slack.state.error', tone: 'danger' },
+/** The badge of the state: the same reading as Connected apps' Slack row (lib/slackState.ts) */
+function StateBadge({ s }: { s: SlackAdmin }) {
+  const t = useT()
+  const b = slackView(s).badge
+  return <Badge tone={b.tone}>{t(b.key)}</Badge>
 }
 
 /** The app's pages in Slack: its own settings page once its id is known, else the list of the owner's apps */
@@ -78,7 +81,7 @@ const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page
  * the bot token only, which needs the bot scopes channels:history and groups:history; an app from before them answers
  * with reading off. The team's own app: add them in its OAuth & Permissions page and reinstall (the owner's job), then
  * "I updated them" asks Slack again. The official app: Add to Slack again approves them. */
-function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onChange: (v: SlackAdmin | undefined) => void }) {
+function ReadScopes({ s, owner, onChange, onBack }: { s: SlackAdmin; owner: boolean; onChange: (v: SlackAdmin | undefined) => void; onBack: () => void }) {
   const t = useT(), locale = useLocale()
   const act = useAction()
   const [busy, setBusy] = useState(false)
@@ -86,10 +89,12 @@ function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onC
   // "I updated them" pressed and Slack still does not list them: said once, under the button
   const [still, setStill] = useState(false)
   const official = s.mode === 'official'
+  const away = useBrowserHandoff(onBack, cancelInstall)
   const approve = async () => {
     setBusy(true); setError(null)
-    try { window.location.assign((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
-    catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
+    try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))) }
+    finally { setBusy(false) }
   }
   const recheck = async () => {
     setBusy(true); setStill(false)
@@ -107,14 +112,22 @@ function ReadScopes({ s, owner, onChange }: { s: SlackAdmin; owner: boolean; onC
         ) : <p className="mt-1 text-muted">{t('slack.admin.readOwnAsk')}</p>}
       {error && <p role="alert" className="mt-2 text-danger">{error}</p>}
       {still && <p role="status" className="mt-2 text-warn" data-testid="slack-read-still">{t('slack.admin.readStill')}</p>}
+      {away.timedOut && <p role="status" className="mt-2 text-warn" data-testid="slack-read-timeout">{t('connect.wait.timedOut')}</p>}
+      {official && away.waiting ? (
+        <BrowserWait className="mt-2" text={t('slack.wait.install')} testId="slack-read-waiting" busy={busy} onRetry={() => void approve()} onCancel={away.cancel} />
+      ) : (
       <div className="mt-2 flex flex-wrap gap-3">
         {official
           ? <Button size="sm" variant="primary" busy={busy} disabled={busy} className="max-md:h-11" onClick={() => void approve()} data-testid="slack-read-approve">{t('slack.official.add')}</Button>
           : owner && <Button size="sm" variant="secondary" busy={busy} disabled={busy} className="max-md:h-11" onClick={() => void recheck()} data-testid="slack-read-recheck">{t('slack.admin.readRecheck')}</Button>}
       </div>
+      )}
     </div>
   )
 }
+
+/** "Add to Slack" left (Cancel, or the wait ran out): the waiting install ends on the server (QA TC-1417) */
+const cancelInstall = () => { void api.call(SLACK.cancelSlackInstall).catch(() => { /* it expires there by itself */ }) }
 
 /** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
 function FixText({ text, href, onClick }: { text: string; href?: string; onClick?: () => void }) {
@@ -144,6 +157,8 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
   const changed = useRef(onChange)
   changed.current = onChange
   useEffect(() => { if (state.data) changed.current?.(state.data) }, [state.data])
+  // connecting: read again until it is connected, or until it has lasted long enough to be a problem (slackView)
+  useSlackRecheck(state.data, state.reload)
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   // the own app's four steps although the official app can be added here
@@ -169,6 +184,8 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
       <Loadable state={state}>
         {(s) => {
           const fix = s.enabled && s.lastError ? FIX[s.lastError] : null
+          // connecting for minutes: a problem with what to do, in place of the wait
+          const slow = s.enabled ? slackView(s).slowMinutes : null
           const origin = s.linkOrigin && s.linkOrigin !== window.location.origin ? s.linkOrigin : null
           const official = s.mode === 'official'
           // "Add to Slack" instead of the four steps: the hosting service serves this server, nothing of our own saved
@@ -182,7 +199,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                 <Card flat>
                   <div className="flex items-center gap-3" data-testid="slack-status">
                     <p className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                      <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
+                      <StateBadge s={s} />
                       <span className="truncate">{[s.workspace?.name, s.botName ? `@${s.botName}` : null].filter(Boolean).join(' · ')}</span>
                     </p>
                     <Button variant={s.enabled ? 'secondary' : 'primary'} className="max-md:h-11" data-testid="slack-toggle"
@@ -190,7 +207,9 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                       {t(s.enabled ? 'slack.admin.turnOff' : 'slack.admin.turnOn')}
                     </Button>
                   </div>
-                  {fix ? (
+                  {slow !== null ? (
+                    <p className="mt-2 text-sm text-danger" data-testid="slack-slow">{t('slack.err.slow', { n: slow })}</p>
+                  ) : fix ? (
                     <p className="mt-2 text-sm text-danger" data-testid="slack-error">
                       {/* an admin cannot replace the tokens: the words ask the owner instead */}
                       {fix.page === 'replace' && !owner ? t('slack.admin.askOwner')
@@ -203,7 +222,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                   {!s.redirectUrl && !official && owner && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                   {/* the bot lacks the reading scopes (an app from before them, as Slack lists the bot token's scopes): one
                       prompt to update them; reading stays off until then */}
-                  {s.enabled && s.readScopes === 'missing' && <ReadScopes s={s} owner={owner} onChange={set} />}
+                  {s.enabled && s.readScopes === 'missing' && <ReadScopes s={s} owner={owner} onChange={set} onBack={() => void state.reload()} />}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted max-md:items-center">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
@@ -215,11 +234,11 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                 </Card>
               )}
               {addable ? (
-                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={owner ? () => setOwnApp(true) : undefined} onRemove={() => void remove('removed')} />
+                <OfficialAdd removed={s.lastError === 'removed'} onOwnApp={owner ? () => setOwnApp(true) : undefined} onRemove={() => void remove('removed')} onBack={() => void state.reload()} />
               ) : !s.tokens && !owner ? (
                 <Card flat testId="slack-owner-only">
                   <p className="mb-2 flex items-center gap-2 text-sm" data-testid="slack-status">
-                    <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
+                    <StateBadge s={s} />
                   </p>
                   <p className="text-sm text-muted">{t('slack.admin.ownerOnlySetup')}</p>
                 </Card>
@@ -228,7 +247,7 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
                 <Card flat testId="slack-on-computer">
                   {!s.tokens && (
                     <p className="mb-2 flex items-center gap-2 text-sm" data-testid="slack-status">
-                      <Badge tone={STATE[s.state].tone}>{t(STATE[s.state].key)}</Badge>
+                      <StateBadge s={s} />
                     </p>
                   )}
                   <p className={settingName}>{t('admin.onComputer')}</p>
@@ -267,27 +286,36 @@ export default function AdminSlack({ onChange }: { onChange?: (s: SlackAdmin) =>
 /** "Add to Slack": the hosting service's official app. One button: Slack's own page (choose the workspace, allow),
  * then back here, added and on. Nothing to copy, so also on a phone. Removed in Slack: Remove too, so an owner who
  * does not want it back can clear it (its row in Connected apps, everyone's links) instead of keeping "Reconnect". */
-function OfficialAdd({ removed, onOwnApp, onRemove }: { removed: boolean; onOwnApp?: () => void; onRemove: () => void }) {
+function OfficialAdd({ removed, onOwnApp, onRemove, onBack }: { removed: boolean; onOwnApp?: () => void; onRemove: () => void; onBack: () => void }) {
   const t = useT(), locale = useLocale()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // the desktop and phone apps open Slack in another browser and this page waits (lib/browserHandoff.ts)
+  const away = useBrowserHandoff(onBack, cancelInstall)
   const add = async () => {
     setBusy(true); setError(null)
     // this browser goes to Slack and comes back to this page
-    try { window.location.assign((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
-    catch (e) { setError(errorText(e, locale, t('error.network'))); setBusy(false) }
+    try { away.go((await api.call(SLACK.startSlackInstall, { body: { origin: window.location.origin } })).authorizationUrl) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))) }
+    finally { setBusy(false) }
   }
   return (
     <Card flat title={t('slack.official.title')} testId="slack-official">
       {removed && <p className="mb-2 text-sm text-warn" data-testid="slack-removed">{t('slack.err.removed')}</p>}
       <p className="text-sm text-muted">{t('slack.official.hint')}</p>
       {error && <p role="alert" className="mt-2 text-sm text-danger" data-testid="slack-add-error">{error}</p>}
+      {away.timedOut && <p role="status" className="mt-2 text-sm text-warn" data-testid="slack-add-timeout">{t('connect.wait.timedOut')}</p>}
+      {away.waiting ? (
+        // a new press replaces the earlier one at the server (one waiting install, 10 minutes, used once)
+        <BrowserWait framed className="mt-3" text={t('slack.wait.install')} testId="slack-add-waiting" busy={busy} onRetry={() => void add()} onCancel={away.cancel} />
+      ) : (
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" className="max-md:h-11" busy={busy} disabled={busy} onClick={() => void add()} data-testid="slack-add">{t('slack.official.add')}</Button>
         {/* the team's own app: the owner's alone (an admin is not offered it) */}
         {onOwnApp && <button type="button" className="text-xs text-muted underline underline-offset-2 max-md:min-h-11" onClick={onOwnApp} data-testid="slack-own-app">{t('slack.official.ownApp')}</button>}
         {removed && <button type="button" className="text-xs text-danger underline underline-offset-2 max-md:min-h-11" onClick={onRemove} data-testid="slack-remove">{t('slack.admin.remove')}</button>}
       </div>
+      )}
     </Card>
   )
 }

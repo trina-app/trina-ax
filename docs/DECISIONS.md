@@ -27243,6 +27243,61 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
   (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
+## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/notifications/push-gateway-setting.ts`, `server/src/routes/push.ts`,
+`shared/src/api/push.ts`, `web/src/components/settings/PhoneGatewayRow.tsx`), 이유: phone push and team settings are
+core features; the edition default stays in `editions/trina/branding/service.json`. Plan:
+`docs/AGENTS/plan/20261114-0957-push-gateway-admin.md`. The owner, after "Trina team servers use push.trina.app by
+default" above: self-hosted operators may want to change the phone push address, so open it in the admin page
+(2026-11-14).
+
+- **One row.** Settings › Notifications › Phone gets "Phone notifications" for owners and admins (members see no row and
+  the page never asks for it). Three choices: **Trina push (default)**, phones with the store app get notifications;
+  **Off**; **Custom**, which shows an address field with one line under it: "Works only with your own build of the app.
+  The store app can't receive these." Default and Off save at once; Custom saves with its button. A neutral build with no
+  edition default shows Off and Custom only.
+- **Checked before it is saved.** Custom is saved only when `GET <address>/health` answers `{"ok":true}` (the gateway's
+  own health answer). Otherwise nothing is saved and the row says why: not an address of the rule, a private or local
+  address, no answer, or an answer that is not a gateway's. The address rule is app-config's (`https://<host>`, or
+  `http://127.0.0.1:<port>` for a gateway on the same machine, never on a hosted server). The check is a GET to an address
+  an admin typed, so every address the name resolves to must be public (web_fetch's rule), no redirect is followed, at
+  most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
+  (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
+- **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
+  shows the value, has no control, and one line says where it is set ("Set in the server's settings
+  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
+  set it as `push.setBy`.
+- **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
+  the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
+  change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):
+  phones register again at their next sign-in or app start. A developer's server still gets no edition default.
+- **Audit:** `push.gateway` with the new choice, the custom host and the choice before; the same choice again writes
+  nothing.
+- **Removed:** the one-line gateway note under "Device push notifications" and in the desktop app's row ("Phone app
+  push: on…" / "…off on this team server"): the new row says it, in one place.
+- **Browser and phone told apart (QA TC-1537).** In a browser the row under "This device" is now "Browser
+  notifications", and its not-set-up line says so ("Browser notifications aren't set up on this team server yet. Phone
+  notifications are a separate setting."), so it is not read as phone push being off. The phone app keeps "Device push
+  notifications" for its own device.
+- API: `GET`/`PUT /api/admin/push-gateway` (admin). Tests: tests/unit/push-gateway-setting.test.ts (setBy, resolution,
+  lock, health reasons, routes, audit, no restart), web/test/unit/phone-gateway-row.test.tsx (choices, Custom refused
+  then saved, lock, member).
+- Version impact: **minor** (a new admin setting and endpoint; no migration).
+
+## Connected apps: one Slack state, rows that look clickable, a connect wait that can always be left; Slack lines in the person's language; other apps' messages read (fix/connected-apps-state, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`web/src/lib/slackState.ts`, `web/src/lib/signInWait.ts`, `web/src/lib/browserHandoff.ts`, `web/src/components/integrations/BrowserWait.tsx`, `ConnectionRow.tsx`, `server/src/integrations/slack/`, `server/src/integrations/connections/service.ts`), 이유: the owner hit three rough edges in Admin › Connected apps on potenlab.trina.app (QA TC-1415, TC-1416, TC-1417), Slack's status lines in English in a Korean Slack (TC-1418), and other apps' alerts read empty (TC-1419).
+
+- **Slack: one state for the list and the page (TC-1415).** The row said "On" for every state but `error` (`connecting` included) while Slack's page said "Connecting"; both now read `slackView` (`lib/slackState.ts`): the row's status (On, Connecting, Off, Needs attention, Reconnect) and the page's badge come from one function. The server sends `connectingFor` (seconds in `connecting`, its own clock, memory only; optional for older servers). Connecting for `SLACK_CONNECTING_SLOW_S` (120 s) is a problem, not a wait: the row says Needs attention, the page "Not answering" with "Slack hasn't answered for N minutes. Turn it off and on again. If it still doesn't connect, check that this server can reach the internet." While it connects, the list and the page read the state again (every 4 s, every 30 s once slow), so a page opened during a reconnect moves on to Connected by itself instead of keeping its first answer.
+- **Why potenlab showed "Connecting".** The official app's long-poll feed (`broker.ts SlackBrokerFeed`) starts in `connecting` and said `connected` only when its first poll came back, which with no Slack event is the whole 25 s long-poll wait. Every restart (the dev server installs each dev build, several an hour), Turn off / on and Add to Slack started a new feed, and Slack's page read its state once: opened inside those 25 s it kept "Connecting" for good, while the list mapped it to "On". The connection itself was fine (the hosting service saw this server poll every ~25 s; answers were posted). The feed's first poll (and the first after a failure) now asks with `waitMs: 0`, answered at once, so `connected` comes within a round trip.
+- **Rows that look clickable (TC-1416).** `ConnectionRow` with `onOpen` (Connected and Discover rows): the list rows' hover fill (`List.tsx rowOpenHover`, bleeding out as a page list's does, `pageBleed`), a pointer, a trailing › like the other admin lists, and the open button's area stretched over the whole row (its `::after`; `end`'s own controls stay above it), with the keyboard's ring drawn on that area.
+- **A connect wait can always be left (TC-1417).** Every wait for a sign-in in a browser window has Try again and Cancel from its start (`BrowserWait`; MCP sign-in's Try again no longer waits for a focus event the desktop app may not send) and ends by itself after `SIGN_IN_WAIT_MS` (5 minutes, shorter than the server's 10-minute flows): Connect is back with "Signing in didn't finish, so this stopped waiting." Google (Drive, Gmail, Calendar, Docs, Sheets, the team account, shared Drives) cancels its flow on the server, as Cancel does. MCP sign-in gets `DELETE /api/integrations/flows/:id` (this session's own flow, still pending): its secrets go and the service's late answer is refused, its window saying it was cancelled in the app, so a window left open cannot connect it afterwards. A sign-in the service had already answered (`exchanging`) is not stopped by it: after Cancel or the timeout the screen reads the flow again, and one that ended connected is shown connected, never as cancelled. Add to Slack, "Update Slack permissions" and Sign in with Slack used to leave the button spinning in the desktop app (the navigation goes to the system browser and the page stays): they now wait with Try again / Cancel, read the state again when the window is used again, stop waiting on a page brought back from history, and end by themselves. Their Cancel and their timeout end the flow on the server too (security review of #822): `DELETE /api/admin/slack/install/flow` (admin) and `DELETE /api/slack/signin/flow` (user) mark this person's waiting flow of this session `failed`/`cancelled_here`, and the window that comes back later is told "This was cancelled in the app" (`install_cancelled_here`, `signin_cancelled_here`) and changes nothing. Without it a window left open could finish within its 10 minutes after the app said it was cancelled, and an install of another workspace would have dropped everyone's links. AI apps: when the 10 minutes of looking for the new app end, the dialog says "Not connected yet" with Check again instead of spinning on.
+- **Slack's own lines in the person's language (TC-1418).** What the app says in Slack for a person ("Working on it…", "Answering as …", "Open in …", link prompts, notices) came from `chat/runtime userLocale`, which takes the person's answer language (`prefs.answerLocale`) first: someone with Korean screens and answers in English got English status lines in a Korean Slack. `SlackConnector.localeOf` now reads the person's Trina language (`users.locale`, which is the team's default for someone who follows it), then the team's default, then English. The answer itself still follows the answer language. That covers every line the app writes for a question: working…, "Answering as", "Open in", "Posted to the thread.", "Asked by" (all read `localeOf` of the asker; an unlinked person gets the team's default).
+- **Other apps' messages are read in full (TC-1419).** `slack_read_channel` / `slack_read_thread` (and the asked thread) read a message's `text` only, so another app's alert (a contact form's "새 문의가 접수되었습니다" with its details in Block Kit, a monitor's legacy attachment) reached the AI empty. `read.ts messageRaw` adds what the message's blocks say (section text and fields, header, context, rich_text with links, mentions and emoji, markdown) and its attachments (pretext, author, title with its link, text, "title: value" fields, footer, their blocks; the fallback when nothing else), leaving out what only repeats the text (Slack's rich_text copy of a typed message) and what carries no words (buttons, images, inputs). At most 4,000 characters, 100 parts and 6 levels deep before the message's own 1,500-character cut; the same slackPlain reading (markup in words, every `<` made harmless) and indent as the text, inside the data block.
+- Tests: `tests/unit/c-slack-broker.test.ts` (connected within a round trip), `tests/unit/c-slack.test.ts` (`connectingFor`; the Slack lines' language), `tests/unit/c-integrations-oauth.test.ts` (cancel: own session only, late answer refused), `tests/unit/c-slack-read.test.ts` (blocks and attachments of real-shaped alerts; cut, depth, markup), the security route matrix (`cancelIntegrationFlow`), `web/test/unit/slack-screens.test.tsx` (one state; re-read; slow line; Add to Slack wait), `web/test/e2e/connected-apps-state.spec.ts`.
+- Version impact: **minor** (three new routes; a new optional field on `GET /api/admin/slack`).
+
 ## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
 
 QA TC-1414; follows "Chats shared with people and groups" (#821). 넣을 곳: Team AX core (`server/src/notifications/`,

@@ -17,6 +17,8 @@ import { isDesktop } from '../../lib/desktop'
 import { deletionDueText, deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
+import { PhoneGatewayRow } from './PhoneGatewayRow'
+import { isAdmin, useMe } from '../../store/session'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
@@ -180,6 +182,7 @@ const PREFERENCES_KEY = 'settings:notificationPreferences'
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
+  const admin = isAdmin(useMe())
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -259,10 +262,12 @@ export function Notifications() {
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key] === true} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
-        device; a server from before it leaves it out (no row) */}
-    {preferences?.phoneWhen && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
-      <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
-        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />
+        device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
+        phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
+    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+      {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
+        control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
+      {admin && <PhoneGatewayRow />}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
         the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}

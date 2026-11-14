@@ -96,6 +96,22 @@ describe('Add to Slack (the owner)', () => {
     h.ctx.db.query('DELETE FROM slack_config').run()
   })
 
+  test('Cancel in the app (or the wait ran out) ends the waiting install: the window left open adds nothing and says so; only this person\'s own (QA TC-1417)', async () => {
+    const redeems = broker.of('redeem').length
+    await call('dana', 'POST', '/api/admin/slack/official/install', { origin: h.url })
+    // another admin's cancel is not this one's
+    expect((await call('carol', 'DELETE', '/api/admin/slack/install/flow')).status).toBe(204)
+    expect((h.ctx.db.query("SELECT state FROM slack_install_flows WHERE user_id = 'dana' ORDER BY created_at DESC").get() as { state: string }).state).toBe('pending')
+    // a member may not
+    expect((await call('alice', 'DELETE', '/api/admin/slack/install/flow')).status).toBe(403)
+    expect((await call('dana', 'DELETE', '/api/admin/slack/install/flow')).status).toBe(204)
+    expect(outcome(await open('dana', broker.slackReturn('install')))).toBe('install_cancelled_here')
+    expect(broker.of('redeem').length).toBe(redeems)
+    expect(cfg()?.secret_enc ?? null).toBeNull()
+    // twice: nothing more; a new press works as before (next test)
+    expect((await call('dana', 'DELETE', '/api/admin/slack/install/flow')).status).toBe(204)
+  })
+
   test('only the owner\'s own browser finishes it; no session: sign in first; used once', async () => {
     const started = await call('dana', 'POST', '/api/admin/slack/official/install', { origin: h.url })
     const url = new URL(started.json.authorizationUrl)

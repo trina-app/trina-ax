@@ -9,6 +9,10 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   app get phone pushes without a setting. An operator opts out with `MYCEL_PUSH_GATEWAY=off` (or `''`), or with
   `push.gatewayUrl` `null` / `"off"` in server.json; another `https://<host>` sends through a gateway of their own. The
   neutral core has no default. Decision: docs/DECISIONS.md "Trina team servers use push.trina.app by default".
+- Without either setting, an owner or admin chooses in Settings › Notifications › Phone: the default, off, or Custom
+  (an address of the team's own gateway, for their own build of the app). Custom is saved only when `GET /health` at
+  that address answers `{"ok":true}`. The operator's variable or server.json wins and locks that choice. Decision:
+  docs/DECISIONS.md "Owners and admins choose where phone notifications go".
 
 - Contract: [`shared/src/cloud-protocol/push-gateway.ts`](../shared/src/cloud-protocol/push-gateway.ts) (MIT, no
   imports). `POST /v1/send` takes a JSON body signed with the team's Ed25519 key (`Authorization: MycelPush …`).
