@@ -103,15 +103,15 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await expect(sub).toHaveCount(0)
   await page.keyboard.press('Escape')
 
-  // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
+  // the link above (Admin > 폴더 권한, ?folder=skills) opens skills/' Share dialog directly: the group's rule is a row, and
+  // the dialog says Editors change the team's skills (the same setting as the Team skills page's "고칠 수 있는 사람")
   await page.goto('/admin/folders?folder=skills')
-  const detail = page.getByTestId('folder-detail')
-  await detail.getByTestId('folder-detail-edit').click()
+  const sharePanel = page.getByTestId('folder-access-panel')
+  await expect(sharePanel).toHaveAttribute('data-path', 'skills')
   await expect(page.getByTestId('sharing-row').filter({ hasText: '영업팀' }).getByTestId('sharing-level')).toHaveValue('write')
+  await expect(sharePanel.getByTestId('sharing-skills')).toHaveText(translate('ko', 'folderAccess.skillsEdit'))
   await page.getByTestId('sharing-done').click()
-  // the rule chips (and their skill manager mark) are gone from the folder part: the skills line says who edits
-  await expect(detail.getByTestId('folder-skill-editors')).toBeVisible()
-  await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
+  await expect(sharePanel).toHaveCount(0)
   // no team skills column on Members and Groups any more
   await page.goto('/admin/members')
   await expect(page.getByTestId('members-table')).toBeVisible()
@@ -142,7 +142,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   expect(realErrors(errors)).toEqual([])
 })
 
-test('who can edit, in words (the tree, the panel, the Team skills line); through a group or everyone, and the note before removing', async ({ page }) => {
+test('who can edit, in words (the Share dialog, the Team skills line); through a group or everyone, and the note before removing', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page, OWNER)
@@ -152,32 +152,39 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
     expect(r.ok(), `${method} ${url}: ${r.status()}`).toBeTruthy()
     return r.json()
   }
-  // 영업팀 (Bob) writes in skills/; skills/재무 lets everyone read only, so 영업팀 cannot edit there
+  // 영업팀 (Bob) writes in skills/; skills/재무 is limited (access adds up like Drive since #787, so only Limit access
+  // keeps skills/' Editors out) and lets everyone read only, so 영업팀 cannot edit there
   const sales = await send('post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
   const r = await page.request.patch('/api/admin/users/bob', { headers: H, data: { groupIds: [sales.id] } })
   expect(r.ok()).toBeTruthy()
   const everyone = (access: string) => ({ subjectType: 'everyone', subjectId: null, access })
   const skills = await send('post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'group', subjectId: sales.id, access: 'write' }] })
-  await send('post', '/api/admin/folders', { path: 'skills/재무', create: true, rules: [everyone('read')] })
+  await send('post', '/api/admin/folders', { path: 'skills/재무', create: true, rules: [everyone('read')], limited: true })
   const shot = (name: string) => (SHOTS ? page.screenshot({ path: `${SHOTS}/${name}.png` }) : Promise.resolve())
 
-  // the tree: skills/ and its folder say who can edit, and who of skills/' managers cannot there
-  await page.goto('/admin/folders?folder=skills')
-  await expect(page.getByTestId('folder-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
-  await expect(page.getByTestId('folder-skill-locked')).toHaveCount(0)
-  await page.goto('/admin/folders?folder=skills/재무')
-  await expect(page.getByTestId('folder-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
-  await expect(page.getByTestId('folder-skill-locked')).toHaveText('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Bob 님')
-  await shot('skills-line-tree-1360')
-  // the Share dialog (docs/DECISIONS.md "Share like Google Drive (P1)"): one line, Editors change the team's skills
-  await page.getByTestId('folder-detail-edit').click()
+  // Admin's links (?folder=skills, ?folder=skills/재무) open each folder's Share dialog directly (docs/DECISIONS.md
+  // "Share like Google Drive (P1)"): one line, Editors change the team's skills; skills/ lists 영업팀 as Editor
   const panel = page.getByTestId('folder-access-panel')
+  await page.goto('/admin/folders?folder=skills')
+  await expect(panel).toHaveAttribute('data-path', 'skills')
+  await expect(panel.locator(`[data-testid="sharing-row"][data-subject="group:${sales.id}"]`).getByTestId('sharing-level')).toHaveValue('write')
   await expect(panel.getByTestId('sharing-skills')).toHaveText(translate('ko', 'folderAccess.skillsEdit'))
   await shot('skills-line-panel-1360')
   await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
+  // skills/재무: limited, so 영업팀's Editor on skills/ does not reach it (no row from skills/ for the group)
+  await page.goto('/admin/folders?folder=skills/재무')
+  await expect(panel).toHaveAttribute('data-path', 'skills/재무')
+  await expect(panel.getByTestId('sharing-limit')).toBeChecked()
+  await expect(panel.getByTestId('sharing-general-select')).toHaveValue('team')
+  await expect(panel.getByTestId('sharing-general-role')).toHaveValue('read')
+  for (const id of ['sharing-row', 'sharing-above']) await expect(panel.locator(`[data-testid="${id}"][data-subject="group:${sales.id}"]`)).toHaveCount(0)
+  await expect(panel.getByTestId('sharing-staff')).toBeVisible()
+  await expect(panel.getByTestId('sharing-skills')).toHaveText(translate('ko', 'folderAccess.skillsEdit'))
+  await page.getByTestId('sharing-done').click()
+  await expect(panel).toHaveCount(0)
 
-  // the Team skills page says the same as the tree; the group's rule is a row of its dialog
+  // the Team skills page says who edits; the group's rule is a row of its dialog
   await page.goto('/skills')
   const text = page.getByTestId('skill-editors-text')
   await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')

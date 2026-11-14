@@ -92,9 +92,10 @@ test('TC-267 step 2: Folder permissions › a folder\'s [Share]: the Share sheet
   // P1.5": no folder page any more); its address can be shared, and the swipe (Back) closes it
   await finance.getByTestId('folders-share').click()
   await expect(page).toHaveURL(/edit=finance/)
-  expect(await historyLength(page)).toBe(length + 1)
   const panel = page.getByTestId('folder-access-panel')
   await expect(panel).toBeVisible()
+  // [Share] writes the address in place; the sheet holds the one entry Back closes (lib/backCloses.ts)
+  await expect.poll(() => historyLength(page)).toBe(length + 1)
   await expect(page.getByRole('dialog', { name: t['folderAccess.title'].replace('{name}', 'finance') })).toBeVisible()
   await page.goBack()
   await expect(panel).toHaveCount(0)

@@ -51,9 +51,10 @@ test('the list: only folders with their own sharing, in Files\' names, Limited m
   await expect(folderRow(page, 'secret')).toHaveCount(0)
   await expect(folderRow(page, 'shared').getByTestId('folder-crumbs')).toHaveText(TOP_FOLDER_LABELS.shared.en)
   // who, in one line
-  await expect(folderRow(page, 'shared').getByTestId('folders-row-who')).toHaveText(en('folders.whoEveryone', { team: 'Acme', role: t['folderAccess.canEdit'] }))
+  // (a folder that is not limited also gets what the folder above gives: "+ the folder above"; a limited one only its own)
+  await expect(folderRow(page, 'shared').getByTestId('folders-row-who')).toHaveText(`${en('folders.whoEveryone', { team: 'Acme', role: t['folderAccess.canEdit'] })} ${t['folders.plusAbove']}`)
   await expect(folderRow(page, 'marketing').getByTestId('folders-row-who')).toHaveText(`Bob · ${t['folderAccess.canEdit']}`)
-  await expect(folderRow(page, 'finance').getByTestId('folders-row-who')).toHaveText(`재무팀 · ${t['folderAccess.canView']}`)
+  await expect(folderRow(page, 'finance').getByTestId('folders-row-who')).toHaveText(`재무팀 · ${t['folderAccess.canView']} ${t['folders.plusAbove']}`)
   // only a limited folder is marked (the review cut "Shared with more" and "Whole team")
   await expect(folderRow(page, 'marketing').getByTestId('folder-kind')).toHaveText(t['folders.kindLimited'])
   for (const p of ['shared', 'docs', 'finance']) await expect(folderRow(page, p).getByTestId('folder-kind')).toHaveCount(0)
@@ -74,6 +75,7 @@ test('the list: only folders with their own sharing, in Files\' names, Limited m
 })
 
 test('[Share] opens the folder\'s Share dialog over the list, and closing it leaves the address', async ({ page }) => {
+  await signIn(page)
   await team(page)
   await page.goto('/admin/folders')
   await folderRow(page, 'marketing').getByTestId('folders-share').click()

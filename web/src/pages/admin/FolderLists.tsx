@@ -81,6 +81,17 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
     const userById = new Map(users.data.map((u) => [u.id, u]))
     const groupById = new Map(groups.data.map((g) => [g.id, g]))
     const out: { folder: Folder; limited: boolean; who: string }[] = []
+    const byPath = new Map(folders.data.map((f) => [f.path, f]))
+    /** a folder above lets someone in here (access adds up to the nearest limited folder): only then "+ the folder above" */
+    const aboveGives = (path: string): boolean => {
+      for (let p = path; p !== ''; ) {
+        p = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+        const f = byPath.get(p)
+        if (f && f.rules.some((r) => r.access !== 'none')) return true
+        if (f?.limited) return false
+      }
+      return false
+    }
     for (const f of folders.data) {
       // a limited folder with nobody added has no rules, and is listed too ("Owner and admins only")
       if ((!f.rules.length && !f.limited) || f.hidden || isPersonal(f.path) || inProjects(f.path)) continue
@@ -88,7 +99,7 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
       if (f.groupId && !f.limited && f.rules.length === 1 && f.rules[0]!.subjectType === 'group' && f.rules[0]!.subjectId === f.groupId && f.rules[0]!.access === 'write') continue
       const rules = f.rules.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
       const limited = isLimited(f)
-      out.push({ folder: f, limited, who: whoLine(t, locale, { rules, team, limited, path: f.path, userById, groupById }) })
+      out.push({ folder: f, limited, who: whoLine(t, locale, { rules, team, limited, path: f.path, userById, groupById, above: aboveGives(f.path) }) })
     }
     return out.sort((a, b) => byFilesOrder(a.folder.path, b.folder.path))
   }, [folders.data, users.data, groups.data, t, locale, team])
@@ -159,7 +170,7 @@ export function FolderList({ query, onShare }: { query: string; onShare: (path: 
 }
 
 /** Who a folder is shared with, in one line: "Everyone at Acme · Viewer, Design · Editor", or "Owner and admins only". */
-function whoLine(t: ReturnType<typeof useT>, locale: string, o: { rules: { subjectType: string; subjectId: string | null; access: Access }[]; team: string; limited: boolean; path: string; userById: Map<string, User>; groupById: Map<string, Group> }): string {
+function whoLine(t: ReturnType<typeof useT>, locale: string, o: { rules: { subjectType: string; subjectId: string | null; access: Access }[]; team: string; limited: boolean; above: boolean; path: string; userById: Map<string, User>; groupById: Map<string, Group> }): string {
   const parts: string[] = []
   const every = o.rules.find((r) => r.subjectType === 'everyone' || (r.subjectType === 'role' && r.subjectId === 'member'))
   if (every && every.access !== 'none') parts.push(t('folders.whoEveryone', { team: o.team, role: t(ROLE_WORD[every.access]) }))
@@ -169,7 +180,7 @@ function whoLine(t: ReturnType<typeof useT>, locale: string, o: { rules: { subje
     if (names.length) parts.push(`${namesText(t, locale, names, names.length)} · ${t(ROLE_WORD[a])}`)
   }
   // access adds up (P2): a folder that is not limited also lets in who the folders above let in
-  if (parts.length) return !o.limited && o.path !== '' ? `${parts.join(', ')} ${t('folders.plusAbove')}` : parts.join(', ')
+  if (parts.length) return !o.limited && o.above ? `${parts.join(', ')} ${t('folders.plusAbove')}` : parts.join(', ')
   return o.limited || o.path === '' ? t('folders.whoStaff') : t('folders.whoAbove')
 }
 

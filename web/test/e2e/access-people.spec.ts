@@ -191,7 +191,7 @@ test('Members: "Folders they see" opens the person; the invite previews what som
   expect(realErrors(errors)).toEqual([])
 })
 
-test('the invite preview for an admin: every team folder', async ({ page }) => {
+test('the invite preview for an admin: every team folder, in one line', async ({ page }) => {
   await signIn(page)
   await team(page)
   await page.goto('/admin/members')
@@ -200,8 +200,13 @@ test('the invite preview for an admin: every team folder', async ({ page }) => {
   await dialog.getByRole('combobox', { name: t['members.role'], exact: true }).selectOption('admin')
   await dialog.getByTestId('new-person-preview-toggle').click()
   const preview = dialog.getByTestId('new-person-preview')
-  for (const p of ['shared', 'marketing', 'secret', 'finance']) await expect(preview.locator(`[data-testid="access-row"][data-path="${p}"]`)).not.toHaveAttribute('data-access', 'none')
+  // the owner and admins open every team folder (but projects they aren't in): one line, as on the person page, no list
+  await expect(preview.getByTestId('access-staff-line')).toHaveText(t['folders.staffLine'])
+  await expect(preview.getByTestId('access-row')).toHaveCount(0)
   await expect(preview.getByTestId('access-closed')).toHaveCount(0)
+  // and the server agrees: an admin-to-be opens the limited and the hidden-from-members folders
+  const answer = await (await page.request.post('/api/admin/access/new-person', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin', groupIds: [], limit: 2000 } })).json() as { folders: { path: string; access: string }[] }
+  for (const p of ['shared', 'marketing', 'secret', 'finance']) expect(answer.folders.find((f) => f.path === p)?.access ?? 'missing', p).toMatch(/^(read|write)$/)
 })
 
 for (const locale of ['ko', 'es'] as const) {

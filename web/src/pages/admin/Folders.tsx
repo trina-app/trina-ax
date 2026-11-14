@@ -14,7 +14,8 @@ import { Info, Search, X } from 'lucide-react'
 import { useT } from '../../i18n'
 import { FolderAccessPanel } from '../../components/FolderAccess'
 import { projectsByFolder } from '../../lib/projectFolders'
-import { readProjectList, useProjects } from '../../store/projects'
+import { inProjects } from '../../lib/folder-sharing'
+import { readManagedList, useProjects } from '../../store/projects'
 import { IconButton, Spinner, TabPanel, Tabs, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, useActionOk } from './common'
 import { FolderHeaderSlots } from './folder-slots'
@@ -44,10 +45,11 @@ export default function Folders() {
   // stays on the list (a phone's Back went past the list before)
   const editing = params.get('edit') ?? params.get('folder')
   const [round, setRound] = useState(0)
-  const listedProjects = useProjects((st) => st.listed)
-  const projectsById = useProjects((st) => st.byId)
-  const projectFolders = useMemo(() => projectsByFolder(listedProjects ? [...listedProjects].flatMap((id) => projectsById[id] ?? []) : []), [listedProjects, projectsById])
-  useEffect(() => { void readProjectList().catch(() => {}) }, [])
+  // team projects by their folder, as the owner and admins manage them (manage=1: also the ones they are not in), so a
+  // project's folder opened here shows its members' way, not its rules
+  const managed = useProjects((st) => st.managed)
+  const projectFolders = useMemo(() => projectsByFolder(managed ?? []), [managed])
+  useEffect(() => { void readManagedList().catch(() => {}) }, [])
   const guard = useRef<() => Promise<boolean>>(async () => true)
   const closeEdit = () => {
     const q = new URLSearchParams(window.location.search)
@@ -107,9 +109,11 @@ export default function Folders() {
         <FolderAccessPanel
           key={editing}
           target={{ path: editing, access: 'write' }}
-          project={null}
+          // a team project's folder opened here shows its members' way (the dialog's project lines), not the rules
+          project={projectFolders.get(editing.normalize('NFC')) ?? null}
           projectOf={(p) => projectFolders.get(p.normalize('NFC')) ?? null}
-          fromAdmin
+          // a team project's folder (and inside it): its members are changed on the project, so only the project's lines
+          fromAdmin={!inProjects(editing)}
           guard={guard}
           onClose={closeEdit}
           onSaved={() => setRound((n) => n + 1)}

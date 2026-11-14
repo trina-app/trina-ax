@@ -95,16 +95,17 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByTestId('group-save').click()
   await expect(page.getByTestId('group-list')).toContainText('영업팀')
 
-  // folder rules: preview before saving
+  // folder permissions: the list of folders with their own sharing; [Share] opens the Share dialog, which works out who
+  // gains before anything is saved
   await page.getByRole('link', { name: '폴더 권한' }).click()
-  const folderTree = page.getByTestId('folder-tree')
-  await expect(folderTree.locator('[data-path="finance"]')).toBeVisible()
-  // the new group's own folder is in the tree too (groups/영업팀): choose the finance folder and change its rules
-  await expect(folderTree.locator('[data-path="groups/영업팀"]')).toBeVisible()
-  await folderTree.locator('[data-path="finance"]').click()
-  await page.getByTestId('folder-detail-edit').click()
+  const folderRow = (p: string) => page.getByTestId('folders-row').and(page.locator(`[data-path="${p}"]`))
+  await expect(folderRow('finance')).toBeVisible()
+  // the new group's own folder as it was made (only that group, Editor) is not shared differently, so not listed
+  await expect(folderRow('groups/영업팀')).toHaveCount(0)
+  await folderRow('finance').getByTestId('folders-share').click()
   // the Share dialog: the team can view; the server works out who gains (Bob is not in 재무팀) before anything is saved
   const panel = page.getByTestId('folder-access-panel')
+  await expect(panel).toHaveAttribute('data-path', 'finance')
   await panel.getByTestId('sharing-general-select').selectOption('team')
   await panel.getByTestId('sharing-general-role').selectOption('read')
   await expect(page.getByTestId('sharing-outcome')).toContainText('Bob')
@@ -113,7 +114,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByTestId('dialog-confirm').click()
   await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
-  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 볼 수 있음')
+  await expect(folderRow('finance').getByTestId('folders-row-who')).toContainText(translate('ko', 'folders.whoEveryone', { team: 'Acme', role: DICTS.ko['folderAccess.canView'] }))
 
   // engines: what is missing, in plain words
   await page.getByTestId('admin-menu').getByRole('link', { name: 'AI 계정', exact: true }).click()
