@@ -2,8 +2,8 @@
 // strings/<locale>.ts, translated, plus its pictures and text files in ../assets with the same `.<locale>.` names
 // (../source/render.mjs makes the banners from ../source/banners/copy.<locale>.json).
 //
-// Plain strings only. `{project}` in a text becomes a link to the campaign project; the story (../story.ts) adds
-// the pictures, file links and steps around the words. Keep every AI answer short: about 20 seconds to read.
+// Plain strings only. `{project}` in a text becomes a link to the campaign project; the story (../story.ts) adds the
+// pictures, file links, steps and timing around the words. Keep every AI answer short: about 15–20 seconds to read.
 
 export const en = {
   company: 'Steepling',
@@ -16,9 +16,10 @@ export const en = {
     tom: { name: 'Tom Becker', title: 'Operations lead' },
     aiko: { name: 'Aiko Tanaka', title: 'Sales' },
     omar: { name: 'Omar Haddad', title: 'Online shop' },
+    chris: { name: 'Chris Walker', title: 'Account director', org: 'Fieldnote' },
   },
   marketingGroup: 'Marketing',
-  project: { name: 'November launch campaign', description: 'Winter Yuzu Ginger launch (Nov 23 – Dec 6)' },
+  project: { name: 'November launch campaign', description: 'Winter Yuzu Ginger launch, Monday Nov 23' },
 
   /** team file names (folders and names in the team drive) */
   paths: {
@@ -26,21 +27,23 @@ export const en = {
     brandGuide: 'shared/Brand guide.md',
     brief: 'November launch brief.md',
     leoBanner: 'launch-banner-leo-v1.png',
-    bannerA: 'launch-banner-v2.png',
-    bannerB: 'launch-banner-v3-new-background.png',
-    backgroundB: 'background-yuzu-ginger.png',
-    final: 'launch-banner-final.png',
+    // A and B save under the same names (the latest one wins), so the mail always attaches what the visitor made
+    banner: 'launch-banner-new.png',
+    square: 'instagram-square.png',
+    story: 'instagram-story.png',
+    captions: 'captions.md',
+    brandCheck: 'brand-check.md',
+    background: 'background-yuzu-ginger.png',
   },
 
   /** the words of the steps shown above an answer */
   steps: {
     read: 'Read',
     save: 'Save',
-    list: 'List',
-    teamSkills: 'Team skills',
-    useSkill: 'Use skill',
-    handoverSkill: 'Handover helper',
     makeBanner: 'Make banner',
+    makeSquare: 'Make Instagram square',
+    makeStory: 'Make Instagram story',
+    writeCaptions: 'Write captions',
     higgsfield: 'Generate background image (leaf green, yuzu slices, soft light)',
     gmailSearch: 'Search mail',
     gmailSend: 'Send email',
@@ -48,18 +51,19 @@ export const en = {
 
   home: {
     title: 'Welcome aboard, Mina! Congratulations on your first day.',
+    subtitle: 'Sara invited you · 7 people are here',
   },
 
   rooms: {
     everyone: [
-      { from: 'daniel', text: 'Mina Lee joins our Marketing team today. Please say hi! 🎉' },
-      { from: 'tom', text: 'Welcome, Mina! Anything about orders or shipping, just ask us in Ops.' },
-      { from: 'aiko', text: 'Hi Mina ☺️ Would love to show you our café pitch deck sometime.' },
-      { from: 'omar', text: 'Welcome! Ping me when a banner needs to go up on the shop.' },
+      { from: 'daniel', text: 'Mina Lee joins our Marketing team today. Say hi! 🎉' },
+      { from: 'tom', text: 'Welcome Mina! Anything orders or shipping, ping Ops.' },
+      { from: 'aiko', text: 'Hi Mina ☺️ coffee this week?' },
+      { from: 'omar', text: 'Welcome! Tell me when a banner needs to go up on the shop.' },
     ],
     marketing: [
-      { from: 'leo', text: 'First draft of the launch banner is up in the project. Thoughts welcome!' },
-      { from: 'sara', text: 'Thanks Leo. I\'ll check it against the brand guide.' },
+      { from: 'leo', text: 'First draft of the launch banner is up in the project. Be honest 😅' },
+      { from: 'sara', text: 'Thanks Leo, I\'ll take a look.' },
     ],
   },
 
@@ -73,108 +77,101 @@ export const en = {
     company: {
       prompt: 'What does our company do?',
       text: [
-        'Steepling makes **cold-brew tea bags**: drop one in cold water and it\'s ready in a few hours. We\'re 12 people, selling online and to cafés and offices. The winter **Yuzu Ginger** blend launches November 23.',
+        '**Steepling** makes cold-brew tea bags. Drop one in cold water, done. 12 of us, selling online and to cafés.',
         '',
-        'You\'re on Marketing, looking after **launch banners and social design**. Sara Jensen is your lead.',
+        '**Your job**: launch banners and social, on Sara\'s Marketing team.',
         '',
-        'Team skills you can use now:',
-        '- **3 social post options**: three Instagram captions for a product',
-        '- **Press release draft**: launch news as a press release',
-        '- **Competitor roundup**: other tea brands\' news on one page',
-        '',
-        'You\'re taking over from Leo. **Want help with the handover?**',
-        '',
-        'Higgsfield is connected too, so just ask when you need an image.',
+        '**This week**: Yuzu Ginger launches **Monday**. The launch banner is the big open item.',
       ].join('\n'),
-    },
-    handover: {
-      prompt: 'Yes, help me with the handover',
-      label: 'Help with the handover',
-      text: [
-        'Here\'s what you\'re taking over from Leo:',
-        '',
-        '| Work | Where it stands | Due |',
-        '|---|---|---|',
-        '| Launch banner 1200×628 | Leo\'s first draft is up | Wed, Nov 18 |',
-        '| 3 Instagram posts | Not started | Fri, Nov 20 |',
-        '',
-        'The banner draft is in {project}. Outside the company, Chris Walker at Fieldnote Studio puts the banners live from November 23.',
-        '',
-        'I\'d start with the **launch banner**, it\'s due first.',
-      ].join('\n'),
+      /** the "people to know" chips, one line each */
+      people: {
+        sara: 'Your lead. Ask her anything.',
+        leo: 'Made the first banner. Moves to Sales Monday.',
+        daniel: 'CEO. Says yes to the launch.',
+      },
     },
     bannerA: {
-      prompt: 'Make the title bigger and use our brand colors',
-      label: 'Bigger title, brand colors',
+      prompt: 'Fix it with our brand guide',
       text: [
-        'Cleaned it up to match the brand guide:',
+        'Fixed it with the brand guide, and made the rest of the launch set while I was at it.',
         '',
-        '- **Bigger title**: just "Hello, Yuzu Ginger" up top, everything else smaller',
-        '- **Brand colors**: leaf green and cream instead of the pastels, yuzu yellow only on the sale badge',
-        '- **Font**: switched to Pretendard, like the guide says',
-        '- **Logo**: moved from bottom right to top left',
+        '- **One big title**, everything else smaller',
+        '- **Leaf green and cream**, yuzu yellow only on the sale badge',
+        '- **Logo top left**, Pretendard throughout',
+        '',
+        'Captions for the posts:',
       ].join('\n'),
-      imageAlt: 'Launch banner v2',
-      after: 'Leo\'s original is still there, untouched.',
+      after: 'Leo\'s original is still in the project, untouched.',
     },
     bannerB: {
-      prompt: 'Make a new background with Higgsfield and put it in',
-      label: 'New background with Higgsfield',
+      prompt: 'Make a new background with Higgsfield',
       text: [
-        'Made a new background with Higgsfield and put it in:',
+        'New background from Higgsfield: deep leaf green, soft yuzu slices, a bit of window light. Text is cream so it reads on the dark.',
         '',
-        '- **Background**: deep leaf green with soft, out-of-focus yuzu slices and leaves, like a photo',
-        '- **Text**: now cream, so it reads well on the dark green',
-        '- **Sale**: kept the one yuzu yellow badge',
+        'Same set in every size, plus captions for the posts:',
       ].join('\n'),
-      imageAlt: 'Launch banner v3',
-      after: 'I saved the background on its own in the same folder too.',
+      after: 'The background is saved on its own too, if you want it for other posts.',
     },
+    /** the captions both versions come with (A and B share them) */
+    captions: [
+      'New for winter: Yuzu Ginger 🍋 Drop a bag in cold water before bed, wake up to something bright. 20% off till Dec 6.',
+      'yuzu + ginger. that\'s it. that\'s the post. (ok fine, it\'s also 20% off this week)',
+      'Our team has been quietly drinking this since August. It\'s yours from Monday.',
+    ],
+    captionsTitle: 'Captions: Yuzu Ginger launch',
+    /** brand-check notes that come with version A */
+    brandCheck: {
+      title: 'Brand check: launch banner v2',
+      lines: [
+        'Title: one message, "Hello, Yuzu Ginger", 3× the body size',
+        'Colours: leaf green #1F4D3A and cream #F6F1E7; yuzu yellow #F2B630 only on the sale badge',
+        'Removed: pastel gradient, red sale text, stars',
+        'Font: Pretendard ExtraBold / Regular',
+        'Logo: top left, 64 px from the edge',
+      ],
+    },
+    deliverables: {
+      banner: 'Web banner · 1200×628',
+      square: 'Instagram square · 1080×1080',
+      story: 'Instagram story · 1080×1920',
+      captions: '3 captions',
+      brandCheck: 'Brand check',
+      background: 'Higgsfield background',
+    },
+    compare: { before: 'Leo\'s draft', after: 'New' },
+    sendTo: 'Send to #Marketing',
     mail: {
-      prompt: 'Email this banner to Chris',
-      label: 'Email it to Chris',
-      intro: 'Here\'s a draft. I found Chris\'s address in your past emails.',
-    },
-    mailFormal: {
-      prompt: 'Make it a bit more formal and send it',
-      label: 'More formal, then send',
-      intro: 'Here\'s a more formal version. I found Chris\'s address in your past emails.',
+      prompt: 'Email the banner to Chris',
+      intro: 'Here\'s a draft. Chris\'s address was in your team\'s past emails.',
     },
   },
 
   mail: {
     to: 'Chris Walker (chris.walker@fieldnote.example)',
-    attachment: 'launch-banner-final.png',
-    labels: { to: 'To', subject: 'Subject', attachment: 'Attachment' },
+    labels: { to: 'To', subject: 'Subject', attachments: 'Attached' },
     plain: {
-      subject: 'Final November launch banner',
+      subject: 'Final banner for Monday\'s launch',
       body: [
         'Hi Chris,',
         '',
-        'I\'m Mina, I just joined the Marketing team at Steepling, so I\'ll be your contact for banners from now on.',
+        'I\'m Mina, I just joined Marketing at Steepling. I\'ll be your contact for banners from now on.',
         '',
-        'Here\'s the final banner for the November launch. Daniel has signed off on it.',
-        '- Size: 1200×628',
-        '- Goes live: Monday, November 23',
+        'Attached: the final launch banner (1200×628) and the Instagram square. Daniel has signed off. Can you run them from Monday, Nov 23?',
         '',
-        'If you need a 1080×1080 version for Instagram, just let me know.',
-        '',
-        'Thanks,',
+        'Thanks!',
         'Mina',
       ],
     },
     formal: {
-      subject: 'Steepling November launch campaign: final banner',
+      subject: 'Steepling launch campaign: final banner for Monday, November 23',
       body: [
         'Dear Chris,',
         '',
-        'I hope you\'re well. My name is Mina Lee, and I\'ve recently joined the Marketing team at Steepling. Thank you for all your help with our campaigns.',
+        'I hope you\'re well. My name is Mina Lee, and I\'ve just joined the Marketing team at Steepling.',
         '',
-        'Please find attached the final banner for our November launch campaign. It has been reviewed by the team and approved by our CEO.',
-        '- Size: 1200×628',
-        '- Start date: Monday, November 23',
+        'Please find attached the final launch banner (1200×628) and the Instagram square version. Both have been approved by our CEO. Could you please run them from Monday, November 23?',
         '',
-        'If you need a 1080×1080 version for Instagram, please let me know.',
+        'Thank you, and I look forward to working with you.',
         '',
         'Kind regards,',
         'Mina Lee',
@@ -184,35 +181,43 @@ export const en = {
     confirm: 'Send this email with Gmail?',
     send: 'Send',
     makeFormal: 'Make it more formal',
-    formalIntro: 'Here\'s a more formal version.',
-    cancel: 'Cancel',
-    /** {attachment} and {subject} are filled in */
-    sent: 'Sent. Chris now has **{attachment}** in an email titled "{subject}".\n\nYou\'ll find it in your Gmail Sent folder.',
-    notSent: 'Not sent. Tell me what to change and I\'ll redo it.',
+    formalIntro: 'More formal version:',
+    /** {subject} is filled in */
+    sent: 'Sent to Chris: "{subject}", with the banner and the square attached.',
   },
 
   events: {
-    leadDm: 'Hi Mina! You said you\'re good at design, right? Here\'s the launch banner Leo made. Want to take a pass at improving it? Our brand guide should help.\n\n{project}',
-    leadReply: 'Oh, that\'s so much better! Daniel, OK to go with this one?',
-    leoCheer: 'Looks really clean 👍 Happy to hand it over.',
-    ceoOk: 'Looks good, go ahead 👍',
-    leadGmail: 'Mina, our Gmail is connected. Just ask Trina to send it to Chris at the agency.',
+    leadDm: 'Leo\'s banner for Monday\'s launch needs love. You\'re the design person — can you take a pass? Everything\'s in the project.\n\n{project}',
+    leadDmToast: 'Got a sec? 🙏',
+    ceoShip: '🔥 This is it. Ship it.',
+    leoHow: 'wait how did you do this so fast 😂',
+    leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris.',
+    chrisReply: 'Looks great, running it Monday.',
   },
 
+  /** each step's line, and `away`: the line while the visitor is somewhere else */
   guide: {
-    ask: 'Next: ask about the company →',
-    dm: 'Next: open Sara\'s message →',
-    banner: 'Next: fix the banner →',
-    share: 'Next: send it to #Marketing →',
-    mail: 'Next: ask ✦ Trina to email it →',
+    ask: { text: 'Ask Trina about the company →', away: 'Your first question is on Home →' },
+    dm: { text: 'Sara sent you a message →', away: 'Sara is waiting in your DMs →' },
+    project: { text: 'Open the project in Sara\'s message →', away: 'Sara is waiting in your DMs →' },
+    banner: { text: 'Pick one: brand guide or Higgsfield →', away: 'Leo\'s banner is waiting in the project →' },
+    share: { text: 'Send it to #Marketing →', away: 'Your new banner is ready to share →' },
+    mail: { text: 'Ask ✦ Trina to email Chris →', away: 'Chris still needs the banner →' },
   },
 
-  fallback: { text: 'This demo runs on suggested prompts. Pick one below.', question: 'Try asking' },
+  fallback: { text: 'This demo follows suggested prompts. Try this one:', question: 'Next step' },
 
   end: {
-    title: 'That\'s Mina\'s first day',
-    body: 'Getting to know the company, fixing a banner, the CEO\'s OK and an email to the agency, all on day one with Trina.\n\nTry it with your team.',
-    signup: 'Start with your team',
+    title: 'Mina\'s first day',
+    body: 'From "what do we do here?" to a launch banner the CEO approved and the agency is running. Day one.',
+    stats: {
+      time: 'Time',
+      filesRead: 'Files read',
+      deliverables: 'Deliverables',
+      approvals: 'CEO approval',
+      emails: 'Email sent',
+    },
+    signup: 'Start your team\'s free trial',
     explore: 'Look around',
   },
 }
