@@ -179,7 +179,7 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
             lead={<AppTile kind={a.kind} name={a.name} size={28} />}
             strong
             name={a.name}
-            meta={a.pausedUntil ? `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}` : a.createdBy ? t('roomApps.setUpBy', { name: a.createdBy.name }) : t('roomApps.setUpByGone')}
+            meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span> : a.pausedUntil ? `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}` : a.createdBy ? t('roomApps.setUpBy', { name: a.createdBy.name }) : t('roomApps.setUpByGone')}
             tag={a.pausedUntil ? <span className="inline-flex items-center gap-1 text-warn"><PauseCircle size={12} aria-hidden />{t('roomApps.paused')}</span> : t('roomApps.today', { count: a.today })}
             end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />}
             testId="apps-list-row"
@@ -567,6 +567,15 @@ function Settings({ roomId, roomName, app, available, onAgain, onRemoved }: { ro
       <div className="space-y-2 px-5 pt-4 pb-3 max-sm:px-4">
         {!available && <NoAddressLine />}
         <StatusLine app={app} kind={app.kind} place="settings" onAgain={onAgain} onResume={() => void resume()} />
+        {/* someone who was shown the address can no longer manage the app (left the room or the team, no longer an
+            admin): one line with the way out (the server's room_app_viewers; it never changes the address by itself) */}
+        {app.leaverKnows && !fresh && (
+          <p className="flex flex-wrap items-center gap-x-1.5 border-l-2 border-warn py-0.5 pl-3 text-sm text-ink" role="status" data-testid="apps-leaver-knows">
+            <span>{t('roomApps.leaverKnows')}</span>
+            <span aria-hidden className="text-faint">·</span>
+            <button type="button" onClick={() => void rotate()} disabled={!available} className="touch-hit font-medium text-accent-text hover:underline disabled:opacity-40" data-testid="apps-leaver-new-address">{t('roomApps.newAddress')}</button>
+          </p>
+        )}
         {error && <p className="text-xs text-danger" role="alert" data-testid="apps-save-failed">{t('roomApps.saveFailed')}</p>}
       </div>
       <section className="border-t border-line px-5 py-2 max-sm:px-4" aria-labelledby={`${quietId}-show`}>

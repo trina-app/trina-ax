@@ -27259,7 +27259,25 @@ guides, "Apps posting here") are phase 2.
   `EVENT_TEXT` the same). A tap opens `/rooms/<roomId>` while the person is still in the room and it is not archived
   (push-events.ts; the web worker takes the id from the signed-in notice's `roomApp.roomId`), else the start page /
   the Inbox. Tests: tests/unit/b-room-app-push.test.ts, push-worker.test.ts, push-gateway.test.ts, push-locale.test.ts.
-- Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts; tests/security/lib/room-apps-cases.ts.
+- **After the security review of #826.**
+  - The web app renders an app's message as plain text (`web/src/components/rooms/AppCard.tsx`): no Markdown, no link
+    detection, only the card's one checked link. In `body`, outside addresses are unlinked (`:\/\/`, `www\.`) and
+    the card's link is written as an autolink `<url>`, so its brackets make no second link.
+  - Day counters (`room_app_days`) carry the room and kind and have no foreign key: removing and adding an app again
+    counts the removed one's day (same room and kind), "Resume now" is remembered there, and the team's cap sums every
+    row. Pruned after 30 days.
+  - **Leavers: marked, not rotated by itself** (rotation would silently stop a working Sentry or GitHub setup, and an
+    app's message is always tagged as an app, never a person). `room_app_viewers` records who was shown the address
+    (or a secret Trina made); when one of them can no longer manage the app (left the room or the team, an admin of a
+    team room made a member), `RoomApp.leaverKnows` drives "Someone who left knows this address · Get a new address".
+    A new address keeps only its caller.
+  - Requests the limits turn away are counted in memory and written at most once a minute per app. GitHub deliveries
+    are also deduplicated by the body's hash (a replay under a new `X-GitHub-Delivery`). App names: lookalikes of a
+    person's name (NFKC, lookalike letters, Latin mixed with Cyrillic or Greek) and the AI's or the product's name are
+    refused. An app's messages keep the name it had when it posted. "Ask Trina about this" on an app's message (a quote
+    naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
+- Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
+  tests/security/lib/room-apps-cases.ts.
 
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 

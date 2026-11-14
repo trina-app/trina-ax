@@ -5581,6 +5581,7 @@ export const ko = {
   "roomApps.vendorLabel.formsUnverified": "Google hasn't verified this app",
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
+  "roomApps.leaverKnows": "나간 사람이 이 주소를 알고 있어요",
 } as const
 
 export type MessageKey = keyof typeof ko

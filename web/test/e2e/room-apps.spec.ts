@@ -184,8 +184,8 @@ for (const vp of SIZES) {
       // plain text: no Markdown, no link made from words in it
       await expect(card.getByTestId('app-card-detail')).toHaveText('in app/cart/summary.ts **not bold** https://evil.example.com/x')
       await expect(card.locator('a')).toHaveCount(1)
-      await expect(card.getByTestId('app-card-link')).toHaveAttribute('href', 'https://sentry.io/organizations/acme/issues/42/')
-      await expect(card.getByTestId('app-card-link')).toContainText('Open in Sentry')
+      await expect(card.getByTestId('room-app-link')).toHaveAttribute('href', 'https://sentry.io/organizations/acme/issues/42/')
+      await expect(card.getByTestId('room-app-link')).toContainText('Open in Sentry')
       await expect(page.getByTestId('app-quiet-line')).toContainText('was paused')
       // the sender's popover: who set it up, and Manage
       await page.getByTestId('app-sender-button').first().click()

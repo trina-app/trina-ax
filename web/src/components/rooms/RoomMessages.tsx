@@ -40,6 +40,7 @@ import { copiedMessages } from '../../lib/messageCopy'
 import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
+import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
@@ -67,7 +68,7 @@ import { useFileMenu } from '../FileMenu'
 import type { SideSeed } from './SideChatPanel'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
-import { AppCardView, AppQuietLine, AppReplyLines, AppTile } from './apps/AppParts'
+import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
 import { appPlainText } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
@@ -424,13 +425,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
       ) : app && !deleted ? (
-        // an app's card: plain text, its one checked link (never Markdown, never links found in its words); a reply in
-        // its thread as short lines; a quiet one (and the paused line) as one short line
-        m.appCard ? (
-          variant === 'reply' && !m.alsoInRoom ? <AppReplyLines card={m.appCard} />
-            : app.quiet && !app.example ? <AppQuietLine app={app} card={m.appCard} />
-            : <AppCardView app={app} card={m.appCard} />
-        ) : <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)}>{appPlainText(m)}</p>
+        // an app's card (components/rooms/AppCard.tsx): plain text, its one checked link (never Markdown, never links
+        // found in its words); a reply in its thread as short lines; a quiet one (and the paused line) as one short line
+        <AppCardText m={m} variant={variant === 'reply' && !m.alsoInRoom ? 'reply' : app.quiet && !app.example ? 'quiet' : 'card'} className={WORDS} />
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} onAgain={onEditAgain} />
       ) : deleted ? (

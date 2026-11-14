@@ -102,7 +102,7 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
 }
 
 /** A message an app posted, as routeRoom's `extra` (author null, the app and its card). */
-export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name'> & { by?: { id: string; name: string } | null; quiet?: true; example?: true }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
+export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name'> & { by?: { id: string; name: string } | null; quiet?: boolean; example?: boolean }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
   const text = [[card.kind, card.title].filter(Boolean).join(' · '), ...(card.details ?? []), card.status ?? ''].filter(Boolean).join('\n')
   return {
     author: null,

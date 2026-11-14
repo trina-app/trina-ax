@@ -5537,4 +5537,5 @@ export const ja: Record<MessageKey, string> = {
   "roomApps.vendorLabel.formsUnverified": "Google hasn't verified this app",
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
+  "roomApps.leaverKnows": "退出した人がこのアドレスを知っています",
 }

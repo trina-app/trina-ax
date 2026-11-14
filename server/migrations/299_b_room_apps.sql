@@ -19,7 +19,13 @@
 --     sha256 of the app's key; state: the root card's status now.
 --   room_app_deliveries: deliveries posted (a vendor's retry posts once), written in the posting transaction; 7 days.
 --   room_app_days: per app and team-local day: requests received, shown, skipped (a switch off or a repeat), dropped
---     (limits); 30 days.
+--     (limits), resumed ("Resume now" that day); with the app's room and kind. No foreign key: the rows outlive a removed
+--     app, so removing and adding an app again never resets the day's caps (a new app of the same kind in the same room
+--     counts the removed one's day; the team's cap sums every row); pruned after 30 days.
+--   room_app_viewers: who was shown an app's address or a secret Trina made (create, copy again, a new address, a new
+--     secret). When one of them can no longer manage the app (left the room or the team, an admin made a member), the
+--     app's status says someone who left knows the address, until "Get a new address" (which keeps only its caller).
+--     user_id has no foreign key: a deleted account still counts as someone who knows it.
 --   room_app_notices: the "paused" notice to the people who manage the app (notification_inbox has a fixed
 --     event_type CHECK list and tables are never rebuilt); source_id "<app id>.<day>": one per app, person and day.
 --   room_messages.app_id / app_card / app_quiet: a message an app posted. author_kind stays 'user' (240's CHECK allows
@@ -69,15 +75,26 @@ CREATE TABLE room_app_deliveries (
 CREATE INDEX room_app_deliveries_at ON room_app_deliveries(at);
 
 CREATE TABLE room_app_days (
-  app_id TEXT NOT NULL REFERENCES room_apps(id) ON DELETE CASCADE,
+  app_id TEXT NOT NULL,
   day TEXT NOT NULL,
+  room_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
   received INTEGER NOT NULL DEFAULT 0,
   shown INTEGER NOT NULL DEFAULT 0,
   skipped INTEGER NOT NULL DEFAULT 0,
   dropped INTEGER NOT NULL DEFAULT 0,
+  resumed INTEGER NOT NULL DEFAULT 0 CHECK(resumed IN (0,1)),
   PRIMARY KEY (app_id, day)
 );
 CREATE INDEX room_app_days_day ON room_app_days(day);
+CREATE INDEX room_app_days_room ON room_app_days(room_id, kind, day);
+
+CREATE TABLE room_app_viewers (
+  app_id TEXT NOT NULL REFERENCES room_apps(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (app_id, user_id)
+);
 
 CREATE TABLE room_app_notices (
   id TEXT PRIMARY KEY,

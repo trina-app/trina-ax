@@ -92,8 +92,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   const untilMidnight = String(Math.max(1, Math.ceil((Date.parse(next) - now) / 1000)))
   // 3. the app's limits before the body
   const wait = apps.limits.appWait(row.id)
-  if (wait !== null) { apps.count(row.id, 'dropped', day); return answer(429, 'slow_down', { 'retry-after': String(wait) }) }
-  if (apps.count(row.id, 'received', day) > ROOM_APP_DAILY_RECEIVED) { apps.count(row.id, 'dropped', day); return answer(429, 'slow_down', { 'retry-after': untilMidnight }) }
+  if (wait !== null) { apps.dropped(row, day); return answer(429, 'slow_down', { 'retry-after': String(wait) }) }
+  if (apps.count(row, 'received', day) > ROOM_APP_DAILY_RECEIVED) { apps.dropped(row, day); return answer(429, 'slow_down', { 'retry-after': untilMidnight }) }
   // 4. the content type, then the body
   const type = (req.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
   if (!TYPES[row.kind].includes(type)) { apps.refused(row.id, 'format'); return answer(415, 'unsupported_type') }
@@ -121,15 +121,15 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   if ('refuse' in parsed) { apps.refused(row.id, 'format'); return answer(400, 'invalid_payload') }
   if ('skip' in parsed) {
     if (parsed.connected) apps.connected(row.id)
-    else apps.count(row.id, 'skipped', day)
+    else apps.count(row, 'skipped', day)
     return answer(200, 'ok')
   }
   let app = now_
   const ev = parsed.event
   if (ev.alert && !app.alert_seen) app = apps.alertSeen(app)
-  if (!apps.switches(app)[ev.switch]) { apps.count(row.id, 'skipped', day); return answer(200, 'ok') }
+  if (!apps.switches(app)[ev.switch]) { apps.count(row, 'skipped', day); return answer(200, 'ok') }
   const paused = apps.capCheck(app)
-  if (paused) { apps.count(row.id, 'skipped', day); return answer(429, 'slow_down', { 'retry-after': String(Math.max(1, Math.ceil((Date.parse(paused) - now) / 1000))) }) }
-  if (!apps.post(app, ev, day)) apps.count(row.id, 'skipped', day)
+  if (paused) { apps.count(row, 'skipped', day); return answer(429, 'slow_down', { 'retry-after': String(Math.max(1, Math.ceil((Date.parse(paused) - now) / 1000))) }) }
+  if (!apps.post(app, ev, day)) apps.count(row, 'skipped', day)
   return answer(200, 'ok')
 }

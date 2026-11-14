@@ -5581,4 +5581,5 @@ export const id: Record<MessageKey, string> = {
   "roomApps.vendorLabel.formsUnverified": "Google hasn't verified this app",
   "roomApps.vendorLabel.formsAdvanced": "Advanced › Go to … (unsafe)",
   "roomApps.vendorLabel.otherTerm": "webhook",
+  "roomApps.leaverKnows": "Seseorang yang sudah keluar mengetahui alamat ini",
 }

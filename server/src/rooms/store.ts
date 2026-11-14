@@ -579,24 +579,24 @@ export function membersOut(db: Database, roomId: string): RoomMember[] {
     .all(roomId) as { id: string; name: string; joined_at: string }[]).map((r) => ({ user: { id: r.id, name: r.name }, joinedAt: r.joined_at }))
 }
 
-/** The apps of these messages (rooms/apps), as a message shows its sender: the app as it is now (renamed: the new name),
- * or as its card kept it once the app was removed (id null). Messages that no app posted are not in it. */
+/** The apps of these messages (rooms/apps), as a message shows its sender: the name and kind the app had when it posted
+ * (a rename never changes what was said before), and its id while the app is there (null once removed). Messages that
+ * no app posted are not in it. */
 export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | 'app_id' | 'app_card' | 'app_quiet'>[]): Map<string, RoomAppRef> {
   const out = new Map<string, RoomAppRef>()
   const mine = rows.filter((r) => r.app_card)
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
-  // with who added it while they are in the team (the sender's popover: "Set up by …")
-  const live = new Map(ids.length ? (db.query(`SELECT a.id, a.name, a.kind, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
-    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; kind: RoomAppKind; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
-    const now = r.app_id ? live.get(r.app_id) : undefined
-    const kind = (now?.kind ?? stored.app.kind) as RoomAppKind
+    const kind = stored.app.kind as RoomAppKind
     out.set(r.id, {
-      id: now ? now.id : null, name: now?.name ?? stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
-      by: now?.by_id && now.by_name ? { id: now.by_id, name: now.by_name } : null,
+      id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })
   }

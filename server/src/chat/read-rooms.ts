@@ -10,6 +10,7 @@
 //     on the old branch only. A scheduled run's message does not count (messages.auto_sent): it is the instruction the
 //     person approved on the task's card, so a "> " line there is no one else's words.
 import type { Database } from 'bun:sqlite'
+import { threadRefOf } from '@mycel/shared/api'
 import type { TurnExec } from './turn'
 
 /** how far up the branch the quote check reads (as chat/project-members.ts ownWords) */
@@ -50,4 +51,16 @@ export function quotesOnBranch(db: Database, answerId: string): boolean {
       UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
     SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
   return rows.some((r) => (r.content ?? '').split('\n').some(isQuoteLine))
+}
+
+/** Does a question on the branch up to `answerId` quote an app's message ("Ask Trina about this" on a card from Sentry,
+ * GitHub, a form…; rooms/apps)? Its quote header names the thread it belongs to (shared rooms.ts threadRefOf): an app's
+ * card is that thread's first message, or the thread holds one. Such words come from outside services, so the chat is
+ * marked as having used something from outside (TurnExec.markOutside), as a room read of them does. */
+export function quotesAppOnBranch(db: Database, answerId: string): boolean {
+  const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
+      UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
+    SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, 'thread_id ') > 0`).all(answerId) as { content: string | null }[]
+  const roots = [...new Set(rows.map((r) => threadRefOf(r.content ?? '')).filter((x): x is string => !!x))]
+  return roots.some((id) => !!db.query('SELECT 1 FROM room_messages WHERE (id = ? OR thread_root_id = ?) AND app_card IS NOT NULL LIMIT 1').get(id, id))
 }
