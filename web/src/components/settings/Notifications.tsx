@@ -107,6 +107,13 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
 
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
  * words, in <bdi>); without it, "a scheduled task" as before. */
+/** "{name} joined the team.", or for a guest the one place they joined: "{name} joined 'Quote prep' as a guest." (a group
+ * chat with no name: "joined a group chat as a guest") */
+export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
+  if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
+  return j.guestPlace.name ? t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name }) : t('teamLink.joinedGuestChat', { name: j.name })
+}
+
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
   if (item.handover) return handoverNoticeNode(locale, item.handover)
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
@@ -117,7 +124,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
   if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
   if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
-  if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'team.joined') return item.joined ? joinedText(item.joined, t) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)

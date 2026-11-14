@@ -21,6 +21,7 @@ import { useNewestBuild } from '../store/deckBuilds'
 import { deckRunState, showsBuild } from '../lib/deckProgress'
 import { DeckBuildBadge, DeckBuildView } from './chat/DeckProgress'
 import { useMeStrict } from '../store/session'
+import { isGuestMe } from '../lib/guests'
 import { toast } from '../store/ui'
 import { TYPE_LABEL } from './artifactLabels'
 import FolderPicker from './FolderPicker'
@@ -197,7 +198,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
                   <Download size={16} />
                 </IconButton>
               )}
-              <IconButton label={t('artifact.saveToTeam')} disabled={saving} onClick={() => setPickFolder(true)}>
+              <IconButton label={t(isGuestMe(me) ? 'artifact.saveToYours' : 'artifact.saveToTeam')} disabled={saving} onClick={() => setPickFolder(true)}>
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />}
               </IconButton>
             </>
@@ -262,7 +263,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           <Spinner className="p-6" />
         )}
       </div>
-      <FolderPicker open={pickFolder} title={t('artifact.saveToTeam')} confirmLabel={t('artifact.saveHere')} onPick={saveTo} onClose={() => setPickFolder(false)} />
+      <FolderPicker open={pickFolder} title={t(isGuestMe(me) ? 'artifact.saveToYours' : 'artifact.saveToTeam')} confirmLabel={t('artifact.saveHere')} onPick={saveTo} onClose={() => setPickFolder(false)} />
     </aside>
   )
 }

@@ -34,6 +34,7 @@
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { meGuest } from '../../lib/guests'
 import AiAccessBanner from '../chat/AiAccessBanner'
+import { useAiAccess } from '../../store/aiAccess'
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -233,6 +234,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const guestNoAi = useGuestNoAi()
   // a guest with their own sign-in not made yet: the line above the box offers it (Connect my AI), as Home's box does
   const guestOwn = meGuest(me)?.ai === 'own'
+  // and until it is made (ai-access answers usable), no starters or quick asks: nothing would answer them, so the
+  // "Connect my AI" line is the one thing to do here
+  const guestWaits = useAiAccess((s) => guestOwn && !(s.loaded && s.usable))
   // opened while the room's side chat was closed: which chat it starts on (sideChatOpening), decided once, written to
   // the store before the first paint and shown by this panel until then, so nothing here sees the chat it replaces
   const opening = useRef<Partial<SideChatState> | null | undefined>(undefined)
@@ -555,7 +559,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
               </span>
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
               {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
-              {!quoted && !guestNoAi && (
+              {!quoted && !guestNoAi && !guestWaits && (
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
                   {chip && (
                     <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(chip === 'forms' ? 'roomApps.askForms' : 'roomApps.askToday'))}
@@ -611,7 +615,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <X size={13} aria-hidden />
               </IconButton>
             </div>
-            {!question && (
+            {!question && !guestWaits && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {quoted.app && quoted.thread && (
                   <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t('roomApps.askThread'))}

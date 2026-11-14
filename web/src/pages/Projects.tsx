@@ -55,7 +55,7 @@ import { toast } from '../store/ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { isUnused } from '../components/chat/ChatState'
-import { accessChanged, chatChanged, reloadAsked } from '../store/live'
+import { accessChanged, chatChanged, projectPeopleChanged, reloadAsked } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { hideProject, keepPendingProject, readManagedList, showProject, unhideProject, useProjects } from '../store/projects'
 import { optimistic, optimisticPending } from '../lib/optimistic'
@@ -709,6 +709,9 @@ function ProjectPage() {
   // in the members dialog
   const [peopleVersion, setPeopleVersion] = useState(0)
   const people = useProjectPeople(p, peopleVersion)
+  // someone joined or left it while the page is open (a guest who accepted their invite): its faces, its count and
+  // "Includes 1 guest" follow at once (store/live.ts projectPeopleChanged)
+  useEffect(() => projectPeopleChanged.on((id) => { if (id === projectId) setPeopleVersion((v) => v + 1) }), [projectId])
   // the team directory knows who is a guest: "Includes 1 guest" under the faces needs it before the members dialog is opened
   usePeopleList()
   // opened from + on the project's header in Trina history (components/history/HistoryGroups.tsx): the box is ready to

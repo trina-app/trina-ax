@@ -106,10 +106,13 @@ export function tellAfterWrite(ctx: AppContext, userId: string, r: { changed: bo
   rt.publishEach(profileChangedFor(ctx.db, [userId, ...r.cleared]))
 }
 
-/** A person's account was turned off or deleted (admin/users.ts): when they had a status the team sees, open windows
- * read the directory again, so their emoji and a DM's line go at once. */
-export function statusGoneWithAccount(ctx: AppContext, hadStatus: boolean): void {
-  if (hadStatus) ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+/** A person's account was turned off, deleted or switched on again (admin/users.ts): when they had a status the team
+ * sees, open windows read the directory again, so their emoji and a DM's line go at once. Only the windows of people who
+ * may see that person (`seen`: auth/guests.ts seenBy, read before the change, and after it for a switch-on): a guest's
+ * going is not signalled to the members outside their place, nor a member's to a guest outside that member's places
+ * (the notice is empty, but its time would show that the guest was there). */
+export function statusGoneWithAccount(ctx: AppContext, hadStatus: boolean, seen: readonly ((to: string) => boolean)[]): void {
+  if (hadStatus) ctx.services.realtime.publishEach((to) => (seen.some((f) => f(to)) ? PROFILE_CHANGED : null))
 }
 
 // ---------------- writes per person ----------------

@@ -12,6 +12,9 @@ import { atLeast, inProjectZone, RuleSet, type Principal } from '../policy/acces
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from './runtime'
 
+/** The quiet notice to a project's people when who is in it changed (its message: the project's id; web store/live.ts). */
+export const PROJECT_PEOPLE_CHANGED = 'project_people_changed'
+
 /** What projectJoins compares: the active people (with groups) and the rules, as admin/folders.ts captureState holds them. */
 export interface JoinState { principals: readonly Principal[]; rules: RuleSet }
 
@@ -43,6 +46,12 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
       for (const id of was) {
         if (nowIds.has(id) || (by.only && !by.only.has(id)) || !after.principals.some((p) => p.id === id)) continue
         audit(ctx.db, { actor: by.actor, action: 'project.member_lost', target: pr.id, detail: { projectId: pr.id, userId: id, name: pr.name, via: by.via, ...(by.actor === id ? { self: true } : {}) } })
+      }
+      // who reads it changed (someone joined or left, a guest accepted their invite): every window of its people now
+      // reads its people again (the member list, "Includes 1 guest"), quietly; the notice names the project only, and
+      // only to people who see it
+      if (now.some((p) => !was.has(p.id)) || [...was].some((id) => !nowIds.has(id))) {
+        for (const m of now) ctx.services.realtime.publish(m.id, { type: 'notice', data: { level: 'info', code: PROJECT_PEOPLE_CHANGED, message: pr.id } })
       }
       if (!gained.length) continue
       for (const g of gained) {

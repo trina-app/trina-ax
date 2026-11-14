@@ -141,6 +141,14 @@ export function NotForGuests({ children }: { children: ReactNode }) {
   return isGuestMe(useMe()) ? <Navigate to="/" replace /> : <>{children}</>
 }
 
+/** The projects list (/projects) for a guest who has no project (a guest in a room): it would only be empty, so they
+ * land on their one place (GuestLanding), as the team's pages send a guest Home. A guest in a project keeps the list. */
+export function NotForRoomGuests({ children }: { children: ReactNode }) {
+  const guest = isGuestMe(useMe())
+  const hidden = useGuestHidden()
+  return guest && hidden.has('projects') ? <GuestLanding /> : <>{children}</>
+}
+
 /**
  * May this person start a conversation from the chats list ("+", the start hint, "or start a new one with +")? Everyone
  * but a guest: a guest is in one place, so the list offers them nothing to start (a 1:1 with someone of their place

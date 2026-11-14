@@ -1,4 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
+import { guestDetail } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -620,8 +621,11 @@ export class Notifications {
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
+      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail; the
+      // notice goes to the owners and whoever invited them, who see the guest's place in Admin › Guests anyway)
+      const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
-        ...(u ? { joined: { name: u.name } } : {}) }
+        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: place.name } } : {}) } } : {}) }
     }
     // the owner and the admins see who asks (a name while the account is there) and where the request is now; while it
     // waits, the link opens that person in Admin › Members, where the account is deleted

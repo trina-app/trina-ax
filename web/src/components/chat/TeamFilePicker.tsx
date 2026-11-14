@@ -2,6 +2,9 @@
 // read — the file screen's own listing (GET /api/files/tree), a name search and recent files that the server filters
 // with the same permission function — with folder navigation, breadcrumbs, multi-select up to the message's limit.
 // Picked files are attached as references by the composer (POST /api/attachments/team-file).
+// A guest (lib/guests.ts) has no team folder: the server lets them read only their project's folder and their own one,
+// so the top of the picker is those two (no "Team folder", no Projects or Personal to pass through) and its name is
+// "Your files" (lib/guestFiles.ts).
 import clsx from 'clsx'
 import { ChevronRight, File, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Folder, Home, Presentation, Search, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -11,6 +14,9 @@ import { formatSize } from '../../lib/format'
 import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
 import { crumbs } from '../../lib/paths'
 import { useLocale, useT } from '../../i18n'
+import { isGuestMe } from '../../lib/guests'
+import { guestPassThrough, readGuestTop } from '../../lib/guestFiles'
+import { useMe } from '../../store/session'
 import { Button, ErrorNote, Modal, Skeleton, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
 
@@ -55,7 +61,10 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
   const fine = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: fine)').matches
   // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …), the paths as they are
   const words = useFolderWords()
-  const shown = (p: string) => words.path(p)
+  const guest = isGuestMe(useMe())
+  // a guest's top: what they can reach, in their words; the folders it only passes through are left out
+  const rootName = guest ? t('picker.guestRoot') : t('files.root')
+  const shown = (p: string) => words.path(guest ? p.replace(/^projects\//, '') : p)
 
   useEffect(() => {
     if (!open) return
@@ -75,7 +84,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
     let live = true
     setTree(null)
     setError(null)
-    api.call(API.tree, { query: { path, limit: 200 } }).then(
+    ;(guest && path === '' ? readGuestTop() : api.call(API.tree, { query: { path, limit: 200 } })).then(
       (r) => live && setTree(r),
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
@@ -153,7 +162,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           <FileKindIcon name={f.name} />
           <span className="min-w-0 flex-1">
             <span className="block truncate">{f.name}</span>
-            {showPath && <span className="block truncate text-xs text-faint">{shown(f.path.slice(0, f.path.lastIndexOf('/'))) || t('files.root')}</span>}
+            {showPath && <span className="block truncate text-xs text-faint">{shown(f.path.slice(0, f.path.lastIndexOf('/'))) || rootName}</span>}
           </span>
           {already ? (
             <span className="shrink-0 text-xs text-accent-text" data-testid="picker-attached">{t('picker.attached')}</span>
@@ -167,13 +176,13 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
     )
   }
 
-  const folderName = (p: string) => (p === '' ? t('files.root') : words.name(p, p.slice(p.lastIndexOf('/') + 1)))
+  const folderName = (p: string) => (p === '' ? rootName : words.name(p, p.slice(p.lastIndexOf('/') + 1)))
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={t('picker.title')}
+      title={t(guest ? 'picker.guestTitle' : 'picker.title')}
       width={600}
       footer={
         <>
@@ -226,9 +235,9 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
       <p className="mb-2 text-xs text-muted">{t('picker.hint')}</p>
       <nav aria-label={t('files.breadcrumb')} className="mb-2 flex flex-wrap items-center gap-1 text-sm">
         <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-hover max-md:min-h-11" onClick={() => setPath('')} data-testid="picker-crumb-root">
-          <Home size={14} aria-hidden /> {t('files.root')}
+          <Home size={14} aria-hidden /> {rootName}
         </button>
-        {crumbs(path).map((c) => (
+        {crumbs(path).filter((c) => !guest || !guestPassThrough(c.path)).map((c) => (
           <span key={c.path} className="inline-flex items-center gap-1">
             <ChevronRight size={13} className="text-faint" aria-hidden />
             <button type="button" className="rounded px-1.5 py-1 hover:bg-hover max-md:inline-flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-center" onClick={() => setPath(c.path)}>

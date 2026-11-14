@@ -3072,12 +3072,17 @@ export class MockServer {
 
     tree: (c) => {
       const path = c.query.path ?? ''
+      // a guest passes through the top, projects/ and users/ to their project and their own folder, and is listed
+      // nothing else there (server/src/policy/access.ts: canList)
+      const guest = c.user.role === 'guest'
+      const pass = guest && (path === '' || path === 'projects' || path === 'users')
       if (path && !this.files.has(path)) fail('not_found', 404)
-      if (this.access(path, c.user) === 'none' && path !== 'secret') fail('not_found', 404)
+      if (this.access(path, c.user) === 'none' && path !== 'secret' && !pass) fail('not_found', 404)
       const kids = [...this.files.entries()].filter(([p]) => (path ? p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/') : !p.includes('/')))
       const entries = kids
         .map(([p, n]) => this.entry(p, n, c.user))
         .filter((e) => !(e.path.startsWith('users/') && e.access === 'none'))
+        .filter((e) => !guest || (path === '' ? e.path === 'projects' || e.path === 'users' : e.access !== 'none'))
         .sort((a, b) => (a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)))
       return { path, access: this.access(path, c.user), entries, nextCursor: null }
     },
