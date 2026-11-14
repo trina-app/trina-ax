@@ -115,7 +115,8 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
       <Step n={1}><p>{t('roomApps.channel1', { path: v('channelPath'), create: v('channelCreate') })}</p></Step>
       <Step n={2}>
         <p>{t('roomApps.channel2', { url: v('channelUrl'), types: v('channelTypes') })}</p>
-        <Chips items={[v('channelTypeChat'), v('channelTypeMessage')]} testId="apps-channel-types" />
+        {/* Channel Talk's one option for customer chats (their messages come with it; group chats are a separate option, left off) */}
+        <Chips items={[t('roomApps.vendorLabel.channelTypeChat')]} testId="apps-channel-types" />
       </Step>
       <Step n={3}><p>{t('roomApps.channel3', { save: v('channelSave') })}</p></Step>
     </>

@@ -6055,7 +6055,6 @@ export const ko = {
   "roomApps.vendorLabel.channelUrl": "URL",
   "roomApps.vendorLabel.channelTypes": "Notifications",
   "roomApps.vendorLabel.channelTypeChat": "User chat and event notification",
-  "roomApps.vendorLabel.channelTypeMessage": "Message",
   "roomApps.vendorLabel.channelSave": "Confirm",
   "roomApps.vendorLabel.channelToken": "Token",
   "roomApps.vendorLabel.tossPath": "개발자센터 › 웹훅",
