@@ -8963,7 +8963,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
   `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
   the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
-  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  is no built-in default (superseded on 2026-11-14 for the Trina edition: "Trina team servers use push.trina.app by
+  default" below): phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
   gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
   Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
   nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
@@ -27058,6 +27059,133 @@ the recommended design after an independent security and UX review.
 - **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
 - **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
 - Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
+## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
+
+- Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose
+  default language is `zh`. Same coverage as Japanese and Spanish (2026-10-29): the web dictionary
+  (`web/src/i18n/zh.ts`), every server table and positional text helper, step labels, chat errors, push lock-screen
+  lines, relay pages, the generated offline page, the desktop shell and the macOS menu bar. The phone app's native
+  setup screens stay Korean and English, as they are for the other languages.
+- **Every Chinese tag is `zh`**: `zh`, `zh-CN`, `zh-Hans`, `zh-SG`, and also `zh-TW`, `zh-HK`, `zh-Hant`
+  (`asLocale`). Simplified Chinese is the only Chinese we have, and a Traditional Chinese reader reads it better than
+  English. A Traditional Chinese dictionary would get its own code then. Precedence is unchanged: account choice,
+  team default, English; browser or OS language only before a team language exists.
+- Wording: plain mainland Chinese for office workers, 你 rather than 您, full-width punctuation, no space between a
+  Chinese word and a filled-in value. ICU messages keep English's `one` and `other` branches (Chinese selects
+  `other`), and `check:i18n` checks zh's placeholders and plural forms as for ja/es. Skill names are quoted “…”.
+- Dates and numbers use `Intl` with `zh-CN`. Chinese screens take the Simplified Chinese system face first
+  (PingFang SC, Microsoft YaHei, Noto Sans SC): the default stack starts with Korean faces, which draw Han
+  characters in their Korean shapes.
+- No migration: language columns are text checked by the shared `Locale` schema.
+
+## Trina team servers use push.trina.app by default — 트리나 팀 서버는 기본으로 push.trina.app (feat/push-gateway-default, 2026-11-14, product owner)
+
+넣을 곳: Team AX core (`server/src/app-config.ts`, `scripts/edition-service.ts`, `shared/src/service-hosts.ts`) and the
+Trina edition's `editions/trina/branding/service.json`, 이유: the server reads its config in the core, and an edition's
+hosted-service addresses go through service.json (docs/EDITION-BRANDING.md). Plan:
+`docs/AGENTS/plan/20261114-0826-push-gateway-default.md`. The owner, on hardening push.trina.app so self-hosted teams
+with the store app get phone pushes: "저거 해보자" (2026-11-14).
+
+- **Why.** The store app's APNs and FCM keys live only on push.trina.app. A self-hosted Trina team server sent no phone
+  push until its operator found and set `MYCEL_PUSH_GATEWAY`, so most self-hosted teams had none.
+- **The default is an edition value.** `service.json` gets an optional `pushGatewayUrl` (`https://<host>`; `""` or
+  missing = none), written into `SERVICE_HOSTS.pushGatewayUrl` by `bun scripts/edition-service.ts … --apply`. Trina:
+  `https://push.trina.app`; the neutral core keeps none, so phone push stays off there until the operator sets one.
+- **Order** (`resolvePushGateway`): `MYCEL_PUSH_GATEWAY` when it is set at all, else `push.gatewayUrl` in server.json
+  when the key is there, else the edition default. An unset variable is not an empty one: `''` or `off` (any case) turns
+  phone push off, as do `null`, `""` and `"off"` in server.json. The address check is unchanged (`https://<host>` or
+  `http://127.0.0.1:<port>`).
+- **Installed servers and office Macs only.** The default applies with `mode: "prod"` or `office: true`. A developer's
+  dev server and the tests keep none, so local runs never register phones with the real gateway.
+- **What people see.** Owners and admins still see one line in Settings › Notifications. The "off" line no longer says
+  that no address is set (it may have been turned off on purpose): "Phone app notifications are off on this team
+  server. Whoever runs the server can turn them on in its settings."
+- **Not changed:** the gateway, the request contract and its limits; hosted servers (their server.json already names
+  the gateway). A changed gateway address leaves old device rows unused as before (`nativeConfigKey`), so phones
+  register again at the next sign-in or app start.
+- Tests: tests/unit/push-native.test.ts (Trina default, neutral none, `''`/`off`/`null`, explicit address, dev vs
+  prod/office), tests/unit/edition-service.test.ts (optional field, applied value matches the edition file).
+- Version impact: **minor** (phone push turns on by itself on Trina team servers; no API or data change).
+
+## Self-service account deletion — 내 계정 삭제 (feat/self-account-deletion, 2026-11-14, the owner, QA TC-1524..1532)
+
+- **Ask:** Apple 5.1.1(v) and Google Play want a person to delete their account inside the app without waiting for a
+  person; privacy law wants it done in days and the retention stated. Before, Settings › Profile › Delete account only
+  asked the team owner (2026-11-05, "계정 삭제 요청"), and nothing happened if nobody acted.
+- **The request deletes the account by itself 7 days later** (`ACCOUNT_DELETION_GRACE_DAYS`, owner decision). Until
+  then the account works and the person can press "Keep my account". The page shows the date before and after asking.
+  The owner and the admins (an admin: members only) get the inbox entry with the date and a Members badge "Deleted on
+  <date>", and can delete sooner in Admin › Members. They cannot stop it.
+- **Password every time.** Asking needs the person's password, checked by `sessions.verifyPassword` (the re-check
+  limit: 5 wrong tries per 15 minutes per person, audited `auth.reauth_failed`). A stolen session cannot delete the
+  account or guess the password faster than the other re-checks. Every live account has a password
+  (`insertUser`), so there is no "no password" branch.
+- **The owner never.** The owner still cannot ask (409: hand the team over first). Becoming the owner cancels an open
+  request (`account.deletion_cancel`, detail `{by: 'ownership'}`, actor the old owner). The sweep cancels a leftover
+  one instead of deleting. On a hosted team the owner's page adds one line: the whole team can be deleted on the
+  account page where they signed up (the console, not this repo).
+- **removeAccount** (admin/users.ts): the body of the members screen's delete, callable with no actor. `actorId` null
+  means the server. Folder floors, AI assignment pruning, access-change notices and the audit take null. The
+  personal folder's move into the owner's archive is recorded as the owner's (`archiveFolder(owner)`). The audit
+  `user.delete` gets `why: 'self_request', automatic: true`, actor NULL, and counts only.
+- **The sweep** (auth/sweeper.ts, hourly, one run at a time): `deleteDueAccounts` deletes each person whose date
+  passed, re-reading the request inside the write, so a cancel or a transfer a moment before wins. A failure stays
+  open and is tried at the next run.
+- **Requests open before this build** (migration 297 adds `due_at` and `due_for`): a date counts only while `due_for`
+  (the `requested_at` it was set for) equals `requested_at`. A request with no date, or one re-opened by an older build
+  after a rollback (it changes `requested_at` and keeps the old date), never counts as due. The sweep first
+  gives it a date 7 days from then (audit `account.deletion_dated`) and tells the person in their inbox
+  (`account.deletion_due`, its own notice table like the other notice kinds, link to the page). Nobody is deleted at
+  the first sweep without a warning. The review recommended migration time + 7 days; the first sweep runs 5 s after
+  the start, so it is the same date, and the rollback case is covered too.
+- **A date that passed while the server was down** (stopped over the date, or a restored copy whose dates passed): the
+  sweep does not delete at its first run. The date moves to 24 hours after this process started its sweeps
+  (`markSweepStart`) and the person is told (audit `account.deletion_dated` with `late`). A restore also undoes cancels
+  made after the backup; the 24 hours give the person and the operator time (docs/BACKUP-RESTORE.md).
+- **Owners' leftover requests** are cancelled by the sweep before any dating, never announced or deleted.
+- **Disabled during the 7 days:** still deleted on the date, because they asked. They get no inbox notice they cannot
+  read; the Members badge still shows the date. Re-enabling them lets them press Keep my account.
+- **A crash between the write and the rest.** The `user.delete` audit row is written in the same write as the tombstone
+  and completed afterwards (`unfinished` until then). Once after every start, `finishRemovals` finishes what a cut-off
+  deletion left: a personal folder still at `users/<id>` goes where its record says (the owner's archive, or removed),
+  and for a person who asked, private chats and trashed files go too (`finishedAtStart` in the record). A transfer with
+  no owner to take it keeps the files and their history (the history purge is skipped while the folder is there), and
+  the next start moves them once there is an owner.
+- **What a self-requested deletion removes at once** (and an early delete by the owner or an admin of someone who
+  asked): private chats and memories (not after `chatTrashRetentionDays`), the files they had put in the trash from
+  their personal folder (before the folder moves, or they would follow it into the archive), and the file history and
+  folder records left under `users/<id>/`. The standard guideline wants data destroyed within 5 days once no longer
+  needed; the 7 days to change one's mind come before. A deletion the person did not ask for keeps the old timing.
+- **Personal folder → the owner's archive** (owner decision), as before. The page says so: "Delete them before then if
+  you want them gone."
+- **Cleanup hooks** (auth/account-removal.ts): the users row stays as a tombstone, so ON DELETE CASCADE never runs.
+  Each area registers in its route module's init the rows it keeps per person: A (accounts), sessions (and through
+  them external-app grants and sign-in flows), sign-in networks, own notices, card choices, web access. B (chat),
+  inbox, phone devices, push and notification settings, schedules, site grants, dev-environment rows, room follows,
+  onboarding drafts. C (connections), Drive sign-in revoked at Google (`forgetAccount`: Disconnect without the
+  active-account check; not revoked while the same grant serves something else), sign-in flows, Slack link. The hooks
+  run after the account is gone and once 5 s after every start for accounts deleted earlier (a delete by user id;
+  twice is once). `tests/unit/a-account-removal-coverage.test.ts` reads every column that points at users(id); each
+  is removed or in `KEPT_WITH_ACCOUNT` with its reason (shared chats and room messages under the tombstone name, team
+  history, usage). A new table with a user column fails there until someone decides. `file_versions`, `trash_items`
+  and `folders` have no user column; the due test checks them by path.
+- **What the page lists** (plain lines, no new card): who is told; deleted (sign-in, profile, private chats and
+  memories, own AI and app connections, schedules, notifications); the personal folder to the owner; stays with the
+  team (team-folder files, shared chats, messages in rooms under their name: the tombstone keeps the name); kept for a
+  while (the deletion record in the activity log for `auditRetentionDays`, copies in backups up to 8 weeks).
+- **Backups and restores.** Backups keep a deleted person's data until they rotate out (hosted: daily 14 days, weekly
+  full 8 weeks, update and manual 30 days). The page and the privacy policy say "up to 8 weeks". A database restore
+  brings back accounts deleted after the backup. docs/BACKUP-RESTORE.md "Accounts deleted after the backup" says to
+  list them first (Activity log, or the audit rows) and delete them again; the restore dialog says it too.
+- **App Review account.** Reviewers try Delete account, so the reviewer member deletes itself 7 days later.
+  mobile/STORE-SUBMISSION.md: after each review, keep or recreate it; the reviewer note describes the new flow.
+- Not here: the Trina Cloud console account and the public Play web page (trina-cloud), deleting backups early,
+  e-mail to the person (in-app only).
+- Tests: tests/unit/a-account-deletion-due.test.ts (password, lock, date, nothing before it, the sweep with no actor,
+  what goes at once, the archive with its history, cancel, ownership, early delete, undated and rolled-back requests
+  and their notice), a-account-removal-coverage.test.ts, a-account-deletion.test.ts (updated), c-drive-oauth.test.ts
+  (`forgetAccount` revokes for a tombstone), web/test/unit/account-deletion.test.tsx, web/test/e2e/account-deletion.spec.ts.
 
 ## Connected apps: one Slack state, rows that look clickable, a connect wait that can always be left; Slack lines in the person's language; other apps' messages read (fix/connected-apps-state, 2026-11-14, QA)
 

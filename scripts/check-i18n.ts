@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { DICTS, placeholdersOf } from '../web/src/i18n'
 import { STRINGS } from '../desktop/src/common/i18n'
 
-const locales = ['ko', 'en', 'id', 'ja', 'es'] as const
+const locales = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const root = path.resolve(import.meta.dir, '..')
 const pluralForms = (s: string) => [...s.matchAll(/\{(\w+), plural,((?:\s*(?:zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g)]
   .map(m => `${m[1]}:${[...m[2]!.matchAll(/(zero|one|two|few|many|other)\s*\{/g)].map(f => f[1]).sort().join(',')}`).sort()
@@ -17,14 +17,14 @@ export function auditI18n() {
   for (const [name, dictionaries] of [['web', DICTS], ['desktop', STRINGS]] as const) {
     const english = dictionaries.en
     for (const locale of locales) {
-      const dictionary = dictionaries[locale] as Record<string, string>
+      const dictionary = (dictionaries[locale] ?? {}) as Record<string, string>
       counts[`${name}.${locale}`] = Object.keys(dictionary).length
       for (const [key, value] of Object.entries(english)) {
         const translated = dictionary[key]
         if (!translated?.trim()) problems.push(`${name}.${locale}.${key}: missing translation`)
         else if (!same(placeholdersOf(value), placeholdersOf(translated))) problems.push(`${name}.${locale}.${key}: placeholder mismatch with en`)
         // Korean/Indonesian historically use simple count placeholders. New locales preserve English ICU forms.
-        else if ((locale === 'ja' || locale === 'es') && !same(pluralForms(value), pluralForms(translated))) problems.push(`${name}.${locale}.${key}: plural forms differ from en`)
+        else if ((locale === 'ja' || locale === 'es' || locale === 'zh') && !same(pluralForms(value), pluralForms(translated))) problems.push(`${name}.${locale}.${key}: plural forms differ from en`)
       }
       for (const key of Object.keys(dictionary)) if (!(key in english)) problems.push(`${name}.${locale}.${key}: unknown key`)
     }
@@ -35,6 +35,8 @@ export function auditI18n() {
   for (const dir of ['shared/src', 'server/src', 'relay/src', 'web/src', 'desktop/src']) {
     for (const file of fs.readdirSync(path.join(root, dir), { recursive: true }).map(String).filter(f => /\.tsx?$/.test(f))) {
       const relative = `${dir}/${file}`
+      // signed protocol fixtures shared byte for byte with Trina Cloud (zh is optional there, as ja/es once were)
+      if (relative === 'shared/src/cloud-protocol/vectors.ts') continue
       const source = ts.createSourceFile(relative, fs.readFileSync(path.join(root, relative), 'utf8'), ts.ScriptTarget.Latest, true)
       const checkValues = (values: Map<string | undefined, ts.Expression>, location: string) => {
         const reference = values.get('en')
@@ -71,7 +73,7 @@ export function auditI18n() {
           return
         }
         const expected = signature(reference)
-        for (const locale of ['ja', 'es']) {
+        for (const locale of ['ja', 'es', 'zh']) {
           const value = values.get(locale)
           if (value && ts.isStringLiteralLike(value) && !value.text.trim() && !(ts.isStringLiteralLike(reference) && !reference.text.trim())) problems.push(`${location}: empty ${locale} translation`)
           if (value && !same(expected, signature(value))) problems.push(`${location}: ${locale} substitutions differ from en`)

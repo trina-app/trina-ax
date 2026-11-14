@@ -76,7 +76,7 @@ Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니�
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [릴리스](https://github.com/trina-app/trina-ax/releases/latest) · [변경 기록](CHANGELOG.md) · [도움 받기](SUPPORT.md) · [기여하기](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [개발](docs/DEVELOPMENT.md) · [설정](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
-앱은 영어, 한국어, 인도네시아어, 일본어, 스페인어로 쓸 수 있어요. 모든 그림 속 회사와 사람은 가상이에요.
+앱은 영어, 한국어, 인도네시아어, 일본어, 스페인어, 중국어(간체)로 쓸 수 있어요. 모든 그림 속 회사와 사람은 가상이에요.
 
 ## 라이선스
 

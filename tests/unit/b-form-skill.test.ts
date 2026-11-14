@@ -189,7 +189,7 @@ describe('the draft from a form (no server)', () => {
     expect(formSteps(material({ path: 'shared/양식/a.hwp', type: 'hwp', like: 'a', locale: 'en' }))).toContain('(a .hwpx, or a .docx when Hangul writing is off)')
     expect(formSteps(material({ locale: 'en' }))).toContain('the form itself cannot be filled here, so you made a new file with the same fields')
     // every language has the same seven steps
-    for (const locale of ['en', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'id', 'ja', 'es', 'zh'] as const) {
       const s = formSteps(material({ locale }))
       expect(s.split('\n'), locale).toHaveLength(7)
       for (const x of ['`shared/양식/`', '견적서 양식', 'openpyxl', 'make_file', 'move_files', 'users/<id>/']) expect(s, `${locale} ${x}`).toContain(x)

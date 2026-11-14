@@ -30,14 +30,13 @@ export function topicParticle(word: string): string {
   return v === null ? '' : v ? '는' : '은'
 }
 
-/** A skill's name quoted in this language, without a particle: '광고 문구' · 「広告コピー」 · 'Ad copy'. */
-export const skillQuote = (locale: string, name: string): string => locale === 'ja' ? `「${name}」` : `'${name}'`
+/** A skill's name quoted in this language, without a particle: '광고 문구' · 「広告コピー」 · “广告文案” · 'Ad copy'. */
+export const skillQuote = (locale: string, name: string): string => locale === 'ja' ? `「${name}」` : locale === 'zh' ? `“${name}”` : `'${name}'`
 
 /** A skill's name quoted as the object of a sentence in this language: '광고 문구'를 · 「広告コピー」 · 'Ad copy'. */
 export function quotedSkill(locale: string, name: string): string {
   if (locale === 'ko') return `'${name}'${objectParticle(name)}`
-  if (locale === 'ja') return `「${name}」`
-  return `'${name}'`
+  return skillQuote(locale, name)
 }
 
 /** A skill's name quoted as the topic ("'광고 문구'는 아직이에요"), or the words for any team skill when there is none
@@ -45,7 +44,7 @@ export function quotedSkill(locale: string, name: string): string {
 export function skillTopic(locale: string, name: string | null, any: string): string {
   if (name === null) return locale === 'ko' ? `${any}${topicParticle(any)}` : any
   if (locale === 'ko') return `'${name}'${topicParticle(name)}`
-  return locale === 'ja' ? `「${name}」` : `'${name}'`
+  return skillQuote(locale, name)
 }
 
 /** "아직 아무도 안 들어왔어요" waits this many days from the goal's start (docs/DECISIONS.md "W5"): on day 0 the owner
@@ -80,7 +79,7 @@ export const skillRunUrl = (base: string, path: string | null) => `${base.replac
 
 /** [다시 보내기]: "민지님, '광고 문구' 한 번 눌러 보세요: <link>"; to several people, without a name. */
 export function resendText(t: T, locale: string, o: { first: string; more: number; skill: string | null; url: string }): string {
-  const skill = o.skill === null ? t('goal.anySkill') : locale === 'ja' ? `「${o.skill}」` : `'${o.skill}'`
+  const skill = o.skill === null ? t('goal.anySkill') : skillQuote(locale, o.skill)
   return o.more ? t('goal.resendMany', { skill, url: o.url }) : t('goal.resendOne', { name: o.first, skill, url: o.url })
 }
 

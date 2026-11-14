@@ -352,7 +352,7 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(d.text.en).toContain('trina_admin desktop-refresh')
     await refreshWindowsApp(opts(s, publish('0.3.0').files))
     expect(windowsDiagnostic(s.data, '0.3.0')).toEqual({ status: 'ok', text: WINDOWS_TEXT.offered('0.3.0') })
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(WINDOWS_TEXT.offered('0.3.0')[l]).toContain('0.3.0')
       expect(WINDOWS_TEXT.failedHosted('x')[l]).not.toMatch(/trina_admin|desktop-refresh/)
     }

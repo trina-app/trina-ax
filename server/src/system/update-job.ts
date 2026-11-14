@@ -20,8 +20,8 @@ export const AUTO_HOLD_MS = 7 * 86_400_000
 /** the team's update window when Admin > Settings has none (team time zone) */
 export const DEFAULT_UPDATE_WINDOW = '03:00-05:00'
 
-export const waitingTasks = (n: number) => ({ ko: `업데이트가 진행 중인 작업 ${n}개가 끝나기를 기다리고 있어요`, en: `An update is waiting for ${enPlural(n, 'running task', 'running tasks')} to finish`, id: `Pembaruan menunggu ${n} tugas yang sedang berjalan selesai`, ja: `更新は実行中のタスク${n}件の完了を待っています`, es: `Una actualización espera a que ${n === 1 ? 'termine 1 tarea en curso' : `terminen ${n} tareas en curso`}` })
-const restarting = { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." }
+export const waitingTasks = (n: number) => ({ ko: `업데이트가 진행 중인 작업 ${n}개가 끝나기를 기다리고 있어요`, en: `An update is waiting for ${enPlural(n, 'running task', 'running tasks')} to finish`, id: `Pembaruan menunggu ${n} tugas yang sedang berjalan selesai`, ja: `更新は実行中のタスク${n}件の完了を待っています`, es: `Una actualización espera a que ${n === 1 ? 'termine 1 tarea en curso' : `terminen ${n} tareas en curso`}`, zh: `更新正在等待${n}个运行中的任务完成` })
+const restarting = { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor.", zh: "正在重启服务器。" }
 
 export interface RunUpdateDeps {
   updates: UpdateManager
@@ -159,10 +159,10 @@ export function autoUpdateDecision(o: {
 // ---------------- an update job whose version did not stay (QA TC-336) ----------------
 type Msg = Record<Locale, string>
 const UPDATE_NOT_KEPT = {
-  goBack: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 되돌리지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not go back to ${to}; still on ${cur}.`, id: `Tidak bisa kembali ke ${to}; masih memakai ${cur}.`, ja: `${to}に戻せませんでした。現在も${cur}で動いています。`, es: `No se pudo volver a ${to}; sigue en ${cur}.` }),
-  update: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 업데이트하지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not update to ${to}; still on ${cur}.`, id: `Tidak bisa memperbarui ke ${to}; masih memakai ${cur}.`, ja: `${to}に更新できませんでした。現在も${cur}で動いています。`, es: `No se pudo actualizar a ${to}; sigue en ${cur}.` }),
-  cannotRead: (to: string, cur: string): Msg => ({ ko: `${to}은(는) ${cur}이(가) 이미 바꾼 데이터베이스를 읽지 못해요. 잃은 데이터는 없어요. ${to}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `${to} cannot read the database that ${cur} has already updated. Nothing was lost. To return to ${to}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `${to} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Tidak ada yang hilang. Untuk kembali ke ${to}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${to}は、${cur}がすでに更新したデータベースを読み込めません。失われたデータはありません。${to}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `${to} no puede leer la base de datos que ${cur} ya actualizó. No se perdió nada. Para volver a ${to}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).` }),
-  why: (detail: string): Msg => ({ ko: `이유: ${detail}`, en: `Reason: ${detail}`, id: `Alasan: ${detail}`, ja: `理由：${detail}`, es: `Motivo: ${detail}` }),
+  goBack: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 되돌리지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not go back to ${to}; still on ${cur}.`, id: `Tidak bisa kembali ke ${to}; masih memakai ${cur}.`, ja: `${to}に戻せませんでした。現在も${cur}で動いています。`, es: `No se pudo volver a ${to}; sigue en ${cur}.`, zh: `无法回退到${to}；仍在${cur}。` }),
+  update: (to: string, cur: string): Msg => ({ ko: `${to}(으)로 업데이트하지 못했어요. 지금도 ${cur}(으)로 실행 중이에요.`, en: `Could not update to ${to}; still on ${cur}.`, id: `Tidak bisa memperbarui ke ${to}; masih memakai ${cur}.`, ja: `${to}に更新できませんでした。現在も${cur}で動いています。`, es: `No se pudo actualizar a ${to}; sigue en ${cur}.`, zh: `无法更新到${to}；仍在${cur}。` }),
+  cannotRead: (to: string, cur: string): Msg => ({ ko: `${to}은(는) ${cur}이(가) 이미 바꾼 데이터베이스를 읽지 못해요. 잃은 데이터는 없어요. ${to}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).`, en: `${to} cannot read the database that ${cur} has already updated. Nothing was lost. To return to ${to}, the backup made before the update has to be restored (see the backup and restore guide).`, id: `${to} tidak dapat membaca basis data yang sudah diperbarui ${cur}. Tidak ada yang hilang. Untuk kembali ke ${to}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).`, ja: `${to}は、${cur}がすでに更新したデータベースを読み込めません。失われたデータはありません。${to}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。`, es: `${to} no puede leer la base de datos que ${cur} ya actualizó. No se perdió nada. Para volver a ${to}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).`, zh: `${to}无法读取已被${cur}更新过的数据库。没有丢失任何数据。要回到${to}，需要恢复更新前创建的备份（见备份与恢复指南）。` }),
+  why: (detail: string): Msg => ({ ko: `이유: ${detail}`, en: `Reason: ${detail}`, id: `Alasan: ${detail}`, ja: `理由：${detail}`, es: `Motivo: ${detail}`, zh: `原因：${detail}` }),
 }
 
 /**

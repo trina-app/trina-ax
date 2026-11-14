@@ -445,7 +445,18 @@ export class GoogleDrive {
     })
   }
   async disconnect(user: string) {
-    this.store.active(user); this.busy(user); this.revoking.add(user)
+    this.store.active(user)
+    return this.end(user)
+  }
+  /** A deleted account (integrations/account-cleanup.ts): the same as Disconnect, without the active-account check.
+   * Nothing to do when they never connected. */
+  async forgetAccount(user: string) {
+    if (!this.store.connection(user) && !this.ctx.db.query('SELECT 1 FROM drive_oauth_flows WHERE user_id=?').get(user)) return
+    if (this.revoking.has(user)) return
+    await this.end(user)
+  }
+  private async end(user: string) {
+    this.busy(user); this.revoking.add(user)
     let token: string | null = null
     const row = this.store.connection(user)
     try { if (row) token = this.store.open<Tokens>(row).refreshToken } catch {}

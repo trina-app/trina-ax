@@ -104,7 +104,7 @@ describe('the card', () => {
     expect(asked[0]!.question).not.toMatch(/token/i)
     // in Korean too: "긴 글자" as on the lines beside it, never "긴 문자열" or "토큰"; every language without "token"
     for (const k of ['opaque', 'site', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([l, /토큰|문자열|token|トークン/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([l, /토큰|문자열|token|トークン|令牌/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
     expect(asked[0]!.question).toContain(WEB_ALLOW_ALL_RISK.en)
     // the team key off, or the browser switch above it off: not offered
     for (const s of [{ webAllowAll: false }, { browserAllowAll: false }]) {
@@ -441,7 +441,8 @@ describe('notices and accounts', () => {
     on(id)
     await h.api('dana').call(API.deleteUser, { params: { id }, query: { personalFolder: 'delete' }, body: {} })
     expect(audits('web.allow_all_off', id).at(-1)).toEqual({ actor: 'dana', via: 'account' })
-    expect(db().query('SELECT allow_all FROM user_web_access WHERE user_id = ?').get(id)).toEqual({ allow_all: 0 })
+    // and the row itself goes with the account (auth/account-removal.ts)
+    expect(db().query('SELECT allow_all FROM user_web_access WHERE user_id = ?').get(id)).toBeNull()
   })
 })
 

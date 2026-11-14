@@ -107,7 +107,7 @@ describe('the boundary instead of a blank page', () => {
   })
   test('every language has the lines', async () => {
     const { DICTS } = await import('../../src/i18n')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(DICTS[l]['update.chunkFailed'].length).toBeGreaterThan(10)
       expect(DICTS[l]['update.chunkUnsent'].length).toBeGreaterThan(10)
       expect(DICTS[l]['update.chunkUnsent']).not.toBe(DICTS[l]['update.chunkFailed'])
@@ -386,7 +386,7 @@ describe('a page part that failed while the connection was down (QA TC-231)', ()
 
   test('every language has the line', async () => {
     const { DICTS } = await import('../../src/i18n')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       expect(DICTS[l]['update.chunkOffline'].length).toBeGreaterThan(10)
       expect(DICTS[l]['update.chunkOffline']).not.toBe(DICTS[l]['update.chunkFailed'])
     }

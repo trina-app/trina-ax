@@ -1,5 +1,6 @@
 // Native screens only (setup, offline, errors). The web app has its own locales. Korean when the phone's first
-// language is Korean, English otherwise. No native imports here: tests load this file directly.
+// language is Korean, Simplified Chinese when it is any Chinese (zh, zh-Hans, zh-TW, zh-HK: one Chinese table for now),
+// English otherwise. No native imports here: tests load this file directly.
 const en = {
   setupTitle: 'Join your team',
   setupHint: 'Paste the invite link your team lead sent you. If you know the team address (e.g. acme), that works too.',
@@ -95,6 +96,53 @@ const ko: Strings = {
   browserFailed: '브라우저를 열지 못했어요.',
   channelName: '알림',
 }
+const zh: Strings = {
+  setupTitle: '加入你的团队',
+  setupHint: '粘贴团队负责人发给你的邀请链接。如果知道团队地址（例如 acme），直接输入地址也可以。',
+  setupPlaceholder: '邀请链接或团队地址',
+  connect: '继续',
+  noAddress: '我不知道地址',
+  noTeam: '我还没有团队',
+  noAddressPaste: '粘贴你在微信、钉钉或 Slack 等聊天应用里收到的邀请链接。用过的链接也可以，会打开登录页面。',
+  noAddressDevice: '如果另一台设备已登录，可以在“设置 › 应用”里查看团队地址。',
+  noAddressAsk: '还是不确定？请向团队负责人询问团队地址。',
+  back: '返回',
+  noTeamBody: '团队由团队负责人创建，成员通过邀请链接加入。',
+  noTeamDocs: '自行安装',
+  noTeamEnter: '输入团队地址',
+  backTo: '返回 {team}',
+  outsideBody: '这个地址不是由 Trina 运营的。请确认这是你们公司自己安装的服务器。',
+  outsideConnect: '连接',
+  renamed: '这个团队已迁移到 {host}。要连接新地址吗？',
+  switchTitle: '离开 {old} 并连接到 {new}？',
+  switchBody: '这台手机将退出 {old}，也不会再收到它的通知。',
+  switchYes: '切换',
+  linkTitle: '连接到 {host}？',
+  linkBody: '只有确认这是别人发给你、由你自己打开的链接时才连接。',
+  linkBad: '这个链接无法打开团队。请原样粘贴你收到的邀请链接。',
+  cancel: '取消',
+  emptyAddress: '请粘贴邀请链接或输入团队地址。',
+  hangul: '输入的是韩文字符，输入法可能处于韩文模式。请切换到英文输入后重新输入，或直接粘贴邀请链接。',
+  email: '这里不用邮箱地址。请粘贴邀请链接或输入团队地址。',
+  cutLink: '链接好像不完整。请重新复制完整的链接再粘贴。',
+  invalidAddress: '请输入 HTTPS 团队地址或邀请链接。',
+  teamUnknown: '没有找到名为“{name}”的团队。请检查拼写，或粘贴邀请链接。',
+  suspended: '这个团队的服务目前已暂停。请联系团队负责人。',
+  notTeam: '这个地址不是团队服务器。请粘贴你收到的邀请链接。',
+  unreachableSetup: '无法连接到团队服务器。请检查地址、网络连接和 HTTPS 证书。',
+  linkUnreachable: '无法连接到团队服务器。请检查网络连接后重试。',
+  saveFailed: '无法保存团队地址。请重试。',
+  stillSwitching: '正在切换团队，请稍后再试。',
+  offlineTitle: '当前没有网络连接',
+  offlineHint: '请连接 Wi-Fi 或打开移动数据后重试。',
+  unreachableTitle: '无法连接到你的团队',
+  unreachableHint: '团队服务器没有响应。请检查网络连接，稍后再试。',
+  retry: '重试',
+  changeTeam: '更改团队地址',
+  otherTeam: '连接其他团队',
+  browserFailed: '无法打开浏览器。',
+  channelName: '通知',
+}
 /** "{team}(으)로 돌아가기" with its values (a value is never read as a pattern). */
 export function fill(s: string, params: Record<string, string>): string {
   return s.replace(/\{(\w+)\}/g, (m, k: string) => params[k] ?? m)
@@ -104,10 +152,11 @@ export function inputError(t: Strings, error: string): string {
   return error === 'empty' ? t.emptyAddress : error === 'hangul' ? t.hangul : error === 'email' ? t.email : error === 'link' ? t.cutLink : t.invalidAddress
 }
 export function stringsFor(languageCode: string | null | undefined): Strings {
-  return languageCode?.toLowerCase().startsWith('ko') ? ko : en
+  const code = languageCode?.toLowerCase() ?? ''
+  return code.startsWith('ko') ? ko : /^zh(?:$|[-_])/.test(code) ? zh : en
 }
 
-/** iOS permission texts (Info.plist), Korean and English. The web app asks for the camera (photo attachment), the
+/** iOS permission texts (Info.plist), English, Korean and Simplified Chinese. The web app asks for the camera (photo attachment), the
  * microphone (voice input) and the photo library (file picker) inside the WebView. */
 export const IOS_USAGE = {
   en: {
@@ -119,6 +168,11 @@ export const IOS_USAGE = {
     NSCameraUsageDescription: '채팅에 첨부할 사진을 찍을 때 사용해요.',
     NSMicrophoneUsageDescription: '채팅에서 음성으로 입력할 때 사용해요.',
     NSPhotoLibraryUsageDescription: '채팅에 첨부할 사진을 고를 때 사용해요.',
+  },
+  zh: {
+    NSCameraUsageDescription: '拍摄照片并在聊天中发送。',
+    NSMicrophoneUsageDescription: '在聊天中用语音输入文字。',
+    NSPhotoLibraryUsageDescription: '选择照片并在聊天中发送。',
   },
 } as const
 

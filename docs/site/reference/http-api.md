@@ -569,13 +569,13 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/rooms/:id/files/:fileId` | Signed in | A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check's download-only list is sent only with download=1 (503 quarantined otherwise). |
 | `GET` | `/api/rooms/:id/files/:fileId/hwp-preview` | Signed in | One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview's renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based. |
 
-## Account deletion request
+## Account deletion
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/me/deletion-request` | Signed in | Whether I have asked the team owner or an admin to delete my account (or am the owner, who cannot ask). |
-| `POST` | `/api/me/deletion-request` | Signed in | Ask the team owner or an admin to delete my account: tells the owner (and the admins, when I am a member) in the app (metadata only), audited, idempotent. The owner gets 409. |
-| `DELETE` | `/api/me/deletion-request` | Signed in | Take back my open account deletion request (no-op when none is open); audited. |
+| `GET` | `/api/me/deletion-request` | Signed in | Whether my account is set to be deleted and on which date (or I am the owner, who cannot ask). |
+| `POST` | `/api/me/deletion-request` | Signed in | Delete my account in 7 days: needs my password (403 wrong, 429 after 5 wrong in 15 minutes); tells the owner (and the admins, when I am a member) in the app (metadata only); audited, idempotent. The owner gets 409. |
+| `DELETE` | `/api/me/deletion-request` | Signed in | Keep my account: cancels the open deletion (no-op when none is open); audited. |
 
 ## Slack connector
 

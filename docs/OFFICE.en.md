@@ -117,7 +117,7 @@ This optional energy-setting command needs the Mac administrator password; the o
 
 ### Owner setup and the five-step first week
 
-Run `~/TeamAX/teamax setup-link` on the office Mac if the setup page did not open. Keep the one-time link private. Create the team name, language and owner account. The public internet endpoint refuses first-owner setup. Confirm the intended timezone and language; the source supports English, Korean, Indonesian, Japanese and Spanish.
+Run `~/TeamAX/teamax setup-link` on the office Mac if the setup page did not open. Keep the one-time link private. Create the team name, language and owner account. The public internet endpoint refuses first-owner setup. Confirm the intended timezone and language; the source supports English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese.
 
 1. **Permissions:** create groups and folder rules in administration. Test with two fictional member accounts; each should see only its allowed folders. Keep real sensitive data out of the pilot.
 2. **AI connection:** confirm the authorized Claude connection and ask about a fictional file. Office local-login uses the signed-in Mac user's CLI, not the managed Linux connection selector. On fresh teams one company connection serving the whole team is ON, saved choices persist, and managed connections require their own acknowledgment. Provider permission remains a separate requirement.

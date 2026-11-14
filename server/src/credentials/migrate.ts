@@ -23,9 +23,9 @@ export const FILE_TOKEN_KEY = 'credentials.fileToken'
 export interface Migrated { at: string; claudeFile?: string; accounts?: string[]; codexAuth?: 'done' | 'failed' | 'none' | 'pending' }
 
 const LABELS: Record<string, Record<Locale, string>> = {
-  claude: { ko: 'Claude 구독', en: 'Claude subscription', id: 'Langganan Claude', ja: "Claudeサブスクリプション", es: "Suscripción de Claude" },
-  key: { ko: '회사 키', en: 'Company key', id: 'Kunci perusahaan', ja: "会社のキー", es: "Clave de la empresa" },
-  chatgpt: { ko: 'ChatGPT (기존)', en: 'ChatGPT (existing)', id: 'ChatGPT (lama)', ja: "ChatGPT（既存）", es: "ChatGPT (existente)" },
+  claude: { ko: 'Claude 구독', en: 'Claude subscription', id: 'Langganan Claude', ja: "Claudeサブスクリプション", es: "Suscripción de Claude", zh: "Claude订阅" },
+  key: { ko: '회사 키', en: 'Company key', id: 'Kunci perusahaan', ja: "会社のキー", es: "Clave de la empresa", zh: "公司密钥" },
+  chatgpt: { ko: 'ChatGPT (기존)', en: 'ChatGPT (existing)', id: 'ChatGPT (lama)', ja: "ChatGPT（既存）", es: "ChatGPT (existente)", zh: "ChatGPT（原有）" },
 }
 const label = (cc: CredCtx, k: keyof typeof LABELS) => { const l = getTeamSettings(cc.db).defaultLocale; return LABELS[k]![l] ?? LABELS[k]!.en }
 

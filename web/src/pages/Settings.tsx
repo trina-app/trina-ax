@@ -19,7 +19,7 @@ import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
 import { lazy, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { EngineId, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
+import { ACCOUNT_DELETION_GRACE_DAYS, type EngineId, type Memory, type Session, type TextSize, type Theme } from '@mycel/shared/api'
 import { APP_DOWNLOADS, PROFILE_TITLE_MAX } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -293,11 +293,11 @@ function Profile() {
               </span>
             )}
           </Row>
-          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)); a phone has it as
-              the page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
+          {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
+              page's last row */}
+          {!phone && <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
             <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline max-md:flex max-md:min-h-11 max-md:items-center md:text-right" data-testid="account-deletion-link">
-              {t('accountDeletion.title')}
+              {t('accountDeletion.request')}
             </Link>
           </Row>}
         </div>
@@ -357,8 +357,8 @@ function Profile() {
       <TextSizeSetting />
       {phone && (
         <PhoneSection className="-mt-6">
-          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint')}>
-            <PhoneListRow title={t('accountDeletion.title')} to="/settings/account/delete" testId="account-deletion-link" />
+          <PhoneListGroup title={t('accountDeletion.row')} footer={t('accountDeletion.rowHint', { days: ACCOUNT_DELETION_GRACE_DAYS })}>
+            <PhoneListRow title={t('accountDeletion.request')} to="/settings/account/delete" testId="account-deletion-link" />
           </PhoneListGroup>
         </PhoneSection>
       )}

@@ -140,7 +140,7 @@ describe('names (M2, M3, N3)', () => {
   })
 
   test('a group goes by its labels in every language (the web\'s projects.whoGroup); a person who takes one shares its name (review MUST)', () => {
-    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(MEMBERS_TEXT.groupLabel[L]).toBe(DICTS[L]['projects.whoGroup'])
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(MEMBERS_TEXT.groupLabel[L]).toBe(DICTS[L]['projects.whoGroup'])
     const sales = groupSubject({ id: 'g-sales', name: '영업', people: 12 })
     const fake: Subject = { subjectType: 'user', subjectId: 'u-fake', name: '영업 부서' }
     const everyone = [sales, fake]

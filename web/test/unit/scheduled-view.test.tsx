@@ -61,7 +61,7 @@ describe('scheduled task page', () => {
 
   test('every failed outcome has a reason in every language', () => {
     for (const o of ['problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable'] as const)
-      for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
         const r = outcomeReason({ ...base, lastOutcome: o }, (key, params) => translate(locale, key, params))
         expect(r).not.toBe(`scheduled.reason.${o}`)
         expect(r.length).toBeGreaterThan(0)
@@ -71,7 +71,7 @@ describe('scheduled task page', () => {
 
   test('a task paused for a project only its members use now says so, not "Project gone" (QA TC-360)', () => {
     const paused = { ...base, repeat: 'daily' as const, date: null, enabled: false, lastOutcome: 'project_gone' as const, lastMembersOnly: true }
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       const tl = (key: MessageKey, params?: Params) => translate(locale, key, params)
       expect(outcomeLabel(paused, tl)).toBe(tl('scheduleTemplates.outcome.members_only'))
       expect(outcomeReason(paused, tl)).toBe(tl('scheduled.reason.members_only'))
@@ -136,7 +136,7 @@ describe('scheduled task page', () => {
   })
 
   test('the texts exist in every language', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
       for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.switch', 'scheduled.openRun', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
@@ -240,7 +240,7 @@ describe('scheduled task page', () => {
   })
 
   test('the block\'s words exist in every language', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
       for (const key of ['scheduled.run.running', 'scheduled.run.done', 'scheduled.run.problems', 'scheduled.run.error', 'scheduled.run.stopped', 'scheduled.run.interrupted', 'scheduled.run.skipped', 'scheduled.runsTitle', 'scheduled.openRun', 'scheduled.runReason.problems', 'rooms.roomNotIn'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })

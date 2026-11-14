@@ -66,6 +66,7 @@ export const TEXT = {
     id: 'AI ingin mengunduh berkas besar. Berkas ini berukuran {size}. Ruang disk server yang masih kosong {free}. Unduh?\n\n{url}',
     ja: 'AIが大きなファイルをダウンロードしようとしています。このファイルは{size}です。サーバーのディスクの空きは{free}です。ダウンロードしますか？\n\n{url}',
     es: 'La IA quiere descargar un archivo grande. Este archivo ocupa {size}. El servidor tiene {free} libres en el disco. ¿Descargarlo?\n\n{url}',
+    zh: 'AI 想下载一个大文件。此文件大小为{size}。服务器剩余磁盘空间为{free}。要下载吗？\n\n{url}',
   },
   largeUnknown: {
     ko: 'AI가 받는 파일이 1 GB를 넘었어요. 사이트가 크기를 미리 알려 주지 않았어요(지금까지 {size}). 서버 디스크 여유는 {free}예요. 계속 받을까요?\n\n{url}',
@@ -73,15 +74,17 @@ export const TEXT = {
     id: 'Berkas yang diunduh AI sudah melewati 1 GB. Situs tidak memberi tahu ukurannya ({size} sejauh ini). Ruang disk server yang masih kosong {free}. Lanjutkan mengunduh?\n\n{url}',
     ja: 'AIがダウンロード中のファイルが1 GBを超えました。サイトはサイズを事前に知らせていません（ここまで{size}）。サーバーのディスクの空きは{free}です。ダウンロードを続けますか？\n\n{url}',
     es: 'El archivo que la IA está descargando ya pasó de 1 GB. El sitio no indicó su tamaño ({size} hasta ahora). El servidor tiene {free} libres en el disco. ¿Seguir descargando?\n\n{url}',
+    zh: 'AI 正在下载的文件已超过1 GB。网站没有说明文件大小（目前已下载{size}）。服务器剩余磁盘空间为{free}。要继续下载吗？\n\n{url}',
   },
-  allow: { ko: '받기', en: 'Download', id: 'Unduh', ja: 'ダウンロード', es: 'Descargar' },
-  deny: { ko: '그만두기', en: 'Stop', id: 'Batalkan', ja: 'やめる', es: 'Cancelar' },
+  allow: { ko: '받기', en: 'Download', id: 'Unduh', ja: 'ダウンロード', es: 'Descargar', zh: '下载' },
+  deny: { ko: '그만두기', en: 'Stop', id: 'Batalkan', ja: 'やめる', es: 'Cancelar', zh: '停止' },
   redirectEcho: {
     ko: "AI가 저장하려는 주소가 다른 주소로 넘어가는데, 넘어가는 주소에 AI가 이 대화에서 앞서 보낸 내용이 들어 있어요. 내 정보가 새어 나가지 않는지 확인해 주세요.\n\n{url}",
     en: "The address the AI is saving from sends it on to another one, and that address contains something the AI sent earlier in this chat. Check that it doesn't leak your information.\n\n{url}",
     id: "Alamat yang ingin disimpan AI meneruskannya ke alamat lain, dan alamat itu memuat sesuatu yang dikirim AI sebelumnya di obrolan ini. Pastikan informasi Anda tidak bocor.\n\n{url}",
     ja: "AIが保存しようとしているアドレスは別のアドレスに転送されます。転送先のアドレスには、この会話でAIが先に送った内容が含まれています。あなたの情報が漏れないか確認してください。\n\n{url}",
     es: "La dirección desde la que la IA quiere guardar lleva a otra, y esa dirección contiene algo que la IA envió antes en este chat. Compruebe que no se filtre su información.\n\n{url}",
+    zh: "AI 正在保存的地址会跳转到另一个地址，而那个地址中包含 AI 之前在此对话中发送过的内容。请确认它不会泄露你的信息。\n\n{url}",
   },
   diskFull: {
     ko: '서버 디스크 여유가 {free}밖에 없어요. 이 파일{size}을 받으면 디스크에 꼭 남겨 둬야 하는 {reserve}보다 적게 남아서 받지 않았어요. 파일이나 휴지통을 정리한 뒤 다시 해 주세요.',
@@ -89,6 +92,7 @@ export const TEXT = {
     id: 'Ruang disk server yang kosong hanya {free}. Jika berkas ini{size} diunduh, sisa ruang akan kurang dari {reserve} yang harus tetap kosong, jadi berkas tidak diunduh. Kosongkan ruang (berkas, tempat sampah) lalu coba lagi.',
     ja: 'サーバーのディスクの空きは{free}しかありません。このファイル{size}をダウンロードすると、必ず空けておく{reserve}を下回るため、ダウンロードしませんでした。ファイルやゴミ箱を整理してから、もう一度お試しください。',
     es: 'El servidor solo tiene {free} libres en el disco. Descargar este archivo{size} dejaría menos de los {reserve} que deben quedar libres, así que no se descargó. Libere espacio (archivos, papelera) e inténtelo de nuevo.',
+    zh: '服务器只剩{free}的磁盘空间。下载此文件{size}后，剩余空间会少于必须保留的{reserve}，因此没有下载。请释放空间（文件、回收站）后重试。',
   },
   diskFullStreaming: {
     ko: '받는 중에 서버 디스크 여유가 {free}로 줄었어요. 디스크에 꼭 남겨 둬야 하는 {reserve}에 가까워져서 받기를 멈추고, 받던 파일은 지웠어요. 파일이나 휴지통을 정리한 뒤 다시 해 주세요.',
@@ -96,6 +100,7 @@ export const TEXT = {
     id: 'Saat mengunduh, ruang disk server yang kosong turun menjadi {free}. Itu mendekati {reserve} yang harus tetap kosong, jadi unduhan dihentikan dan berkas yang belum selesai dihapus. Kosongkan ruang (berkas, tempat sampah) lalu coba lagi.',
     ja: 'ダウンロード中にサーバーのディスクの空きが{free}まで減りました。必ず空けておく{reserve}に近づいたため、ダウンロードを止めて途中のファイルを削除しました。ファイルやゴミ箱を整理してから、もう一度お試しください。',
     es: 'Durante la descarga, el espacio libre del servidor bajó a {free}. Eso se acerca a los {reserve} que deben quedar libres, así que se detuvo la descarga y se borró el archivo incompleto. Libere espacio (archivos, papelera) e inténtelo de nuevo.',
+    zh: '下载过程中，服务器剩余磁盘空间降到了{free}。这已接近必须保留的{reserve}，因此下载已停止，部分下载的文件已删除。请释放空间（文件、回收站）后重试。',
   },
 } satisfies Record<string, Record<Locale, string>>
 
@@ -183,8 +188,8 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     if (currentPlan()) assertStorageRoomForAI(more)
     for (const d of disks([work, ctx.engineConfig.teamRoot], statfs)) {
       if (d.free - more >= d.reserve) continue
-      // the size in brackets when it is known ("this file (3.2 GB)"; no space before the bracket in Korean, full-width in Japanese)
-      const sized = more ? (L === 'ja' ? `（${humanBytes(more)}）` : L === 'ko' ? `(${humanBytes(more)})` : ` (${humanBytes(more)})`) : ''
+      // the size in brackets when it is known ("this file (3.2 GB)"; no space before the bracket in Korean, full-width in Japanese and Chinese)
+      const sized = more ? (L === 'ja' || L === 'zh' ? `（${humanBytes(more)}）` : L === 'ko' ? `(${humanBytes(more)})` : ` (${humanBytes(more)})`) : ''
       const words = fill(TEXT[streaming ? 'diskFullStreaming' : 'diskFull'][L], { free: humanBytes(d.free), size: sized, reserve: humanBytes(d.reserve) })
       throw new ToolError(`the server's disk has too little free space for this download (${humanBytes(d.free)} free, ${humanBytes(d.reserve)} must stay free), so nothing was saved. Tell the user: "${words}"`, 'storage_full')
     }

@@ -11,92 +11,92 @@ import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
 
 type T = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
 /** Verb of a file / team tool step: "<verb> · <path>". */
 export const FILE_STEP_VERB: Record<string, T> = {
-  list: t('폴더 보기', 'List', 'Lihat folder', "一覧", "Listar"),
-  glob: t('파일 찾기', 'Find files', 'Cari berkas', "ファイルを探す", "Buscar archivos"),
-  grep: t('내용 검색', 'Search', 'Cari isi', "検索", "Buscar"),
-  read: t('파일 읽기', 'Read', 'Baca berkas', "読み取り", "Leer"),
-  write: t('파일 저장', 'Save', 'Simpan berkas', "保存", "Guardar"),
-  edit: t('파일 수정', 'Edit', 'Ubah berkas', "編集", "Editar"),
-  edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos"),
-  make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo"),
-  edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul"),
-  share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace"),
-  move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos"),
-  copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos"),
-  rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
-  delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera"),
-  artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página"),
-  web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
-  save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
-  hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul"),
+  list: t('폴더 보기', 'List', 'Lihat folder', "一覧", "Listar", "查看文件夹"),
+  glob: t('파일 찾기', 'Find files', 'Cari berkas', "ファイルを探す", "Buscar archivos", "查找文件"),
+  grep: t('내용 검색', 'Search', 'Cari isi', "検索", "Buscar", "搜索"),
+  read: t('파일 읽기', 'Read', 'Baca berkas', "読み取り", "Leer", "读取"),
+  write: t('파일 저장', 'Save', 'Simpan berkas', "保存", "Guardar", "保存"),
+  edit: t('파일 수정', 'Edit', 'Ubah berkas', "編集", "Editar", "编辑"),
+  edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos", "编辑多个文件"),
+  make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo", "创建文件"),
+  edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul", "编辑韩文（HWP）文档"),
+  share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace", "分享链接"),
+  move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
+  copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
+  rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre", "重命名"),
+  delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera", "移到回收站"),
+  artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página", "制作页面"),
+  web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página", "获取网页"),
+  save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo", "下载文件"),
+  hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul", "查看韩文（HWP）文档页面"),
   // the removed search by meaning tool and the removed knowledge graph's tool (docs/DECISIONS.md, 2026-11-11): their
   // steps stay in older chats
-  search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
-  knowledge_explore: t('자료 지도에서 찾기', 'Search the file map', 'Cari di peta berkas', "資料マップで探す", "Buscar en el mapa de archivos"),
-  schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
-  schedule_list: t('예약 작업 보기', 'List scheduled tasks', 'Lihat tugas terjadwal', "定期タスクを一覧表示", "Listar tareas programadas"),
-  schedule_delete: t('예약 작업 지우기', 'Delete scheduled task', 'Hapus tugas terjadwal', "定期タスクを削除", "Eliminar tarea programada"),
-  drive_search: t('Google Drive 검색', 'Search Google Drive', 'Cari di Google Drive', "Google ドライブを検索", "Buscar en Google Drive"),
-  drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive"),
-  drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
-  generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
-  promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional"),
-  intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa"),
-  box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo"),
-  ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
-  skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
-  find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
-  move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
-  skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades"),
-  find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones"),
+  search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado", "按含义搜索"),
+  knowledge_explore: t('자료 지도에서 찾기', 'Search the file map', 'Cari di peta berkas', "資料マップで探す", "Buscar en el mapa de archivos", "在文件地图中搜索"),
+  schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada", "创建定时任务"),
+  schedule_list: t('예약 작업 보기', 'List scheduled tasks', 'Lihat tugas terjadwal', "定期タスクを一覧表示", "Listar tareas programadas", "查看定时任务"),
+  schedule_delete: t('예약 작업 지우기', 'Delete scheduled task', 'Hapus tugas terjadwal', "定期タスクを削除", "Eliminar tarea programada", "删除定时任务"),
+  drive_search: t('Google Drive 검색', 'Search Google Drive', 'Cari di Google Drive', "Google ドライブを検索", "Buscar en Google Drive", "搜索Google Drive"),
+  drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive", "查看Google Drive文件夹"),
+  drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive", "读取Google Drive文件"),
+  generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video", "生成视频"),
+  promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
+  intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
+  box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo", "开发环境命令"),
+  ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta", "提问"),
+  skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad", "使用技能"),
+  find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades", "查找技能"),
+  move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad", "移动技能"),
+  skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades", "技能文件夹文件"),
+  find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones", "查找功能"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
-  set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat"),
-  remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
-  forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
-  connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio"),
+  set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat", "给对话命名"),
+  remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar", "记住"),
+  forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar", "忘记"),
+  connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio", "连接服务"),
   // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
-  rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat"),
-  room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
+  rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat", "在群聊中查找"),
+  room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat", "读取群聊"),
   // reading Slack with the bot token (server/src/integrations/slack/read.ts)
-  slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack"),
-  slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack"),
-  room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
-  save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
+  slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack", "读取Slack话题"),
+  slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack", "读取Slack频道"),
+  room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat", "读取群聊文件"),
+  save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat", "保存群聊文件"),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
-  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala'),
+  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala', "发送到群聊"),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
-  change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto'),
+  change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
 export const BROWSER_STEP_VERB: Record<string, T> = {
-  preview_start: t('브라우저 열기', 'Open browser', 'Buka browser', "ブラウザーを開く", "Abrir navegador"),
-  navigate: t('페이지 열기', 'Open page', 'Buka halaman', "ページを開く", "Abrir página"),
-  read_page: t('페이지 읽기', 'Read page', 'Baca halaman', "ページを読む", "Leer página"),
-  get_page_text: t('페이지 읽기', 'Read page', 'Baca halaman', "ページを読む", "Leer página"),
-  find: t('페이지에서 찾기', 'Find on page', 'Cari di halaman', "ページ内を検索", "Buscar en la página"),
-  computer: t('브라우저 조작', 'Use browser', 'Operasikan browser', "ブラウザーを操作", "Usar navegador"),
-  form_input: t('양식 채우기', 'Fill form', 'Isi formulir', "フォームに入力", "Rellenar formulario"),
-  javascript_tool: t('페이지에서 동작 실행', 'Run an action on the page', 'Jalankan aksi di halaman', "ページで操作を実行", "Ejecutar una acción en la página"),
-  browser_batch: t('브라우저 여러 단계', 'Browser steps', 'Beberapa langkah browser', "ブラウザーの手順", "Pasos del navegador"),
-  resize_window: t('화면 크기 바꾸기', 'Resize', 'Ubah ukuran', "サイズを変更", "Cambiar tamaño"),
-  read_console_messages: t('페이지 오류 보기', 'Check page errors', 'Periksa galat halaman', "ページのエラーを確認", "Revisar errores de la página"),
-  read_network_requests: t('페이지 통신 보기', 'Check page traffic', 'Periksa lalu lintas halaman', "ページの通信を確認", "Revisar el tráfico de la página"),
-  tabs_context: t('탭 보기', 'List tabs', 'Lihat tab', "タブを一覧表示", "Listar pestañas"),
-  tabs_create: t('새 탭', 'New tab', 'Tab baru', "新しいタブ", "Nueva pestaña"),
-  tabs_select: t('탭 바꾸기', 'Switch tab', 'Ganti tab', "タブを切り替え", "Cambiar pestaña"),
-  tabs_close: t('탭 닫기', 'Close tab', 'Tutup tab', "タブを閉じる", "Cerrar pestaña"),
+  preview_start: t('브라우저 열기', 'Open browser', 'Buka browser', "ブラウザーを開く", "Abrir navegador", "打开浏览器"),
+  navigate: t('페이지 열기', 'Open page', 'Buka halaman', "ページを開く", "Abrir página", "打开网页"),
+  read_page: t('페이지 읽기', 'Read page', 'Baca halaman', "ページを読む", "Leer página", "读取网页"),
+  get_page_text: t('페이지 읽기', 'Read page', 'Baca halaman', "ページを読む", "Leer página", "读取网页"),
+  find: t('페이지에서 찾기', 'Find on page', 'Cari di halaman', "ページ内を検索", "Buscar en la página", "在网页中查找"),
+  computer: t('브라우저 조작', 'Use browser', 'Operasikan browser', "ブラウザーを操作", "Usar navegador", "操作浏览器"),
+  form_input: t('양식 채우기', 'Fill form', 'Isi formulir', "フォームに入力", "Rellenar formulario", "填写表单"),
+  javascript_tool: t('페이지에서 동작 실행', 'Run an action on the page', 'Jalankan aksi di halaman', "ページで操作を実行", "Ejecutar una acción en la página", "在网页上执行操作"),
+  browser_batch: t('브라우저 여러 단계', 'Browser steps', 'Beberapa langkah browser', "ブラウザーの手順", "Pasos del navegador", "浏览器步骤"),
+  resize_window: t('화면 크기 바꾸기', 'Resize', 'Ubah ukuran', "サイズを変更", "Cambiar tamaño", "调整大小"),
+  read_console_messages: t('페이지 오류 보기', 'Check page errors', 'Periksa galat halaman', "ページのエラーを確認", "Revisar errores de la página", "检查网页错误"),
+  read_network_requests: t('페이지 통신 보기', 'Check page traffic', 'Periksa lalu lintas halaman', "ページの通信を確認", "Revisar el tráfico de la página", "检查网页流量"),
+  tabs_context: t('탭 보기', 'List tabs', 'Lihat tab', "タブを一覧表示", "Listar pestañas", "查看标签页"),
+  tabs_create: t('새 탭', 'New tab', 'Tab baru', "新しいタブ", "Nueva pestaña", "新标签页"),
+  tabs_select: t('탭 바꾸기', 'Switch tab', 'Ganti tab', "タブを切り替え", "Cambiar pestaña", "切换标签页"),
+  tabs_close: t('탭 닫기', 'Close tab', 'Tutup tab', "タブを閉じる", "Cerrar pestaña", "关闭标签页"),
 }
 /** A read of a video or an audio file has its own verb ("Watch video · promo.mp4"), chosen by the file's extension. */
 export const READ_MEDIA_VERB: Record<MediaKind, T> = {
-  video: t('영상 보기', 'Watch video', 'Tonton video', "動画を見る", "Ver video"),
-  audio: t('오디오 듣기', 'Listen to audio', 'Dengarkan audio', "音声を聞く", "Escuchar audio"),
+  video: t('영상 보기', 'Watch video', 'Tonton video', "動画を見る", "Ver video", "观看视频"),
+  audio: t('오디오 듣기', 'Listen to audio', 'Dengarkan audio', "音声を聞く", "Escuchar audio", "收听音频"),
 }
 
 /** Whether a stored read step was a video or an audio read (by its verb, in any language): the web app's icon. */
@@ -114,64 +114,64 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'gr
  * any more, but their steps in older chats keep the quiet mark of a read-only step (Steps.tsx stepMark). */
 export const REMOVED_READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['search', 'knowledge_explore'])
 
-export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador")
+export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador", "浏览器")
 
 /** Whole-label templates ({x} = what the AI touched, never translated). */
 export const STEP_TEXT = {
-  asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}', "質問：{q}", "Pregunta: {q}"),
-  remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}', "記憶しました：{text}", "Recordado: {text}"),
-  notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}"),
+  asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}', "質問：{q}", "Pregunta: {q}", "提问：{q}"),
+  remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}', "記憶しました：{text}", "Recordado: {text}", "已记住：{text}"),
+  notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
   /** remember while its card waits for the person's yes (a chat that read other people's content) */
-  rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}"),
-  forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria"),
-  notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta"),
+  rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}", "正在询问是否记住：{text}"),
+  forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
+  notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
-  connectConnected: t('연결됨', 'Connected', 'Terhubung', "接続済み", "Conectado"),
-  connectNotConnected: t('연결 안 됨', 'Not connected', 'Tidak terhubung', "未接続", "No conectado"),
-  webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}', "Web検索：{q}", "Búsqueda web: {q}"),
+  connectConnected: t('연결됨', 'Connected', 'Terhubung', "接続済み", "Conectado", "已连接"),
+  connectNotConnected: t('연결 안 됨', 'Not connected', 'Tidak terhubung', "未接続", "No conectado", "未连接"),
+  webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}', "Web検索：{q}", "Búsqueda web: {q}", "网页搜索：{q}"),
   /** a search still running whose query is not known yet (Codex names it only at the end) */
-  webSearchRunning: t('웹 검색 중…', 'Searching the web…', 'Mencari di web…', "Web検索中…", "Buscando en la web…"),
+  webSearchRunning: t('웹 검색 중…', 'Searching the web…', 'Mencari di web…', "Web検索中…", "Buscando en la web…", "正在搜索网页…"),
   /** a Codex search that opened (or looked inside) one of its results: it names no query */
-  webSearchOpen: t('검색 결과 열기', 'Opening a search result', 'Membuka hasil pencarian', "検索結果を開く", "Abriendo un resultado de búsqueda"),
+  webSearchOpen: t('검색 결과 열기', 'Opening a search result', 'Membuka hasil pencarian', "検索結果を開く", "Abriendo un resultado de búsqueda", "正在打开搜索结果"),
   /** a Codex search that named nothing (finance, weather, time …) */
-  webSearchPlain: t('웹 검색', 'Web search', 'Cari di web', "Web検索", "Búsqueda web"),
+  webSearchPlain: t('웹 검색', 'Web search', 'Cari di web', "Web検索", "Búsqueda web", "网页搜索"),
   /** detail of a search the team server refused to send (it named an address, not a result of the search) */
   webSearchRefused: t('거절됨: 검색으로는 그 검색의 결과만 열 수 있어요. AI에게 그 주소는 웹 페이지 가져오기(주소 확인 카드)로 열라고 알렸어요.',
     'Refused: a search opens only its own results. The AI was told to fetch the address instead (with the address card).',
     'Ditolak: pencarian hanya membuka hasilnya sendiri. AI diminta mengambil alamat itu dengan Ambil halaman (dengan kartu alamat).',
     "拒否：検索で開けるのはその検索の結果だけです。そのアドレスは「ページを取得」（アドレスの確認カード）で開くようAIに伝えました。",
-    "Rechazado: una búsqueda solo abre sus propios resultados. Se indicó a la IA que obtenga la dirección con «Obtener página» (con la tarjeta de dirección)."),
-  thinking: t('생각하는 중', 'Thinking', 'Berpikir', "考え中", "Pensando"),
-  attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}"),
-  attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}"),
-  attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible"),
-  refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA"),
+    "Rechazado: una búsqueda solo abre sus propios resultados. Se indicó a la IA que obtenga la dirección con «Obtener página» (con la tarjeta de dirección).", "已拒绝：搜索只能打开它自己的结果。已告诉AI改用“获取网页”（带地址卡片）打开该地址。"),
+  thinking: t('생각하는 중', 'Thinking', 'Berpikir', "考え中", "Pensando", "思考中"),
+  attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}", "附件在添加后已更改，使用当前版本 · {path}"),
+  attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}", "附件已移动 · {path}"),
+  attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible", "添加的团队文件已不可用"),
+  refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA", "AI拒绝回答，正在用另一个AI重试"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
   /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
-  demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración"),
-  engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo"),
+  demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración", "为演示提前准备的结果"),
+  engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答"),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
    * (server/src/credentials/access.ts connectionRoute) */
-  engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA"),
+  engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA", "所选AI没有连接账号，改用另一个AI回答"),
   /** "다른 AI로 대신 답하기": the Claude subscription limit was hit and the admin allowed the fallback */
-  limitFallback: t('사용 한도에 닿아 다른 AI로 이어서 답해요', 'Usage limit reached; continuing with another AI', 'Batas pemakaian tercapai; dilanjutkan dengan AI lain', "使用量の上限に達したため、別のAIで続けます", "Se alcanzó el límite de uso; se continúa con otra IA"),
-  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 계정으로 이어서 답해요', 'Usage limit reached; continuing with another AI account', 'Batas pemakaian tercapai; dilanjutkan dengan akun AI lain', "使用量の上限に達したため、別のAIアカウントで続けます", "Se alcanzó el límite de uso; se continúa con otra cuenta de IA"),
+  limitFallback: t('사용 한도에 닿아 다른 AI로 이어서 답해요', 'Usage limit reached; continuing with another AI', 'Batas pemakaian tercapai; dilanjutkan dengan AI lain', "使用量の上限に達したため、別のAIで続けます", "Se alcanzó el límite de uso; se continúa con otra IA", "已达到用量上限，换用另一个AI继续回答"),
+  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 계정으로 이어서 답해요', 'Usage limit reached; continuing with another AI account', 'Batas pemakaian tercapai; dilanjutkan dengan akun AI lain', "使用量の上限に達したため、別のAIアカウントで続けます", "Se alcanzó el límite de uso; se continúa con otra cuenta de IA", "已达到用量上限，换用另一个AI账号继续回答"),
   /** a dev-environment command that runs as a long job, or in the background (box_shell job / background) */
-  jobSuffix: t('오래 걸리는 작업', 'long task', 'tugas panjang', "時間のかかる作業", "tarea larga"),
-  backgroundSuffix: t('뒤에서 실행', 'in the background', 'di latar belakang', "バックグラウンドで実行", "en segundo plano"),
+  jobSuffix: t('오래 걸리는 작업', 'long task', 'tugas panjang', "時間のかかる作業", "tarea larga", "耗时任务"),
+  backgroundSuffix: t('뒤에서 실행', 'in the background', 'di latar belakang', "バックグラウンドで実行", "en segundo plano", "后台运行"),
   /** a sub-agent's part of the answer (Claude Code's Agent tool); {d} is the AI's own short description of it */
-  subtask: t('하위 작업: {d}', 'Sub-task: {d}', 'Subtugas: {d}', "サブタスク：{d}", "Subtarea: {d}"),
-  credentialSwitchInvalid: t('AI 계정이 거절되어 다른 계정으로 이어서 답해요', 'The AI account was refused; continuing with another one', 'Akun AI ditolak; dilanjutkan dengan akun lain', "AIアカウントが拒否されたため、別のアカウントで続けます", "Se rechazó la cuenta de IA; se continúa con otra"),
+  subtask: t('하위 작업: {d}', 'Sub-task: {d}', 'Subtugas: {d}', "サブタスク：{d}", "Subtarea: {d}", "子任务：{d}"),
+  credentialSwitchInvalid: t('AI 계정이 거절되어 다른 계정으로 이어서 답해요', 'The AI account was refused; continuing with another one', 'Akun AI ditolak; dilanjutkan dengan akun lain', "AIアカウントが拒否されたため、別のアカウントで続けます", "Se rechazó la cuenta de IA; se continúa con otra", "AI账号被拒绝，换用另一个账号继续回答"),
   // after a step's own line (" · <these>"): why the call went on without a card (server/src/chat/turn.ts coverStep,
   // chat/schedule-cover.ts). COVER_STEP_KEYS: localizeStep and stepPlace know them at the end of any line
   /** the step of a call a room grant let through, after its own words */
-  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala"),
+  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala", "已允许：在此群聊中始终允许"),
   /** the step of a call this answer's [이번만 허용] for its folder let through */
-  roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta"),
+  roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta", "已允许：本次回答中允许一次"),
   /** the step of a scheduled run's save or send that its task's card allowed (chat/schedule-cover.ts) */
-  scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada"),
+  scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada", "已在定时任务中允许"),
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
-  ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta"),
+  ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta", "未询问直接保存：你自己的文件夹"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
@@ -182,7 +182,7 @@ const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'ref
 export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
-export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso")
+export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
 
 /**
  * A tool's id as words, for a tool without words of its own (docs/DECISIONS.md "Plain words in errors, cards and
@@ -313,7 +313,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   }
 }
 
-const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es']
+const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es', 'zh']
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** The team's well-known folders by name in a step line (docs/DECISIONS.md "W2"): "파일 읽기 · 브랜드 이미지 폴더 ›
@@ -321,17 +321,17 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const STEP_PLACE = {
   /** groups/<team>/브랜드/이미지/ or shared/브랜드/이미지/ (the brand folder's images folder, named in the team's
    * language) */
-  brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca"),
+  brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca", "品牌图片文件夹"),
   /** groups/<team>/브랜드/ or shared/브랜드/ */
-  brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca"),
+  brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca", "品牌文件夹"),
   /** groups/<team>/회의록/ or shared/회의록/ */
-  notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas"),
+  notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas", "会议记录文件夹"),
   /** groups/<team>/: the team's folder, by the team's name */
-  team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}"),
+  team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}", "{team}文件夹"),
   /** users/<id>/.attachments/<chat>/: what the person attached to the chat */
-  attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos"),
+  attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos", "附件"),
   /** users/<id>/: an answer only ever reaches the person's own */
-  own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta"),
+  own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta", "我的文件夹"),
   /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
   shared: TOP_FOLDER_LABELS.shared,
 } satisfies Record<string, T>

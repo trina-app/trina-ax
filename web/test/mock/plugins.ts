@@ -11,13 +11,13 @@ const hex = (seed: string) => [...new Bun.CryptoHasher('sha256').update(seed).di
 
 const STARTER: Pack = {
   id: 'app.trina.office-starter', version: '1.0.0', trust: 'official', source: 'catalog', skills: ['meeting-minutes', 'weekly-report'],
-  name: { en: 'Office starter skills', ko: '업무 시작 스킬', id: 'Skill awal kantor', ja: 'オフィス入門スキル', es: 'Habilidades de oficina iniciales' },
-  description: { en: 'Meeting minutes and weekly reports for the whole company.', ko: '회사 전체가 쓰는 회의록·주간 보고 스킬이에요.', id: 'Notulen rapat dan laporan mingguan untuk seluruh perusahaan.', ja: '会社全体で使う議事録と週次報告のスキルです。', es: 'Actas de reuniones e informes semanales para toda la empresa.' },
+  name: { en: 'Office starter skills', ko: '업무 시작 스킬', id: 'Skill awal kantor', ja: 'オフィス入門スキル', es: 'Habilidades de oficina iniciales', zh: '办公入门技能' },
+  description: { en: 'Meeting minutes and weekly reports for the whole company.', ko: '회사 전체가 쓰는 회의록·주간 보고 스킬이에요.', id: 'Notulen rapat dan laporan mingguan untuk seluruh perusahaan.', ja: '会社全体で使う議事録と週次報告のスキルです。', es: 'Actas de reuniones e informes semanales para toda la empresa.', zh: '供全公司使用的会议纪要和周报技能。' },
 }
 const HWP = {
   id: 'app.trina.hwp-preview', version: '1.0.0',
-  name: { en: 'HWP Preview', ko: '한글 문서 미리보기', id: 'Pratinjau HWP', ja: 'HWPプレビュー', es: 'Vista previa de HWP' },
-  description: { en: 'Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed.', ko: '한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI도 페이지를 볼 수 있어요. 원본 파일은 바꾸지 않아요.', id: 'Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah.', ja: 'ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。', es: 'Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian.' },
+  name: { en: 'HWP Preview', ko: '한글 문서 미리보기', id: 'Pratinjau HWP', ja: 'HWPプレビュー', es: 'Vista previa de HWP', zh: 'HWP 预览' },
+  description: { en: 'Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed.', ko: '한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI도 페이지를 볼 수 있어요. 원본 파일은 바꾸지 않아요.', id: 'Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah.', ja: 'ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。', es: 'Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian.', zh: '在文件面板中逐页预览韩文（HWP/HWPX）文档，AI 也能查看页面。原始文件不会被更改。' },
 }
 
 const HWP_PACK: Pack = {

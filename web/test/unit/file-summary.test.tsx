@@ -39,7 +39,7 @@ describe('file summary: rejected write notice', () => {
 })
 
 describe('file summary: moved files (QA TC-018)', () => {
-  for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+  for (const locale of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     test(`${locale}: a moved file says it moved; a new one and a changed one say so`, () => {
       setLocale(locale)
       const html = render({ saved: [{ path: 'shared/2026/a.md', action: 'create', moved: true }, { path: 'shared/2026/b.md', action: 'create' }, { path: 'shared/c.md', action: 'update' }], conflicts: [], rejected: [] })

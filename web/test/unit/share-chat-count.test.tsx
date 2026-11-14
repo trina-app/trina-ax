@@ -26,7 +26,7 @@ test('the dialog counts me in, like the line under the box and the copy-link toa
   expect(seenOnceShared(2)).toBe(3)
   // once shared, Chat.shared.audience is the project's people, me included: 3
   expect(whoSees({ audience: 3 })).toEqual({ kind: 'people', n: 3 })
-  for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     expect(translate(l, 'chat.shareChat.title', { n: 3 })).toContain('3')
     expect(translate(l, 'chat.shared', { n: 3 })).toContain('3')
     expect(translate(l, 'chat.linkCopiedShared', { n: 3 })).toContain('3')

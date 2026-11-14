@@ -1387,7 +1387,7 @@ describe('text', () => {
     expect(sayText('cannotStart', 'en', { reason: 'internal' })).toBe('Could not start the answer. Something went wrong on the server. Ask again in a moment.')
     expect(sayText('cannotStart', 'ko', { reason: 'forbidden' })).not.toContain('forbidden')
     expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
     expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
   })
 })

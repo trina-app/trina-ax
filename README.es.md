@@ -38,7 +38,7 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 - **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
-- **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md)
+- **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <details>
 <summary><b>Pruébalo en tu ordenador en 10 minutos</b> (equipo ficticio, IA desactivada)</summary>
@@ -76,7 +76,7 @@ Trina ofrece el espacio de trabajo, no la IA: conecta cuentas y planes de Claude
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Versiones](https://github.com/trina-app/trina-ax/releases/latest) · [Cambios](CHANGELOG.md) · [Soporte](SUPPORT.md) · [Cómo contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Desarrollo](docs/DEVELOPMENT.md) · [Configuración](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
-La app está en inglés, coreano, indonesio, japonés y español. La empresa y las personas de todas las imágenes son ficticias.
+La app está en inglés, coreano, indonesio, japonés, español y chino simplificado. La empresa y las personas de todas las imágenes son ficticias.
 
 ## Licencia
 
