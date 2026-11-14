@@ -60,13 +60,13 @@ export function answerPreview(content: string): string {
 }
 
 /**
- * The answers of a team project's shared chats that `newPeople` would start seeing although some of them can't open a
+ * The answers of a team project's shared chats (or of one chat, the Share dialog's: chat/people-share.ts) that `newPeople` would start seeing although some of them can't open a
  * place the answer used, newest first: the count (`total`, capped) and one page (`limit` items with a message rowid below
  * `before`; 0: the count alone). `rules.now`: the folder rules now (the adder's verdicts); `rules.after`: after the save
  * (the new people's). `subjects`: who the adder picked (for `missedBy`). The caller has checked that `viewer` may change
  * the project's members and sees its chats.
  */
-export function wideningAnswers(db: Database, rules: { now: RuleSet; after: RuleSet }, target: { kind: 'project'; projectId: string }, newPeople: readonly Principal[], viewer: Principal,
+export function wideningAnswers(db: Database, rules: { now: RuleSet; after: RuleSet }, target: { kind: 'project'; projectId: string } | { kind: 'chat'; chatId: string }, newPeople: readonly Principal[], viewer: Principal,
   page: { before?: number | null; limit: number }, o: { subjects?: readonly WideningSubject[]; stats?: WideningStats; words?: PlaceWords; place?: (path: string) => string } = {}): WideningResult {
   const empty: WideningResult = { total: 0, totalCapped: false, items: [], nextRowid: null }
   if (!newPeople.length) return empty
@@ -109,7 +109,7 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   // previewed to anyone but its runner, as the chat shows it: ChatStore.toMessage)
   const rows = db.query(`SELECT m.rowid AS rid, m.id, m.chat_id, m.parent_id, m.role, m.status, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at
     FROM chats c JOIN messages m ON m.chat_id = c.id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
-    WHERE c.project_id = ? AND c.shared_at IS NOT NULL AND c.deleted_at IS NULL AND c.room_id IS NULL ORDER BY m.rowid`).all(target.projectId) as (NodeRow & { rid: number; chat_id: string; status: string })[]
+    WHERE ${target.kind === 'project' ? 'c.project_id = ? AND c.shared_at IS NOT NULL' : 'c.id = ?'} AND c.deleted_at IS NULL AND c.room_id IS NULL ORDER BY m.rowid`).all(target.kind === 'project' ? target.projectId : target.chatId) as (NodeRow & { rid: number; chat_id: string; status: string })[]
   const cutover = hiddenAnswersCutover(db)
   const byChat = new Map<string, Node[]>()
   const meta = new Map<string, { rid: number; chat: string; status: string }>()

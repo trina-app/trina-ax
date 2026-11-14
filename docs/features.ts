@@ -55,7 +55,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'hideChat', 'unhideChat', 'userSharedChats'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },

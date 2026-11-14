@@ -264,6 +264,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared project chat: a search without a path looks in the project folder; then what the call would read that
       // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
+        // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
+        const noPlace = exec.sharedSearchRefusal(name, args)
+        if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         args = exec.sharedArgs(name, args)
         // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
         const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
@@ -353,6 +356,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
       // for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
+        const noPlace = exec.sharedSearchRefusal(name, args)
+        if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }

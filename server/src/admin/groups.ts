@@ -179,6 +179,9 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     pruneMemberAllows(ctx.db)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // chats shared with the group (chat/chat-audience.ts): its row goes in the same transaction (its members lose those
+    // chats unless they are in them otherwise: afterAccessChange below drops them from their windows)
+    ctx.db.query("DELETE FROM chat_audience WHERE subject_type = 'group' AND subject_id = ?").run(id)
     // AI connections assigned to it: the rows go; one left with no group or person is switched off, not team-wide
     pruned = pruneAssignments(ctx.db, auth.user.id, new Date().toISOString())
     const off = pruned.filter((p) => p.switchedOff).map((p) => ({ id: p.id, label: p.label }))

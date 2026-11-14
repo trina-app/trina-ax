@@ -274,10 +274,17 @@ export const Chat = z.object({
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({
+    /** 'project': a shared project chat (its project's members see it); 'people': a chat outside projects its creator
+     * shared with chosen people and groups (docs/DECISIONS.md "Chats shared with people and groups"). Absent (older
+     * server): 'project'. */
+    kind: z.enum(['project', 'people']).optional(),
     /** who made it */
     by: UserRef,
     /** how many people see it now (the project's audience) */
     audience: z.number().int().nonnegative(),
+    /** a chat shared with people and groups with a group in it, to anyone but its creator and admins: how many see it is
+     * not told (it would tell a group's size), and `audience` is 0 */
+    audienceHidden: z.literal(true).optional(),
     /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
      * null when nobody's is, or when it is mine */
     answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
