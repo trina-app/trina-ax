@@ -3,7 +3,7 @@
 // The refusal (server/src/admin/budgets.ts budgetBlock) and Settings › 사용량 (web MyUsage) say it the same way.
 import type { Locale } from './api/common'
 
-const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es' }
+const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es', zh: 'zh-CN' }
 
 export function limitResetText(at: Date, locale: Locale, timeZone?: string): string {
   const o: Intl.DateTimeFormatOptions = locale === 'ko'

@@ -12,15 +12,15 @@ import { fail, HttpError } from '../http/errors'
 import { writeAtomic } from '../system/streams'
 
 type T = Record<Locale, string>
-const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
 /** Refusals of an upload, in the uploader's language. */
 export const TEXT: Record<TeamIconProblem, T> = {
-  type: t('PNG, JPEG, WebP 이미지만 올릴 수 있어요.', 'Only PNG, JPEG or WebP images can be used.', 'Hanya gambar PNG, JPEG, atau WebP yang bisa dipakai.', "PNG、JPEG、WebP画像のみ使用できます。", "Solo se pueden usar imágenes PNG, JPEG o WebP."),
-  mismatch: t('파일 내용이 PNG, JPEG, WebP 이미지가 아니에요. 이미지 파일을 다시 골라 주세요.', 'The file is not really a PNG, JPEG or WebP image. Choose the image file again.', 'Isi berkas bukan gambar PNG, JPEG, atau WebP. Pilih lagi berkas gambarnya.', "実際のファイル形式がPNG、JPEG、WebPではありません。画像ファイルを選び直してください。", "El archivo no es realmente una imagen PNG, JPEG o WebP. Vuelva a elegir el archivo."),
-  too_big: t(`이미지는 ${TEAM_ICON_MAX_BYTES / 1024 / 1024}MB까지 올릴 수 있어요.`, `The image can be at most ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`, `Gambar paling besar ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`, `画像は最大${TEAM_ICON_MAX_BYTES / 1024 / 1024} MBです。`, `La imagen puede ocupar como máximo ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`),
-  too_small: t(`가로와 세로가 ${TEAM_ICON_MIN_PX}px 이상인 이미지를 올려 주세요.`, `Use an image at least ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} pixels.`, `Pakai gambar minimal ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} piksel.`, `${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX}ピクセル以上の画像を使ってください。`, `Use una imagen de al menos ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} píxeles.`),
-  too_large: t(`가로와 세로가 ${TEAM_ICON_MAX_PX}px 이하인 이미지를 올려 주세요.`, `Use an image at most ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} pixels.`, `Pakai gambar paling besar ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} piksel.`, `${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX}ピクセル以下の画像を使ってください。`, `Use una imagen de como máximo ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} píxeles.`),
+  type: t('PNG, JPEG, WebP 이미지만 올릴 수 있어요.', 'Only PNG, JPEG or WebP images can be used.', 'Hanya gambar PNG, JPEG, atau WebP yang bisa dipakai.', "PNG、JPEG、WebP画像のみ使用できます。", "Solo se pueden usar imágenes PNG, JPEG o WebP.", "只能使用PNG、JPEG或WebP图片。"),
+  mismatch: t('파일 내용이 PNG, JPEG, WebP 이미지가 아니에요. 이미지 파일을 다시 골라 주세요.', 'The file is not really a PNG, JPEG or WebP image. Choose the image file again.', 'Isi berkas bukan gambar PNG, JPEG, atau WebP. Pilih lagi berkas gambarnya.', "実際のファイル形式がPNG、JPEG、WebPではありません。画像ファイルを選び直してください。", "El archivo no es realmente una imagen PNG, JPEG o WebP. Vuelva a elegir el archivo.", "这个文件实际上不是PNG、JPEG或WebP图片。请重新选择图片文件。"),
+  too_big: t(`이미지는 ${TEAM_ICON_MAX_BYTES / 1024 / 1024}MB까지 올릴 수 있어요.`, `The image can be at most ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`, `Gambar paling besar ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`, `画像は最大${TEAM_ICON_MAX_BYTES / 1024 / 1024} MBです。`, `La imagen puede ocupar como máximo ${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB.`, `图片最大为${TEAM_ICON_MAX_BYTES / 1024 / 1024} MB。`),
+  too_small: t(`가로와 세로가 ${TEAM_ICON_MIN_PX}px 이상인 이미지를 올려 주세요.`, `Use an image at least ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} pixels.`, `Pakai gambar minimal ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} piksel.`, `${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX}ピクセル以上の画像を使ってください。`, `Use una imagen de al menos ${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX} píxeles.`, `请使用至少${TEAM_ICON_MIN_PX} × ${TEAM_ICON_MIN_PX}像素的图片。`),
+  too_large: t(`가로와 세로가 ${TEAM_ICON_MAX_PX}px 이하인 이미지를 올려 주세요.`, `Use an image at most ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} pixels.`, `Pakai gambar paling besar ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} piksel.`, `${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX}ピクセル以下の画像を使ってください。`, `Use una imagen de como máximo ${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX} píxeles.`, `请使用最大${TEAM_ICON_MAX_PX} × ${TEAM_ICON_MAX_PX}像素的图片。`),
 }
 const refuse = (problem: TeamIconProblem, locale: Locale): never =>
   fail(problem === 'too_big' ? 'payload_too_large' : 'validation', TEXT[problem][locale] ?? TEXT[problem].en, {

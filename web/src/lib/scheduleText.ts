@@ -5,7 +5,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
 type T = (key: MessageKey, params?: Params) => string
-const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES' }
+const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es-ES', zh: 'zh-CN' }
 
 export type Tone = 'muted' | 'warn' | 'danger'
 /** How a last-run result reads: a clean success stays quiet, problems and failures stand out. */

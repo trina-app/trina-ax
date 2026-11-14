@@ -27053,3 +27053,22 @@ the recommended design after an independent security and UX review.
 - **Independent review (opus), fixed:** a limited folder with nobody added is listed ("Owner and admins only"; its rules are empty in the API); a group's own folder is hidden only while it is as made *and not limited*; on the person page `groups/`, `projects/` and `connected/` (containers everyone passes through in Files) are never "Can't open", and project folders the person is not in fold into one count line like other groups' folders; "Limited" has its own word in ko/id (액세스 제한됨, Akses dibatasi) apart from General access "Restricted" (제한됨, Dibatasi); a folder that is not limited says "+ the folder above" (access adds up); the invite preview of an admin is the one line; the empty states no longer contradict the hidden list or a search; 15 more dead `rules.*`/`accessTree.*`/`accessEdit.*` words removed (`accessView.summaryNone` stays: the honorific tests use it). Known and accepted: the team root, `groups/` and `connected/` with no sharing of their own get none from here (Files has no Share dialog on them, as before for members); deleting a folder's whole rule row is no longer a button (clearing it in the Share dialog does the same for access).
 - **Phones:** a person is a page of their own under the bar; [Share] opens the sheet in place (no history entry of its own), so one Back closes it and stays on the list.
 - Version impact: **minor** (Admin › Folder permissions; no data, API or access change).
+
+## Simplified Chinese app language (feat/locale-zh, 2026-11-14, the owner)
+
+- Add Simplified Chinese (`zh`, 简体中文) as the sixth app language, so a Trina Cloud sign-up can make a team whose
+  default language is `zh`. Same coverage as Japanese and Spanish (2026-10-29): the web dictionary
+  (`web/src/i18n/zh.ts`), every server table and positional text helper, step labels, chat errors, push lock-screen
+  lines, relay pages, the generated offline page, the desktop shell and the macOS menu bar. The phone app's native
+  setup screens stay Korean and English, as they are for the other languages.
+- **Every Chinese tag is `zh`**: `zh`, `zh-CN`, `zh-Hans`, `zh-SG`, and also `zh-TW`, `zh-HK`, `zh-Hant`
+  (`asLocale`). Simplified Chinese is the only Chinese we have, and a Traditional Chinese reader reads it better than
+  English. A Traditional Chinese dictionary would get its own code then. Precedence is unchanged: account choice,
+  team default, English; browser or OS language only before a team language exists.
+- Wording: plain mainland Chinese for office workers, 你 rather than 您, full-width punctuation, no space between a
+  Chinese word and a filled-in value. ICU messages keep English's `one` and `other` branches (Chinese selects
+  `other`), and `check:i18n` checks zh's placeholders and plural forms as for ja/es. Skill names are quoted “…”.
+- Dates and numbers use `Intl` with `zh-CN`. Chinese screens take the Simplified Chinese system face first
+  (PingFang SC, Microsoft YaHei, Noto Sans SC): the default stack starts with Korean faces, which draw Han
+  characters in their Korean shapes.
+- No migration: language columns are text checked by the shared `Locale` schema.

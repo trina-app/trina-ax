@@ -163,7 +163,7 @@ export interface DesktopBridge {
   teamMenu?(): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
-  setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es'): void
+  setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'): void
   /** The look the person chose on the team page (Settings: light, dark or follow the system): the desktop app's own
    * screens (the browser pane's toolbar, the window's colour) follow it, not only the computer's look. Optional:
    * desktop apps before this addition do not have it (their screens follow the computer). */

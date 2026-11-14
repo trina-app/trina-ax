@@ -39,8 +39,9 @@ const JOB_ENDED: Record<Locale, (name: string, code: string) => string> = {
   id: (n, c) => `Pekerjaan lingkungan pengembangan ${n} selesai (kode keluar ${c}).`,
   ja: (n, c) => `開発環境のジョブ ${n} が終了しました（終了コード ${c}）。`,
   es: (n, c) => `El trabajo ${n} del entorno de desarrollo terminó (código de salida ${c}).`,
+  zh: (n, c) => `开发环境任务 ${n} 已结束（退出代码 ${c}）。`,
 }
-const NO_CODE: Record<Locale, string> = { ko: '알 수 없음', en: 'not known', id: 'tidak diketahui', ja: '不明', es: 'desconocido' }
+const NO_CODE: Record<Locale, string> = { ko: '알 수 없음', en: 'not known', id: 'tidak diketahui', ja: '不明', es: 'desconocido', zh: '未知' }
 const clipEnd = (s: string, max: number) => (s.length > max ? '...' + s.slice(-max) : s)
 
 /** Log text of a running job as it may be kept. The command can be in the middle of a stored secret, and hide knows only
@@ -87,6 +88,7 @@ const RUN_ENDED_NOTE: Record<Locale, (name: string, why: string) => string> = {
   id: (n, w) => `Pekerjaan lingkungan pengembangan ${n}: ${w}`,
   ja: (n, w) => `開発環境のジョブ ${n}: ${w}`,
   es: (n, w) => `Trabajo ${n} del entorno de desarrollo: ${w}`,
+  zh: (n, w) => `开发环境任务 ${n}：${w}`,
 }
 
 function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: string; tail: string; lastLine: string; reason: EndReason }) {
@@ -144,6 +146,7 @@ const DISK_STOPPED: Record<Locale, string> = {
   id: 'Perintah dan pekerjaan lingkungan pengembangan Anda berhenti karena disk server hampir penuh. Kosongkan tempat sampah atau hapus berkas.',
   ja: 'サーバーのディスクがほぼ満杯のため、開発環境のコマンドとジョブを停止しました。ゴミ箱を空にするかファイルを削除してください。',
   es: 'Sus comandos y trabajos del entorno de desarrollo se detuvieron porque el disco del servidor está casi lleno. Vacíe la papelera o elimine archivos.',
+  zh: '服务器磁盘快满了，所以你的开发环境命令和任务已停止。请清空回收站或删除文件。',
 }
 
 /** The disk floor stopped a person's runs: a live notice (each job also gets its own inbox notice through endRun). */

@@ -18,7 +18,7 @@ import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
 
-type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
+type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
 export const RG_BASE = ['--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--max-filesize', '50M',
   '--regex-size-limit', '20M', '--dfa-size-limit', '50M', '--max-columns', '2000', '--max-columns-preview', '--no-messages']

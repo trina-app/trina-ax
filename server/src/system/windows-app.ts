@@ -259,13 +259,14 @@ const cmdForce = '`trina_admin desktop-refresh --force`'
 /** Admin › System › Diagnostics, "Windows app" (ops.ts): what the last run did, so the owner sees why no installer is
  * offered (Settings › Apps points here). */
 export const WINDOWS_TEXT = {
-  label: { ko: 'Windows 앱', en: 'Windows app', id: 'Aplikasi Windows', ja: 'Windowsアプリ', es: 'Aplicación de Windows' } as T,
+  label: { ko: 'Windows 앱', en: 'Windows app', id: 'Aplikasi Windows', ja: 'Windowsアプリ', es: 'Aplicación de Windows', zh: "Windows 应用" } as T,
   offered: (v: string): T => ({
     ko: `Windows 앱 ${v}을(를) 이 서버에서 받을 수 있고, 팀원의 Windows 앱은 여기서 스스로 업데이트해요.`,
     en: `The Windows app ${v} is offered by this server; the desks' Windows apps update from it by themselves.`,
     id: `Aplikasi Windows ${v} tersedia dari server ini; aplikasi Windows di meja tim memperbarui dirinya dari sini.`,
     ja: `Windowsアプリ${v}をこのサーバーから配布しています。各端末のWindowsアプリはここから自動で更新されます。`,
     es: `Este servidor ofrece la aplicación de Windows ${v}; las aplicaciones de Windows de los puestos se actualizan solas desde aquí.`,
+    zh: `这台服务器提供 Windows 应用${v}；各电脑上的 Windows 应用会自动从这里更新。`,
   }),
   newer: (v: string): T => ({
     ko: `직접 올린 더 새 Windows 앱 ${v}을(를) 그대로 둬요.`,
@@ -273,6 +274,7 @@ export const WINDOWS_TEXT = {
     id: `Aplikasi Windows yang lebih baru yang ditaruh manual (${v}) dibiarkan.`,
     ja: `手動で置いた新しいWindowsアプリ（${v}）はそのままにします。`,
     es: `Se mantiene la aplicación de Windows más reciente puesta a mano (${v}).`,
+    zh: `手动放在这里的较新 Windows 应用（${v}）保持不变。`,
   }),
   ahead: (v: string, server: string): T => ({
     ko: `Windows 앱 ${v}은(는) 이 서버가 ${v}로 업데이트되면 들어와요(지금 ${server}).`,
@@ -280,8 +282,9 @@ export const WINDOWS_TEXT = {
     id: `Aplikasi Windows ${v} hadir setelah server ini menjalankan ${v} (sekarang ${server}).`,
     ja: `Windowsアプリ${v}は、このサーバーが${v}になると配布されます（現在${server}）。`,
     es: `La aplicación de Windows ${v} llegará cuando este servidor ejecute ${v} (ahora ${server}).`,
+    zh: `这台服务器运行${v}后才会提供 Windows 应用${v}（当前运行${server}）。`,
   }),
-  none: { ko: '릴리스 피드에 이 릴리스의 Windows 앱이 없어요.', en: 'The release feed has no Windows app for this release.', id: 'Feed rilis tidak punya aplikasi Windows untuk rilis ini.', ja: 'リリースフィードにこのリリースのWindowsアプリがありません。', es: 'El canal de versiones no tiene aplicación de Windows para esta versión.' } as T,
+  none: { ko: '릴리스 피드에 이 릴리스의 Windows 앱이 없어요.', en: 'The release feed has no Windows app for this release.', id: 'Feed rilis tidak punya aplikasi Windows untuk rilis ini.', ja: 'リリースフィードにこのリリースのWindowsアプリがありません。', es: 'El canal de versiones no tiene aplicación de Windows para esta versión.', zh: "发布源中没有这个版本的 Windows 应用。" } as T,
   failed: (why: string, force = false): T => {
     const c = force ? cmdForce : cmd
     return {
@@ -290,6 +293,7 @@ export const WINDOWS_TEXT = {
       id: `Aplikasi Windows tidak tersedia: ${why}. Setelah diperbaiki, jalankan ${c} di server (docs/INSTALL-LINUX.en.md, "Windows app").`,
       ja: `Windowsアプリを配布できませんでした：${why}。修正後、サーバーで${c}を実行してください（docs/INSTALL-LINUX.en.md「Windows app」）。`,
       es: `La aplicación de Windows no se ofrece: ${why}. Después de corregirlo, ejecute ${c} en el servidor (docs/INSTALL-LINUX.en.md, «Windows app»).`,
+      zh: `未提供 Windows 应用：${why}。修复后，请在服务器上运行${c}（docs/INSTALL-LINUX.en.md，“Windows app”）。`,
     }
   },
   /** a hosted tenant: its owner has no shell, the run after the next update tries again */
@@ -299,6 +303,7 @@ export const WINDOWS_TEXT = {
     id: `Aplikasi Windows tidak tersedia: ${why}. Dicoba lagi setelah pembaruan server tim berikutnya; jika tetap begini, hubungi dukungan.`,
     ja: `Windowsアプリを配布できませんでした：${why}。チームサーバーの次回の更新後に再試行します。解決しない場合はサポートにお問い合わせください。`,
     es: `La aplicación de Windows no se ofrece: ${why}. Se volverá a intentar después de la próxima actualización del servidor del equipo; si sigue así, contacte con soporte.`,
+    zh: `未提供 Windows 应用：${why}。团队服务器下次更新后会重试；如果一直这样，请联系支持团队。`,
   }),
   /** the folder still offers an app; only the last look at the feed failed */
   checkFailed: (v: string, why: string): T => ({
@@ -307,6 +312,7 @@ export const WINDOWS_TEXT = {
     id: `Aplikasi Windows ${v} tersedia dari server ini. Pemeriksaan feed rilis terakhir gagal: ${why}`,
     ja: `Windowsアプリ${v}をこのサーバーから配布しています。前回のリリースフィードの確認は失敗しました：${why}`,
     es: `Este servidor ofrece la aplicación de Windows ${v}. La última consulta del canal de versiones falló: ${why}`,
+    zh: `这台服务器提供 Windows 应用${v}。上次查看发布源失败：${why}`,
   }),
 }
 
