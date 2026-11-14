@@ -60,6 +60,10 @@ describe('the page', () => {
       expect(page).toContain('팀장과 관리자에게 알림이 가요')
       expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨져요')
       expect(page).toContain('대화방에 보낸 메시지와 파일(내 이름으로 남아요)')
+      // TC-1920: a chat shared with people by name goes with the account (auth/sweeper.ts purges every chat with no
+      // shared_at); only a shared project chat stays
+      expect(page).toContain('사람이나 그룹에게 공유한 대화')
+      expect(page).toContain('프로젝트에 공유한 대화')
       expect(page).toContain('팀 활동 기록에 남는 삭제 기록(30일)')
       expect(page).toContain('최대 8주')
       expect(m.container.querySelectorAll('button').length).toBe(1)
@@ -120,6 +124,16 @@ describe('texts', () => {
     expect(en('accountDeletion.kept', { days: 1 })).toContain('(1 day)')
     expect(en('accountDeletion.kept', { days: 90 })).toContain('(90 days)')
     expect(en('accountDeletion.rowHint', { days: 7 })).toBe('Your account is deleted 7 days after you ask. You can cancel until then.')
+  })
+  test('TC-1920: chats shared with people or groups are listed as deleted; only shared project chats stay, in every language', () => {
+    expect(en('accountDeletion.goes')).toContain('your private chats, the chats you shared with people or groups, your memories')
+    expect(en('accountDeletion.stays')).toContain('files in team folders, shared project chats,')
+    const project: Record<string, string> = { ko: '프로젝트', ja: 'プロジェクト', zh: '项目', id: 'proyek', es: 'proyectos', en: 'project' }
+    const people: Record<string, string> = { ko: '그룹', ja: 'グループ', zh: '群组', id: 'grup', es: 'grupos', en: 'groups' }
+    for (const l of Object.keys(project)) {
+      expect(translate(l as never, 'accountDeletion.stays')).toContain(project[l])
+      expect(translate(l as never, 'accountDeletion.goes')).toContain(people[l])
+    }
   })
   test('the owners\' inbox: a name and the date while it waits; taken back; done; an older server with no detail', () => {
     expect(deletionNoticeText(ko, { deletionRequest: { name: '민지', state: 'open' } })).toBe('민지님이 계정 삭제를 요청했어요.')
