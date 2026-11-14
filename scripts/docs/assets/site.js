@@ -29,6 +29,15 @@
     siteMenu.addEventListener('click', function (e) { if (e.target.closest('a')) setSiteMenu(false) })
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && siteMenu.dataset.open === 'true') { setSiteMenu(false); siteMenuBtn.focus() } })
   }
+  // links in the header keep no focus from a mouse: Chrome focuses a link on press, and when the page stays (a Cmd or
+  // middle click that opens a new tab, a press dragged off, Back to this page) the next key press, even Shift or an
+  // arrow to scroll, shows its focus ring (the owner saw one around the logo, 2026-11-14). A link focused by Tab keeps it.
+  var dropMouseFocus = function () {
+    var a = document.activeElement
+    try { if (a && a.matches('.site-header a[href]') && !a.matches(':focus-visible')) a.blur() } catch (e) {}
+  }
+  document.addEventListener('pointerup', dropMouseFocus)
+  document.addEventListener('dragend', dropMouseFocus)
   var barSlot = $('.docs-tools[data-slot="bar"]'), rowSlot = $('.docs-tools[data-slot="row"]'), searchBox = $('.site-header .search')
   if (barSlot && rowSlot && searchBox) {
     var phone = matchMedia('(max-width: 900px)')
