@@ -40,6 +40,8 @@ type Plan struct {
 	Links            json.RawMessage `json:"links"`
 	// the hosting service's free speech-to-text hours a month (null = the server's default); the server counts them
 	SpeechFreeHours *int `json:"speechFreeHours"`
+	// guests the team may have (null = the server's default); the server counts them
+	MaxGuests *int `json:"maxGuests"`
 }
 
 // MaxFileBytes caps plan.json.
@@ -124,6 +126,11 @@ func Parse(b []byte) (*Plan, error) {
 	}
 	if p.SpeechFreeHours != nil {
 		if err := rng("speechFreeHours", *p.SpeechFreeHours, 1, 1000); err != nil {
+			return nil, err
+		}
+	}
+	if p.MaxGuests != nil {
+		if err := rng("maxGuests", *p.MaxGuests, 0, 10000); err != nil {
 			return nil, err
 		}
 	}

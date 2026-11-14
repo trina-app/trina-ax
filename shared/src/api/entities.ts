@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, TextSize, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -84,6 +84,8 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
+  /** a guest invite's one place; absent on member invites */
+  guestPlace: GuestPlace.optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -93,7 +95,7 @@ export type SubjectType = z.infer<typeof SubjectType>
 /** One rule: who (subject) gets what (access) on a folder. subjectId: null for everyone, a Role for role, group id, user id. */
 export const FolderRuleInput = z.discriminatedUnion('subjectType', [
   z.object({ subjectType: z.literal('everyone'), subjectId: z.null(), access: Access }),
-  z.object({ subjectType: z.literal('role'), subjectId: Role.exclude(['owner']), access: Access }),
+  z.object({ subjectType: z.literal('role'), subjectId: TeamRole, access: Access }),
   z.object({ subjectType: z.literal('group'), subjectId: Uuid7, access: Access }),
   z.object({ subjectType: z.literal('user'), subjectId: UserId, access: Access }),
 ])

@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, UserStatus, page } from './common'
+import { Access, EngineId, GuestAiChoice, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -16,7 +16,7 @@ export const CreateUserBody = z.object({
   username: Username,
   name: PersonName,
   email: z.email().nullable().optional(),
-  role: Role.exclude(['owner']),
+  role: TeamRole,
   groupIds: z.array(Uuid7).default([]),
   /** omitted or null = follows the team default */
   locale: Locale.nullable().optional(),
@@ -34,7 +34,7 @@ export const CreatedUser = z.object({
 export const UpdateUserBody = z.object({
   name: PersonName.optional(),
   email: z.email().nullable().optional(),
-  role: Role.exclude(['owner']).optional(),
+  role: TeamRole.optional(),
   status: UserStatus.optional(),
   groupIds: z.array(Uuid7).optional(),
   /** a language, or null = follow the team default */
@@ -82,6 +82,7 @@ export const TransferResult = z.object({ ok: z.literal(true), ended: z.array(End
 
 // ---------------- invites ----------------
 export const CreateInviteBody = z.object({
+  /** `guest` needs `guestPlace` (and only then may a member, not only an admin, make the invite: POST /api/guest-invites) */
   role: Role.exclude(['owner']).default('member'),
   groupIds: z.array(Uuid7).default([]),
   /** default 7 days (tab 1, tab 5) */
@@ -91,6 +92,17 @@ export const CreateInviteBody = z.object({
    * group for 3 days (role, groupIds and expiresInHours are not used; role admin is refused), and the open lead invite
    * before it stops working in the same write. A hint only: nothing about the join changes a role. */
   leadFor: LeadFor.optional(),
+  /** role guest only (required then): the one group chat or project the guest joins */
+  guestPlace: GuestPlace.optional(),
+  /** role guest only: how the guest's AI runs (default none) */
+  guestAi: GuestAiChoice.optional(),
+})
+/** POST /api/guest-invites: a member invites a guest into a group chat they are in, or (the project's creator or an
+ * admin) into a project. Same answer as createInvite. */
+export const CreateGuestInviteBody = z.object({
+  place: GuestPlace,
+  ai: GuestAiChoice.default({ mode: 'none' }),
+  expiresInHours: z.number().int().min(1).max(24 * 30).default(24 * 7),
 })
 /** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with
  * leadFor stopped an earlier open one (the form says "이전에 보낸 팀장 링크는 더 이상 안 돼요"). */
@@ -250,7 +262,7 @@ export const PersonAccessResponse = z.object({
 })
 export type PersonAccessResponse = z.infer<typeof PersonAccessResponse>
 export const NewPersonAccessBody = z.object({
-  role: Role.exclude(['owner']), groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
+  role: TeamRole, groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
   prefix: RelPath.optional(), cursor: RelPath.optional(), limit: z.number().int().min(1).max(2000).optional(),
 })
 
@@ -608,6 +620,8 @@ export const ADMIN = {
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),
+  createGuestInvite: endpoint({ method: 'POST', path: '/api/guest-invites', auth: 'user', owner: 'A', status: 201, body: CreateGuestInviteBody, response: CreatedInvite, summary: 'Invite a guest into one place: a group chat the caller is in, or a project the caller created (the owner and admins: any project). 409 plan_limit reason guest_limit over the plan\'s guests.' }),
+  convertGuest: endpoint({ method: 'POST', path: '/api/admin/users/:id/convert-guest', auth: 'admin', owner: 'A', response: User, summary: 'Make a guest a team member (takes a seat: 409 plan_limit reason seat_limit when none is free). They keep their place.' }),
   revokeInvite: endpoint({ method: 'DELETE', path: '/api/admin/invites/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Revoke an unused invite.' }),
 
   listGroups: endpoint({ method: 'GET', path: '/api/admin/groups', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Group) }), summary: 'Groups with members.' }),
