@@ -44,7 +44,7 @@ export const FEATURES: Feature[] = [
   { id: 'auth.devices', name: 'Signed-in devices', area: 'Sign-in & account', endpoints: ['mySessions', 'revokeMySession'], screens: ['/settings/security', '/settings/security/devices'] },
   { id: 'account.profile', name: 'Profile, photo and language', area: 'Sign-in & account', endpoints: ['updateMe', 'updateMyProfile', 'putMyAvatar', 'deleteMyAvatar', 'personAvatar'], screens: ['/settings/profile'] },
   { id: 'account.status', name: 'Status message and away', area: 'Sign-in & account', endpoints: ['setMyStatus', 'clearMyStatus', 'setMyAway'] },
-  { id: 'account.deletion', name: 'Account deletion request', area: 'Sign-in & account', endpoints: ['myDeletionRequest', 'requestAccountDeletion', 'cancelAccountDeletion'], screens: ['/settings/account/delete'] },
+  { id: 'account.deletion', name: 'Account deletion', area: 'Sign-in & account', endpoints: ['myDeletionRequest', 'requestAccountDeletion', 'cancelAccountDeletion'], screens: ['/settings/account/delete'] },
   { id: 'account.usage', name: 'My own AI usage', area: 'Sign-in & account', endpoints: ['myUsage'], screens: ['/settings/usage'] },
   { id: 'people.directory', name: 'People of the team', area: 'Sign-in & account', endpoints: ['listPeople'] },
 

@@ -55,6 +55,23 @@ Before any replacement, make a current backup, pause team use and preserve the c
 - File recovery: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. The target must be new. Compare files, then restore only selected files through the app with appropriate permissions. This avoids replacing unrelated work.
 - Encrypted archive drill: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. Verify the resulting DB and team tree; extraction alone does not start a server.
 
+## Accounts deleted after the backup
+
+A database restore brings back every account deleted after the backup was made: the backup still has the person's
+row, sign-in and private data. A person who deleted their own account (Settings › Profile › Delete account) or was
+removed by the owner must stay deleted. / 백업 뒤에 삭제한 계정은 DB 복원으로 되살아나요. 복원 전에 목록을 받아 두고, 복원 뒤 다시 삭제하세요.
+
+1. Before the restore, list the accounts deleted since the backup's time from the live database: Admin › Activity log,
+   "Removed a member", from that date on (or on Linux, as the service account:
+   `sqlite3 -readonly /var/lib/mycel/data/app.db "SELECT target, at FROM audit_log WHERE action = 'user.delete' AND at >= '<backup time, ISO>'"`).
+   Keep the list with the restore record, not in a team folder.
+2. After the restart, delete each of them again in Admin › Members & invites (personal files: "Move to the owner's
+   archive", as before). A person whose own request was open at the backup time is deleted by the server when its date
+   comes; a request made after the backup is not in the restored copy, so delete that account by hand.
+3. Backups themselves keep a deleted person's data until they rotate out (daily backups 14 days, the weekly full
+   backup 8 weeks, update and manual backups 30 days on the hosted service). Nobody reads them for anything but a
+   restore; the account deletion page and the privacy policy say "up to 8 weeks".
+
 ## Going back to the version before an update (Linux)
 
 Use this when an update (for example 0.4.0 → 0.5.0) went wrong and the team must run the old version again. The old version cannot read a database the new version has already changed, so you put back the copy of the database from just before the update and start the old version in one go. Do not use Admin › System › Update › **Go back** or a plain server restart for this: a restart starts the new version, which changes the restored copy again.
