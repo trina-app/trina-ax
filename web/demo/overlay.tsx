@@ -4,7 +4,8 @@
 // those). Styles are in demo.css (not Tailwind: the product's CSS must not change for the demo).
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
-import { useT } from '../src/i18n'
+import { useLocale, useT } from '../src/i18n'
+import { demoWord } from './words'
 import type { DemoAnswer, DemoGuideStep } from './script'
 import type { DemoServer } from './server'
 import './demo.css'
@@ -88,6 +89,7 @@ function useEngine(server: DemoServer) {
 
 function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string }) {
   const t = useT()
+  const locale = useLocale()
   useEngine(server)
   const e = server.engine
   const step = e.guide()
@@ -119,7 +121,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
 
   return (
     <>
-      <div className="demo-guide" role="region" aria-label={t('demo.guideLabel')} data-testid="demo-guide">
+      <div className="demo-guide" role="region" aria-label={demoWord('guideLabel', locale)} data-testid="demo-guide">
         {step && !end && suggest.length > 0 && (
           <div className="demo-suggest" data-testid="demo-suggest">
             {suggest.map((a) => (
@@ -132,7 +134,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           {step && !end && (
             <button type="button" className="demo-next" onClick={() => void goTo(server, step.go)} data-testid="demo-next">{step.text}</button>
           )}
-          <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{t('demo.restart')}</button>
+          <button type="button" className="demo-restart" onClick={() => location.assign('/')} data-testid="demo-restart">{demoWord('restart', locale)}</button>
         </div>
       </div>
       {end && (

@@ -3867,8 +3867,6 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.skill.contributed": "{name} ingin membawa {n} skill ke tim",
   "notifications.event.skill.contributedGone": "Seorang anggota ingin membawa {n} skill ke tim",
   "demo.bar": "Demo · perusahaan fiktif {company}",
-  "demo.restart": "Mulai dari awal",
-  "demo.guideLabel": "Panduan demo",
   "demo.switch": "Ganti orang",
   "demo.persona.newHire": "Karyawan baru",
   "demo.persona.lead": "Ketua tim",

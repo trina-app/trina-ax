@@ -9,13 +9,14 @@ import type { Plugin, UserConfig } from 'vite'
 const here = import.meta.dirname
 const shim = (f: string) => path.join(here, 'shims', f)
 const STORY = path.resolve(here, '../../scripts/demo/mina')
-/** the story's language (DEMO_LOCALE=en|ko|ja|es|id, default en): scripts/demo/mina/<locale>/index.ts when there, else
- * scripts/demo/mina/index.ts, else the example. The app shows its own words in the story's language too. */
+/** the story's language (DEMO_LOCALE=en|ko|ja|es|id, default en) and its file: scripts/demo/mina/index.<locale>.ts when
+ * there, else scripts/demo/mina/index.ts (English), else the example. The app shows its own words in that language. */
 export const demoLocale = () => process.env.DEMO_LOCALE ?? 'en'
-export const contentDir = () => {
-  for (const dir of [path.join(STORY, demoLocale()), STORY]) if (fs.existsSync(path.join(dir, 'index.ts'))) return dir
-  return path.join(here, 'example')
+export const contentFile = () => {
+  for (const f of [path.join(STORY, `index.${demoLocale()}.ts`), path.join(STORY, 'index.ts')]) if (fs.existsSync(f)) return f
+  return path.join(here, 'example', 'index.ts')
 }
+export const contentDir = () => path.dirname(contentFile())
 /** assets/ next to the story file, then the story's shared assets/ (a language's own file of the same name wins) */
 const assetFiles = () => {
   const out = new Map<string, string>()
@@ -78,7 +79,7 @@ export function demoConfig(base: UserConfig): UserConfig {
         { find: /^node:(fs|os|path|zlib)$/, replacement: shim('node.ts') },
         { find: /^.*\/server\/src\/credentials\/seal$/, replacement: shim('server-stubs.ts') },
         { find: /^.*\/server\/src\/routes\/web-static$/, replacement: shim('server-stubs.ts') },
-        { find: '@demo-content', replacement: path.join(contentDir(), 'index.ts') },
+        { find: '@demo-content', replacement: contentFile() },
       ],
     },
     define: {

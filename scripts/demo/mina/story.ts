@@ -15,8 +15,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const bannerB = inProject(s.paths.bannerB)
   const backgroundB = inProject(s.paths.backgroundB)
   const final = inProject(s.paths.final)
-  /** The CEO's final file. The format has no "the banner the visitor made", so it is version A, the first suggestion;
-   * if the engine learns to pick the asset of the banner answer that finished, use banner-b after `banner-b`. */
+  /** The CEO's final file: the banner the visitor made (DemoFile.pick below), version A if neither answer finished. */
   const finalAsset = `banner-a.${locale}.png`
 
   const link = (text: string) => text.replaceAll('{project}', '{{project:launch}}')
@@ -29,7 +28,8 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
 
   const m = s.mail
   const draft = (mail: Mail) =>
-    `**${m.labels.to}** ${m.to}\n**${m.labels.subject}** ${mail.subject}\n**${m.labels.attachment}** ${m.attachment}\n\n` +
+    // (a backslash at a line's end: a line break in Markdown, so To, Subject and Attachment stay on their own lines)
+    `**${m.labels.to}** ${m.to}\\\n**${m.labels.subject}** ${mail.subject}\\\n**${m.labels.attachment}** ${m.attachment}\n\n` +
     mail.body.map((l) => (l ? `> ${l}` : '>')).join('\n')
   const sent = (mail: Mail): DemoReply => ({
     steps: [{ label: `Gmail · ${st.gmailSend}`, tool: 'gmail', ms: 1200 }],
@@ -154,7 +154,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       { id: 'dm-1', after: { answer: 'company' }, delayMs: 2500, room: 'dm-lead', from: 'sara', text: link(s.events.leadDm) },
       { id: 'lead-reply', after: { shared: 'mkt-room' }, delayMs: 2000, room: 'mkt-room', from: 'sara', text: s.events.leadReply },
       { id: 'leo-cheer', after: { event: 'lead-reply' }, delayMs: 1500, room: 'mkt-room', from: 'leo', text: s.events.leoCheer },
-      { id: 'ceo-ok', after: { event: 'leo-cheer' }, delayMs: 2500, room: 'mkt-room', from: 'daniel', text: s.events.ceoOk, files: [final], newFiles: [{ path: final, asset: finalAsset }] },
+      { id: 'ceo-ok', after: { event: 'leo-cheer' }, delayMs: 2500, room: 'mkt-room', from: 'daniel', text: s.events.ceoOk, files: [final], newFiles: [{ path: final, asset: finalAsset, pick: { 'banner-a': `banner-a.${locale}.png`, 'banner-b': `banner-b.${locale}.png` } }] },
       { id: 'gmail', after: { event: 'ceo-ok' }, delayMs: 2000, room: 'mkt-room', from: 'sara', text: s.events.leadGmail },
     ],
     guide: [
