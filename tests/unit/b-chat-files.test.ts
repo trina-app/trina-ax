@@ -11,7 +11,7 @@ import path from 'node:path'
 import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
-import { chatFilesOf, UNSENT_CHAT_FILE_MS } from '../../server/src/chat/chat-files'
+import { CHAT_FILE_ORPHAN_KEEP_MS, chatFilesOf, UNSENT_CHAT_FILE_MS } from '../../server/src/chat/chat-files'
 import { composeMessage } from '../../server/src/chat/turn'
 import { readScope } from '../../server/src/chat/read-scope'
 
@@ -46,10 +46,10 @@ async function ask(user: string, chatId: string, content: string, attachmentIds:
   const done = await ws[user]!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
   return { started, done: done.data.message }
 }
-async function upload(user: string, chatId: string, name: string, content: string) {
+async function upload(user: string, chatId: string, name: string, content: string | Buffer) {
   const form = new FormData()
   form.set('chatId', chatId)
-  form.set('file', new File([content], name))
+  form.set('file', new File([typeof content === 'string' ? content : new Uint8Array(content)], name))
   const res = await h.req(user, '/api/uploads', { method: 'POST', body: form })
   return { status: res.status, body: (await res.json()) as Attachment & { error?: { params?: { reason?: string } } } }
 }
@@ -154,7 +154,12 @@ describe('a file from the computer in a chat shared with people', () => {
     const own = await upload('alice', c, 'earlier.txt', 'from before the share')
     expect(own.body.path).toMatch(/^users\/alice\/\.attachments\//)
     await ask('alice', c, `before\n${fake({ say: 'ok' })}`, [own.body.id])
-    await share('alice', c, [bob])
+    // the check says the file will be visible to them, and asks even when nothing else would
+    const asked = await put('alice', c, [bob])
+    expect(asked).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    const saved = await put('alice', c, [bob], asked.status === 'confirm' ? asked.confirmKey : undefined)
+    expect(saved.status).toBe('saved')
+    expect(saved.status === 'saved' && saved.filesNotCopied).toBeFalsy()
     const att = (await lastMessage('bob', c)).attachments[0]!
     expect(att).toMatchObject({ source: 'chat', name: 'earlier.txt', path: '' })
     expect(att.id).not.toBe(own.body.id)
@@ -183,10 +188,74 @@ describe('a file from the computer in a chat shared with people', () => {
     const own = await upload('alice', c, 'edited.txt', 'as attached')
     await ask('alice', c, `before\n${fake({ say: 'ok' })}`, [own.body.id])
     fs.writeFileSync(path.join(h.team, ...own.body.path.split('/')), 'changed later')
-    await share('alice', c, [bob])
+    const r = await share('alice', c, [bob])
+    // the creator is told
+    expect(r.status === 'saved' && r.filesNotCopied).toBe(1)
     expect((await lastMessage('alice', c)).attachments[0]).toMatchObject({ id: own.body.id })
     expect((await lastMessage('alice', c)).attachments[0]!.source).toBeUndefined()
     expect(db().query('SELECT COUNT(*) AS n FROM chat_files WHERE chat_id = ?').get(c)).toEqual({ n: 0 })
+  })
+
+  test('a photo\'s place and camera are cut out before others get it, on upload and on the copy at the share', async () => {
+    const photo = fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/portrait-o1.jpg'))
+    expect(Buffer.from(photo).toString('latin1')).toContain('GPSLatitude')
+    const id = await sharedChat('photos')
+    const up = await upload('alice', id, 'site.jpg', photo)
+    expect(up.body).toMatchObject({ source: 'chat', kind: 'image' })
+    await ask('alice', id, `p\n${fake({ say: 'ok' })}`, [up.body.id])
+    const got = Buffer.from(await (await h.req('bob', `/api/chats/${id}/files/${up.body.id}`)).arrayBuffer()).toString('latin1')
+    expect(got).not.toContain('GPSLatitude')
+    expect(got).not.toContain('FixtureCam')
+    // an earlier upload in a private chat, then shared
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const own = await upload('alice', c, 'before.jpg', photo)
+    await ask('alice', c, `b\n${fake({ say: 'ok' })}`, [own.body.id])
+    await share('alice', c, [bob])
+    const copy = (await lastMessage('bob', c)).attachments[0]!
+    expect(copy.source).toBe('chat')
+    expect(Buffer.from(await (await h.req('bob', `/api/chats/${c}/files/${copy.id}`)).arrayBuffer()).toString('latin1')).not.toContain('GPSLatitude')
+    // the original in alice's own folder is as she sent it
+    expect(fs.readFileSync(path.join(h.team, ...own.body.path.split('/'))).toString('latin1')).toContain('GPSLatitude')
+  })
+
+  test('at most 50 MB a file in such a chat, a chunked upload too (refused when the session is made)', async () => {
+    const id = await sharedChat('big')
+    const r = await h.req('alice', '/api/upload-sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: { kind: 'attachment', chatId: id, name: 'big.bin' }, size: 60 * 1024 * 1024, sha256: 'a'.repeat(64) }) })
+    expect(r.status).toBe(413)
+    expect(((await r.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('chat_file_too_large')
+    // in a private chat a chunked attachment may still be larger
+    const priv = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const ok = await h.req('alice', '/api/upload-sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: { kind: 'attachment', chatId: priv, name: 'big.bin' }, size: 60 * 1024 * 1024, sha256: 'a'.repeat(64) }) })
+    expect(ok.status).toBe(201)
+    await h.req('alice', `/api/upload-sessions/${((await ok.json()) as { id: string }).id}`, { method: 'DELETE' })
+  })
+
+  test('the sweep sets row-less files and the folders of chats that are gone aside for 30 days, never deletes them at once', async () => {
+    const id = await sharedChat('orphans')
+    const stray = store(id, 'not-a-row')
+    fs.mkdirSync(store(id), { recursive: true })
+    fs.writeFileSync(stray, 'stray')
+    const gone = store('01900000-0000-7000-8000-0000000000aa')
+    fs.mkdirSync(gone, { recursive: true })
+    fs.writeFileSync(path.join(gone, 'x'), 'x')
+    const orphans = path.join(h.team, '.system', 'chat-files-orphans')
+    // a fresh row-less file stays (a create puts the file a moment before its row)
+    chatFilesOf(h.ctx).sweep()
+    expect(fs.existsSync(stray)).toBe(true)
+    expect(fs.existsSync(gone)).toBe(false)
+    chatFilesOf(h.ctx).sweep(Date.now() + 2 * 3600_000)
+    expect(fs.existsSync(stray)).toBe(false)
+    const found = (dir: string, name: string): boolean => fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.name === name || (e.isDirectory() && found(path.join(dir, e.name), name)))
+    expect(found(orphans, 'not-a-row')).toBe(true)
+    expect(found(orphans, '01900000-0000-7000-8000-0000000000aa')).toBe(true)
+    // gone after 30 days
+    chatFilesOf(h.ctx).sweep(Date.now() + CHAT_FILE_ORPHAN_KEEP_MS + 3 * 3600_000)
+    expect(fs.readdirSync(orphans)).toEqual([])
+  })
+
+  test('the AI is told nothing about an attachment hidden from its person', () => {
+    const out = composeMessage({ content: 'q', attachments: JSON.stringify([{ id: 'x', name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other', source: 'chat', unavailable: true }]) })
+    expect(out).toBe('q')
   })
 
   test('✕ before sending, the sweep and deleting the chat for good remove the files', async () => {

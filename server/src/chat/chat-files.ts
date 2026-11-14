@@ -18,7 +18,8 @@
 // the team's storage (system/storage.ts counts .system/chat-files with the team folder).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Attachment } from '@mycel/shared/api'
+import { createHash } from 'node:crypto'
+import { SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -28,22 +29,51 @@ import { audit } from '../admin/audit'
 import { authorize } from '../policy/authorize'
 import { loadPrincipal } from '../policy/access'
 import { badSegment } from '../policy/names'
-import { checkRegular, hashFile, openChecked } from '../team-files/place'
+import { checkRegular } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
+import { cleanImage, imageFormat, PHOTO, plainPicture } from '../uploads/metadata'
+import { assertStorageRoom } from '../system/storage'
+import { fileError } from '../team-files/errors'
+import { personLocale } from '../files/media-text'
+import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
-/** A file on disk without its row is removed after this long (a create puts the file before its row). */
+/** A file on disk without its row is set aside after this long (a create puts the file before its row) */
 const ORPHAN_MS = 3600_000
+/** Set-aside files (chat-files-orphans/) are kept this long, as room files' (a database restored from an older backup) */
+export const CHAT_FILE_ORPHAN_KEEP_MS = 30 * 86400_000
+/** At most this big in a chat shared with people (the multipart attachment limit; a chunked upload too) */
+export const CHAT_FILE_MAX = SMALL_UPLOAD_MAX
 const THUMB_EXTS = ['png', 'jpg'] as const
 
 export interface ChatFileRow {
   id: string; chat_id: string; user_id: string; name: string; size: number; mime: string; kind: Attachment['kind']
   width: number | null; height: number | null; sha256: string; thumb: string | null; copied_from: string | null; created_at: string
 }
+
+/**
+ * A picture's metadata (the place it was taken, the camera) cut out before other people get it, as a room's
+ * (uploads/metadata.ts PHOTO keeps the colours, an animation and which way up it is). `kind` is the attachment kind by
+ * its bytes: a picture that can be neither cleaned nor shown as it is (a TIFF, bytes that are not what the name says)
+ * goes as a plain file. null: a picture whose metadata could not be cut out (not shared).
+ */
+export function cleanPicture(name: string, bytes: Uint8Array, quarantined: boolean): { bytes: Uint8Array; kind: Attachment['kind']; changed: boolean } | null {
+  const head = bytes.subarray(0, 64 * 1024)
+  const fmt = imageFormat(head)
+  const named = attachmentKind(name)
+  const kind = named === 'image' && !fmt && !plainPicture(head, name) ? 'other' : named
+  if (kind !== 'image' || quarantined || !fmt) return { bytes, kind, changed: false }
+  const cleaned = cleanImage(bytes, PHOTO)
+  if (!(cleaned instanceof Uint8Array)) return null
+  return { bytes: cleaned, kind, changed: true }
+}
+
+/** A computer upload of a chat's question (attachments row) that a first share copies (ChatFiles.copyEarlier) */
+type EarlierRow = { id: string; user_id: string; path: string; name: string; thumb_path: string | null; sha256: string | null }
 
 /** The attachment a message carries for a chat file: no team path (it is in no folder), source 'chat'. */
 export const chatFileAttachment = (r: ChatFileRow): Attachment => ({
@@ -72,7 +102,7 @@ export class ChatFiles {
 
   /** Was the file sent in a message of its chat (any branch)? Until then it is its sender's alone. */
   sent(f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
-    return !!this.ctx.db.query('SELECT 1 FROM messages WHERE chat_id = ? AND instr(attachments, ?) > 0 LIMIT 1').get(f.chat_id, f.id)
+    return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, f.id)
   }
 
   /** Does `userId` see the chat of a chat file now: one shared with people they are in (not in the trash, unless it is
@@ -89,19 +119,27 @@ export class ChatFiles {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = clean.includes('/') || clean.includes('\\') ? 'names cannot contain "/"' : badSegment(clean)
     if (bad) fail('validation', undefined, { fields: { 'body.name': bad } })
+    // the multipart limit for a chunked upload too (it may be up to 20 GB elsewhere)
+    if (fs.statSync(src).size > CHAT_FILE_MAX) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
+    const pic = cleanPicture(clean, new Uint8Array(fs.readFileSync(src)), this.ctx.files.quarantine.hasHash(sha256))
+    if (!pic) { fs.rmSync(src, { force: true }); return fail('validation', tr('roomPhotoUnreadable', personLocale(this.ctx.db, userId))) }
+    let stored = sha256
+    if (pic.changed) { fs.writeFileSync(src, pic.bytes); stored = createHash('sha256').update(pic.bytes).digest('hex') }
     const id = newId()
     fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ chat_id: chatId, id })
     try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
     fs.chmodSync(dst, 0o600)
-    const row = await this.record(userId, chatId, id, clean, dst, sha256, null)
+    // its time is now (a rename keeps the temp file's): the sweep sets a row-less file aside only an hour after this
+    const t = new Date()
+    fs.utimesSync(dst, t, t)
+    const row = await this.record(userId, chatId, id, clean, dst, stored, null, pic.kind)
     audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind } })
     return chatFileAttachment(row)
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
-  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, thumbFrom?: string | null): Promise<ChatFileRow> {
-    const kind = attachmentKind(name)
+  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const size = fs.statSync(dst).size
     let dims: { width: number; height: number } | null = null
@@ -176,75 +214,88 @@ export class ChatFiles {
     return true
   }
 
+  /** The computer uploads in this chat's questions (in their sender's own folder) that a first share copies here
+   * (copyEarlier): how many, for the Share check ("N files you attached will be visible to them"). */
+  earlierUploads(chatId: string): number {
+    return this.earlierRows(chatId).length
+  }
+  private earlierRows(chatId: string): EarlierRow[] {
+    const ids = new Set<string>()
+    const msgs = this.ctx.db.query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments IS NOT NULL AND attachments <> '[]'").all(chatId) as { attachments: string }[]
+    for (const m of msgs) {
+      try { for (const a of JSON.parse(m.attachments) as Attachment[]) if (a.source !== 'team' && a.source !== 'chat') ids.add(a.id) } catch { /* none */ }
+    }
+    if (!ids.size) return []
+    return this.ctx.db.query(`SELECT id, user_id, path, name, thumb_path, sha256 FROM attachments WHERE chat_id = ? AND id IN (${[...ids].map(() => '?').join(',')})`).all(chatId, ...ids) as EarlierRow[]
+  }
+
   /**
    * The first share of a private chat (chat/people-share.ts): the creator's computer uploads in its messages (in their
    * users/<id>/.attachments/, which only they may read) are copied here and every message that carries one points to the
-   * copy, so everyone in the chat sees them. An upload whose file is gone or unreadable stays as it was (its sender's
-   * alone, as before). The originals stay where they are. Audited (chat.files_copied: how many). Returns how many.
+   * copy, so everyone in the chat sees them. Read and written without blocking the server (one descriptor that follows
+   * no link), a picture's metadata cut out as for an upload here. Not copied, and so still its sender's alone as before:
+   * one gone, unreadable, edited or replaced since it was attached (another sha256), over CHAT_FILE_MAX, a picture that
+   * cannot be cleaned, or one the team's storage has no room for (`notCopied` counts these, for the creator). The
+   * originals stay where they are. Audited (chat.files_copied: how many of each).
    */
-  async copyEarlier(chatId: string): Promise<number> {
+  async copyEarlier(chatId: string): Promise<{ copied: number; notCopied: number }> {
     const db = this.ctx.db
     const chat = db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId) as { user_id: string } | null
-    if (!chat) return 0
-    const msgs = db.query("SELECT id, author_id, attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments IS NOT NULL AND attachments <> '[]'").all(chatId) as { id: string; author_id: string | null; attachments: string }[]
-    const copies = new Map<string, Attachment | null>()
+    if (!chat) return { copied: 0, notCopied: 0 }
+    const rows = this.earlierRows(chatId)
+    if (!rows.length) return { copied: 0, notCopied: 0 }
     const rules = this.ctx.files.rules()
-    const copyOne = async (a: Attachment): Promise<Attachment | null> => {
-      const att = db.query('SELECT id, user_id, chat_id, path, name, thumb_path, sha256 FROM attachments WHERE id = ? AND chat_id = ?').get(a.id, chatId) as { id: string; user_id: string; chat_id: string; path: string; name: string; thumb_path: string | null; sha256: string | null } | null
-      if (!att) return null
-      const who = loadPrincipal(db, att.user_id)
-      if (!who) return null
+    const copies = new Map<string, Attachment>()
+    let notCopied = 0
+    for (const att of rows) {
       const id = newId()
       try {
+        const who = loadPrincipal(db, att.user_id)
+        if (!who) throw new Error('sender gone')
         // the file as its sender may read it now (moved or deleted on the Files screen: left as it was)
         const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
-        fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
-        const dst = this.abs({ chat_id: chatId, id })
-        // read through one descriptor opened without following links (a link put in its place is refused), never by
-        // path again
-        const { fd, st } = openChecked(src.abs)
+        const h = await fs.promises.open(src.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+        let bytes: Uint8Array
         try {
-          const out = fs.openSync(dst, 'wx', 0o600)
-          try {
-            const buf = Buffer.allocUnsafe(1024 * 1024)
-            for (let pos = 0; ;) {
-              const n = fs.readSync(fd, buf, 0, buf.length, pos)
-              if (!n) break
-              fs.writeSync(out, buf, 0, n)
-              pos += n
-            }
-          } finally { fs.closeSync(out) }
-        } finally { fs.closeSync(fd) }
-        if (fs.statSync(dst).size !== st.size) throw new Error('changed while copied')
+          const st = await h.stat()
+          if (!st.isFile() || st.nlink > 1) throw new Error('not a plain file')
+          if (st.size > CHAT_FILE_MAX) throw new Error('too large')
+          assertStorageRoom(st.size)
+          bytes = new Uint8Array(await h.readFile())
+          if (bytes.byteLength !== st.size) throw new Error('changed while read')
+        } finally { await h.close() }
         // only the bytes that were attached: a file edited or replaced on the Files screen since stays its sender's
-        const sha = await hashFile(dst)
-        if (att.sha256 && sha !== att.sha256) throw new Error('changed since it was attached')
+        if (att.sha256 && createHash('sha256').update(bytes).digest('hex') !== att.sha256) throw new Error('changed since it was attached')
+        const pic = cleanPicture(att.name, bytes, this.ctx.files.quarantine.hasHash(att.sha256 ?? ''))
+        if (!pic) throw new Error('picture metadata not removable')
+        const sha = createHash('sha256').update(pic.bytes).digest('hex')
+        await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+        const dst = this.abs({ chat_id: chatId, id })
+        await fs.promises.writeFile(dst, pic.bytes, { flag: 'wx', mode: 0o600 })
+        // the old thumbnail shows the same pixels (cleaning keeps them)
         const thumbFrom = att.thumb_path ? path.join(this.ctx.config.dataDir, ...att.thumb_path.split('/')) : null
-        return chatFileAttachment(await this.record(att.user_id, chatId, id, att.name, dst, sha, att.id, thumbFrom))
+        copies.set(att.id, chatFileAttachment(await this.record(att.user_id, chatId, id, att.name, dst, sha, att.id, pic.kind, thumbFrom)))
       } catch (e) {
         this.removeFiles({ chat_id: chatId, id })
+        notCopied++
         this.ctx.log.debug('an earlier upload was not copied to the chat', { err: e })
-        return null
       }
     }
-    let n = 0
-    for (const m of msgs) {
-      let atts: Attachment[] = []
-      try { const v = JSON.parse(m.attachments); if (Array.isArray(v)) atts = v } catch { continue }
-      let changed = false
-      const next: Attachment[] = []
-      for (const a of atts) {
-        if (a.source === 'team' || a.source === 'chat') { next.push(a); continue }
-        if (!copies.has(a.id)) { const c = await copyOne(a); copies.set(a.id, c); if (c) n++ }
-        const c = copies.get(a.id)
-        if (c) changed = true
-        next.push(c ?? a)
-      }
-      // the message as it is now (nothing else rewrites a question's attachments)
-      if (changed) db.query('UPDATE messages SET attachments = ? WHERE id = ?').run(JSON.stringify(next), m.id)
+    // the messages that carry one point to its copy (nothing else rewrites a question's attachments)
+    if (copies.size) {
+      const msgs = db.query("SELECT id, attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments IS NOT NULL AND attachments <> '[]'").all(chatId) as { id: string; attachments: string }[]
+      db.transaction(() => {
+        for (const m of msgs) {
+          let atts: Attachment[] = []
+          try { const v = JSON.parse(m.attachments); if (Array.isArray(v)) atts = v } catch { continue }
+          const mine = (a: Attachment) => a.source !== 'team' && a.source !== 'chat' && copies.has(a.id)
+          if (!atts.some(mine)) continue
+          db.query('UPDATE messages SET attachments = ? WHERE id = ?').run(JSON.stringify(atts.map((a) => (mine(a) ? copies.get(a.id)! : a))), m.id)
+        }
+      })()
     }
-    if (n) audit(db, { actor: chat.user_id, action: 'chat.files_copied', target: chatId, detail: { files: n } })
-    return n
+    audit(db, { actor: chat.user_id, action: 'chat.files_copied', target: chatId, detail: { files: copies.size, ...(notCopied ? { notCopied } : {}) } })
+    return { copied: copies.size, notCopied }
   }
 
   /** The chat was deleted for good: its folder goes (its rows went with it). */
@@ -253,7 +304,14 @@ export class ChatFiles {
     fs.rmSync(this.dir(chatId), { recursive: true, force: true })
   }
 
-  /** Uploads never sent (a day old), the folders of chats that are gone, and files without a row (an hour old). */
+  private orphansRoot() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'chat-files-orphans') }
+
+  /**
+   * Uploads never sent (a day old) go. Nothing else is deleted on a guess: the folder of a chat that is gone and a file
+   * without its row (an hour old: a create puts the file a moment before its row) are set aside in
+   * .system/chat-files-orphans/<time>-<pid>-<n>/<chat id>/ (a database restored from an older backup than the folder:
+   * going back stays possible), and such batches go after CHAT_FILE_ORPHAN_KEEP_MS, as room files' (rooms/files.ts).
+   */
   sweep(now = Date.now()): number {
     const cutoff = new Date(now - UNSENT_CHAT_FILE_MS).toISOString()
     const old = this.ctx.db.query('SELECT id, chat_id FROM chat_files WHERE created_at < ?').all(cutoff) as Pick<ChatFileRow, 'id' | 'chat_id'>[]
@@ -264,20 +322,38 @@ export class ChatFiles {
       this.removeFiles(f)
       n++
     }
-    let chats: string[] = []
-    try { chats = fs.readdirSync(this.root()) } catch { return n }
-    for (const c of chats) {
-      const dir = this.dir(c)
-      if (!this.ctx.db.query('SELECT 1 FROM chats WHERE id = ?').get(c)) { fs.rmSync(dir, { recursive: true, force: true }); n++; continue }
-      let names: string[] = []
-      try { names = fs.readdirSync(dir) } catch { continue }
-      for (const name of names) {
-        const id = name.replace(/\.thumb\.(jpg|png)$/, '')
-        if (this.ctx.db.query('SELECT 1 FROM chat_files WHERE id = ? AND chat_id = ?').get(id, c)) continue
-        try { if (now - fs.statSync(path.join(dir, name)).mtimeMs < ORPHAN_MS) continue } catch { continue }
-        fs.rmSync(path.join(dir, name), { force: true })
-        n++
+    let batch: string | null = null
+    const aside = (chatId: string, name: string | null) => {
+      if (!batch) {
+        const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
+        for (let i = 0; ; i++) { batch = path.join(this.orphansRoot(), `${stamp}-${process.pid}-${i}`); if (!fs.existsSync(batch)) break }
       }
+      const to = path.join(batch!, chatId)
+      fs.mkdirSync(name ? to : batch!, { recursive: true, mode: 0o700 })
+      fs.renameSync(name ? path.join(this.dir(chatId), name) : this.dir(chatId), name ? path.join(to, name) : to)
+      n++
+    }
+    let chats: string[] = []
+    try { chats = fs.readdirSync(this.root()) } catch { chats = [] }
+    for (const c of chats) {
+      try {
+        if (!this.ctx.db.query('SELECT 1 FROM chats WHERE id = ?').get(c)) { aside(c, null); continue }
+        for (const name of fs.readdirSync(this.dir(c))) {
+          const id = name.replace(/\.thumb\.(jpg|png)$/, '')
+          if (this.ctx.db.query('SELECT 1 FROM chat_files WHERE id = ? AND chat_id = ?').get(id, c)) continue
+          if (now - fs.statSync(path.join(this.dir(c), name)).mtimeMs < ORPHAN_MS) continue
+          aside(c, name)
+        }
+      } catch (e) { this.ctx.log.debug('chat files sweep passed a folder over', { err: e }) }
+    }
+    // batches set aside long enough ago, by their folder's time (a clock set back keeps them)
+    let batches: string[] = []
+    try { batches = fs.readdirSync(this.orphansRoot()) } catch { /* none */ }
+    for (const b of batches) {
+      try {
+        const p = path.join(this.orphansRoot(), b)
+        if (now - fs.statSync(p).mtimeMs >= CHAT_FILE_ORPHAN_KEEP_MS) { fs.rmSync(p, { recursive: true, force: true }); n++ }
+      } catch { /* gone meanwhile */ }
     }
     return n
   }

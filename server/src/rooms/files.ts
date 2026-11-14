@@ -42,18 +42,11 @@ import { checkRegular, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail, type ThumbExt } from '../uploads/image'
-import { cleanImage, imageFormat, PHOTO } from '../uploads/metadata'
+import { cleanImage, imageFormat, PHOTO, plainPicture } from '../uploads/metadata'
 import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
-
-/** GIF, BMP or SVG by its first bytes (and its name for SVG, which has none): pictures shown as they are. */
-function plainPicture(b: Uint8Array, name: string): boolean {
-  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return true // GIF8
-  if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4d) return /\.bmp$/i.test(name) // BM
-  return /\.svg$/i.test(name) && /^\s*</.test(Buffer.from(b.subarray(0, 256)).toString('utf8').replace(/^\uFEFF/, ''))
-}
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000

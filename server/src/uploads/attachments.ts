@@ -26,7 +26,7 @@ import { instructionFile } from '../team-files/ai-trash'
 import { FileError } from '../team-files/errors'
 import { ToolError } from '../policy/errors'
 import { sharedUploadPlace } from './shared-chat'
-import { chatFilesOf } from '../chat/chat-files'
+import { CHAT_FILE_MAX, chatFilesOf } from '../chat/chat-files'
 import { isPeopleRow } from '../chat/chat-audience'
 import { safeOpsEnabled } from '../safe-ops/runner'
 
@@ -62,17 +62,19 @@ export class Attachments {
    * see whose project folder they may write (the file goes there: uploads/shared-chat.ts sharedUploadPlace, which
    * refuses otherwise; with its reference's limits and, `sha256` known, the download-only list, so a large upload is
    * refused before its bytes are sent). Checked again when the file is placed (rules may change meanwhile). */
-  assertUploadChat(userId: string, chatId: string, sha256?: string) {
+  assertUploadChat(userId: string, chatId: string, sha256?: string, size?: number) {
     const shared = visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
-    if (shared && isPeopleRow(shared)) { this.peopleChecks(); return }
+    if (shared && isPeopleRow(shared)) { this.peopleChecks(size); return }
     if (shared) { this.sharedChecks(userId, shared, sha256); return }
     this.assertOwnChat(userId, chatId)
   }
 
   /** A chat shared with people and groups (chat/chat-files.ts): the file is kept with the chat. Read-only while safe
    * operations are on, as the chat is (409 safe_ops). */
-  private peopleChecks() {
+  private peopleChecks(size?: number) {
     if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
+    // at most 50 MB a file there, a chunked upload too (refused before its bytes are sent)
+    if (size !== undefined && size > CHAT_FILE_MAX) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
   }
 
   /** The place of a shared chat's upload and what refuses it before anything is written. */

@@ -27373,17 +27373,28 @@ shared with people and groups, and files attached before the share stayed visibl
   chat", never the chat's title or people.
 - **Earlier uploads.** At the first share of a private chat (and again after it was made private and shared again) the
   creator's computer uploads in its messages are copied into the chat's files and the messages point to the copies
-  (`ChatFiles.copyEarlier`, audited `chat.files_copied` with a count), read through one descriptor that follows no
-  link. An upload whose file is gone, unreadable, or edited or replaced since it was attached (another sha256) stays its
-  sender's alone; the originals stay in their folder.
-- **Limits and storage.** The chat attachments' limits (50 MB a file, the storage check, the chunked upload path); the
-  bytes count in the team's storage (no per-person ledger exists; Admin › System counts them with the team folder, as
-  room files). Pictures keep their metadata, like every other chat attachment (rooms strip it; not changed here).
-- **Deleting.** Deleting a chat for good (trash purge) removes its rows (ON DELETE CASCADE) and its folder; an
-  account purge's chats lose their rows the same way and the hourly sweep removes the folder of a chat that is gone,
-  uploads never sent after a day, and files without a row after an hour. ✕ on a chip before sending removes that
-  upload (`DELETE /api/attachments/:id`).
-- **Audit.** `chat.file_add` (the chat, size and kind; never the file's name) and `chat.files_copied` (a count).
+  (`ChatFiles.copyEarlier`). The Share check counts them first: the confirm answer carries `earlierFiles` (in the key)
+  and asks even when nothing else would ("N files you attached will be visible to them", `chat.share.earlierFiles`).
+  The copy runs in the share request, read and written without blocking the server through one descriptor that follows
+  no link, each file at most 50 MB and checked against the team's storage (`assertStorageRoom`). Not copied, and so
+  still its sender's alone: a file gone, unreadable, edited or replaced since it was attached (another sha256), over
+  50 MB, without storage room, or a picture whose metadata cannot be cut out; the saved answer tells the creator how
+  many (`filesNotCopied`, `chat.share.filesNotCopied`). The originals stay in their folder. Not after the response: the
+  creator must be told what was not shared, and a 50 MB cap keeps the request short.
+- **Limits and storage.** At most 50 MB a file in such a chat, a chunked upload too (413 `chat_file_too_large` when the
+  session is made and again when it is placed; elsewhere a chunked attachment may be larger). The storage check as for
+  any upload; the bytes count in the team's storage (no per-person ledger exists; Admin › System counts them with the
+  team folder, as room files). A picture's metadata (the place it was taken, the camera) is cut out before others get
+  it, as in rooms (`uploads/metadata.ts` PHOTO), on upload and on the copy at the share (the sha256 check is on the
+  bytes as attached, before cleaning); a picture that cannot be cleaned is refused (upload) or not copied; one that can
+  be neither cleaned nor shown as it is goes as a plain file.
+- **Deleting.** Deleting a chat for good (trash purge) removes its rows (ON DELETE CASCADE) and its folder. ✕ on a chip
+  before sending removes that upload (`DELETE /api/attachments/:id`); uploads never sent go after a day. Nothing else is
+  deleted on a guess: the hourly sweep sets aside the folder of a chat that is gone (an account purge's chats) and a
+  file without its row (an hour old; a new file's time is set when it is placed) in `.system/chat-files-orphans/`, kept
+  30 days like room files' orphans, so a database restored from an older backup can be gone back from.
+- **Audit.** `chat.file_add` (the chat, size and kind; never the file's name) and `chat.files_copied` (counts: copied,
+  not copied).
 - **Composer.** The computer is offered in such a chat again (`Chat.shared.canUpload`, false while safe operations are
   on); the line under the chips says "Everyone who sees this chat can open it" (`chat.share.uploadLine`, 6 languages).
 - **Numbering.** Migration 400: component B's 200–299 is full (298, 299), and 400–499 is B's second range.

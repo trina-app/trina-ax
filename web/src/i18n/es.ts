@@ -4799,6 +4799,8 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.later": "Todos en esta sala lo verán, incluidas las personas que se unan más adelante.",
   "chat.share.widen": "{n, plural, one {# respuesta de aquí usó} other {# respuestas de aquí usaron}} lugares que {names} no pueden abrir. Si los agrega, también verán esas respuestas.",
   "chat.share.uploadLine": "Todos los que ven este chat pueden abrirlo",
+  "chat.share.earlierFiles": "{n, plural, one {# archivo que adjuntaste será visible} other {# archivos que adjuntaste serán visibles}} para ellos.",
+  "chat.share.filesNotCopied": "{n, plural, one {# archivo que adjuntaste antes no se compartió} other {# archivos que adjuntaste antes no se compartieron}} (demasiado grandes, sin espacio o cambiados desde entonces). Solo tú puedes abrirlos.",
   "share.widenList.show": "Ver respuestas",
   "share.widenList.title": "Respuestas que verá {names}",
   "share.widenList.sub": "Estas respuestas usaron lugares que {names} no pueden abrir. Si los agrega, también verán las respuestas.",

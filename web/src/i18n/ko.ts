@@ -4843,6 +4843,8 @@ export const ko = {
   "shareRoom.later": "나중에 들어오는 사람을 포함해 이 대화방의 모두가 보게 돼요.",
   "chat.share.widen": "여기 있는 답 {n}개가 {names}이(가) 열 수 없는 곳을 참고했어요. 추가하면 그 답도 보게 돼요.",
   "chat.share.uploadLine": "이 채팅을 보는 사람은 모두 열 수 있어요",
+  "chat.share.earlierFiles": "내가 첨부한 파일 {n}개도 이 사람들이 볼 수 있게 돼요.",
+  "chat.share.filesNotCopied": "전에 첨부한 파일 {n}개는 공유하지 못했어요(너무 크거나, 저장 공간이 없거나, 그 뒤에 바뀜). 나만 열 수 있어요.",
   "share.widenList.show": "답 보기",
   "share.widenList.title": "{names}이(가) 보게 될 답",
   "share.widenList.sub": "이 답들은 {names}이(가) 열 수 없는 곳을 참고했어요. 추가하면 이 답도 보게 돼요.",

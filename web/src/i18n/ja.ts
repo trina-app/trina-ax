@@ -4799,6 +4799,8 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.later": "あとから参加する人も含め、このトークルームの全員が見ることになります。",
   "chat.share.widen": "ここにある{n, plural, one {#件の回答} other {#件の回答}}は、{names}が開けない場所を使っています。追加すると、その回答も見られるようになります。",
   "chat.share.uploadLine": "このチャットを見られる人は全員開けます",
+  "chat.share.earlierFiles": "添付したファイル{n, plural, one {#件} other {#件}}もこの人たちに見えるようになります。",
+  "chat.share.filesNotCopied": "以前添付したファイル{n, plural, one {#件} other {#件}}は共有できませんでした（大きすぎる、保存容量がない、またはその後変更された）。開けるのは自分だけです。",
   "share.widenList.show": "回答を見る",
   "share.widenList.title": "{names}が見ることになる回答",
   "share.widenList.sub": "これらの回答は、{names}が開けない場所を使っています。追加すると、回答も見られるようになります。",

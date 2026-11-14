@@ -4843,6 +4843,8 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.later": "Semua orang di ruang obrolan ini akan melihatnya, termasuk orang yang bergabung nanti.",
   "chat.share.widen": "{n} jawaban di sini memakai tempat yang tidak bisa dibuka {names}. Menambahkan mereka juga menampilkan jawaban itu.",
   "chat.share.uploadLine": "Semua yang melihat obrolan ini bisa membukanya",
+  "chat.share.earlierFiles": "{n} berkas yang Anda lampirkan juga akan terlihat oleh mereka.",
+  "chat.share.filesNotCopied": "{n} berkas yang Anda lampirkan sebelumnya tidak dibagikan (terlalu besar, ruang penyimpanan habis, atau sudah berubah). Hanya Anda yang bisa membukanya.",
   "share.widenList.show": "Lihat jawaban",
   "share.widenList.title": "Jawaban yang akan dilihat {names}",
   "share.widenList.sub": "Jawaban ini memakai tempat yang tidak bisa dibuka {names}. Menambahkan mereka juga menampilkan jawabannya.",

@@ -3751,6 +3751,10 @@ export function composeMessage(m: Pick<MessageRow, 'content' | 'attachments'>, a
     atts = atts.map((a) => (a.source === 'team' ? blankTeamAttachment(a) : a))
   }
   if (!atts.length) return m.content
+  // an attachment hidden from this person (someone else's upload of their own folder, a chat file they may not open:
+  // blanked) is left out: nothing about it goes to the AI
+  atts = atts.filter((a) => a.source === 'team' || !a.unavailable)
+  if (!atts.length) return m.content
   // a file kept with a chat shared with people (chat/chat-files.ts) is in no team folder: chat_file reads it
   const list = atts.map((a) => (a.source === 'chat' ? `- a file sent in this chat: "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; file_id=${a.id}; read it with chat_file)`
     : a.source !== 'team' ? `- ${a.path} (${a.name}, ${a.mime}, ${a.size} bytes)`

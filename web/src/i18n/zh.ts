@@ -4774,6 +4774,8 @@ export const zh: Record<MessageKey, string> = {
   "shareRoom.later": "这个群聊里的所有人都会看到，包括之后加入的人。",
   "chat.share.widen": "这里有{n, plural, one {#个回答} other {#个回答}}用到了{names}打不开的位置。添加他们后，也会显示这些回答。",
   "chat.share.uploadLine": "能看到此对话的人都可以打开它",
+  "chat.share.earlierFiles": "你附加的{n, plural, one {#个文件} other {#个文件}}也会对他们可见。",
+  "chat.share.filesNotCopied": "之前附加的{n, plural, one {#个文件} other {#个文件}}没有共享（太大、存储空间不足或之后已更改）。只有你能打开。",
   "share.widenList.show": "查看回答",
   "share.widenList.title": "{names}将看到的回答",
   "share.widenList.sub": "这些回答用到了{names}打不开的位置。添加他们后，也会显示这些回答。",

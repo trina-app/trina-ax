@@ -4843,6 +4843,8 @@ export const en: Record<MessageKey, string> = {
   "shareRoom.later": "Everyone in this room will see it, including people who join later.",
   "chat.share.widen": "{n, plural, one {# answer} other {# answers}} here used places {names} can't open. Adding them shows those answers too.",
   "chat.share.uploadLine": "Everyone who sees this chat can open it",
+  "chat.share.earlierFiles": "{n, plural, one {# file you attached} other {# files you attached}} will be visible to them.",
+  "chat.share.filesNotCopied": "{n, plural, one {# file you attached earlier wasn't shared} other {# files you attached earlier weren't shared}} (too large, no storage room, or changed since). Only you can open them.",
   "share.widenList.show": "Show answers",
   "share.widenList.title": "Answers {names} will see",
   "share.widenList.sub": "These answers used places {names} can't open. Adding them shows the answers too.",
