@@ -167,6 +167,10 @@ export const ConnectionStatus = z.object({
    * team.example.com: tunnel.host or an https origin with an internet name, server/src/system/connection.ts
    * publicAddress); null = none, so without the relay only the office network */
   publicAddress: z.string().nullable().optional(),
+  /** the server's own public address has a country or network list, and the team has an app posting in a room: apps
+   * reach it anyway at its /in/ addresses (docs/DECISIONS.md "Apps posting in rooms", owner decision 8). Older servers
+   * omit it */
+  appsAnywhere: z.boolean().optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 /** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */

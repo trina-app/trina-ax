@@ -206,7 +206,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const line = !m ? '' : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const nameOf = useNameOf()
-  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
+  // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
+  const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
   const unread = roomUnread(room)
   const menu = useRowMenu()
   return (

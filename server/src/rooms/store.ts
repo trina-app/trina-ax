@@ -285,7 +285,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       // them) shows no content; a hidden answer says so (withheld)
       const shown = q && canSee(db, q, viewer) && !q.deleted_at && !q.event
       const hidden = !shown && !!q && !q.deleted_at && !q.event && isHiddenFor(db, q, viewer.user_id)
-      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}) }
+      // a quoted app message (rooms/apps): its plain text (the body escapes Markdown marks and addresses) and the app
+      const qApp = shown && q.app_card ? appRefsOf(db, [q]).get(q.id) : undefined
+      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(qApp ? unescapeMarkdown(q.body).replace(/<(https:\/\/[^>\s]+)>/g, '$1').replace(/\s+/g, ' ').trim() : q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}), ...(qApp ? { app: qApp } : {}) }
     }
     const thread = threads.get(r.id)
     const reacted = reactions.get(r.id)
@@ -587,13 +589,16 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
   const mine = rows.filter((r) => r.app_card)
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
-  const live = new Set(ids.length ? (db.query(`SELECT id FROM room_apps WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string }[]).map((a) => a.id) : [])
+  // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
     const kind = stored.app.kind as RoomAppKind
     out.set(r.id, {
       id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })
   }

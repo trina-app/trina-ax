@@ -18,6 +18,7 @@ import { handoverPushWanted } from '../admin/handover-notices'
 import { roomNoticeOut } from '../rooms/inbox'
 import { chatAnswerWanted } from './chat-answers'
 import { chatShareLabel, chatShareWanted } from './chat-shares'
+import { roomAppPushWanted } from '../rooms/apps/notice'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
@@ -58,6 +59,9 @@ const SOURCES=[
   // a chat shared with me by name (migration 351; a group's people get the Inbox row alone): while I still see it,
   // outside my quiet hours, with "Chats shared with me" on
   {inbox:'chat_share_notices',deliveries:'chat_share_push_deliveries',only:'AND named=1',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatShareWanted(ctx,id,now),due:'?'},
+  // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
+  // person still in its room (rooms/apps/notice.ts)
+  {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {

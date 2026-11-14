@@ -5,6 +5,7 @@ import { eventEnabled, pushEventEnabled } from './preferences'
 import { noticeWanted } from '../rooms/alerts'
 import { chatAnswerPath } from './chat-answers'
 import { chatSharePath } from './chat-shares'
+import { roomAppPushPath } from '../rooms/apps/notice'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
 export function onPushCancellation(ctx: AppContext, stop: Stop) { listeners.set(ctx, stop); return () => { if (listeners.get(ctx) === stop) listeners.delete(ctx) } }
@@ -52,6 +53,8 @@ pushPaths.set('owner.lead_joined', () => '/')
 pushPaths.set('chat.answer_done', chatAnswerPath)
 // a chat shared with me by name opens that chat while I still see it (notifications/chat-shares.ts)
 pushPaths.set('chat.shared', chatSharePath)
+// an app's paused notice opens the app's room (/rooms/<roomId>) while the person is still in it (rooms/apps/notice.ts)
+pushPaths.set('room_app.paused', roomAppPushPath)
 // the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
 pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }

@@ -58,6 +58,13 @@ export const TEXT = {
     en: 'Someone shared a chat with you.',
     id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
   },
+  // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
+  // gateway has the same words: push-gateway/src/text.ts)
+  'room_app.paused': {
+    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a room was paused for today.',
+    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** The line under the sharer's name (the title) when an iPhone's notification extension names them
  * (notifications/chat-shares.ts chatShareLabel). Never the chat's title. */
@@ -109,5 +116,6 @@ export function pushMessages(locale: Locale) {
     'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
     'chat.answer_done': TEXT['chat.answer_done'][locale],
     'chat.shared': TEXT['chat.shared'][locale],
+    'room_app.paused': TEXT['room_app.paused'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

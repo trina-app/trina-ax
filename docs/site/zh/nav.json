@@ -9,7 +9,7 @@
       { "title": "核心概念", "pages": ["get-started/key-concepts"] }
     ] },
     { "title": "使用 Trina AX", "groups": [
-      { "title": "与 AI 一起工作", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/google-own-app", "use/slack", "use/scheduled-tasks"] },
+      { "title": "与 AI 一起工作", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/google-own-app", "use/slack", "use/room-apps", "use/scheduled-tasks"] },
       { "title": "文件和成员", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] },
       { "title": "你的账号", "pages": ["use/settings-and-search"] }
     ] },
