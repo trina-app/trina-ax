@@ -105,6 +105,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
   // not offered: me and the creator (always in it); their row is found by key
   const exclude = useMemo(() => new Set([me ? `user:${me.user.id}` : '', creator ? `user:${creator.id}` : ''].filter(Boolean)), [me, creator])
   const fixed = useMemo(() => new Map(creator ? [[`user:${creator.id}`, t('chat.share.started')]] : []), [creator, t])
+  // a phone: my own row says "You" (the whole tag in its tooltip and name), someone else's "Started this chat"
+  const phoneTags = useMemo(() => new Map(creator && creator.id === me?.user.id ? [[`user:${creator.id}`, t('projects.youTag')]] : []), [creator, me, t])
   const dirty = editable && !sameParticipants(picks, saved)
   const savedKeys = useMemo(() => new Set(saved.map(participantKey)), [saved])
   const adding = useMemo(() => picks.filter((x) => !savedKeys.has(participantKey(x))), [picks, savedKeys])
@@ -174,7 +176,14 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
 
   const p = ask?.provenance
   const places = p?.places.map((x) => placeName(t, x)) ?? []
-  const provenance = !p ? null : p.unknown ? t('chat.shareChat.unknown') : places.length ? t('chat.shareChat.provenance', { m: p.people, places: places.join(', ') }) : t('chat.shareChat.provenanceNoPlace', { m: p.people })
+  // one warning for what the new people would start seeing: the answers that used places they can't open (the places by
+  // name where I may open them), with "Show answers ›"; without such answers the check's own line (content from places
+  // some of them can't open, or "not all known")
+  const hidden = ask?.hiddenAnswers && addedNames ? ask.hiddenAnswers : 0
+  const unknown = p?.unknown ? t('chat.shareChat.unknown') : null
+  const warning = hidden
+    ? [places.length && !p?.unknown ? t('chat.share.warnPlaces', { n: hidden, names: addedNames, places: places.join(', ') }) : t('chat.share.warn', { n: hidden, names: addedNames }), unknown].filter(Boolean).join(' ')
+    : !p ? null : unknown ?? (places.length ? t('chat.shareChat.provenance', { m: p.people, places: places.join(', ') }) : t('chat.shareChat.provenanceNoPlace', { m: p.people }))
   const label = ask ? t('chat.share.shareAnyway') : saved.length ? t('common.save') : t('chat.share.share')
   return (
     <Modal
@@ -195,7 +204,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
       ) : (
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
-          <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()} className="max-sm:w-full" data-testid="chat-share-save">{label}</Button>
+          {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
+          <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:flex-1" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()} className="max-sm:flex-1" data-testid="chat-share-save">{label}</Button>
         </>
       )}
     >
@@ -217,7 +228,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
             <MembersField label={t('chat.share.withAccess')}>
               {editable ? (
                 <ParticipantPicker options={options} value={picks} onChange={(v) => { setPicks(v); setError(null) }} fixed={fixed} current={saved}
-                  placeholder={t('chat.share.add')} exclude={exclude} testId="chat-share-picker" />
+                  placeholder={t('chat.share.add')} exclude={exclude} phoneTags={phoneTags} testId="chat-share-picker" />
               ) : (
                 <ParticipantPicker options={options} value={saved} onChange={() => {}} fixed={fixed} readOnly testId="chat-share-picker" />
               )}
@@ -233,29 +244,32 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
                   {t('chat.shareChat.changed')}
                 </p>
               )}
-              {provenance && (
-                <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep text-warn" data-testid="chat-share-provenance">
+              {warning && (
+                <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep text-warn" data-testid="chat-share-warning">
                   <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
-                  <span>{provenance}</span>
+                  <span>
+                    {warning}
+                    {hidden > 0 && (
+                      <>
+                        {' '}
+                        <button type="button" onClick={() => setListing(true)} className="touch-hit inline-flex items-center font-medium text-accent-text hover:underline" data-testid="chat-share-widen-show">
+                          {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </p>
               )}
+              {/* a quiet line of its own: not about the people, about my memories */}
               {ask?.memories && (
-                <p className="flex items-start gap-2 text-sm leading-6 break-keep text-ink" data-testid="chat-share-memories">
+                <p className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-memories">
                   <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
                   <span>{t('chat.shareChat.memories')}</span>
                 </p>
               )}
-              {/* the widening warning: answers the people being added would start seeing that used places they miss */}
-              {!!ask?.hiddenAnswers && addedNames && (
-                <p className="text-sm leading-6 break-keep text-ink" data-testid="chat-share-widen">
-                  {t('chat.share.widen', { n: ask.hiddenAnswers, names: addedNames })}{' '}
-                  <button type="button" onClick={() => setListing(true)} className="touch-hit inline-flex items-center font-medium text-accent-text hover:underline" data-testid="chat-share-widen-show">
-                    {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
-                  </button>
-                </p>
-              )}
               {removesAll && <p className="text-sm leading-6 break-keep text-warn" data-testid="chat-share-only-you">{t('chat.share.onlyYou')}</p>}
-              <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t('chat.share.note')}</p>
+              {/* the fixed note; shorter while a warning says the rest */}
+              <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(warning ? 'chat.share.noteShort' : 'chat.share.note')}</p>
             </>
           )}
         </div>

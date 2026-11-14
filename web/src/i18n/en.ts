@@ -5403,4 +5403,7 @@ export const en: Record<MessageKey, string> = {
   "audit.key.sharedWith": "Shared with",
   "audit.shareKind.project": "The project's members",
   "audit.shareKind.people": "People and groups chosen by its creator",
+  "chat.share.warnPlaces": "{n, plural, one {# answer} other {# answers}} here used places {names} can't open ({places}). Adding {names} shows those answers too.",
+  "chat.share.warn": "{n, plural, one {# answer} other {# answers}} here used places {names} can't open. Adding {names} shows those answers too.",
+  "chat.share.noteShort": "Everyone here sees the whole chat and can ask the AI in it. You can remove people later.",
 }

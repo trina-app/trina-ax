@@ -5403,4 +5403,7 @@ export const id: Record<MessageKey, string> = {
   "audit.key.sharedWith": "Dibagikan dengan",
   "audit.shareKind.project": "Anggota proyek",
   "audit.shareKind.people": "Orang dan grup yang dipilih pembuatnya",
+  "chat.share.warnPlaces": "{n} jawaban di sini memakai tempat yang tidak bisa dibuka {names} ({places}). Menambahkan {names} juga menampilkan jawaban itu.",
+  "chat.share.warn": "{n} jawaban di sini memakai tempat yang tidak bisa dibuka {names}. Menambahkan {names} juga menampilkan jawaban itu.",
+  "chat.share.noteShort": "Semua orang di sini melihat seluruh chat dan bisa bertanya ke AI di dalamnya. Anda bisa mengeluarkan orang nanti.",
 }

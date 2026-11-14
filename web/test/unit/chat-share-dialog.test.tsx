@@ -77,6 +77,9 @@ describe('the save model and every exit', () => {
     let closed = 0
     const m = await open(() => closed++)
     expect(m.get('participant-tags-user-mia').textContent).toContain(en('chat.share.started'))
+    // a phone shows "You" alone (no cut tag); the whole tag is its tooltip
+    expect(m.get('participant-tags-user-mia').getAttribute('title')).toBe(`${en('projects.youTag')} · ${en('chat.share.started')}`)
+    expect(m.get('participant-tags-user-mia').querySelector('span[class="sm:hidden"]')?.textContent).toContain(en('projects.youTag'))
     expect(m.find('participant-remove-user-mia')).toBeNull()
     expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
@@ -85,8 +88,12 @@ describe('the save model and every exit', () => {
     // me is never offered
     await m.type('chat-share-picker-search', 'mia')
     expect(m.find('participant-add-user-mia')).toBeNull()
-    await m.click(closeButton(m))
+    // Cancel beside Save: with nothing changed it just closes, as ✕ does
+    expect(m.get('chat-share-cancel').textContent).toBe(en('common.cancel'))
+    await m.click('chat-share-cancel')
     expect(closed).toBe(1)
+    await m.click(closeButton(m))
+    expect(closed).toBe(2)
     expect(m.find('dialog-confirm')).toBeNull()
     await m.unmount()
   })
@@ -105,7 +112,8 @@ describe('the save model and every exit', () => {
     await m.until(() => !m.find('dialog-confirm'), 'the ask gone', 2000)
     expect(closed).toBe(0)
     expect(m.get('participant-user-bob').getAttribute('data-state')).toBe('new')
-    await m.click(closeButton(m))
+    // Cancel asks the same
+    await m.click('chat-share-cancel')
     await m.click(await m.until(() => m.find('dialog-confirm'), 'the discard ask again', 2000))
     await m.until(() => closed === 1, 'closed', 2000)
     expect(sent.some((x) => x.key === `PUT ${AUD}`)).toBe(false)
@@ -160,9 +168,11 @@ describe('the save model and every exit', () => {
     const m = await open(() => closed++)
     await addBob(m)
     await m.click('chat-share-save')
-    await m.until(() => m.find('chat-share-provenance'), 'the provenance line', 2000)
+    // one warning (the answers, with the place I may open), the memories a quiet line of their own, the note shorter
+    const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 2000)
+    expect(warning.textContent).toContain(en('chat.share.warnPlaces', { n: 3, names: 'Bob', places: en('shareRoom.placeMineFiles') }))
     expect(m.get('chat-share-memories').textContent).toBe(en('chat.shareChat.memories'))
-    expect(m.get('chat-share-widen').textContent).toContain(en('chat.share.widen', { n: 3, names: 'Bob' }))
+    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.noteShort'))
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.shareAnyway'))
     // the list, about this chat
     await m.click('chat-share-widen-show')
@@ -174,7 +184,7 @@ describe('the save model and every exit', () => {
     // another pick: the confirm goes, Share again
     await m.type('chat-share-picker-search', 'sora')
     await m.click(await m.until(() => m.find('participant-add-user-sora'), 'Sora to add', 2000))
-    await m.until(() => !m.find('chat-share-provenance'), 'the lines gone', 2000)
+    await m.until(() => !m.find('chat-share-warning'), 'the lines gone', 2000)
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
     await m.click('participant-remove-user-sora')
     await m.click('chat-share-save')

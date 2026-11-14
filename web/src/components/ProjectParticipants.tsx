@@ -92,7 +92,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, readOnly = false, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, readOnly = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -108,6 +108,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   placeholder?: string
   /** keys never offered in the results (a chat's Share dialog: me, who is always in it) */
   exclude?: ReadonlySet<string>
+  /** key → a short tag a phone shows instead of the row's whole tag (a chat's Share dialog: "You" for "You · Started
+   * this chat") */
+  phoneTags?: ReadonlyMap<string, string>
   /** who is in it, without the search and without × (someone else's shared chat) */
   readOnly?: boolean
   testId?: string
@@ -276,7 +279,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                   // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
                   meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
                   nameTitle={[x.name, s].filter(Boolean).join(' · ')}
-                  tag={role || undefined}
+                  // a phone: the short tag ("You"), the whole one in the tooltip and the accessible name (never cut)
+                  tag={role && phoneTags?.has(k) ? <><span className="sm:hidden">{phoneTags.get(k)}<span className="sr-only"> · {role}</span></span><span className="max-sm:hidden">{role}</span></> : role || undefined}
+                  tagTitle={role && phoneTags?.has(k) ? role : undefined}
                   tagTestId={`participant-tags-${x.subjectType}-${x.subjectId}`}
                   // a group with its people known (the members dialog): the row opens to list them
                   {...(inside ? {

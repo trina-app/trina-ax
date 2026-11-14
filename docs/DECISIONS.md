@@ -27119,11 +27119,15 @@ written there. Builds on "Chats shared with people and groups" (phase 3, the ser
   "Undo · Keep Bob", axe's label-content rule). Save (Share while not shared) is off with no change. ✕, Esc, the scrim
   and a phone's Back with unsaved changes ask "Discard changes?" [Keep editing] [Discard] (`confirmDialog` got a
   `cancel` label); after a phone's Back answered Keep editing the sheet is made again, so it holds a Back entry again. A
-  failed or offline save keeps the picks and says so above the button; a refusal shows the server's words.
+  failed or offline save keeps the picks and says so above the button; a refusal shows the server's words. A quiet
+  Cancel beside Save runs the same discard check. On a phone my own row's tag is "You" (the whole "You · Started this
+  chat" in its tooltip and accessible name), never cut.
 - **The check comes on Save, not while picking.** The server's check of what new people would see is rate-limited
   (a room-send token, no free probe), so the dialog does not call it per pick: Save answers `confirm` and its lines show
-  in place (the provenance warning, memories, "{n} answers here used places {names} can't open" with "Show answers ›"),
-  the button reads "Share anyway" and sends the key back; changing the picks drops the confirm and asks again. The
+  in place as ONE warning ("{n} answers here used places {names} can't open (My files). Adding {names} shows those
+  answers too. Show answers ›"; place names only where I may open them; the check's own provenance line only when no
+  recorded answer applies) and a quiet memories line; the fixed note shortens while a warning shows (coordinator review,
+  no stacked boxes); the button reads "Share anyway" and sends the key back; changing the picks drops the confirm and asks again. The
   widening list is phase 1's component with the chat as its target, in place of the body (‹ back to the picks).
 - **A phone's answer of the list.** The draft (store/wideningDraft.ts, now with `chatId`) is kept first. Opened from
   the chat's own dialog the answer is on the same screen, which a phone's screen history replaces, so "‹ Back to

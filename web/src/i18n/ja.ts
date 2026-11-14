@@ -5359,4 +5359,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.key.sharedWith": "共有先",
   "audit.shareKind.project": "プロジェクトのメンバー",
   "audit.shareKind.people": "作成者が選んだユーザーとグループ",
+  "chat.share.warnPlaces": "ここにある{n, plural, one {#件の回答} other {#件の回答}}は、{names}が開けない場所（{places}）を使っています。{names}を追加すると、その回答も見られるようになります。",
+  "chat.share.warn": "ここにある{n, plural, one {#件の回答} other {#件の回答}}は、{names}が開けない場所を使っています。{names}を追加すると、その回答も見られるようになります。",
+  "chat.share.noteShort": "ここにいる全員がチャット全体を見られ、このチャットでAIに質問できます。あとからユーザーを外せます。",
 }

@@ -205,9 +205,10 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const dialog = await openShare(page, w.chatId)
       await pick(page, 'Bob', 'bob')
       await dialog.getByTestId('chat-share-save').click()
-      await expect(dialog.getByTestId('chat-share-provenance')).toBeVisible()
+      // one warning: the answers Bob would see, the place I may open by name
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('Bob')
+      await expect(dialog.getByTestId('chat-share-warning')).toContainText('내 파일')
       await expect(dialog.getByTestId('chat-share-memories')).toBeVisible()
-      await expect(dialog.getByTestId('chat-share-widen')).toContainText('Bob')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('그래도 공유')
       await audit(page, 'share dialog, confirm')
       await dialog.getByTestId('chat-share-widen-show').click()

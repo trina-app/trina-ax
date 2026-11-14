@@ -5403,6 +5403,9 @@ export const ko = {
   "audit.key.sharedWith": "공유한 대상",
   "audit.shareKind.project": "프로젝트 멤버",
   "audit.shareKind.people": "채팅을 시작한 사람이 고른 사람과 그룹",
+  "chat.share.warnPlaces": "여기 있는 답 {n}개가 {names}이(가) 열 수 없는 곳({places})을 참고했어요. {names}을(를) 추가하면 그 답도 보게 돼요.",
+  "chat.share.warn": "여기 있는 답 {n}개가 {names}이(가) 열 수 없는 곳을 참고했어요. {names}을(를) 추가하면 그 답도 보게 돼요.",
+  "chat.share.noteShort": "여기 있는 사람은 모두 채팅 전체를 보고 이 채팅에서 AI에게 물어볼 수 있어요. 나중에 사람을 뺄 수 있어요.",
 } as const
 
 export type MessageKey = keyof typeof ko
