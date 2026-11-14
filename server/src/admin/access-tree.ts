@@ -64,7 +64,7 @@ export function treeCmp(a: string, b: string): number {
 /** The tree's marked folders: rule folders and the source's marks, outside users/, .system/ and temp names. */
 function markedPaths(src: TreeSource): Map<string, TreeMark> {
   const out = new Map<string, TreeMark>()
-  for (const f of src.rules.ruleFolders()) {
+  for (const f of src.rules.boundaryFolders()) {
     if (f === '' || !shownSegs(f)) continue
     out.set(f, { kinds: new Set(['rules']) })
   }
@@ -176,7 +176,7 @@ export const rootOpensTo = (who: readonly AccessTreeWho[]) => who.some((w) => w.
 /** One answer's computations: "who" once per deciding folder (a folder without rules answers like the nearest folder
  * with rules above it), the marked folders once. */
 export function treeContext(src: TreeSource) {
-  const ruleFolders = new Set(src.rules.ruleFolders())
+  const ruleFolders = new Set(src.rules.boundaryFolders())
   const marked = markedPaths(src)
   const below = belowCounts(marked)
   const memo = new Map<string, AccessTreeWho[]>()
@@ -281,7 +281,7 @@ export function ruledAnswer(src: TreeSource, segs: readonly string[], exists: bo
   const tc = treeContext(src)
   const limit = Math.min(q.limit ?? TREE_ROWS, MAX_TREE_ROWS)
   const base = segs.join('/')
-  const all = (exists ? src.rules.ruleFolders() : [])
+  const all = (exists ? src.rules.boundaryFolders() : [])
     .filter((f) => f !== '' && (base === '' || f === base || f.startsWith(base + '/')) && f.length <= MAX_PATH_CHARS && shownSegs(f) !== null && segsOf(f).length <= MAX_DEPTH && src.isFolder(segsOf(f)))
     .sort(treeCmp)
   const from = q.cursor === undefined ? all : all.filter((p) => treeCmp(p, q.cursor!) > 0)

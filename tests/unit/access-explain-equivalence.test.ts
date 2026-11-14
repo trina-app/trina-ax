@@ -6,14 +6,19 @@
 // Since "Project contents only for members" (docs/DECISIONS.md) the old function is the reference with one rule added,
 // written out again here (ZonedOld): at or below projects/<name> the owner and admins are judged as a member with the
 // same groups, by the rules at or below projects/<name> only; the system principal keeps write.
+// Since "Folder access adds up like Google Drive (P2)" the reference adds up (AddRef below, written from the rule's
+// words): the widest applying rule up to the nearest limited folder (a folder with the legacy marker everyone: none, as
+// ruleWorld builds the worlds), a person's own "no access" on projects/<name> keeps them out of it; "no access" rows
+// add nothing. The reason names the folder of the widest rule (the nearest on a tie).
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { makeEnv } from '../lib/env'
 import { projectsCaseInsensitive, RuleSet, setProjectsCaseInsensitive, SYSTEM_PRINCIPAL, type Access, type AccessReason, type Principal } from '../../server/src/policy/access'
-import { OldRuleSet, type OldRule } from '../lib/access-before-explain'
+import { type OldRule } from '../lib/access-before-explain'
 import { shownPath } from '../../server/src/admin/access-rows'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 // ---------------- the reference: the old function and the members-only zone ----------------
 /** at or below projects/<name>: `projects` compared after NFC and lower-casing; projects/ itself is outside */
@@ -31,12 +36,46 @@ const depth = (folder: string) => (folder === '' ? 0 : folder.split('/').length)
  * members does), and only the rules of folders at or below projects/<name> count for them (rules on projects/ or the
  * root never reach in). Everyone else, and anyone outside the zone, is judged by the old function as it was.
  */
+const RANKS: Record<Access, number> = { none: 0, read: 1, write: 2 }
+const BYR: Access[] = ['none', 'read', 'write']
+/** The additive rule, plain (no fixed branches but users/, .system/, temp names and the owner and admins outside). */
+class AddRef {
+  private byPath = new Map<string, World['rows']>()
+  private limited = new Set<string>()
+  constructor(rows: World['rows'], limited?: Iterable<string>) {
+    for (const r of rows) { this.byPath.set(r.path, [...(this.byPath.get(r.path) ?? []), r]); if (!limited && r.subject_type === 'everyone' && r.access === 'none') this.limited.add(r.path) }
+    for (const f of limited ?? []) this.limited.add(f)
+  }
+  private applies(r: World['rows'][number], p: Principal) { return r.subject_type === 'everyone' || (r.subject_type === 'role' ? r.subject_id === p.role : r.subject_type === 'group' ? r.subject_id !== null && p.groups.includes(r.subject_id) : r.subject_id === p.id) }
+  access(p: Principal, segs: readonly string[]): Access {
+    if (segs.length && segs[0] === PRODUCT.systemDir) return 'none'
+    if (segs.some((x) => x.startsWith(PRODUCT.tmpPrefix))) return 'none'
+    if (segs[0] === 'users' && segs.length >= 2) return segs[1] === p.id ? 'write' : 'none'
+    if (segs.length === 1 && segs[0] === 'users') return 'read'
+    if (p.role === 'owner' || p.role === 'admin') return 'write'
+    if (inZone(segs) && (this.byPath.get(segs.slice(0, 2).join('/')) ?? []).some((r) => r.subject_type === 'user' && r.subject_id === p.id && r.access === 'none')) return 'none'
+    let best = 0
+    for (let len = segs.length; len >= 0; len--) {
+      const k = segs.slice(0, len).join('/')
+      const a = this.at(p, k)
+      if (a !== null) best = Math.max(best, RANKS[a])
+      if (this.limited.has(k)) break
+    }
+    return BYR[best]!
+  }
+  /** the widest of one folder's rules with access for p (null: none applies) */
+  at(p: Principal, folder: string): Access | null {
+    let best = -1
+    for (const r of this.byPath.get(folder) ?? []) if (r.access !== 'none' && this.applies(r, p)) best = Math.max(best, RANKS[r.access])
+    return best < 0 ? null : BYR[best]!
+  }
+}
 class ZonedOld {
-  private old: OldRuleSet
-  private floor: OldRuleSet
-  constructor(rows: World['rows']) {
-    this.old = new OldRuleSet(rows)
-    this.floor = new OldRuleSet(rows.filter((r) => depth(r.path) >= 2))
+  private old: AddRef
+  private floor: AddRef
+  constructor(rows: World['rows'], limited?: string[]) {
+    this.old = new AddRef(rows, limited)
+    this.floor = new AddRef(rows.filter((r) => depth(r.path) >= 2), limited)
   }
   /** who is judged at segs */
   subject(p: Principal, segs: readonly string[]): Principal { return staffInZone(p, segs) ? { id: p.id, name: p.name, role: 'member', groups: p.groups } : p }
@@ -156,7 +195,7 @@ describe('access() and explain() answer exactly as the permission function did b
     for (let seed = 1; seed <= SEEDS; seed++) {
       const w = world(seed)
       const old = new ZonedOld(w.rows)
-      const now = new RuleSet(w.rows)
+      const now = ruleWorld(w.rows)
       const ruleFolders = [...new Set(w.rows.map((r) => r.path))]
       const listings = new Map<Principal, ReturnType<RuleSet['listing']>>()
       const navs = new Map<string, ReturnType<RuleSet['navigator']>>()
@@ -186,12 +225,13 @@ describe('access() and explain() answer exactly as the permission function did b
             const gated = old.gated(p, segs)
             if (gated) expect(fsegs.length).toBe(2)
             expect(old.at(p, segs, folder)).toBe(want)
-            if (!gated) for (let len = segs.length; len > fsegs.length; len--) expect(old.at(p, segs, segs.slice(0, len).join('/'))).toBeNull()
+            // a deeper folder on the way gives less (the nearest folder is named on a tie)
+            if (!gated) for (let len = segs.length; len > fsegs.length; len--) { const a = old.at(p, segs, segs.slice(0, len).join('/')); expect(a === null || RANKS[a] < RANKS[want]).toBe(true) }
             // the rules shown are the person's rules of the deciding step; the widest of them is the answer
             expect(rules.length).toBeGreaterThan(0)
             expect(rules.every((x) => x.subjectType === tier)).toBe(true)
             expect(rules[0]!.access).toBe(want)
-          } else if (e.reason.kind === 'no-rule') {
+          } else if (e.reason.kind === 'no-rule' || e.reason.kind === 'left') {
             expect(want).toBe('none')
           }
           // "shown in the tree": listing() (once per person, the admin answers) is canList(), from the root and from
@@ -223,7 +263,7 @@ describe('access() and explain() answer exactly as the permission function did b
       }
     }
     // every branch was reached
-    for (const k of ['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule']) expect(kinds.get(k) ?? 0, k).toBeGreaterThan(0)
+    for (const k of ['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule', 'left']) expect(kinds.get(k) ?? 0, k).toBeGreaterThan(0)
     // and inside the zone the owner and admins were decided by a rule, by no rule, and by a temp name; never by their role
     for (const k of ['rule', 'no-rule', 'temp']) expect(zoneKinds.get(k) ?? 0, `zone ${k}`).toBeGreaterThan(0)
     expect(zoneKinds.get('owner-admin') ?? 0).toBe(0)
@@ -247,8 +287,8 @@ describe('access() and explain() answer exactly as the permission function did b
     const paths = [[], ['x1'], ['y'], ['a'], ['a', 'b'], ['a', 'b', 'c'], ['a', 'b', 'c', 'd'], ['z'], ['z', 'q'], ['k'], ['Users'], ['Users', 'alice'], [PRODUCT.systemDir.toUpperCase()]]
     let n = 0
     for (const rows of worlds) {
-      const old = new OldRuleSet(rows)
-      const now = new RuleSet(rows)
+      const old = new AddRef(rows)
+      const now = ruleWorld(rows)
       for (const p of people) {
         const list = now.listing(p)
         for (const segs of paths) {
@@ -263,7 +303,7 @@ describe('access() and explain() answer exactly as the permission function did b
       }
     }
     // what the answers show in those worlds
-    const [five, hole, ghosts] = worlds.map((w) => new RuleSet(w!))
+    const [five, hole, ghosts] = worlds.map((w) => ruleWorld(w!))
     const mia = people[0]!
     expect(five!.navigator([], 3, shownPath)(mia)).toEqual({ listable: true, via: ['users/mia', 'x1', 'x2'], more: true })
     expect(five!.navigator(['y'], 3, shownPath)(mia)).toEqual({ listable: true, via: ['y/1', 'y/2', 'y/3'], more: true })
@@ -281,7 +321,7 @@ describe('access() and explain() answer exactly as the permission function did b
     const env = makeEnv('unit-access-explain')
     try {
       const rows = env.db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as World['rows']
-      const old = new ZonedOld(rows)
+      const old = new ZonedOld(rows, (env.db.query('SELECT path FROM folders WHERE limited = 1').all() as { path: string }[]).map((r) => r.path))
       const now = RuleSet.load(env.db)
       const paths: string[][] = [[]]
       const walkTree = (dir: string, segs: string[]) => {
@@ -292,7 +332,7 @@ describe('access() and explain() answer exactly as the permission function did b
         }
       }
       walkTree(env.fx.team, [])
-      for (const f of now.ruleFolders()) paths.push(f === '' ? [] : f.split('/'))
+      for (const f of now.boundaryFolders()) paths.push(f === '' ? [] : f.split('/'))
       const people = (env.db.query('SELECT id FROM users').all() as { id: string }[]).map((u) => env.files.principal(u.id))
       let n = 0, zone = 0
       for (const p of people) for (const segs of paths) {
@@ -316,7 +356,7 @@ describe('access() and explain() answer exactly as the permission function did b
   })
 
   test('reasons of a fixed table', () => {
-    const rules = new RuleSet([
+    const rules = ruleWorld([
       { path: 'shared', subject_type: 'everyone', subject_id: null, access: 'write' },
       { path: 'projects/x', subject_type: 'group', subject_id: 'sales', access: 'read' },
       { path: 'projects/x', subject_type: 'group', subject_id: 'ops', access: 'write' },
@@ -326,13 +366,15 @@ describe('access() and explain() answer exactly as the permission function did b
     const mia: Principal = { id: 'mia', name: 'Mia', role: 'member', groups: ['sales', 'ops'] }
     const leo: Principal = { id: 'leo', name: 'Leo', role: 'member', groups: [] }
     const adam: Principal = { id: 'adam', name: 'Adam', role: 'admin', groups: [] }
+    // (the widest applying rule; access adds up)
     expect(rules.explain(mia, ['projects', 'x', 'drafts', 'a.md'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/x', tier: 'group', rules: [
-      { subjectType: 'group', subjectId: 'ops', access: 'write' }, { subjectType: 'group', subjectId: 'sales', access: 'read' }] } })
+      { subjectType: 'group', subjectId: 'ops', access: 'write' }] } })
     expect(rules.explain(leo, ['projects', 'x', 'drafts'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/x/drafts', tier: 'user', rules: [{ subjectType: 'user', subjectId: 'leo', access: 'write' }] } })
-    expect(rules.explain(leo, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'rule', folder: 'projects/x', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] } })
+    // projects/x is limited (its legacy marker): nothing from above, and no rule there for leo
+    expect(rules.explain(leo, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/x' } })
     expect(rules.explain(leo, ['projects'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
-    // inside projects/<name> an admin is a member with the same groups: no group here, so everyone:none decides
-    expect(rules.explain(adam, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'rule', folder: 'projects/x', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] } })
+    // inside projects/<name> an admin is a member with the same groups: no group here, so nothing applies
+    expect(rules.explain(adam, ['projects', 'x'])).toEqual({ access: 'none', reason: { kind: 'no-rule', cutAt: 'projects/x' } })
     expect(rules.explain({ ...adam, groups: ['ops'] }, ['projects', 'x', 'a.md'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/x', tier: 'group', rules: [{ subjectType: 'group', subjectId: 'ops', access: 'write' }] } })
     expect(rules.explain(adam, ['projects'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
     expect(rules.explain(adam, ['projects', 'y'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
@@ -349,18 +391,18 @@ describe('access() and explain() answer exactly as the permission function did b
     const rows = [
       // an admin's own rules up there (security review M1), and everyone on projects/
       row('', 'user', 'adam', 'write'), row('projects', 'user', 'adam', 'read'), row('projects', 'role', 'admin', 'write'), row('projects', 'everyone', null, 'read'),
-      // apollo: a group, role rules for admins and the owner (never apply to them there), members shut out (applies to
-      // them too: they are judged as one); inside it a folder for everyone and one for members
-      row('projects/apollo', 'group', 'ops', 'write'), row('projects/apollo', 'role', 'admin', 'write'), row('projects/apollo', 'role', 'owner', 'write'), row('projects/apollo', 'role', 'member', 'none'),
+      // apollo: limited (its legacy marker), a group, the managed marker role admin: write (never applies to them there);
+      // inside it a folder for everyone and one for members (docs/DECISIONS.md "Folder access adds up like Google Drive")
+      row('projects/apollo', 'group', 'ops', 'write'), row('projects/apollo', 'role', 'admin', 'write'), row('projects/apollo', 'everyone', null, 'none'),
       row('projects/apollo/pub', 'everyone', null, 'read'), row('projects/apollo/memo', 'role', 'member', 'read'),
       // zeus: no rules of its own (an older build made it)
     ]
-    const rules = new RuleSet(rows)
+    const rules = ruleWorld(rows)
     const old = new ZonedOld(rows)
     const adam: Principal = { id: 'adam', name: 'Adam', role: 'admin', groups: [] }
     const olga: Principal = { id: 'olga', name: 'Olga', role: 'owner', groups: ['ops'] }
     const mia: Principal = { id: 'mia', name: 'Mia', role: 'member', groups: [] }
-    const shut: AccessReason = { kind: 'rule', folder: 'projects/apollo', tier: 'role', rules: [{ subjectType: 'role', subjectId: 'member', access: 'none' }] }
+    const shut: AccessReason = { kind: 'no-rule', cutAt: 'projects/apollo' }
     // outside the zone, as before: the admin writes projects/ and everything else
     expect(rules.explain(adam, ['projects'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
     expect(rules.explain(adam, ['shared', 'a.md'])).toEqual({ access: 'write', reason: { kind: 'owner-admin' } })
@@ -373,11 +415,12 @@ describe('access() and explain() answer exactly as the permission function did b
     // apollo's own (security review M2: nobody reads part of a project without showing in its members)
     expect(rules.explain(adam, ['projects', 'apollo', 'pub', 'x.md'])).toEqual({ access: 'none', reason: shut })
     expect(rules.explain(adam, ['projects', 'apollo', 'memo'])).toEqual({ access: 'none', reason: shut })
-    // the owner in the project's group is a member: the group rule (not `role: owner`), and below it the folders inside
-    // decide for her as for any member
-    expect(rules.explain(olga, ['projects', 'apollo', 'plan.md'])).toEqual({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [{ subjectType: 'group', subjectId: 'ops', access: 'write' }] } })
-    expect(rules.explain(olga, ['projects', 'apollo', 'pub', 'x.md'])).toEqual({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo/pub', tier: 'everyone', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] } })
-    expect(rules.explain(olga, ['projects', 'apollo', 'memo'])).toEqual({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo/memo', tier: 'role', rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }] } })
+    // the owner in the project's group is a member: the group rule (not her role), and what she has there adds up into
+    // the folders inside it
+    const opsWrite: AccessReason = { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [{ subjectType: 'group', subjectId: 'ops', access: 'write' }] }
+    expect(rules.explain(olga, ['projects', 'apollo', 'plan.md'])).toEqual({ access: 'write', reason: opsWrite })
+    expect(rules.explain(olga, ['projects', 'apollo', 'pub', 'x.md'])).toEqual({ access: 'write', reason: opsWrite })
+    expect(rules.explain(olga, ['projects', 'apollo', 'memo'])).toEqual({ access: 'write', reason: opsWrite })
     expect(rules.explain(olga, ['projects', 'zeus'])).toEqual({ access: 'none', reason: { kind: 'no-rule' } })
     // a member of the team keeps the rules above (projects/ everyone:read reaches zeus for her) and the parts of apollo
     // open to her, though apollo itself is shut for members

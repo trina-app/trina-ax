@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, replaceRules } from '../admin/folders'
+import { afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, writeFolderAccess } from '../admin/folders'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { badSegment } from '../policy/names'
@@ -118,7 +118,7 @@ export class ConnectedFolders {
     const before = captureState(this.db)
     this.db.transaction(() => {
       this.db.query('INSERT INTO connected_folders (id, name, source, created_by) VALUES (?, ?, ?, ?)').run(id, name, source, o.actor)
-      replaceRules(this.db, ensureFolderRow(this.db, rel).id, rules, o.actor)
+      writeFolderAccess(this.db, ensureFolderRow(this.db, rel).id, { rules }, o.actor)
       this.db.query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?, 'connected.add', ?, ?)").run(o.actor, rel, JSON.stringify({ source }))
     })()
     afterAccessChange(this.ctx, before, { actor: o.actor, target: rel, created: [rel] })

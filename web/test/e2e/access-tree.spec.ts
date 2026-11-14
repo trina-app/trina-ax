@@ -13,7 +13,7 @@ const call = async (page: Page, method: 'post' | 'patch', url: string, data: unk
   expect(r.ok(), url).toBeTruthy()
   return r.json()
 }
-const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
+const everyone = (access: 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
 const tree = (page: Page) => page.getByTestId('folder-tree')
 const item = (page: Page, path: string) => tree(page).locator(`[role="treeitem"][data-path="${path}"]`)
 const detail = (page: Page) => page.getByTestId('folder-detail')
@@ -32,9 +32,9 @@ async function team(page: Page) {
   await call(page, 'post', '/api/admin/users', { username: 'carol', name: 'Carol', role: 'member', groupIds: [sales.id], temporaryPassword: 'tiger4271x' })
   await call(page, 'post', '/api/admin/users', { username: 'dan', name: 'Dan', role: 'member', groupIds: [], temporaryPassword: 'tiger4271x' })
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
-  await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
+  await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills/영업', create: true, rules: [everyone('write')] })
-  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }, everyone('none')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'dan', access: 'write' }, { subjectType: 'group', subjectId: sales.id, access: 'read' }], limited: true })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: sales.id, access: 'read' }] })
   await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'partners/apollo' })
   return sales
@@ -118,7 +118,8 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await expect(detail(page).getByTestId('folder-detail-edit')).toHaveText(t['accessTree.share'])
   // the stage 3 reasons, at this folder
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'none')
-  await expect(person(page, 'bob')).toContainText(translate('ko', 'accessView.why.ruleHere', { who: t['rules.everyone'], access: t['access.none'] }))
+  // the folder is limited and no rule here names Bob: nothing from above reaches him (P2)
+  await expect(person(page, 'bob')).toContainText(t['accessView.why.limitedHere'])
   await expect(person(page, 'carol')).toHaveAttribute('data-level', 'read')
   await expect(person(page, 'carol')).toContainText(translate('ko', 'accessView.why.ruleHere', { who: translate('ko', 'rules.groupOf', { name: '영업팀' }), access: t['access.read'] }))
   await expect(person(page, 'dan')).toHaveAttribute('data-level', 'write')
@@ -461,6 +462,22 @@ test('a phone: a chosen folder is a page of its own, without the two views\' swi
   await page.getByTestId('admin-back').click()
   await expect(tree(page)).toBeVisible()
   await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
+})
+
+test('a phone: the Share sheet opened from a folder\'s page closes with one Back, staying in Folder permissions', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  await page.goto('/admin/folders')
+  await page.goto('/admin/folders?folder=shared')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+  await page.getByTestId('folder-detail-edit').click()
+  await expect(page.getByTestId('sharing')).toBeVisible()
+  await page.goBack()
+  await expect(page.getByTestId('sharing')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/admin\/folders\?folder=shared/)
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
 })
 
 test('rule folders only: the folders with rules and the way to them, open; pages; back to the whole tree', async ({ page }) => {

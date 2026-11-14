@@ -180,7 +180,7 @@ describe('a file moved out of a restricted team folder, then the folder renamed 
   const kinds = (h: any) => h.events.map((e: any) => [e.kind, e.from])
   beforeAll(async () => {
     const db = A.ctx.db
-    db.query("INSERT INTO folders (id, path) VALUES ('f_sec_fin', 'shared/sec-fin')").run()
+    db.query("INSERT INTO folders (id, path, limited) VALUES ('f_sec_fin', 'shared/sec-fin', 1)").run()
     db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_sec_fin_g', 'f_sec_fin', 'group', 'finance', 'write'), ('r_sec_fin_e', 'f_sec_fin', 'everyone', null, 'none')").run()
     fs.mkdirSync(path.join(A.team, 'shared/sec-fin'), { recursive: true })
     fs.writeFileSync(path.join(A.team, 'shared/sec-fin/keep.md'), 'keep')

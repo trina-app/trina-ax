@@ -14,7 +14,7 @@ import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
-import { atLeast, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
+import { atLeast, inPlace, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
@@ -26,7 +26,7 @@ import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
-import { dropFolderRow } from '../admin/folders'
+import { dropFolderRow, hasAccessSettings } from '../admin/folders'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { FileError, fileError } from './errors'
@@ -365,7 +365,7 @@ export class TeamFiles {
    * moving it under users/<me>/ (where rules don't apply) or deleting it would reach what they cannot see. */
   private assertSubtreeWritable(user: Principal, rules: RuleSet, segs: string[]) {
     const base = segs.join('/')
-    for (const f of rules.ruleFolders()) if (isUnder(base, f) && rules.access(user, segsOf(f)) !== 'write') fileError('forbidden', 'hiddenInside')
+    for (const f of rules.boundaryFolders()) if (isUnder(base, f) && rules.access(user, segsOf(f)) !== 'write') fileError('forbidden', 'hiddenInside')
     const rows = this.ctx.db.query('SELECT path FROM folders').all() as { path: string }[]
     for (const f of rows) if (isUnder(base, f.path) && rules.access(user, segsOf(f.path)) !== 'write') fileError('forbidden', 'hiddenInside')
   }
@@ -378,7 +378,7 @@ export class TeamFiles {
    * author's included, for good (security review r2).
    */
   private managedInside(rules: RuleSet, base: string): boolean {
-    if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
+    if (rules.boundaryFolders().some((f) => f === base || isUnder(base, f))) return true
     return this.managedRows(base, base)
   }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
@@ -389,7 +389,7 @@ export class TeamFiles {
     for (const f of rows) {
       const live = livePrefix + f.path.slice(rowPrefix.length)
       if (live === 'shared' || live === 'skills') return true
-      if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+      if (hasAccessSettings(db, f.id)) return true
       if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return true
     }
     // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
@@ -404,7 +404,7 @@ export class TeamFiles {
   }
   /** managedInside() for what is strictly below `base` (base itself left out). */
   private managedBelow(rules: RuleSet, base: string): boolean {
-    if (rules.ruleFolders().some((f) => f !== base && isUnder(base, f))) return true
+    if (rules.boundaryFolders().some((f) => f !== base && isUnder(base, f))) return true
     const db = this.ctx.db
     const rows = db.query("SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || '/'").all(base, base) as { path: string }[]
     for (const f of rows) if (this.managedRows(f.path, f.path)) return true
@@ -1253,7 +1253,7 @@ export class TeamFiles {
     const db = this.ctx.db
     const rows = db.query("SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(fr.rel, fr.rel, fr.rel) as { id: string }[]
     for (const f of rows) {
-      if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id) || db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) fileError('forbidden', 'ruleFolder')
+      if (hasAccessSettings(db, f.id) || db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) fileError('forbidden', 'ruleFolder')
     }
     const size = treeSize(fr.abs)
     this.relocate(userId, fr, tr.segs, true, { tool: 'project-share', onto: true, inTx })
@@ -1496,7 +1496,7 @@ export class TeamFiles {
   private unreadableManagedBelow(user: Principal, rules: RuleSet, rel: string, projectFolders: readonly string[]): boolean {
     const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
     const me = k(rel)
-    const below = [...projectFolders, ...this.groupFolders(), ...rules.ruleFolders()].filter((f) => k(f).startsWith(me + '/'))
+    const below = [...projectFolders, ...this.groupFolders(), ...rules.boundaryFolders()].filter((f) => k(f).startsWith(me + '/'))
     return below.some((f) => !atLeast(rules.access(user, segsOf(f)), 'read'))
   }
 
@@ -1910,15 +1910,14 @@ export class TeamFiles {
       chain.push(up)
       cur = up
     }
-    const rows = db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as { path: string; subject_type: string; subject_id: string | null; access: string }[]
     const at = (p: string, base: string) => base === '' || p === base || p.startsWith(base + '/')
-    const out: typeof rows = []
-    for (const r of rows) {
-      const held = chain.find((c) => at(r.path, c.storage_path))
-      if (held) out.push({ ...r, path: held.original_path + r.path.slice(held.storage_path.length) })
-      else if (!chain.some((c) => at(r.path, c.original_path))) out.push(r)
+    // (the loader: limits and project exceptions come with the rows)
+    const map = (p: string): string | null => {
+      const held = chain.find((c) => at(p, c.storage_path))
+      if (held) return held.original_path + p.slice(held.storage_path.length)
+      return chain.some((c) => at(p, c.original_path)) ? null : p
     }
-    return { path: own.original_path + f.path.slice(storage.length), rules: new RuleSet(out as any) }
+    return { path: own.original_path + f.path.slice(storage.length), rules: RuleSet.fromDb(db, { mapPath: map }) }
   }
   /**
    * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
@@ -1965,10 +1964,7 @@ export class TeamFiles {
     if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id) && project?.created_by !== user.id) return false
     // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
     // since belong to that other folder and do not
-    const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
-        THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-      FROM folder_rules r JOIN folders f ON f.id = r.folder_id
-      WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, home) as any) : rules
+    const r = t.kind === 'folder' ? RuleSet.fromDb(this.ctx.db, { mapPath: inPlace(t.storage_path, home) }) : rules
     const access = (p: string) => r.access(user, segsOf(p))
     if (access(home) !== 'write') return false
     if (t.folder_id) {

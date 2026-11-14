@@ -22,6 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppConfig } from '../app-config'
 import { openDb, pendingMigrationCount, SchemaTooNewError } from '../db'
+import { projectsCaseInsensitive, setProjectsCaseInsensitive } from '../policy/access'
 import { directFetch } from '../http/tunnel'
 import type { Logger } from '../log'
 
@@ -80,7 +81,8 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
   let removeHandlers = () => {}
   try {
     const child = Bun.spawn([process.execPath, o.entry], {
-      env: { ...process.env, [MIGRATE_DB_ENV]: o.file, ...(o.migrationsDir ? { MYCEL_MIGRATE_DIR: o.migrationsDir } : {}) },
+      // (the team folder's case mode, as main.ts found it: the folder access conversion judges projects/<name> by it)
+      env: { ...process.env, [MIGRATE_DB_ENV]: o.file, MYCEL_PROJECTS_CASE_INSENSITIVE: projectsCaseInsensitive() ? '1' : '0', ...(o.migrationsDir ? { MYCEL_MIGRATE_DIR: o.migrationsDir } : {}) },
       stdin: 'ignore', stdout: 'pipe', stderr: 'inherit',
     })
     childPid = child.pid
@@ -124,6 +126,7 @@ export async function migrateBeforeStart(o: MigrateBeforeStartOptions): Promise<
 /** The child (MYCEL_MIGRATE_DB set): open and migrate the database, close it. Returns the exit code. */
 export function runMigrateChild(file: string, migrationsDir = process.env.MYCEL_MIGRATE_DIR || undefined): number {
   const out = (m: object) => process.stdout.write(JSON.stringify(m) + '\n')
+  if (process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '0' || process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '1') setProjectsCaseInsensitive(process.env.MYCEL_PROJECTS_CASE_INSENSITIVE === '1')
   try {
     openDb(file, { migrationsDir, log: { warn: (warn: string, fields?: Record<string, unknown>) => out({ warn, fields }) } }).close()
     return 0

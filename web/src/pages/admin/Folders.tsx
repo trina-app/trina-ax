@@ -5,13 +5,14 @@
 // opens the same panel in By folder (`?edit=<path>&back=<the person view>`), and closing it goes back.
 // A phone (QA TC-377, TC-379): the header's button place is the Admin bar (barActions.tsx: By folder's + and its
 // Filters icon), and By folder / By person take a row of their own, with By person's search under them.
-import { ArrowRight, Loader2, Trash2 } from 'lucide-react'
-import { lazy, Suspense, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { ArrowRight, Info, Loader2, Trash2, X } from 'lucide-react'
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { Folder, PreviewResponse } from '@mycel/shared/api'
+import type { Folder, FolderAccessNotice, PreviewResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
+import { useFolderWords } from '../../lib/folderLabels'
 import { IconButton, Spinner, TabPanel, Tabs, confirmDialog, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
 import { FolderHeaderSlots } from './folder-slots'
@@ -165,6 +166,7 @@ export default function Folders() {
           <span ref={setActions} className="contents" />
         </AdminBarActions>
       )}
+      {!inDetail && <ConversionNotice onOpen={(path) => setParams({ folder: path })} />}
       <TabPanel base={panels} value={view} style={{ '--folders-head': `${head}px` } as CSSProperties}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>
@@ -211,5 +213,46 @@ export function RemovePreview({ preview }: { preview: PreviewResponse }) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * The one-time notice after folder access began to add up like Google Drive (docs/DECISIONS.md "Folder access adds up
+ * like Google Drive (P2)"): the folders that now list their people by name, each opening in By folder, until an owner
+ * or admin closes it (for the whole team). Nothing when the server has nothing to say or is older.
+ */
+function ConversionNotice({ onOpen }: { onOpen: (path: string) => void }) {
+  const t = useT()
+  const words = useFolderWords()
+  const actOk = useActionOk()
+  const [notice, setNotice] = useState<FolderAccessNotice['notice']>(null)
+  useEffect(() => {
+    let gone = false
+    api.call(API.folderAccessNotice).then((r) => !gone && setNotice(r.notice), () => {})
+    return () => { gone = true }
+  }, [])
+  if (!notice) return null
+  const close = async () => { if (await actOk(() => api.call(API.dismissFolderAccessNotice))) setNotice(null) }
+  return (
+    <section className="mb-4 rounded-xl border border-line bg-accent-soft/40 p-4 text-sm" aria-labelledby="folders-notice-title" data-testid="folders-notice">
+      <div className="flex items-start gap-3">
+        <Info size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <h3 id="folders-notice-title" className="font-semibold text-ink">{t('folderAccess.noticeTitle')}</h3>
+          <p className="mt-1 text-muted">{t('folderAccess.noticeBody')}</p>
+          <ul className="mt-2 space-y-1">
+            {notice.folders.map((f) => (
+              <li key={f.path} className="flex flex-wrap items-baseline gap-x-2">
+                <button type="button" className="min-w-0 text-left font-medium [overflow-wrap:anywhere] text-accent-text underline-offset-2 hover:underline" onClick={() => onOpen(f.path)} data-testid="folders-notice-folder">{words.path(f.path, ' › ')}</button>
+                <span className="text-xs text-muted">{t('folderAccess.noticeRow', { n: f.count })}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <IconButton label={t('common.close')} onClick={() => void close()} data-testid="folders-notice-close">
+          <X size={15} />
+        </IconButton>
+      </div>
+    </section>
   )
 }

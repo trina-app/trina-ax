@@ -82,7 +82,7 @@ export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
 const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[], folder: string) =>
   people.filter((q) => accessOf(rules, q, folder) !== 'none').map((q) => q.id)
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = []): FolderView {
+export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = []): FolderView {
   // the team root as a starting folder would make every folder writable again: fail closed
   if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
@@ -90,7 +90,7 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Pr
   if (run?.start) cands.add(run.start)
   // and at the skill folders inside what the run writes: read-only there (runMayWrite)
   if (run) for (const f of runSkillFolders(run, p.id)) cands.add(f)
-  for (const f of rules.ruleFolders()) {
+  for (const f of rules.boundaryFolders()) {
     const s = segsOf(f)
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter
     if (s[0] === 'users' || s[0] === PRODUCT.systemDir || s.some((x) => x.startsWith(PRODUCT.tmpPrefix))) continue

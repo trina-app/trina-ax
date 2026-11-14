@@ -28,9 +28,13 @@ const input = (user: string): PromptInput => {
 
 beforeAll(async () => {
   h = await startHarness({ name: 'b-onboarding-profile' })
-  // bob may not read skills/ at all (a 'none' rule for him): he gets neither the profile nor its block
+  // bob may not read skills/ at all: skills/ limited, the other members named (access adds up, so a "none" rule for
+  // him is a limit that names who keeps it): he gets neither the profile nor its block
   const f = h.ctx.db.query("SELECT id FROM folders WHERE path = 'skills'").get() as { id: string }
-  h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'none')").run(newId(), f.id)
+  h.ctx.db.query('UPDATE folders SET limited = 1 WHERE id = ?').run(f.id)
+  h.ctx.db.query("DELETE FROM folder_rules WHERE folder_id = ? AND subject_type = 'everyone'").run(f.id)
+  h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(newId(), f.id)
+  for (const u of ['alice', 'erin']) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, 'read')").run(newId(), f.id, u)
 })
 afterAll(async () => { await h?.close() })
 

@@ -123,9 +123,9 @@ export function sideRoomSection(r: SideRoomPrompt, locale: Locale = 'en', post =
 
 export function writableFolders(files: FileService, user: Principal): { writable: string[]; readable: string[] } {
   const rules = files.rules()
-  const writable = [...new Set([...rules.ruleFolders(), 'shared', `users/${user.id}`])]
+  const writable = [...new Set([...rules.boundaryFolders(), 'shared', `users/${user.id}`])]
     .filter((f) => f && rules.access(user, f.split('/')) === 'write').sort()
-  const readable = rules.ruleFolders().filter((f) => f && rules.access(user, f.split('/')) === 'read').sort()
+  const readable = rules.boundaryFolders().filter((f) => f && rules.access(user, f.split('/')) === 'read').sort()
   return { writable, readable }
 }
 

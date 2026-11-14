@@ -16,7 +16,7 @@ import type { AppContext } from '../../context'
 import type { Principal } from '../../policy/access'
 import { HttpError } from '../../http/errors'
 import { cutInsideProject } from '../../policy/zone'
-import { accessChanges, type AccessChange, type SeenStates } from '../../admin/folders'
+import { accessChanges, originKeptText, type AccessChange, type SeenStates } from '../../admin/folders'
 import { createGroupAs, deleteGroupAs, getGroup, groupFolder, groupIdByName, listGroups, updateGroupAs } from '../../admin/groups'
 import { isParkedRow } from '../../admin/folder-keep'
 import { listBudgets } from '../../admin/budgets'
@@ -353,6 +353,8 @@ function groupUpdate(ctx: AppContext, user: Principal, args: unknown): GroupOutc
   if (removed.length) said.push(`took out ${listOf(removed.map(show))}`)
   said.push(...unchanged)
   const lines = [`Updated group ${quote(next.name)} (id ${next.id}): ${said.join('; ')}. Members now: ${next.memberIds.length}.`, accessText(ctx, seen, [...added, ...removed])]
+  // people the folder access conversion named keep that access by name after this change (C1-A): no screen warns here
+  if (seen.originKept?.length) lines.push(originKeptText(seen.originKept))
   if (also && added.length) lines.push(`Added people also get through this group: ${also}.`)
   if (also && removed.length) lines.push(`People taken out also lose what this group gave them (unless they get it another way): ${also}.`)
   return ok(lines.join('\n'), { ...audit, renamed: next.name !== g.name })
@@ -370,6 +372,7 @@ function groupDelete(ctx: AppContext, user: Principal, args: unknown): GroupOutc
   const seen: SeenStates = {}
   const pruned = deleteGroupAs(ctx, user.id, g.id, { via: 'connector', seen })
   const lines = [`Deleted group ${quote(g.name)} (id ${g.id}) and the folder rules that named it.${folder ? ` Its folder ${folder} and its files stay.` : ''}`, accessText(ctx, seen, members)]
+  if (seen.originKept?.length) lines.push(originKeptText(seen.originKept))
   if (also && members.length) lines.push(`Its members also lose what this group gave them (unless they get it another way): ${also}.`)
   // a team AI connection it was the last group or person of is switched off, not given to the whole team
   const off = pruned.filter((p) => p.switchedOff)

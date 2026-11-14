@@ -167,10 +167,13 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/atlas', [{ subjectType: 'user', subjectId: 'alice', access: 'write' }, { subjectType: 'group', subjectId: fin.id, access: 'read' }], 'dana')
   legacyProjectFolder(inst.ctx.db, inst.team, 'projects/falcon/public', [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'dana')
+  // (limited, as the conversion makes it: everyone views there, nothing more from falcon; docs/DECISIONS.md "Folder
+  // access adds up like Google Drive (P2)")
+  inst.ctx.db.query("UPDATE folders SET limited = 1 WHERE path = 'projects/falcon/public'").run()
   const folderList = (await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]
   const mktFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('marketing'))!.path
   const finFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('finance'))!.path
-  await owner.ok('POST', '/api/admin/folders', { path: `${mktFolder}/salaries`, create: true, rules: [rule('group', mk.id, 'none')] })
+  await owner.ok('POST', '/api/admin/folders', { path: `${mktFolder}/salaries`, create: true, limited: true, rules: [] })
   const folders = Object.fromEntries(((await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]).map((f) => [f.path, f.id]))
 
   // ---------------- AI connections (sealed in the "browser" like the web app does) ----------------
@@ -199,7 +202,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await save(alice, 'projects/atlas/atlas.md', 'atlas notes\n')
   await save(carol, 'skills/team-rules.md', 'team rules\n')
   // skills: a team skill only the finance group reads, and a personal skill of alice
-  await owner.ok('POST', '/api/admin/folders', { path: 'skills/finance', create: true, rules: [rule('everyone', null, 'none'), rule('group', fin.id, 'read')] })
+  await owner.ok('POST', '/api/admin/folders', { path: 'skills/finance', create: true, limited: true, rules: [rule('group', fin.id, 'read')] })
   await save(carol, 'skills/finance/close.md', `---\nname: Month close\ndescription: ${C.finSkill}\n---\nclose the books\n`)
   await save(alice, 'users/alice/skills/mine.md', `---\nname: Alice own\ndescription: ${C.aliceSkill}\n---\nmy steps\n`)
   // trash

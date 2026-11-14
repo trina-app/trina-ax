@@ -71,7 +71,7 @@ export function folderId(fx: FsCtx, segs: readonly string[]): string | null {
 /** A folder below `from` (exclusive) on the way to `to` (inclusive) that has folder rules of its own: coverage stops
  * there. Both are actual names, `from` a prefix of `to`. */
 export function ruledBetween(rules: RuleSet, from: readonly string[], to: readonly string[]): boolean {
-  const ruled = new Set(rules.ruleFolders())
+  const ruled = new Set(rules.boundaryFolders())
   for (let n = from.length + 1; n <= to.length; n++) if (ruled.has(to.slice(0, n).join('/'))) return true
   return false
 }

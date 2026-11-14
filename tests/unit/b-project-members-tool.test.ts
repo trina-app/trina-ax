@@ -30,7 +30,8 @@ import { compactName, foldName, groupSubject, matchName, MEMBERS_TEXT, mentioned
 import { DICTS } from '../../web/src/i18n'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
-import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
+import { ensureFolderRow } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { TurnFiles } from '../../server/src/files/service'
 import { tr } from '../../server/src/chat/i18n'
 import { PROJECT_MEMBERS_RULE } from '../../server/src/chat/prompt'
@@ -511,23 +512,15 @@ describe('the attacks', () => {
     expect(audits(r.turnId).map((a) => a.outcome)).toEqual(['changed'])
   })
 
-  test('an older folder: the save would add the floor or bring the creator back: refused, sent to the panel, nothing changed', async () => {
-    // a folder an older build made: the creator's rule only, no floor
-    fs.mkdirSync(path.join(h.team, 'projects/old-floor'), { recursive: true })
-    const row = ensureFolderRow(h.ctx.db, 'projects/old-floor')
-    h.ctx.db.transaction(() => replaceRules(h.ctx.db, row.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice'))()
-    const id = uuidv7()
-    h.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'Old floor', 'projects/old-floor', '', 'alice', '2026-01-01T00:00:00Z', 1)").run(id)
-    const r = await turn('alice', `Bob Lee 넣어줘\n${call({ add: [{ name: 'Bob Lee' }] })}`, { projectId: id, answer: 'change' })
-    expect(r.cards).toEqual([])
-    expect(r.content).toContain('"everyone else: no access" rule')
-    expect(r.content).toContain(`/projects/${id}?members=1`)
-    expect(rulesAt('projects/old-floor')).toEqual([{ t: 'user', s: 'alice', a: 'write' }])
+  test('the creator\'s rule missing: the save would bring the creator back: refused, sent to the panel, nothing changed', async () => {
+    // (the other half of this test, a project folder an older build left without "everyone else: no access", cannot
+    // happen any more: the conversion and every writer keep each projects/<name> limited, docs/DECISIONS.md "Folder
+    // access adds up like Google Drive (P2)", invariant 5)
     // the creator's rule taken out by an admin (Admin › Folder permissions of an older build): carol's change would put
     // it back. She is not a member, so she names the project from a chat outside it
     const q = await project('alice', 'No creator rule', [user('erin')])
     const qr = ensureFolderRow(h.ctx.db, q.folderPath)
-    h.ctx.db.transaction(() => replaceRules(h.ctx.db, qr.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
+    h.ctx.db.transaction(() => setFolderAccess(h.ctx.db, qr.id, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
     const c = await turn('carol', `No creator rule 프로젝트에 Bob Lee 넣어줘\n${call({ project: 'No creator rule', add: [{ name: 'Bob Lee' }] })}`, { answer: 'change' })
     expect(c.cards).toEqual([])
     expect(c.content).toContain('the creator\'s rule is missing')
@@ -542,7 +535,7 @@ describe('the attacks', () => {
       // a read rule is added meanwhile (as an older build's Admin › Folder permissions could)
       meanwhile: () => {
         const row = ensureFolderRow(h.ctx.db, p.folderPath)
-        h.ctx.db.transaction(() => replaceRules(h.ctx.db, row.id, [...rulesAt(p.folderPath).map((x) => ({ subjectType: x.t, subjectId: x.s, access: x.a }) as never), { subjectType: 'user', subjectId: 'jun', access: 'read' }], 'carol'))()
+        h.ctx.db.transaction(() => setFolderAccess(h.ctx.db, row.id, [...rulesAt(p.folderPath).map((x) => ({ subjectType: x.t, subjectId: x.s, access: x.a }) as never), { subjectType: 'user', subjectId: 'jun', access: 'read' }], 'carol'))()
       },
     })
     expect(r.content).toContain('changed while the card waited')
