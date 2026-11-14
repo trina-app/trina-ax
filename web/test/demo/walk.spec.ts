@@ -67,7 +67,7 @@ for (const branch of step('banner').suggest!) {
     const leoChat = script.projects[0]!.chats![0]!.title
     await expect(page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first()).toBeVisible()
     await expect(ring(page)).toBeVisible()
-    if (byGuide) await follow(page, step('banner').text)
+    if (byGuide) await follow(page, `Open “${leoChat}” →`)
     else await page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first().click()
     await expect(page.locator('[data-testid="assistant-message"] img[src*="/api/files/download"]').first()).toBeVisible()
     // ② the two prompts in the guide line
@@ -83,26 +83,21 @@ for (const branch of step('banner').suggest!) {
     await expect.poll(() => pictures.first().evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(100)
     await shot(page, `${branch}-5-answer`)
     // ③ the app's own "Send to room": the button, the room row, Send (and its confirm, when it asks)
-    if (byGuide) {
-      // the line presses the ringed control each time: the share button, the room row, Send, the confirm
-      for (let i = 0; i < 5; i++) {
-        if ((await guide(page).textContent().catch(() => '')) === step('room').text) break
-        await guide(page).click()
-        await page.waitForTimeout(700)
-      }
-    } else {
-      await page.getByTestId('share-to-room').last().click({ force: true })
-      const dialog = page.getByRole('dialog')
-      const room = script.rooms.find((r) => r.id === 'mkt-room')!
-      const name = script.groups.find((g) => g.id === room.group)!.name
-      await expect(ring(page)).toBeVisible()
-      await shot(page, `${branch}-6-share`)
-      await dialog.getByTestId('share-room-option').filter({ hasText: name }).first().click()
-      await dialog.getByTestId('share-room-send').click()
-      // (the app asks again only when someone in the room cannot open something in the answer)
-      const confirm = dialog.getByTestId('share-room-confirm-send')
-      if (await confirm.waitFor({ timeout: 2500 }).then(() => true, () => false)) await confirm.click()
-    }
+    // the guide line (or the ringed button itself) opens the dialog; in the dialog the ring shows the room row, then
+    // Send (the guide steps back while the app's dialog is open, so it never covers the dialog's buttons)
+    if (byGuide) await guide(page).click()
+    else await page.getByTestId('share-to-room').last().click({ force: true })
+    const dialog = page.getByRole('dialog')
+    const room = script.rooms.find((r) => r.id === 'mkt-room')!
+    const name = script.groups.find((g) => g.id === room.group)!.name
+    await expect(dialog.getByTestId('share-room-option').first()).toBeVisible()
+    await expect(ring(page)).toBeVisible()
+    await shot(page, `${branch}-6-share`)
+    await dialog.getByTestId('share-room-option').filter({ hasText: name }).first().click()
+    await dialog.getByTestId('share-room-send').click()
+    // (the app asks again only when someone in the room cannot open something in the answer)
+    const confirm = dialog.getByTestId('share-room-confirm-send')
+    if (await confirm.waitFor({ timeout: 2500 }).then(() => true, () => false)) await confirm.click()
     // the room: the team reacts with the app's own typing, messages and reactions
     await follow(page, step('room').text)
     await expect(page).toHaveURL(/\/rooms\//)

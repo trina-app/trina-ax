@@ -152,11 +152,14 @@ function useTick(ms: number) {
  * else the rail's tab for it */
 function wayTo(server: DemoServer, go: DemoGo, path: string): Element | null {
   const first = (sel: string) => [...document.querySelectorAll(sel)].find(visible) ?? null
-  if (go === 'home') return first('a[href="/"]')
-  if ('project' in go) return first(`a[href^="/projects/${server.idOf('project', go.project)}"]`) ?? first('a[href="/projects"]')
+  // the app's navigation (the rail, the phone's tabs) first, then the phone's back arrow of a chat (where the tabs hide)
+  const tab = (href: string) => first(`nav a[href${href}]`) ?? first(`a[href${href}]`)
+  const back = () => first('[data-testid="chat-back"]')
+  if (go === 'home') return tab('="/"') ?? back()
+  if ('project' in go) return first(`a[href^="/projects/${server.idOf('project', go.project)}"]`) ?? tab('="/projects"') ?? back()
   const room = server.idOf('room', 'room' in go ? go.room : go.side)
   if ('side' in go && path.startsWith(`/rooms/${room}`)) return first('[data-testid="room-side-chat-button"]')
-  return first(`a[href^="/rooms/${room}"]`) ?? first('a[href^="/rooms"]')
+  return first(`a[href^="/rooms/${room}"]`) ?? tab('^="/rooms"') ?? back()
 }
 
 /** The share dialog (the app's own "Send to room"): the story's room row until it is picked, then Send, then the
@@ -287,7 +290,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
             </span>
           ) : step && !working ? (
             <button type="button" className={target || suggest.length ? 'demo-next' : 'demo-next demo-glow'} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
-              {here && cardOpen ? demoWord('card', locale) : here || inSideRoom ? step.text : step.away ?? step.text}
+              {here && cardOpen ? demoWord('card', locale) : chatRow && projectChat ? demoWord('openChat', locale).replace('{title}', projectChat.title) : here || inSideRoom ? step.text : step.away ?? step.text}
             </button>
           ) : (
             <span className="demo-next demo-wait" data-testid="demo-wait" role="status">{demoWord(working ? 'working' : 'waiting', locale)}</span>
