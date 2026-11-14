@@ -34,7 +34,8 @@ function CardFace({ p }: { p: RoomLinkPreview }) {
 
 /** `nested`: the previews of the message around it (a link in the card's words is a chip, never a card); `onRemove`:
  * the sender's "Remove preview"; `still`: it opens nothing (the box's "Show message" card, before the send). */
-export function MessageLinkCard({ p, nested, onRemove, still = false }: { p: RoomLinkPreview; nested: readonly RoomLinkPreview[]; onRemove?: () => void; still?: boolean }) {
+/** `roomForX`: a ✕ sits on its corner (the box's card): its first line keeps clear of it. */
+export function MessageLinkCard({ p, nested, onRemove, still = false, roomForX = false }: { p: RoomLinkPreview; nested: readonly RoomLinkPreview[]; onRemove?: () => void; still?: boolean; roomForX?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
@@ -80,7 +81,7 @@ export function MessageLinkCard({ p, nested, onRemove, still = false }: { p: Roo
         }}
         data-testid="message-link-card-open"
       />}
-      <p className="flex min-w-0 items-center gap-2 text-xs text-faint">
+      <p className={clsx('flex min-w-0 items-center gap-2 text-xs text-faint', (roomForX || onRemove) && 'pr-6')}>
         <CardFace p={p} />
         <span className="truncate text-sm font-medium text-ink">{name}</span>
         <time dateTime={p.createdAt} className="shrink-0">{time}</time>

@@ -84,7 +84,7 @@ export function MessageLinkChoice({ choice }: { choice: ReturnType<typeof useLin
       {choice.items.map((i) =>
         choice.shown.has(i.messageId) && i.preview ? (
           <div key={i.messageId} className="relative max-w-xl" data-testid="message-link-choice-card">
-            <MessageLinkCard p={i.preview} nested={[]} still />
+            <MessageLinkCard p={i.preview} nested={[]} still roomForX />
             <Tooltip label={t('rooms.link.onlyLink')}>
               <button type="button" onClick={() => choice.set(i.messageId, false)} aria-label={t('rooms.link.onlyLink')} className="absolute top-1.5 right-1.5 rounded-md p-1 text-faint hover:bg-hover hover:text-ink" data-testid="message-link-choice-undo">
                 <X size={14} aria-hidden />
@@ -93,7 +93,8 @@ export function MessageLinkChoice({ choice }: { choice: ReturnType<typeof useLin
           </div>
         ) : (
           <div key={i.messageId} className="flex flex-wrap items-center gap-x-3 gap-y-1.5" data-testid="message-link-choice-line">
-            <p role="status" className="min-w-0 flex-1 text-sm text-ink">{t('rooms.link.someoneCannotSee')}</p>
+            {/* (a phone: the sentence takes the row, the choice goes under it) */}
+            <p role="status" className="min-w-0 flex-1 text-sm text-ink max-md:basis-full">{t('rooms.link.someoneCannotSee')}</p>
             {i.snapshotAllowed && (
               <div role="group" className="inline-flex shrink-0 rounded-lg border border-line p-0.5 text-xs">
                 {([false, true] as const).map((on) => (

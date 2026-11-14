@@ -86,6 +86,10 @@ test('a reply, a snapshot, a deleted original, files, edited; a link in a card n
   const files = render(`http://localhost/rooms/${R2}?m=${M2}`, [preview({ files: { count: 2, first: { name: 'report.pdf', kind: 'pdf' } }, editedAt: at(3) })])
   expect(files).toContain('2 files · report.pdf')
   expect(files).toContain('(edited)')
+  // no card, only the chip: removed by its sender, or a message with more than five links (QA TC-2356)
+  const chipOnly = render(`http://localhost/rooms/${R2}?m=${M2} https://a.x https://b.x https://c.x https://d.x https://e.x`, [preview({ removed: true, body: '', files: { count: 0 } })])
+  expect(count(chipOnly, 'message-link-chip')).toBe(1)
+  expect(count(chipOnly, 'message-link-card')).toBe(0)
   const nested = render(`http://localhost/rooms/${R2}?m=${M2}`, [preview({ body: `see http://localhost/rooms/${R2}?m=${M3}` })])
   expect(count(nested, 'message-link-card')).toBe(1)
   // the card's name for screen readers says who, where and when

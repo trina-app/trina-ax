@@ -94,9 +94,14 @@ test('no access and no such message give the same message; another host is read 
   // a link whose room is not the message's room: nothing
   const wrong = await send(mia.client, all.id, link(team.id, d.id))
   expect(wrong.linkPreviews).toBeUndefined()
-  // more than five links of any kind: no card; the same link twice: one card
+  // more than five links of any kind: a chip (its place) but no card for who may see it, nothing for anyone else;
+  // the same link twice: one card
   const many = await send(mia.client, all.id, `${link(dm.id, d.id)} https://a.example https://b.example https://c.example https://d.example https://e.example`)
-  expect(many.linkPreviews).toBeUndefined()
+  expect(many.linkPreviews.map((p: any) => [p.messageId, p.removed, p.body, p.place.kind])).toEqual([[d.id, true, '', 'dm']])
+  expect('linkPreviews' in (await seen(otto.client, all.id, many.id))).toBe(false)
+  // and no snapshot from it, even when asked
+  const manyShown = await send(mia.client, all.id, `${link(dm.id, d.id)} https://a.example https://b.example https://c.example https://d.example https://e.example`, { showMessages: [d.id] })
+  expect((h.ctx.db.query('SELECT link_previews FROM room_messages WHERE id = ?').get(manyShown.id) as { link_previews: string | null }).link_previews).toBeNull()
   const twice = await send(mia.client, all.id, `${link(dm.id, d.id)} ${link(dm.id, d.id.toUpperCase())}`)
   expect(twice.linkPreviews.length).toBe(1)
 })
