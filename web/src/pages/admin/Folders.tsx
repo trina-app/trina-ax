@@ -97,7 +97,7 @@ export default function Folders() {
         }
       />}
       {/* #787's one-time notice: each folder opens its Share dialog */}
-      {!inDetail && <ConversionNotice onOpen={(path) => setParams((p) => { const q = new URLSearchParams(p); q.set('edit', path); return q }, { replace: true })} />}
+      {!inDetail && view === 'folders' && <ConversionNotice onOpen={(path) => setParams((p) => { const q = new URLSearchParams(p); q.set('edit', path); return q }, { replace: true })} />}
       <TabPanel base={panels} value={view}>
         <Suspense fallback={<Spinner />}>
           {view === 'people' ? <PersonOpens query={query} /> : <FolderList key={round} query={query} onShare={(path) => setParams((p) => { const q = new URLSearchParams(p); q.set('edit', path); return q }, { replace: true })} />}
