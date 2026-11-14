@@ -88,7 +88,9 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
 
   const converted = draftOf(base.rules, root, base.limited).converted
   const rules = useMemo(() => rulesOf(draft, { root }), [draft, root])
-  const limited = limitedOf(draft, root)
+  // (sent only when it changes the folder's limit: a save without it keeps the limit, server side too)
+  const wanted = limitedOf(draft, root)
+  const limited = wanted !== undefined && wanted !== base.limited ? wanted : undefined
   // the answer is kept by the folder, the rules and the limit it was asked for
   const key = `${path}\u0003${rulesKey(rules)}\u0003${limited ?? ''}`
   const preview = useEditPreview(path, rules, key, attempt, limited)

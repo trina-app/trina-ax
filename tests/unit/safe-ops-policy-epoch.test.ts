@@ -112,8 +112,9 @@ test('R2-2: actual permission API revoke/restore during approval refuses publica
     const folder = a.ctx.db.query("SELECT id FROM folders WHERE path='shared'").get() as {id:string}
     const before = policyGeneration(a.ctx.db)
     await expect(withWorkflow(a.ctx.files,c,() => publishArtifact(a.ctx,componentC(a.ctx).files,c,'shared/output.pptx',Buffer.from('new deck'),[source],async () => {
-      for (const access of ['none','write']) {
-        const r = await a.json(`/api/admin/folders/${folder.id}/rules`, {as:'carol',method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({rules:[{subjectType:'everyone',subjectId:null,access}]})})
+      // (revoke = Limit access with no rules since access adds up; restore = everyone edits again, not limited)
+      for (const body of [{rules:[],limited:true},{rules:[{subjectType:'everyone',subjectId:null,access:'write'}],limited:false}]) {
+        const r = await a.json(`/api/admin/folders/${folder.id}/rules`, {as:'carol',method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
         expect(r.status).toBe(200)
       }
     }))).rejects.toThrow()

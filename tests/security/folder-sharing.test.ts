@@ -36,7 +36,7 @@ beforeAll(async () => {
   await addMember(h, owner, { username: 'bob' })
   await addMember(h, owner, { username: 'carl', groupIds: [sales] })
   for (const d of ['docs/team', 'docs/plain']) fs.mkdirSync(path.join(h.ctx.files.fx.root, ...d.split('/')), { recursive: true })
-  await admin.call('POST', '/api/admin/folders', { path: 'docs/team', rules: [{ subjectType: 'group', subjectId: sales, access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] })
+  await admin.call('POST', '/api/admin/folders', { path: 'docs/team', limited: true, rules: [{ subjectType: 'group', subjectId: sales, access: 'write' }] })
   // five sign-ins with real password hashing: slow on a busy machine
 }, 60_000)
 afterAll(() => h.close())

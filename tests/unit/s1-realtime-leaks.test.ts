@@ -110,7 +110,7 @@ describe('access_changed notice', () => {
   test('putting rules on a hidden folder never names it to people who could not see it', async () => {
     const f = (await owner.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'shared/Acquisition-Target-X')
     mal.clear()
-    await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: hr.id, access: 'read' }] })
+    await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { limited: true, rules: [{ subjectType: 'user', subjectId: hr.id, access: 'read' }] })
     expect(mal.text()).not.toContain('Acquisition')
   })
 

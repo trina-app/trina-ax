@@ -129,6 +129,8 @@ export function seed(db: Database) {
   rule('projects/atlas', 'group', 'finance', 'write')
   // a projects/<name> folder is always limited
   limit('projects/falcon')
+  // falcon's public folder: everyone views, nothing more from falcon (the conversion limits such a folder)
+  limit('projects/falcon/public')
   limit('projects/atlas')
 }
 

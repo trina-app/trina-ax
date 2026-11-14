@@ -25,9 +25,9 @@ const people: Principal[] = [
   { id: 'frank', name: 'Frank', role: 'member', groups: [] },
 ]
 /** the server's answer for `rules` as the rules of `at`, with the full shape the panel reads */
-const answer = (rows: Row[], at: string, rules: { subjectType: string; subjectId: string | null; access: Access }[]): FolderEditPreview => ({
+const answer = (rows: Row[], at: string, rules: { subjectType: string; subjectId: string | null; access: Access }[], limited?: boolean): FolderEditPreview => ({
   path: at, exists: true, connected: false,
-  ...editPreview({ rules: ruleWorld(rows), people, groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => people.find((p) => p.id === id)?.name ?? id }, at, rules, { team: at === 'shared' ? 'shared' : null }),
+  ...editPreview({ rules: ruleWorld(rows), people, groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => people.find((p) => p.id === id)?.name ?? id }, at, rules, { team: at === 'shared' ? 'shared' : null, limited }),
 })
 // "Quotes" (shared/sales/quotes): Sales can edit here, Alice only views; on shared/sales Leads can view and nobody else
 const WORLD = [
@@ -61,14 +61,15 @@ describe('rows from the folders above', () => {
   })
 
   test('"Only people added here" shuts out what folders above give: no row from above is left', () => {
-    const a = answer(WORLD, 'shared/sales/quotes', [...QUOTES, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    // (Limit access since folder access adds up: docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+    const a = answer(WORLD, 'shared/sales/quotes', QUOTES, true)
     expect(aboveRows(a.next, 'shared/sales/quotes')).toEqual([])
   })
 
-  test('someone kept out by a folder above shows too, as no access, last', () => {
-    const rows = [...WORLD, row('shared/sales', 'user', 'frank', 'none'), row('shared/sales', 'user', 'erin', 'write')]
+  test('a person a folder above lets in shows too (nobody is kept out by a folder above any more: access adds up)', () => {
+    const rows = [...WORLD, row('shared/sales', 'user', 'erin', 'write')]
     const a = answer(rows, 'shared/sales/quotes', QUOTES)
-    expect(aboveRows(a.next, 'shared/sales/quotes').map((r) => `${r.name}:${r.access}`)).toEqual(['Leads:read', 'Erin:write', 'Frank:none'])
+    expect(aboveRows(a.next, 'shared/sales/quotes').map((r) => `${r.name}:${r.access}`)).toEqual(['Leads:read', 'Erin:write'])
   })
 })
 
@@ -90,14 +91,14 @@ describe('what will happen, by name', () => {
     expect(outcomeLines(en, 'en', a, { skills: false }).map((l) => l.text)).toEqual(['Erin will be able to open it'])
   })
 
-  test('a narrower setting here names who loses, before Save: adding a group can lower someone from above', () => {
-    // Erin can edit here through her own setting on shared/sales; the group Leads set here to view decides for Carol and Bob,
-    // and Erin set here to view lowers her
+  test('a lower setting here than a folder above gives changes nothing (access adds up); limiting it names who loses', () => {
     const rows = [...WORLD, row('shared/sales', 'user', 'erin', 'write')]
     const a = answer(rows, 'shared/sales/quotes', [...QUOTES, { subjectType: 'user', subjectId: 'erin', access: 'read' }])
-    expect(outcomeLines(en, 'en', a, { skills: false }).map((l) => [l.kind, l.text])).toEqual([['viewOnly', 'Erin will no longer be able to edit it']])
+    expect(outcomeLines(en, 'en', a, { skills: false }).map((l) => [l.kind, l.text])).toEqual([['none', "No one's access changes."]])
+    const lim = answer(rows, 'shared/sales/quotes', [...QUOTES, { subjectType: 'user', subjectId: 'erin', access: 'read' }], true)
+    expect(outcomeLines(en, 'en', lim, { skills: false }).map((l) => [l.kind, l.text])).toContainEqual(['viewOnly', 'Erin will no longer be able to edit it'])
     // in skills/, losing edit means no longer changing the team's skills
-    expect(outcomeLines(en, 'en', a, { skills: true })[0]!.text).toBe("Erin will no longer be able to change the team's skills")
+    expect(outcomeLines(en, 'en', lim, { skills: true }).map((l) => l.text)).toContain("Erin will no longer be able to change the team's skills")
   })
 
   test('at most three names, then "and N others"; nothing changes: said so', () => {
@@ -129,7 +130,8 @@ describe('when Save asks first (from the server\'s answer only)', () => {
     expect(decide({ ...stored, named: [...stored.named, { subjectType: 'user', subjectId: 'erin', access: 'read' }] })?.widen).toBe(true)
     expect(decide({ ...stored, basic: 'read' })?.widen).toBe(true)
     expect(decide(stored)).toBeNull()
-    expect(decide({ ...stored, named: stored.named.filter((n) => n.subjectId !== 'alice') })?.widen).toBe(true) // Alice: view → edit through Sales
+    // Alice edits through Sales already (access adds up): taking her own row out changes nothing
+    expect(decide({ ...stored, named: stored.named.filter((n) => n.subjectId !== 'alice') })).toBeNull()
     expect(decide({ ...stored, named: stored.named.map((n) => (n.subjectId === 'sales' ? { ...n, access: 'read' as const } : n)) })).toBeNull()
   })
 
@@ -153,10 +155,10 @@ describe('when Save asks first (from the server\'s answer only)', () => {
   test('the title says open, else edit, else more; narrowing the team\'s own files asks in its own words', () => {
     const a = answer(WORLD, 'shared/sales/quotes', [...QUOTES, { subjectType: 'user', subjectId: 'erin', access: 'read' }, { subjectType: 'user', subjectId: 'frank', access: 'read' }])
     expect(askTitle(en, a, saveAsk(a)!)).toBe('Let 2 more people open it?')
-    const edit = answer(WORLD, 'shared/sales/quotes', QUOTES.map((r) => (r.subjectId === 'alice' ? { ...r, access: 'write' as Access } : r)))
+    const edit = answer(WORLD, 'shared/sales/quotes', [...QUOTES, { subjectType: 'user', subjectId: 'carol', access: 'write' as Access }])
     expect(askTitle(en, edit, saveAsk(edit)!)).toBe('Let 1 person edit it?')
     expect(askTitle(en, { changes: [] }, { widen: true, later: true, narrow: [], skillsEveryone: false })).toBe('Give more access?')
-    const shut = answer(WORLD, 'shared', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const shut = answer(WORLD, 'shared', [], true)
     const ask = saveAsk(shut)!
     expect(ask.widen).toBe(false)
     expect(ask.narrow.map((w) => w.kind)).toEqual(['team-files'])

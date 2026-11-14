@@ -233,8 +233,10 @@ describe('Save asks the server again, and asks first before more access', () => 
   })
 
   test('another admin changed a folder above after the last answer: Save shows the new answer and needs another click', async () => {
+    // (access adds up: Alice must not edit through Sales here, or giving her edit changes nothing)
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
     const m = await open()
-    await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'write')
+    await choose(rowsOf(m, 'sharing-row')[0]!.querySelector('select')!, 'write')
     await ready(m)
     // meanwhile Sales lets everyone view
     rows.set('shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])

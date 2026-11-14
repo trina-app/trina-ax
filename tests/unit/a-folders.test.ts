@@ -201,7 +201,7 @@ describe('folders API', () => {
     expect((await admin.call('GET', '/api/admin/folders')).items).toEqual(before)
     expect((await admin.try('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'users/bob', rules: [] }] })).status).toBe(400)
     // a new (not yet existing) folder can be previewed
-    const n = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'shared/new-area', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] }] })
+    const n = await admin.call('POST', '/api/admin/folder-rules/preview', { changes: [{ path: 'shared/new-area', limited: true, rules: [] }] })
     expect(n.losing.map((l: any) => l.user.id).sort()).toEqual([alice.id, bob.id].sort())
   })
 

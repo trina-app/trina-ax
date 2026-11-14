@@ -118,7 +118,7 @@ test('R3: every actual policy column changes and restores its epoch; bookkeeping
       for(const column of columns) {
         const before=epoch(),old=row[column],bearing=fields.split(' ').includes(column)
         let value:any=typeof old==='number'?old+1:old===null?'r3-value':old+'-r3'
-        const alternatives:Record<string,string[]>={role:['member','admin'],status:table==='users'?['active','disabled']:['connected','error'],kind:['mcp','http'],auth:['none','bearer'],write_policy:['ask','deny'],subject_type:['user','group'],access:['none','write'],scope:['personal','team'],google_app:['gmail','calendar']}
+        const alternatives:Record<string,string[]>={role:['member','admin'],status:table==='users'?['active','disabled']:['connected','error'],kind:['mcp','http'],auth:['none','bearer'],write_policy:['ask','deny'],subject_type:['user','group'],access:['read','write'],scope:['personal','team'],google_app:['gmail','calendar']}
         if(alternatives[column])value=alternatives[column].find(v=>v!==old)
         const scope=table==='integrations' && column==='scope'
         db.exec('BEGIN')

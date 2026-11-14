@@ -167,7 +167,7 @@ describe('access and moves, at once and without reading', () => {
   test('an admin narrows a folder: its lines leave every list at once; read again in their new unit at the next run', async () => {
     reader.calls = []
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(true)
-    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', limited: true, rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }] }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 201 })
     // at once, without reading: gone from the wide list for everyone, and not yet shown in the narrow one (their fields
     // came from a call that held the wide unit's files)

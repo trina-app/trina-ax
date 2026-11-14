@@ -107,7 +107,7 @@ test('a group the steps did not make is never taken over; a recorded group delet
   const { owner, ownerId } = await setup()
   // an admin made a group named like the team before, with a rule on another folder
   const made = await owner.call('POST', '/api/admin/groups', { name: 'acme', memberIds: [] })
-  await owner.call('POST', '/api/admin/folders', { path: 'shared/finance', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: made.id, access: 'write' }] })
+  await owner.call('POST', '/api/admin/folders', { path: 'shared/finance', limited: true, rules: [{ subjectType: 'group', subjectId: made.id, access: 'write' }] })
   const r = await owner.call('POST', '/api/onboarding/welcome/team')
   // a group of its own beside it: "Acme 2", the owner in it; the admin's group keeps its members and rules
   const g = r.progress.teamGroup

@@ -388,7 +388,7 @@ describe('lapses (Q1 a)', () => {
     const s = task(fake(read('groups/marketing/campaign-brief.md'), write(`${SAVE}/c.md`), { say: 'done' }), { sources: [MINE, marketing] })
     expect(lapseOf(h.ctx, row(s.id))).toBeNull()
     const id = uuidv7()
-    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_groups_marketing', 'user', 'erin', 'none')").run(id)
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, 'f_groups_marketing', 'user', 'erin', 'read')").run(id)
     try {
       expect(lapseOf(h.ctx, row(s.id))).toBe('rules')
       await run(s.id)

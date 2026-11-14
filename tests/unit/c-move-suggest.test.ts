@@ -118,7 +118,7 @@ describe('the endpoint', () => {
     // quotes the finance group keeps (alice cannot read them), and in falcon (bob reads, cannot write)
     for (const n of ['견적서_A_2024.xlsx', '견적서_B_2024.xlsx', '견적서_C_2024.xlsx']) { write(`groups/finance/견적서/${n}`); write(`projects/falcon/견적/${n}`) }
     // a folder alice can write whose only quotes are in a subfolder closed to her
-    const r0 = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/영업/비공개', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'bob', access: 'write' }] }) })
+    const r0 = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/영업/비공개', limited: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] }) })
     expect(r0.status).toBe(201)
     for (const n of ['견적서_D_2024.xlsx', '견적서_E_2024.xlsx', '견적서_F_2024.xlsx']) write(`shared/영업/비공개/${n}`)
     write('shared/영업/안내.txt')

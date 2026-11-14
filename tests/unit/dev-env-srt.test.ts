@@ -40,15 +40,19 @@ const who = (id: string, role: Principal['role'] = 'member', groups: string[] = 
 const ruleRows = (xs: (string | null)[][]) => xs.map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s ?? null, access: a as Access }))
 const FIXTURE_ROWS = ruleRows([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
-  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
+  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'everyone', null, 'none'],
   ['groups/finance', 'group', 'finance', 'write'],
   ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
   ['projects/atlas', 'group', 'finance', 'write'],
 ])
-const FIXTURE_RULES = ruleWorld(FIXTURE_ROWS)
+/** the fixture's limited folders (salaries: nobody below the owner and admins; the project folders and falcon's public
+ * folder, as the conversion makes them; docs/DECISIONS.md "Folder access adds up like Google Drive (P2)") */
+const FIXTURE_LIMITED = ['groups/marketing/salaries', 'projects/falcon', 'projects/falcon/public', 'projects/atlas']
+const fixtureWorld = (rows: RuleRow[]) => ruleWorld(rows, FIXTURE_LIMITED)
+const FIXTURE_RULES = fixtureWorld(FIXTURE_ROWS)
 /** the same, with carol (an admin) a member of projects/falcon: inside a team project the owner and admins are judged
  * as members (docs/DECISIONS.md "Project contents only for members") */
-const CAROL_IN_FALCON = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
+const CAROL_IN_FALCON = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
 const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
 
 describe('the folder access of a run (from the folder rules)', () => {
@@ -100,25 +104,25 @@ describe('the folder access of a run (from the folder rules)', () => {
     // a member keeps the rules above: no rule anywhere gives alice projects/plain, so it is hidden for her as before
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('none')
     // rules on the team root or projects/ (an admin's own, a role rule, everyone) never reach in for admins; members get them
-    const above = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
+    const above = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
     const a = folderView(above, PEOPLE.carol!, undefined, undefined, zone)
     for (const f of ['projects/plain/notes.md', 'projects/falcon/plan.md', 'projects/atlas/x.md']) expect([f, viewAccess(a, f)]).toEqual([f, 'none'])
     expect(viewAccess(folderView(above, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('read')
     // a rule inside such a folder is a boundary without the runner's list too (its projects/<name> is a candidate)
-    const inner = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
+    const inner = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
     const i = folderView(inner, PEOPLE.carol!)
     expect(i.denyRead).toContain('projects/plain')
     expect(viewAccess(i, 'projects/plain/notes.md')).toBe('none')
     // ...and that rule does not let her in while she does not read projects/plain itself; a member keeps it
     expect(viewAccess(i, 'projects/plain/inner/a.md')).toBe('none')
-    const aliceInner = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
+    const aliceInner = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/inner/a.md')).toBe('read')
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/notes.md')).toBe('none')
     // once a member (read on projects/plain), the rule inside counts for her too
-    const both = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
+    const both = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
     expect(viewAccess(folderView(both, PEOPLE.carol!, undefined, undefined, zone), 'projects/plain/inner/a.md')).toBe('read')
     // with a member rule the admin reads it, and nothing else changes
-    const member = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
+    const member = fixtureWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
     const r = folderView(member, PEOPLE.carol!, undefined, undefined, zone)
     expect(r.denyWrite).toEqual(['projects/plain'])
     expect(r.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])

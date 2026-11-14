@@ -83,7 +83,7 @@ describe('#1 trash items follow the folder they were trashed from', () => {
     legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'finance', access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }])
     const folder = await del('carol', 'projects/atlas')
     // Admin › Folder permissions no longer makes a folder at a projects/<name>: an older build's admin did
-    const made = await A.json('/api/admin/folders', { as: 'carol', ...jsonBody({ path: 'projects/atlas', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] }) })
+    const made = await A.json('/api/admin/folders', { as: 'carol', ...jsonBody({ path: 'projects/atlas', limited: true, rules: [] }) })
     expect([made.status, made.body.error?.params?.reason]).toEqual([409, 'project_members_only'])
     legacyProjectFolder(A.ctx.db, A.team, 'projects/atlas', [{ subjectType: 'group', subjectId: 'marketing', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol')
     expect(await ids('alice')).not.toContain(file)
