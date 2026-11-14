@@ -12,7 +12,7 @@
     },
     "desktop": {
       "name": "@mycel/desktop",
-      "version": "0.5.4",
+      "version": "0.5.3",
       "devDependencies": {
         "@mycel/shared": "workspace:*",
         "@playwright/test": "1.64.1",
@@ -36,7 +36,7 @@
     },
     "server": {
       "name": "@mycel/server",
-      "version": "0.5.4",
+      "version": "0.5.3",
       "dependencies": {
         "@mycel/shared": "workspace:*",
         "age-encryption": "0.3.1",
@@ -76,7 +76,7 @@
     },
     "web": {
       "name": "@mycel/web",
-      "version": "0.5.4",
+      "version": "0.5.3",
       "dependencies": {
         "@aiden0z/pptx-renderer": "1.4.0",
         "@mycel/shared": "workspace:*",
