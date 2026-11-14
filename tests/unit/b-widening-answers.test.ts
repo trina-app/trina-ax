@@ -213,3 +213,28 @@ describe('migration 296', () => {
     expect(sql.split('\n')[0]).toBe('-- min_compatible_reader: 1')
   })
 })
+
+describe('QA TC-1408: the kept answer follows changes; a light limit on the dry run', () => {
+  test('within the 20 s of the kept answer: an access change and a deleted shared chat are counted at once', async () => {
+    const c = sharedChat('TC-1408')
+    answer(c, 'alice', after(2000), 'TC-1408 one', [{ c: ['alice', 'erin'], s: [MKT] }])
+    const all = (await list('alice')).total
+    // bob joins marketing: he reads the place now, so nothing that used only it widens to him
+    db().query("INSERT INTO group_members (group_id, user_id) VALUES ('marketing', 'bob')").run()
+    try { expect((await list('alice')).total).toBeLessThan(all) }
+    finally { db().query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'bob'").run() }
+    expect((await list('alice')).total).toBe(all)
+    // the chat goes to the trash: its answer is not counted
+    db().query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), c)
+    expect((await list('alice')).total).toBe(all - 1)
+    // the dry run's count follows the same
+    expect((await h.api('alice').call(API.previewProjectAccess, { body: { projectId, participants: addBob } })).hiddenAnswers).toBe(all - 1)
+  })
+
+  test('at most 60 dry runs a minute per person: the next one is 429; someone else is not held up', async () => {
+    for (let i = 0; i < 60; i++) await h.api('dana').call(API.previewProjectAccess, { body: { projectId, participants: addBob } })
+    const e = await errOf(h.api('dana').call(API.previewProjectAccess, { body: { projectId, participants: addBob } }))
+    expect(e.status).toBe(429)
+    expect((await h.api('alice').call(API.previewProjectAccess, { body: { projectId, participants: addBob } })).added).toBe(1)
+  })
+})

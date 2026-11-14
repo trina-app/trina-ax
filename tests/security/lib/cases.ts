@@ -153,10 +153,11 @@ export const SPECS: Record<string, Spec> = {
   // names; the owner cannot ask (409, a state to change first, not a permission check)
   myDeletionRequest: { build: (c) => c.get('/api/me/deletion-request?userId=alice'), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none') && r.json?.state !== 'pending') throw new Error(`unexpected state for ${who}: ${r.text}`) } },
-  requestAccountDeletion: { build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true }), scope: 'self',
+  // sent with a wrong password: nobody's account is set to be deleted; the owner is refused first (409)
+  requestAccountDeletion: { skipPositive: true, build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true, password: 'not-the-password-1' }), scope: 'self',
     check: (r, _w, who) => {
       if (who === 'owner' && r.status !== 409) throw new Error(`the owner asked for their own account to be deleted: ${r.status}`)
-      if (who !== 'owner' && r.status < 300 && r.json?.state !== 'pending') throw new Error(`${who}'s request is not their own: ${r.text}`)
+      if (r.status < 300) throw new Error(`${who}: an account deletion went through with a wrong password: ${r.text}`)
     } },
   cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
