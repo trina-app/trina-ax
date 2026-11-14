@@ -193,11 +193,11 @@ describe('scheduled runs: delete_files, post_to_room, skill_files', () => {
     return { spec, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false, rt: h.rt(), alwaysPlace: () => place({ userId, chatId, clientKind: 'schedule' }), ...extra } as never
   }
   const refusals = (userId: string) => ({
-    del: deleteFilesRefusal(exec(userId)),
+    del: deleteFilesRefusal(exec(userId)) as string | null,
     post: postToRoomOff(exec(userId))?.summary ?? null,
     skill: skillFilesRefusal(exec(userId), {})?.summary ?? null,
   })
-  const off = { del: 'scheduled', post: 'post_to_room -> refused: scheduled run', skill: 'skill_files -> refused: scheduled run' }
+  const off: { del: string | null; post: string | null; skill: string | null } = { del: 'scheduled', post: 'post_to_room -> refused: scheduled run', skill: 'skill_files -> refused: scheduled run' }
 
   test('with no choice: all three refuse the run; with the person\'s own kind: each goes on, only that one', () => {
     clear()
