@@ -164,7 +164,7 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     expect((await turn('alice', { person: first }).call('my_tasks__create_task', { title: 'no' })).isError).toBe(true)
     expect(first.cards).toHaveLength(1)
     expect(first.cards[0]!.options).toEqual(SEND3)
-    expect(first.cards[0]!.note).toContain('Always allow: from now on Trina sends to Tasks without asking, even after reading web pages or files')
+    expect(first.cards[0]!.note).toContain('Always allow every change in Tasks, not only this one: from now on, in every chat, Trina sends, edits and deletes in Tasks without asking, even after reading web pages or files')
     expect(created()).toBe(n0)
     // Send once: sent, nothing kept
     expect((await turn('alice', { person: asker('yes') }).call('my_tasks__create_task', { title: 'once' })).summary).toContain('confirmed by the user')

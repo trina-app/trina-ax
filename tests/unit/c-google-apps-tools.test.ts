@@ -31,7 +31,7 @@ beforeAll(async () => {
   google = new FakeGoogle(lib)
   apps = googleAppsOf(A.ctx, { fetch: google.fetch })
   for (const p of PEOPLE) sessionRow(A.ctx.db, p)
-  for (const app of ['gmail', 'calendar']) {
+  for (const app of ['gmail', 'calendar', 'docs']) {
     const r = await A.json(`/api/admin/google-apps/${app}/client`, { method: 'PUT', as: 'carol', headers: { 'content-type': 'application/json' }, body: JSON.stringify(APP_CLIENT) })
     expect(r.status).toBe(200)
   }
@@ -40,12 +40,18 @@ beforeAll(async () => {
     expect(await apps.callback(google.authorize(f.authorizationUrl, who), { userId: who, sessionId: `${who}-session` })).toBe(true)
     expect((await apps.complete(who, `${who}-session`, 'gmail', f.flowId)).status).toBe('connected')
   }
+  // Calendar and Docs for carol, so alice's own turns keep offering Gmail only
+  for (const app of ['calendar', 'docs'] as const) {
+    const f = await apps.authorize('carol', 'carol-session', app)
+    expect(await apps.callback(google.authorize(f.authorizationUrl, 'carol'), { userId: 'carol', sessionId: 'carol-session' })).toBe(true)
+    expect((await apps.complete('carol', 'carol-session', app, f.flowId)).status).toBe('connected')
+  }
   aliceGmail = (A.ctx.db.query("SELECT id FROM integrations WHERE owner_user_id='alice' AND google_app='gmail'").get() as { id: string }).id
   bobGmail = (A.ctx.db.query("SELECT id FROM integrations WHERE owner_user_id='bob' AND google_app='gmail'").get() as { id: string }).id
 })
 afterAll(async () => { await A?.close(); lib?.stop(); delete process.env.MYCEL_GOOGLE_APPS_LIBRARY_URL })
 
-interface Person2 { asked: string[]; choices: string[][]; answer: string; confirm?: boolean }
+interface Person2 { asked: string[]; choices: string[][]; notes?: string[]; answer: string; confirm?: boolean }
 const person = (answer: string): Person2 => ({ asked: [], choices: [], answer })
 
 function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSeen?: boolean; chat?: string } = {}) {
@@ -59,7 +65,7 @@ function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSee
       locale: 'en',
       async confirm(q) { p.asked.push(q); return p.answer === 'yes' },
       // the card's values are the yes / no card's ('allow', 'deny') plus 'always'
-      async choose(q, options) { p.asked.push(q); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
+      async choose(q, options, opts) { p.asked.push(q); p.notes?.push(String((opts as { note?: string } | undefined)?.note ?? '')); p.choices.push(options.map((x) => x.label)); const want = p.answer === 'yes' ? 'allow' : p.answer === 'no' ? 'deny' : p.answer; return options.some((x) => x.value === want) ? want : null },
       *turnUrls() {},
       // a turn the person watches from their own app (Always allow on the connector card needs one)
       allSitesHere: () => !o.scheduled,
@@ -79,6 +85,7 @@ function turn(user: Person, o: { person?: Person2; scheduled?: boolean; roomsSee
 }
 const noTokens = (s: string) => { expect(s).not.toContain('CANARY-gapp-access'); expect(s).not.toContain('CANARY-gapp-refresh'); expect(s).not.toContain(APP_CLIENT.clientSecret) }
 const policy = () => (A.ctx.db.query('SELECT write_policy FROM integrations WHERE id=?').get(aliceGmail) as { write_policy: string }).write_policy
+const setPolicyOf = (app: string, p: 'ask' | 'allow') => A.ctx.db.query("UPDATE integrations SET write_policy=?, version=version+1 WHERE owner_user_id='carol' AND google_app=?").run(p, app)
 const setPolicy = (p: 'ask' | 'allow') => A.ctx.db.query('UPDATE integrations SET write_policy=?, version=version+1 WHERE id=?').run(p, aliceGmail)
 
 describe('calls', () => {
@@ -159,6 +166,54 @@ describe('calls', () => {
     expect(r.isError).toBe(false)
     expect(p.asked).toEqual([])
     expect(lib.calls).toHaveLength(1)
+    setPolicy('ask')
+  })
+
+  // QA TC-319: Calendar and Docs go through the same gate as Gmail: after outside content the person's own Always allow
+  // sends without a card; without it the card still asks
+  test('Calendar and Docs go through the same gate as Gmail: with Always allow no card after a read, without it a card (QA TC-319)', async () => {
+    for (const [app, read, write, args] of [
+      ['calendar', 'my_gcal__get_events', 'my_gcal__manage_event', { action: 'create', summary: 'sync', attendees: ['out@acme.example'] }],
+      ['docs', 'my_gdocs__get_doc_content', 'my_gdocs__modify_doc_text', { document_id: 'doc1', text: 'added' }],
+    ] as const) {
+      setPolicyOf(app, 'allow')
+      const p = person('no')
+      const t = turn('carol', { person: p })
+      expect((await t.call(read, {})).isError).toBe(false)
+      lib.calls = []
+      expect((await t.call(write, args)).isError).toBe(false)
+      expect(p.asked).toEqual([])
+      expect(lib.calls.map((c) => c.name)).toEqual([write.replace(/^my_g(cal|docs)__/, '')])
+      // without Always allow the same call, after the same outside read, asks on a card
+      setPolicyOf(app, 'ask')
+      const q = person('no')
+      const t2 = turn('carol', { person: q })
+      expect((await t2.call(read, {})).isError).toBe(false)
+      lib.calls = []
+      expect((await t2.call(write, args)).isError).toBe(true)
+      expect(q.asked.length).toBe(1)
+      expect(lib.calls).toEqual([])
+      setPolicyOf(app, 'ask')
+    }
+  })
+
+  // QA TC-323: the line under the buttons says what Always allow covers: every change of the app, in every chat, until
+  // it is turned off (it describes the grant; it does not change it)
+  test('the card note says Always allow covers every change in the app in every chat (QA TC-323)', async () => {
+    setPolicy('ask')
+    const p = { ...person('no'), notes: [] as string[] }
+    await turn('alice', { person: p }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'x' })
+    expect(p.notes).toHaveLength(1)
+    expect(p.notes[0]).toContain('every change in')
+    expect(p.notes[0]).toContain('every chat')
+    expect(p.notes[0]).toContain('Settings › Connectors')
+    // every language keeps the name in the sentence
+    const { TEXT } = await import('../../server/src/integrations/connections/text')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(TEXT.alwaysNote[l]).toContain('{name}')
+    // the grant is the same as before: one Always allow on a send sets the whole app's write rule
+    const a = { ...person('always'), notes: [] as string[] }
+    await turn('alice', { person: a }).call('my_gmail__send_gmail_message', { to: 'bob@acme.example', subject: 'Hi', body: 'y' })
+    expect(policy()).toBe('allow')
     setPolicy('ask')
   })
 
