@@ -34,10 +34,9 @@ export const byFilesOrder = (a: string, b: string) => order(a) - order(b) || (a 
 const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
 /** the word for a role */
 const ROLE_WORD = { read: 'folderAccess.canView', write: 'folderAccess.canEdit' } as const
-/** Limit access: only the people added here open it (`Folder.limited`; a server before it: a "Restricted" row, the
- * same meaning there) */
-export const isLimited = (f: Pick<Folder, 'rules'> & { limited?: boolean }) =>
-  f.limited ?? f.rules.some((r) => (r.subjectType === 'everyone' || (r.subjectType === 'role' && r.subjectId === 'member')) && r.access === 'none')
+/** Limit access: nothing from the folders above reaches it, only its own rules (`Folder.limited`; docs/DECISIONS.md
+ * "Folder access adds up like Google Drive (P2)") */
+export const isLimited = (f: Pick<Folder, 'limited'>) => !!f.limited
 
 /** A path in Files' names: "Company-wide › QA-test › Contracts", the last one strong. */
 export function Crumbs({ path, team }: { path: string; team: string }) {
@@ -191,7 +190,6 @@ export function PersonOpens({ query }: { query: string }) {
   const [params, setParams] = useSearchParams()
   const users = useAdminUsers()
   const groups = useAdminGroups()
-  const folders = useLoad(async () => (await api.call(API.listFolders)).items)
   const faceOf = useFaceOf()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const person = params.get('person')
@@ -212,7 +210,7 @@ export function PersonOpens({ query }: { query: string }) {
   else if (!users.data) body = <Skeleton lines={6} />
   else if (!person) body = <EmptyState title={t('folders.pickPerson')} />
   else if (!user) body = <EmptyState title={t('accessView.unknownPerson')}>{t('folders.pickPerson')}</EmptyState>
-  else body = <PersonAnswer key={user.id} who={{ name: user.name, role: user.role, groupIds: user.groupIds, off: user.status !== 'active', id: user.id }} load={() => allFolders(user.id)} groupName={groupName} folders={folders.data} />
+  else body = <PersonAnswer key={user.id} who={{ name: user.name, role: user.role, groupIds: user.groupIds, off: user.status !== 'active', id: user.id }} load={() => allFolders(user.id)} groupName={groupName} />
   return (
     <section aria-labelledby="access-people-title" data-testid="access-people">
       <h3 id="access-people-title" className="sr-only">{t('folders.tabPerson')}</h3>
@@ -247,7 +245,7 @@ export function PersonOpens({ query }: { query: string }) {
 /** Who the answer is for: a person (with a face), or someone about to be invited (no id). */
 interface Who { id?: string; name: string; role: User['role']; groupIds: readonly string[]; off?: boolean }
 
-function PersonAnswer({ who: user, load, groupName, folders, compact }: { who: Who; load: () => Promise<PersonAccessResponse>; groupName: (id: string) => string; folders: Folder[] | null; compact?: boolean }) {
+function PersonAnswer({ who: user, load, groupName, compact }: { who: Who; load: () => Promise<PersonAccessResponse>; groupName: (id: string) => string; compact?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -296,10 +294,13 @@ function PersonAnswer({ who: user, load, groupName, folders, compact }: { who: W
         : t('folders.reasonPerson')
     return r.folder !== f.path ? `${what} · ${t('folders.reasonFrom', { folder: folderWord(r.folder) })}` : what
   }
+  // why they cannot open it, from the server's reason (#787): left the project, a limited folder that is not theirs
+  // (here or one above it: `cutAt`), not a project member, or simply not added anywhere on the way up
   const why = (f: PersonFolderAccess): string => {
+    const r = f.reason
+    if (r.kind === 'left') return t('folders.cantLeft')
     if (inProjects(f.path)) return t('folders.cantProject')
-    const row = folders?.find((x) => x.path === f.path)
-    if (row && isLimited(row)) return t('folders.cantLimited')
+    if (r.kind === 'no-rule' && r.cutAt !== undefined) return r.cutAt === f.path ? t('folders.cantLimited') : t('folders.cantLimitedFrom', { folder: folderWord(r.cutAt) })
     return t('folders.cantNotAdded')
   }
   const groupsLine = user.groupIds.map(groupName).filter(Boolean).join(', ')
@@ -350,7 +351,6 @@ export const personViewLink = (o: { person: string }) => `/admin/folders?${new U
 export function NewPersonPreview({ role, groupIds, groups }: { role: 'member' | 'admin'; groupIds: string[]; groups: Group[] }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  const folders = useLoad(async () => (open ? (await api.call(API.listFolders)).items : null), [open])
   const groupName = (id: string) => groups.find((g) => g.id === id)?.name ?? ''
   return (
     <div className="border-t border-line pt-2">
@@ -372,7 +372,6 @@ export function NewPersonPreview({ role, groupIds, groups }: { role: 'member' | 
             who={{ name: '', role, groupIds }}
             load={() => api.call(API.explainNewPersonAccess, { body: { role, groupIds, limit: 2000 } })}
             groupName={groupName}
-            folders={folders.data ?? null}
           />
         </div>
       )}
