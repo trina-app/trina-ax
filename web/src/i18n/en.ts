@@ -96,6 +96,7 @@ export const en: Record<MessageKey, string> = {
   'conn.retrying': "Reconnecting…",
   'conn.waking': "Resuming your team…",
   'conn.wakingDetail': "This takes about a minute. It opens by itself when it is ready.",
+  'conn.wakeFailed': "Your team didn't start. Try again in a minute, or contact support.",
   'conn.loadFailed': "Couldn't load this.",
   'conn.unsent': "Can't connect right now, so it wasn't sent. Your message is still here.",
   "dev.banner": "Development mode: no production OS account isolation. The AI runs as the server OS user.",

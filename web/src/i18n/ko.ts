@@ -95,6 +95,7 @@ export const ko = {
   'conn.retrying': "다시 연결하는 중…",
   'conn.waking': "팀을 다시 켜고 있어요…",
   'conn.wakingDetail': "1분쯤 걸려요. 준비되면 저절로 열려요.",
+  'conn.wakeFailed': "팀이 시작되지 않았어요. 1분 뒤에 다시 시도하거나 고객 지원에 문의해 주세요.",
   'conn.loadFailed': "불러오지 못했어요.",
   'conn.unsent': "지금 연결이 안 돼서 보내지 못했어요. 메시지는 그대로 있어요.",
   "dev.banner": "개발 모드: 운영용 OS 계정 격리가 없어요. AI는 서버 OS 사용자로 실행돼요.",

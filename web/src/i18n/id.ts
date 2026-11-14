@@ -96,6 +96,7 @@ export const id: Record<MessageKey, string> = {
   'conn.retrying': "Menyambung ulang…",
   'conn.waking': "Mengaktifkan lagi tim Anda…",
   'conn.wakingDetail': "Ini memakan waktu sekitar satu menit. Terbuka sendiri saat siap.",
+  'conn.wakeFailed': "Tim Anda tidak berhasil dimulai. Coba lagi dalam satu menit, atau hubungi dukungan.",
   'conn.loadFailed': "Gagal memuat.",
   'conn.unsent': "Belum bisa terhubung, jadi pesan belum terkirim. Pesanmu masih ada di sini.",
   "dev.banner": "Mode pengembangan: tanpa isolasi akun OS produksi. AI berjalan sebagai pengguna OS server.",

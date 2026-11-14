@@ -94,6 +94,7 @@ export const zh: Record<MessageKey, string> = {
   "conn.retrying": "正在重新连接…",
   "conn.waking": "正在恢复你的团队…",
   "conn.wakingDetail": "大约需要一分钟。准备好后会自动打开。",
+  "conn.wakeFailed": "你的团队没有启动。请一分钟后重试，或联系客服。",
   "conn.loadFailed": "无法加载。",
   "conn.unsent": "现在无法连接，所以没有发送。你的消息还在这里。",
   "dev.banner": "开发模式：没有生产环境的系统账号隔离。AI 以服务器系统用户身份运行。",

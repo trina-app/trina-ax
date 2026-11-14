@@ -94,6 +94,7 @@ export const es: Record<MessageKey, string> = {
   'conn.retrying': "Reconectando…",
   'conn.waking': "Reanudando su equipo…",
   'conn.wakingDetail': "Tarda alrededor de un minuto. Se abre sola cuando está lista.",
+  'conn.wakeFailed': "Su equipo no se inició. Vuelva a intentarlo en un minuto o contacte con soporte.",
   'conn.loadFailed': "No se pudo cargar.",
   'conn.unsent': "No hay conexión, así que no se envió. Su mensaje sigue aquí.",
   "dev.banner": "Modo de desarrollo: sin aislamiento de cuentas del sistema operativo para producción. La IA se ejecuta como el usuario del sistema del servidor.",
