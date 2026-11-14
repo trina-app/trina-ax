@@ -65,9 +65,10 @@ test('a link with a preview: a chip with the place and a card under the words; w
   expect(count(plain, 'message-link-chip')).toBe(0)
   expect(count(plain, 'message-link-card')).toBe(0)
   expect(plain).toContain('data-testid="room-link"')
-  // another team's host with a preview: no chip (the card still shows: the server decided it)
+  // another site's host, even with a preview from the server (it reads ids on any host): no chip and no card
   const other = render(`look https://other.example/rooms/${R2}?m=${M2}`, [preview()])
   expect(count(other, 'message-link-chip')).toBe(0)
+  expect(count(other, 'message-link-card')).toBe(0)
 })
 
 test('a reply, a snapshot, a deleted original, files, edited; a link in a card never makes a card inside it', () => {

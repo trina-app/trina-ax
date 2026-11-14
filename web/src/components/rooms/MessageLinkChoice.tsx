@@ -34,6 +34,12 @@ export function useLinkChoice(roomId: string, threadRootId: string | null, text:
   const [items, setItems] = useState<Item[]>([])
   const [shown, setShown] = useState<ReadonlySet<string>>(new Set())
   const asked = useRef('')
+  // another room or thread (the box is not made again): nothing of the last one's question or choices goes with it
+  useEffect(() => {
+    asked.current = ''
+    setItems([])
+    setShown(new Set())
+  }, [roomId, threadRootId])
   useEffect(() => {
     if (!key) {
       asked.current = ''

@@ -28003,21 +28003,25 @@ words and components.
   more than 5 links of any kind (Slack's rule).
 - **No trace for no access**: a link the viewer may not see, one to nothing and another team's all give a message with
   no `linkPreviews` field; the web leaves the address the plain link it was, and the room opens on its usual "can't be
-  found". The web draws a chip only for its own host or the team address.
+  found". The web draws a chip and a card only for its own host or the team address (a look-alike address of another
+  site never shows a real-looking card under it).
 - **Show message (Slack's private-link prompt)**: when the box holds links some reader of the room or thread cannot see,
   the composer asks `POST /api/rooms/:id/message-links/audience` (yes per link only, never names or counts; a link the
   sender cannot see answers exactly as one that is not there; 30 then one a second per person) and shows one line with
   **Only show link** (default) / **Show message**. Show message is a person's explicit, per-link consent: the server
-  builds a frozen snapshot from the original with the sender's own access at send time (`showMessages` on the web send
-  only; never an AI, an app, the Team AX connector or an import). This does not contradict "Nothing read is sent wider":
+  builds a frozen snapshot from the original with the sender's own access at send time (`showMessages` on the person's
+  own send route, `POST /api/rooms/:id/messages`, which the web app uses and a script with the person's own sign-in could
+  too; never an AI, an app, the Team AX connector, a shared answer or an import, which do not pass it). This does not contradict "Nothing read is sent wider":
   that rule binds what an AI does for a person; a person who can read a message choosing to show it after a warning is
   the same human-consent pattern as "대화방에 보내기" and the widening cards.
 - **A snapshot's boundaries**: only a person's own message (never an AI answer, an app's card or a shared answer: those
   carry team-file links and what they read, and have their own way to a room); text at most 4,000 characters; files as a
   count and the first name (no ids, no contents); mentions as ids (names read when shown; they notify nobody); a DM or
   group chat by its kind only ("Direct message", "Group chat"), a team room by its name as the sender saw it; marked
-  "Shared by". Its words are wiped when the original is deleted, when the sender removes the preview, when an edit takes
-  the link out and when the message holding it is deleted. An edit never makes one (it notifies nobody and cannot widen).
+  "Shared by". A reader outside the original conversation (a guest too) sees its author's name and photo: the sender
+  chose to show the message, with who wrote it. Its words are wiped when the original is deleted, when the sender removes the preview, when an edit takes
+  the link out and when the message holding it is deleted; on a delete of the original, the open windows of the messages
+  holding its snapshot hear it at once (room.message.updated). An edit never makes one (it notifies nobody and cannot widen).
 - **Remove preview**: `POST /api/rooms/:id/messages/:messageId/hide-preview`, the author of a person's message only (404
   otherwise, as for a message that is not theirs), not through the edit route (no "(edited)").
 - Push, the rooms list's line, search and every AI read (rooms/reader.ts) get the typed text only (the address holds

@@ -150,7 +150,7 @@ test('a thread reply, an edited and a deleted original, an event line', async ()
 })
 
 test('Show message: a snapshot only from the sender\'s own access, only a person\'s message; frozen; wiped on delete', async () => {
-  const { mia, nora, otto, dm, all, chat, send, seen, stored } = await setup('b-link-previews-snapshot')
+  const { mia, nora, otto, dm, all, chat, send, seen, stored, hub } = await setup('b-link-previews-snapshot')
   const d = await send(nora.client, dm.id, `the plan @mia, see the file`, { mentions: [mia.id] })
   // otto is not in the DM: his "Show message" for it is dropped, the same as for an id that is not there
   const o1 = await send(otto.client, all.id, link(dm.id, d.id), { showMessages: [d.id] })
@@ -177,8 +177,11 @@ test('Show message: a snapshot only from the sender\'s own access, only a person
   expect(allRoom.lastMessage.excerpt).not.toContain('plan')
   const found = await otto.client.call('GET', '/api/room-messages?q=plan')
   expect(found.items.length).toBe(0)
-  // the original deleted: the snapshot's words go too
+  // the original deleted: the snapshot's words go too, and otto's open window hears it at once
+  hub.events = []
   await nora.client.call('DELETE', `/api/rooms/${dm.id}/messages/${d.id}`)
+  const heard = hub.of(otto.id).filter((e) => e.type === 'room.message.updated' && e.data.message.id === m.id).map((e) => e.data.message.linkPreviews[0])
+  expect(heard.map((x: any) => [x.deleted, x.body])).toEqual([[true, '']])
   expect(stored(m.id)).not.toContain('the plan')
   const after = (await seen(otto.client, all.id, m.id)).linkPreviews[0]
   expect([after.deleted, after.body]).toEqual([true, ''])

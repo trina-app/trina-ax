@@ -18,6 +18,8 @@ import { linkCount, MESSAGE_LINK_PREVIEWS_MAX, MESSAGE_LINK_TEXT_MAX, parseMessa
 import { dmPairOk } from './guest-reach'
 import { appRefsOf, canSee, MSG_COLS, openableFor, parseMentions, pathCheckFor, refsOf, roomNaming, sharedAnswerOf, type MemberRow, type MessageRow, type RoomRow } from './store'
 
+/** A card's text: at most MESSAGE_LINK_TEXT_MAX characters, never half an emoji at the cut. */
+const clipText = (s: string) => (s.length <= MESSAGE_LINK_TEXT_MAX ? s : s.slice(0, MESSAGE_LINK_TEXT_MAX).replace(/[\ud800-\udbff]$/, ''))
 /** At most this many linked messages are looked at for one read (a page of 50 messages × 5 links stays bounded). */
 const LINKED_PER_READ = 100
 
@@ -73,6 +75,9 @@ export interface LinkPrep {
   files: Map<string, { count: number; first?: { name: string; kind: string } }>
   people: Map<string, UserRef>
   apps: ReturnType<typeof appRefsOf>
+  /** whether each linked DM is still open to its two (guests: rooms/guest-reach.ts dmPairOk), worked out once per read:
+   * it does not depend on who reads */
+  dmOk: Map<string, boolean>
 }
 
 export function prepareLinkPreviews(db: Database, rows: readonly MessageRow[]): LinkPrep | null {
@@ -110,7 +115,7 @@ export function prepareLinkPreviews(db: Database, rows: readonly MessageRow[]): 
   const snapshotPeople = [...stored.values()].flatMap((s) => (s.snapshots ?? []).map((x) => x.authorId))
   const senders = rows.filter((r) => stored.get(r.id)?.snapshots?.length).map((r) => r.author_id)
   const people = refsOf(db, [...[...originals.values()].flatMap((m) => [m.author_id]), ...snapshotPeople, ...senders])
-  return { links, stored, originals, rooms, files, people, apps: appRefsOf(db, live) }
+  return { links, stored, originals, rooms, files, people, apps: appRefsOf(db, live), dmOk: new Map() }
 }
 
 /** The viewer's member rows of the linked rooms (with has_hidden), one query. */
@@ -123,10 +128,16 @@ function viewerRows(db: Database, prep: LinkPrep, userId: string): Map<string, M
 
 /** May this member (their row of its room) see the linked message: the room not archived, a DM still open to them,
  * canSee, the link's room (and thread) its own. The same rule as reading the room (Rooms.mine), message by message. */
-export function seesLinked(db: Database, link: Pick<MessageLinkRef, 'roomId' | 'rootId'>, m: MessageRow | undefined, room: RoomRow | undefined, member: MemberRow | undefined): boolean {
+/** `dmOk`: the DM's pair check already made for this read (one per room, whoever reads). */
+export function seesLinked(db: Database, link: Pick<MessageLinkRef, 'roomId' | 'rootId'>, m: MessageRow | undefined, room: RoomRow | undefined, member: MemberRow | undefined, dmOk?: Map<string, boolean>): boolean {
   if (!m || !room || !member || m.room_id !== link.roomId || room.archived_at || m.event) return false
   if (link.rootId && m.thread_root_id !== link.rootId) return false
-  if (!dmPairOk(db, room.kind, room.dm_key)) return false
+  let ok = dmOk?.get(room.id)
+  if (ok === undefined) {
+    ok = dmPairOk(db, room.kind, room.dm_key)
+    dmOk?.set(room.id, ok)
+  }
+  if (!ok) return false
   return canSee(db, m, member)
 }
 
@@ -147,7 +158,7 @@ export function linkPreviewsFor(db: Database, prep: LinkPrep | null, rows: reado
     for (const link of links) {
       const m = prep.originals.get(link.messageId)
       const room = m ? prep.rooms.get(m.room_id) : undefined
-      const sees = !!m && seesLinked(db, link, m, room, mine.get(m.room_id))
+      const sees = !!m && seesLinked(db, link, m, room, mine.get(m.room_id), prep.dmOk)
       // the sender removed its card: a chip still for who sees the original (its place only), nothing for anyone else
       if (hidden.has(link.messageId)) {
         if (!sees) continue
@@ -168,8 +179,9 @@ export function linkPreviewsFor(db: Database, prep: LinkPrep | null, rows: reado
           ...(app ? { app } : {}),
           mentions: m.deleted_at ? [] : parseMentions(m.mentions),
           createdAt: m.created_at, editedAt: m.edited_at, deleted: !!m.deleted_at,
-          body: m.deleted_at ? '' : m.body.slice(0, MESSAGE_LINK_TEXT_MAX),
-          ...(!m.deleted_at && (ai || shared) ? { openable: openableFor(opens ?? undefined, m.body) } : {}),
+          body: m.deleted_at ? '' : clipText(m.body),
+          // (a shared answer: the links of its answer part, as on the message itself)
+          ...(!m.deleted_at && (ai || shared) ? { openable: openableFor(opens ?? undefined, shared ? m.body.slice(shared.at) : m.body) } : {}),
           files: m.deleted_at ? { count: 0 } : prep.files.get(m.id) ?? { count: 0 },
         })
         continue
@@ -213,7 +225,7 @@ export function snapshotOf(db: Database, link: Pick<MessageLinkRef, 'roomId' | '
     // a team room's name as the sender sees it; a DM or a group chat by its kind only (who is in it is not the
     // destination's business)
     name: room!.kind === 'team' || room!.kind === 'all' ? roomNaming(db, room!, senderId).name : null,
-    authorId: m.author_id, createdAt: m.created_at, body: m.body.slice(0, MESSAGE_LINK_TEXT_MAX), mentions: parseMentions(m.mentions),
+    authorId: m.author_id, createdAt: m.created_at, body: clipText(m.body), mentions: parseMentions(m.mentions),
     files: files.length ? { count: files.length, first: { name: files[0]!.name, kind: files[0]!.kind } } : { count: 0 },
   }
 }
@@ -240,9 +252,9 @@ export function keptAfterEdit(stored: string | null | undefined, body: string): 
 
 /** The original `messageId` was deleted: every snapshot of it loses its words (one scan of the messages that hold any
  * snapshot; a delete is rare). Returns the messages changed. */
-export function wipeSnapshotsOf(db: Database, messageId: string): string[] {
-  const rows = db.query("SELECT id, link_previews FROM room_messages WHERE link_previews IS NOT NULL AND instr(link_previews, ?) > 0").all(messageId) as { id: string; link_previews: string }[]
-  const changed: string[] = []
+export function wipeSnapshotsOf(db: Database, messageId: string): { id: string; room_id: string }[] {
+  const rows = db.query("SELECT id, room_id, link_previews FROM room_messages WHERE link_previews IS NOT NULL AND instr(link_previews, ?) > 0").all(messageId) as { id: string; room_id: string; link_previews: string }[]
+  const changed: { id: string; room_id: string }[] = []
   for (const r of rows) {
     const s = readStored(r.link_previews)
     let hit = false
@@ -253,7 +265,7 @@ export function wipeSnapshotsOf(db: Database, messageId: string): string[] {
     })
     if (!hit) continue
     db.query('UPDATE room_messages SET link_previews = ? WHERE id = ?').run(writeStored({ ...s, snapshots }), r.id)
-    changed.push(r.id)
+    changed.push({ id: r.id, room_id: r.room_id })
   }
   return changed
 }

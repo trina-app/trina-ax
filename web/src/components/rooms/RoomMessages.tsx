@@ -33,7 +33,7 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
-import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
@@ -75,7 +75,7 @@ import { mayManageApps } from '../../store/roomApps'
 import { GuestTagFor } from '../GuestTag'
 import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
-import { MessageLinkPreviews, usePlaceLabel } from './MessageLinkChip'
+import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -386,7 +386,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   const placeLabel = usePlaceLabel()
-  const previews = !deleted && !editing ? m.linkPreviews ?? [] : []
+  // only links on this team's own hosts get a chip or a card: the server reads ids on any host, so a look-alike
+  // address of another site never shows a real-looking card under it
+  const hosts = useLinkHosts()
+  const ownLinks = useMemo(() => new Set(parseMessageLinks(m.body).filter((l) => hosts.has(l.host)).map((l) => l.messageId)), [m.body, hosts])
+  const previews = useMemo(() => (!deleted && !editing ? (m.linkPreviews ?? []).filter((p) => ownLinks.has(p.messageId)) : []), [deleted, editing, m.linkPreviews, ownLinks])
   // (a removed one stays a chip: no card)
   const cards = previews.filter((p) => !p.removed)
   const removePreview = (linked: string) => void useRooms.getState().hidePreview(roomId, m.id, linked)

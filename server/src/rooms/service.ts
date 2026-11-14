@@ -764,10 +764,11 @@ export class Rooms {
     const { me } = this.mine(userId, roomId)
     const m = this.removable(roomId, messageId, userId, me)
     const now = nowIso()
+    let wiped: { id: string; room_id: string }[] = []
     const noticed = this.db.transaction(() => {
       this.db.query("UPDATE room_messages SET body = '', mentions = '[]', mentions_all = 0, deleted_at = ?, link_previews = NULL WHERE id = ?").run(now, m.id)
       // the snapshots other messages hold of it lose its words ("Show message" never outlives a delete)
-      wipeSnapshotsOf(this.db, m.id)
+      wiped = wipeSnapshotsOf(this.db, m.id)
       // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
@@ -783,6 +784,8 @@ export class Rooms {
     roomFilesOf(this.ctx).removeForMessage(m.id)
     for (const u of new Set(noticed)) this.notifySignal(u)
     this.messageEvent('room.message.updated', messageRow(this.db, roomId, messageId)!)
+    // the messages showing it as a snapshot: their open windows lose its words now, not at the next read
+    for (const w of wiped) { const row = messageRow(this.db, w.room_id, w.id); if (row) this.messageEvent('room.message.updated', row) }
     // a reply that goes: its thread has one fewer (the root's summary, the followers' badges)
     const root = m.thread_root_id ? messageRow(this.db, roomId, m.thread_root_id) : null
     if (root) this.afterReply(root)
@@ -899,8 +902,10 @@ export class Rooms {
       const room = m ? roomRow(this.db, m.room_id) : null
       const mine = m ? memberRow(this.db, m.room_id, userId) : null
       if (!m || !room || !seesLinked(this.db, { roomId: link.roomId.toLowerCase(), rootId: null }, m, room, mine ?? undefined)) continue
+      // (the DM's pair check once for every reader: it is the same for each)
       const there = new Map(members(this.db, m.room_id).map((x) => [x.user_id, x]))
-      if (readers.every((r) => seesLinked(this.db, { roomId: m.room_id, rootId: null }, m, room, there.get(r.user_id)))) continue
+      const dmOk = new Map<string, boolean>()
+      if (readers.every((r) => seesLinked(this.db, { roomId: m.room_id, rootId: null }, m, room, there.get(r.user_id), dmOk))) continue
       const allowed = snapshotAllowed(m)
       // what "Show message" would store, built as the send would (my own access now)
       const snap = allowed ? snapshotOf(this.db, { roomId: m.room_id, messageId: m.id, rootId: null }, userId) : undefined
