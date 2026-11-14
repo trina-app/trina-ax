@@ -42,7 +42,7 @@ test('the box on a project page starts a chat in the project, which is then list
   await expect(page.getByTestId('project-import')).toBeVisible()
   // in a team project, what comes in stays mine until I share it (QA TC-960)
   await page.getByTestId('project-import').click()
-  await expect(page.getByTestId('project-import-private')).toHaveText("가져온 채팅은 나만 봐요. 멤버에게 보여 주려면 '프로젝트 멤버와 공유'를 쓰세요.")
+  await expect(page.getByTestId('project-import-private')).toHaveText("가져온 채팅은 나만 봐요. 멤버에게 보여 주려면 채팅 메뉴의 '공유…'를 쓰세요.")
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // the draft is the project's: the same one as "/?project=<id>"

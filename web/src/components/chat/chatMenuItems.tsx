@@ -1,17 +1,18 @@
 // The "···" of an AI chat's row: the Trina list (the 트리나 panel, the phone's 트리나 tab) and a project page's chat list show the same
 // items by the same rules. 상단에 고정 / 고정 해제 for anyone who sees the chat, 링크 복사, 이름 바꾸기 for its creator,
-// 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), "Share with project members…" for my private
-// chat in a team project (as the title menu has it; components/chat/ShareChat.tsx mayShareChat, never gated by a project
-// setting: docs/DECISIONS.md "Team project chats shared by default"), 삭제 for its creator or an editor of its project
-// (lib/sharedChat.ts sharedRights: the server's own rules).
-import { FolderInput, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
+// 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), "Share…" where sharing is possible (lib/
+// sharedChat.ts shareKindOf: a chat outside projects that is mine, my private chat in a team project, my chat in a
+// personal project, which explains and offers Move…; never a shared project chat: docs/DECISIONS.md "Chats shared with
+// people and groups"), "Hide from my list" for a chat someone shared with me (opening it brings it back), 삭제 for its
+// creator or an editor of its project (lib/sharedChat.ts sharedRights: the server's own rules).
+import { EyeOff, FolderInput, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { sharedRights } from '../../lib/sharedChat'
+import { mayHideChat, sharedRights, shareKindOf } from '../../lib/sharedChat'
 import { useProjects } from '../../store/projects'
 import { useMeStrict } from '../../store/session'
-import { mayShareChat, openShareChat } from './ShareChat'
+import { startShare } from './ChatShareDialog'
 import type { MenuItem } from '../rooms/MenuButton'
 import { useChatActions } from './chatActions'
 import { useChatLinkItem } from './copyChatLink'
@@ -43,7 +44,7 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
   // my private chat in a team project (the project as this window knows it)
   const project = useProjects((s) => (chat.projectId ? s.byId[chat.projectId] : undefined))
   // (a chat that is not shared is always mine: nobody else lists another person's private chat)
-  const share = mayShareChat(chat, project, !!me.server?.allChatsConfidential)
+  const share = shareKindOf(chat, project, me.user.id, !!me.server?.allChatsConfidential)
   const linkItem = useChatLinkItem(chat, `${testId}-copy-link`, select)
   return [
     chat.pinnedAt
@@ -54,7 +55,8 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     ...extra,
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
-    ...(share ? [{ label: t('chat.shareChat.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => openShareChat(chat.id)), testId: `${testId}-share` }] : []),
+    ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => startShare(chat, share)), testId: `${testId}-share` }] : []),
+    ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: select(() => actions.hide(chat, onRemoved)), testId: `${testId}-hide` }] : []),
     ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat, (c, trashed) => (trashed ? onRemoved?.(c) : onChanged?.(c)))), testId: `${testId}-delete` }] : []),
   ]
 }
