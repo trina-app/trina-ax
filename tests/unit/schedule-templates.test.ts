@@ -126,7 +126,7 @@ test('every language: the web app\'s name, no emoji, the folders as one JSON lin
       expect(lines[3]).toContain('sourcePath'); expect(lines[3]).toContain('outputPath'); expect(lines[3]).toContain('Markdown')
       prompts.add(templatePrompt(templateId, scope, L))
     }
-    expect(prompts.size).toBe(5)
+    expect(prompts.size).toBe(LOCALES.length)
   }
   expect(templatePrompt('daily-file-index', scope, 'en')).toContain('Do not move, rename, delete or edit source files.')
 })
