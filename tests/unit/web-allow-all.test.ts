@@ -441,7 +441,8 @@ describe('notices and accounts', () => {
     on(id)
     await h.api('dana').call(API.deleteUser, { params: { id }, query: { personalFolder: 'delete' }, body: {} })
     expect(audits('web.allow_all_off', id).at(-1)).toEqual({ actor: 'dana', via: 'account' })
-    expect(db().query('SELECT allow_all FROM user_web_access WHERE user_id = ?').get(id)).toEqual({ allow_all: 0 })
+    // and the row itself goes with the account (auth/account-removal.ts)
+    expect(db().query('SELECT allow_all FROM user_web_access WHERE user_id = ?').get(id)).toBeNull()
   })
 })
 

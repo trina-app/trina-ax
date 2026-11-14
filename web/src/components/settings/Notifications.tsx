@@ -14,7 +14,7 @@ import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { DesktopNotifications } from './DesktopNotifications'
 import { isDesktop } from '../../lib/desktop'
-import { deletionNoticeText } from './AccountDeletion'
+import { deletionDueText, deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
 import { roomNoticeLink } from './RoomNoticeRow'
@@ -115,7 +115,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
-  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
+  if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
@@ -165,6 +166,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
+  // my own account's deletion date while the request is open: the page where I can keep the account
+  if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
   return null
