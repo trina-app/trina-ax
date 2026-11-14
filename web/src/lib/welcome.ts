@@ -221,11 +221,12 @@ export const forgetStepsSeen = () => {
   } catch { /* none kept */ }
 }
 /**
- * A link out of the steps to another page of the app (the AI step's "Other AI services … Admin › AI accounts", 팀 파일's
- * "Open" of the project it made) carries the step it left in the history entry's state, so that page shows one way back
- * (components/onboarding/SetupReturn.tsx: "← Back to getting started", "Continue setup" once AI answers after the AI
- * step). The steps resume where they stopped on their own (resumeStep), so the way back is only /welcome. A reload or a
- * move to another page drops the state; the setup row stays the way back from everywhere else.
+ * A link out of the steps to another page of the app (the AI step's "Other AI services … Admin › AI accounts", the team
+ * files step's "Open" of the project it made) carries the step it left in the history entry's state, so that page shows
+ * one way back (components/onboarding/SetupReturn.tsx: "← Back to getting started", "Continue setup" once AI answers
+ * after the AI step). The steps resume where they stopped on their own (resumeStep), so the way back is only /welcome.
+ * The state belongs to that history entry: a reload or Back to it keeps it, a move to another page does not (the setup
+ * row stays the way back from everywhere else).
  */
 export const setupReturnState = (step: WelcomeStep) => ({ setupStep: step }) as const
 /** The step a page was opened from (setupReturnState), or null. */

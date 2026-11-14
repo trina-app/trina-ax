@@ -277,7 +277,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
   const me = useMeStrict()
   const words = useFolderWords()
   const shared = words.name(SHARED_HOME, SHARED_HOME)
-  // on the welcome steps the project's page shows the way back to 팀 파일 (SetupReturn.tsx)
+  // on the welcome steps the project's page shows the way back to the team files step (SetupReturn.tsx)
   const inSteps = useLocation().pathname === '/welcome'
   const { plan, applied } = org
   // where each sorted file is now: a project may have taken some out of 전사 공유

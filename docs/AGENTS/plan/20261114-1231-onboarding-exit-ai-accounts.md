@@ -38,8 +38,8 @@ lead back from; links that open a new browser tab (website, sign-ins).
 
 ## Risks
 
-No migration, no server change. The state is per history entry: a reload keeps it in Chromium, another page drops it
-(the setup row is the way back from everywhere else). Phone: the control goes back in the history when the entry
+No migration, no server change. The state is per history entry: a reload or Back to it keeps it, another page drops
+it (the setup row is the way back from everywhere else). Phone: the control goes back in the history when the entry
 under the page is the steps, so ‹ does not walk the steps twice.
 
 ## Tests
@@ -54,3 +54,9 @@ the step and show the way back); 나중에 and the end screen's Home and skill (
 and the no-AI card lead back); new-tab links (website, sign-ins) that leave the steps open; the invite step's "add
 skills · add files" (step switches inside /welcome). One addition: the control also asks for AI again on window focus,
 because a subscription's sign-in happens in another tab.
+
+Review follow-up: a failed AI check (the store reads it as "usable" so nothing warns) no longer offers "Continue
+setup" (`aiAccess.answered`); the control's way back opens the step it came from (Welcome.tsx opens it even when it
+was recorded done meanwhile, so the team files step shows its result with the project made, not the next step); on a
+phone the bar has no ‹ while the control shows (one back); the real "Open" link of the team files result is covered
+end to end.

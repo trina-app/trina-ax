@@ -2,7 +2,8 @@
 // lib/welcome.ts setupReturnState): the AI step's "Other AI services … Admin › AI accounts" and 팀 파일's "Open" of the
 // project it made carry the step in the history entry's state; that page shows one control:
 // - "← 시작 설정으로 돌아가기" → /welcome (which resumes by itself), owner only, nothing without the state or once finished;
-// - after the AI step, once AI answers (an account added there), "설정 이어서 하기" in the accent instead;
+// - after the AI step, once AI answers (an account added there), "설정 이어서 하기" in the accent instead; a failed check
+//   (the store's "usable" without an answer) does not count;
 // - the links pass the state only on /welcome (Home's no-AI card links to the same page without it).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -32,9 +33,10 @@ const open = (over: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
 
 let progress: WelcomeProgress | null = null
 let ai = { usable: false, action: 'connect_team', requested: false }
+let aiFails = false
 const routes: Record<string, () => Response> = {
   'GET /api/onboarding/welcome': () => json(200, { progress }),
-  'GET /api/me/ai-access': () => json(200, ai),
+  'GET /api/me/ai-access': () => aiFails ? json(503, { error: { code: 'unavailable', message: 'down' } }) : json(200, ai),
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
 }
 
@@ -50,6 +52,7 @@ beforeAll(() => {
   }) as unknown as typeof fetch
 })
 afterEach(() => {
+  aiFails = false
   progress = null
   ai = { usable: false, action: 'connect_team', requested: false }
   useWelcome.getState().reset()
@@ -104,6 +107,21 @@ describe('the way back to the welcome steps', () => {
       expect(m.get('setup-return-button').textContent).toContain('설정 이어서 하기')
       await act(async () => { m.get('setup-return-button').dispatchEvent(leftClick()) })
       await m.until(() => m.find('where')?.textContent?.startsWith('/welcome|'), 'the steps')
+    } finally { await m.unmount() }
+  })
+
+  test('a failed AI check is no "AI works": the control stays "back"', async () => {
+    signIn('owner')
+    progress = open()
+    aiFails = true
+    const m = await at('/admin/providers', setupReturnState('ai'))
+    try {
+      await m.until(() => m.find('setup-return') && useAiAccess.getState().loaded, 'the failed check')
+      await m.settle(30)
+      // the store reads a failure as usable (nothing warns), but it was not answered
+      expect(useAiAccess.getState().usable).toBe(true)
+      expect(useAiAccess.getState().answered).toBe(false)
+      expect(m.get('setup-return').getAttribute('data-state')).toBe('back')
     } finally { await m.unmount() }
   })
 
