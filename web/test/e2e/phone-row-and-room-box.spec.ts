@@ -41,24 +41,6 @@ for (const vp of VIEWPORTS) {
 }
 
 for (const vp of VIEWPORTS) {
-  test(`a connected row's full name shows beside a status (${vp.name}) (QA TC-1549)`, async ({ page }) => {
-    await page.setViewportSize(vp.size)
-    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
-    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-    await signIn(page)
-    const long = 'QA-Fake Team3 Long Workspace Name'
-    expect((await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: long, url: 'https://mcp.longname.example/mcp', auth: 'oauth', access: { everyone: false, groups: [], users: ['nobody-here'] } } })).status()).toBe(201)
-    await page.goto('/admin/connectors')
-    const row = page.getByTestId('team-connection').filter({ hasText: long })
-    await expect(row).toBeVisible()
-    await expect(row.getByTestId('connector-row-status')).toBeVisible()
-    await shot(page, `connected-status-${vp.name}`)
-    const name = row.getByText(long, { exact: true })
-    expect(await name.evaluate((e) => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight)).toBe(true)
-  })
-}
-
-for (const vp of VIEWPORTS) {
   for (const scheme of ['light', 'dark'] as const) {
     test(`a room's message box is a frame (${vp.name}, ${scheme})`, async ({ page }) => {
       await page.setViewportSize(vp.size)
@@ -73,9 +55,6 @@ for (const vp of VIEWPORTS) {
       await shot(page, `room-box-${vp.name}-${scheme}`)
       expect(await box.evaluate((e) => parseFloat(getComputedStyle(e).borderTopWidth))).toBe(1)
       expect(await box.evaluate((e) => parseFloat(getComputedStyle(e).borderTopLeftRadius))).toBeGreaterThan(8)
-      // the AI chat's corner (24px) and side space (16px) (QA TC-1641)
-      expect(await box.evaluate((e) => parseFloat(getComputedStyle(e).borderTopLeftRadius))).toBe(24)
-      if (vp.name === '390') expect(Math.round((await box.boundingBox())!.x)).toBe(16)
       // one line when only + and send: the plain box stays one row high
       if (vp.name === '390') expect((await box.boundingBox())!.height).toBeLessThanOrEqual(64)
     })

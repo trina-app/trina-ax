@@ -61,11 +61,13 @@ Contributors; the icons Lucide lists as derived from Feather are MIT, Copyright
 (c) 2013-present Cole Bemis. See resources/notices/lucide/; release bundles
 carry it in licenses/lucide/.
 
-The marks of Sentry and GitHub beside apps that post in rooms (web/public/icons/room-apps/) are the
-unchanged one-colour SVGs of Simple Icons 16.37.0 (CC0-1.0; https://simpleicons.org). Each is its owner's
-trademark (Sentry: Functional Software, Inc.; GitHub: GitHub, Inc.), shown only to name the service; no
-endorsement is implied and no trademark rights are granted. Google Forms is shown with a plain icon, not
-Google's product icon. See docs/THIRD-PARTY-NOTICES.md.
+The marks of Sentry, GitHub, Notion, Zendesk and Stripe beside apps that post in rooms
+(web/public/icons/room-apps/) are the unchanged one-colour SVGs of Simple Icons 16.37.0 (CC0-1.0;
+https://simpleicons.org). Each is its owner's trademark (Sentry: Functional Software, Inc.; GitHub: GitHub,
+Inc.; Notion: Notion Labs, Inc.; Zendesk: Zendesk, Inc.; Stripe: Stripe, Inc.), shown only to name the
+service; no endorsement is implied and no trademark rights are granted. Google Forms is shown with a plain
+icon, not Google's product icon; Shopify, Typeform, Tally and Jotform with their initials, not their marks.
+See docs/THIRD-PARTY-NOTICES.md.
 
 The web app's emoji picker shows emoji names and keywords in English and Korean
 from emojibase-data 18.0.0 (MIT, Copyright (c) 2017-2019 Miles Johnson), which

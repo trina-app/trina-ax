@@ -24,7 +24,6 @@
 // is writing here (RoomTypingLine, docs/DECISIONS.md "입력 중 표시").
 // Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
 // one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
-import { composerInset, composerRadius } from '../chat/composerBox'
 import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, X } from 'lucide-react'
@@ -411,13 +410,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   )
 
   return (
-    <div ref={root} className={clsx('relative shrink-0 pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
+    <div ref={root} className="relative shrink-0 px-3 pb-[var(--box-bottom)] sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
       {/* who else is writing here; out of the way while the "@" list floats over the messages on a phone */}
       <RoomTypingLine roomId={roomId} threadRootId={threadRootId} members={members} meId={meId} hidden={!!mention.list && phone} />
       {above}
       <div
-        className={clsx('relative mx-auto max-w-[780px]', composerRadius, 'border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
+        className={clsx('relative mx-auto max-w-[780px] rounded-2xl border bg-surface transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         {...dropProps}
         data-testid="room-composer"
       >

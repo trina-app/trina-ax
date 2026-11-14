@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
-import { appMessage, mockApp, routeRoomApps, type MockApp } from './room-apps-mock'
+import { appMessage, mockApp, mockPreset, routeRoomApps, type MockApp } from './room-apps-mock'
 
 const dir = process.env.ROOM_APPS_SHOTS
 test.skip(!dir, 'ROOM_APPS_SHOTS is not set')
@@ -194,6 +194,74 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await expect(page.getByTestId('connection-apps-anywhere')).toBeVisible()
       await page.getByTestId('connection-apps-anywhere').scrollIntoViewIfNeeded()
       await shot('24-admin-connection')
+    })
+
+    // ---- presets (plan 20261114-1522, P1, QA TC-1634): the picker's groups, each new guide (top and its last step),
+    // Other's "Don't see your app?", each new card in the timeline, a preset's settings
+    test(`room apps presets screenshots (${vp.name}, ${scheme})`, async ({ page }) => {
+      test.setTimeout(240_000)
+      await page.setViewportSize(vp.size)
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      const shot = async (name: string) => { await page.waitForTimeout(250); await page.screenshot({ path: `${dir}/${name}-${vp.name}-${scheme}.png` }) }
+      const dialog = page.getByTestId('apps-dialog')
+      await start(page, { messages: MESSAGES.slice(0, 1) })
+      await page.getByTestId('room-menu').first().click()
+      await page.getByTestId('room-menu-apps').click()
+      await expect(page.getByTestId('apps-picker')).toBeVisible()
+      await shot('p01-picker')
+      await page.getByTestId('apps-pick-other').scrollIntoViewIfNeeded()
+      await shot('p02-picker-end')
+      for (const p of ['stripe', 'shopify', 'notion', 'zendesk', 'typeform', 'tally', 'jotform'] as const) {
+        await page.getByTestId(`apps-pick-${p}`).click()
+        await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', p)
+        await shot(`p-guide-${p}`)
+        const safer = page.getByTestId('apps-safer')
+        if (await safer.count()) await safer.locator('summary').click()
+        await page.getByTestId('apps-done').scrollIntoViewIfNeeded()
+        await shot(`p-guide-${p}-end`)
+        await page.getByTestId('apps-back').click()
+      }
+      await page.getByTestId('apps-pick-other').click()
+      await shot('p-guide-other')
+      await page.getByTestId('apps-zapier').locator('summary').click()
+      await page.getByTestId('apps-zapier').scrollIntoViewIfNeeded()
+      await shot('p-guide-other-zapier')
+      await page.getByTestId('apps-make').locator('summary').click()
+      await page.getByTestId('apps-make').scrollIntoViewIfNeeded()
+      await shot('p-guide-other-make')
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+
+      // the cards, as the server's presets write them (shared plain-text card, the one checked link)
+      const P = {
+        notion: mockPreset('notion'), typeform: mockPreset('typeform'), tally: mockPreset('tally'), jotform: mockPreset('jotform'),
+        stripe: mockPreset('stripe', { lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' }, signed: true }), shopify: mockPreset('shopify'), zendesk: mockPreset('zendesk'),
+      }
+      const cards: MockMessage[] = [
+        { id: id(50), author: MINA, body: '', extra: appMessage(P.stripe, { kind: 'Payment received', title: '$49.00 from Jamie Rivera', details: ['Pro plan (monthly)'], status: 'Status: Succeeded', link: { url: 'https://dashboard.stripe.com/payments/pi_3Q', host: 'dashboard.stripe.com' } }) },
+        { id: id(51), author: MINA, body: '', extra: appMessage(P.shopify, { kind: 'New order #1042', title: '86.00 USD · 3 items', details: ['2 × T-shirt', '1 × Mug', 'Jamie, Portland'], status: 'Status: Paid', link: { url: 'https://admin.shopify.com/store/acme/orders/5501', host: 'admin.shopify.com' } }) },
+        { id: id(52), author: MINA, body: '', extra: appMessage(P.zendesk, { kind: 'New ticket #318 · high', title: "Can't sign in after the update", details: ['From Jamie Rivera', 'Assigned to Jun'], status: 'Status: Open', link: { url: 'https://acme.zendesk.com/agent/tickets/318', host: 'acme.zendesk.com' } }) },
+        { id: id(53), author: MINA, body: '', extra: appMessage(P.notion, { kind: 'Notion · Content calendar', title: 'Launch post for the spring sale', details: ['Owner: Mina Park', 'Due: Nov 20'], status: 'Status: In review', link: { url: 'https://www.notion.so/acme/Launch-post-1a2b', host: 'www.notion.so' } }) },
+        { id: id(54), author: MINA, body: '', extra: appMessage(P.typeform, { kind: 'New response · Customer survey', title: 'How did you hear about us?: From a friend', details: ['Rating: 9', 'Email: jamie@example.com', '+3 more'] }) },
+        { id: id(55), author: MINA, body: '', extra: appMessage(P.tally, { kind: 'New response · Event sign-up', title: 'Name: Jamie Rivera', details: ['Ticket: Early bird', 'Upload: badge-photo.jpg'] }) },
+        { id: id(56), author: MINA, body: '', extra: appMessage(P.jotform, { kind: 'New response · Quote request', title: 'Company: Example Co.', details: ['Budget: 5,000', '+3 more'] }) },
+      ]
+      await start(page, { apps: Object.values(P), messages: [MESSAGES[0]!, ...cards] })
+      await page.getByTestId('room-messages').locator('[data-app="stripe"]').first().scrollIntoViewIfNeeded()
+      await shot('p-cards-1')
+      await page.getByTestId('room-messages').locator('[data-app="jotform"]').first().scrollIntoViewIfNeeded()
+      await shot('p-cards-2')
+      // settings: Stripe's refused secret (named), Shopify's switches and Regenerate warning
+      await page.getByTestId('room-menu').first().click()
+      await page.getByTestId('room-menu-apps').click()
+      await expect(page.getByTestId('apps-list')).toBeVisible()
+      await shot('p-list')
+      await page.getByTestId('apps-list-row').nth(4).click()
+      await shot('p-settings-stripe-refused')
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-list-row').nth(5).click()
+      await page.getByTestId('apps-new-address').click()
+      await shot('p-settings-shopify-regenerate')
     })
   }
 }

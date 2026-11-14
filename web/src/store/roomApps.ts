@@ -7,7 +7,8 @@
 import { create } from 'zustand'
 import type { Me } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import type { Room, RoomApp, RoomAppKind, RoomAppList, UpdateRoomAppBody } from '@mycel/shared/api'
+import type { Room, RoomApp, RoomAppList, UpdateRoomAppBody } from '@mycel/shared/api'
+import type { AppService } from '../lib/roomApps'
 
 /** May I manage this room's apps (the server's rooms/store.ts mayManageApps)? A room I see is a room I am in. */
 export const mayManageApps = (room: Pick<Room, 'kind'> | null | undefined, me: Pick<Me, 'user'> | null | undefined): boolean =>
@@ -15,7 +16,7 @@ export const mayManageApps = (room: Pick<Room, 'kind'> | null | undefined, me: P
 
 /** Which screen the apps dialog starts on: the picker (or the list when there are apps), one app's settings, or a kind's
  * guide (a new app, or one being set up again). */
-export type AppsStart = { view: 'auto' } | { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; kind: RoomAppKind; appId?: string }
+export type AppsStart = { view: 'auto' } | { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; service: AppService; appId?: string }
 
 interface RoomAppsState {
   lists: Record<string, RoomAppList | undefined>
