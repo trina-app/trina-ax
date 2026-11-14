@@ -12,7 +12,7 @@
 ## Goal
 
 The hosting service stops an idle trial team's server to save cost and starts it again when someone opens the team.
-Someone who opens a stopped team sees "Starting your team…" (about a minute) and the page opens by itself when the
+Someone who opens a stopped team sees "Resuming your team…" (about a minute) and the page opens by itself when the
 server is back. Apps and webhooks get a retryable 503.
 
 ## Scope

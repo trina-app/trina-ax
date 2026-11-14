@@ -124,7 +124,7 @@ At most one call per team per 10 s (requests in that time share the answer), 30 
 `ts` strictly increases per process. The log has the team id and the answer state only. Then:
 
 - browser page loads (GET/HEAD for HTML; under `/api/` only the connector OAuth and Google Drive callbacks): wait up to
-  `RELAY_WAKE_PAGE_MS`, forward when the team server is back, else the "Starting your team…" page (503,
+  `RELAY_WAKE_PAGE_MS`, forward when the team server is back, else the "Resuming your team…" page (503,
   `x-relay-error: team_waking`). It reloads the same address after the control plane's `retryAfterSec`, kept to
   3-20 s (20 for a stopped EC2 instance; Retry-After is the same; meta refresh, the address is not echoed), so
   an OAuth callback arrives with its `code` and `state` once the server is awake.

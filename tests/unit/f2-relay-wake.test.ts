@@ -118,12 +118,12 @@ describe('the waking page (a stopped hosted server starts in about a minute)', (
 
   test('says it takes about a minute, in every language', () => {
     const en = htmlPage('team_waking', 'en', null, undefined, 20)
-    expect(en).toContain('Starting your team…')
+    expect(en).toContain('Resuming your team…')
     expect(en).toContain('about a minute')
     for (const lang of ['ko', 'id', 'ja', 'es', 'zh'] as const) {
       const h = htmlPage('team_waking', lang, null, undefined, 20)
       expect(h).toContain(`lang="${lang}"`)
-      expect(h).not.toContain('Starting your team')
+      expect(h).not.toContain('Resuming your team')
     }
   })
 })

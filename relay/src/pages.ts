@@ -115,12 +115,12 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     id: { title: 'Server tim sedang tidak dapat dijangkau', body: 'Muat ulang halaman ini sebentar lagi. Status layanan: %STATUS%' }, ja: { title: "現在チームサーバーに接続できません", body: "しばらくしてからこのページを再読み込みしてください。サービス稼働状況：%STATUS%" }, es: { title: "No se puede conectar con el servidor del equipo ahora", body: "Recargue esta página en un momento. Estado del servicio: %STATUS%" }, zh: { title: "暂时无法连接到团队服务器", body: "请稍后刷新此页面。服务状态：%STATUS%" },
   },
   team_waking: {
-    en: { title: 'Starting your team…', body: "Your team's server was paused because no one used it for a while. It is starting again; this takes about a minute. This page opens by itself when it is ready." },
-    ko: { title: '팀을 시작하고 있어요…', body: '한동안 아무도 쓰지 않아서 팀 서버를 잠시 멈춰 두었어요. 지금 다시 켜는 중이고, 1분쯤 걸려요. 준비되면 이 페이지가 저절로 열려요.' },
-    id: { title: 'Memulai tim Anda…', body: 'Server tim Anda dijeda karena tidak ada yang memakainya untuk sementara waktu. Server sedang dinyalakan lagi; ini memakan waktu sekitar satu menit. Halaman ini terbuka sendiri saat sudah siap.' },
-    ja: { title: 'チームを起動しています…', body: 'しばらく誰も使っていなかったため、チームのサーバーを一時停止していました。いま再起動しています。1分ほどかかります。準備ができるとこのページが自動で開きます。' },
-    es: { title: 'Iniciando su equipo…', body: 'El servidor de su equipo estaba en pausa porque nadie lo usó durante un tiempo. Se está iniciando de nuevo; tarda alrededor de un minuto. Esta página se abrirá sola cuando esté lista.' },
-    zh: { title: '正在启动你的团队…', body: '由于一段时间没有人使用，团队服务器已暂停。现在正在重新启动，大约需要一分钟。准备好后此页面会自动打开。' },
+    en: { title: 'Resuming your team…', body: "Your team's server was paused because no one used it for a while. It is resuming; this takes about a minute. This page opens by itself when it is ready." },
+    ko: { title: '팀을 다시 켜고 있어요…', body: '한동안 아무도 쓰지 않아서 팀 서버를 잠시 멈춰 두었어요. 지금 다시 켜는 중이고, 1분쯤 걸려요. 준비되면 이 페이지가 저절로 열려요.' },
+    id: { title: 'Mengaktifkan lagi tim Anda…', body: 'Server tim Anda dijeda karena tidak ada yang memakainya untuk sementara waktu. Server sedang dinyalakan lagi; ini memakan waktu sekitar satu menit. Halaman ini terbuka sendiri saat sudah siap.' },
+    ja: { title: 'チームを再開しています…', body: 'しばらく誰も使っていなかったため、チームのサーバーを一時停止していました。いま再開しています。1分ほどかかります。準備ができるとこのページが自動で開きます。' },
+    es: { title: 'Reanudando su equipo…', body: 'El servidor de su equipo estaba en pausa porque nadie lo usó durante un tiempo. Se está reanudando; tarda alrededor de un minuto. Esta página se abrirá sola cuando esté lista.' },
+    zh: { title: '正在恢复你的团队…', body: '由于一段时间没有人使用，团队服务器已暂停。现在正在恢复，大约需要一分钟。准备好后此页面会自动打开。' },
   },
 }
 

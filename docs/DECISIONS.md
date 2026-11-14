@@ -27784,7 +27784,7 @@ guides, "Apps posting here") are phase 2.
   OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
   or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
   the waking page (it reloads and asks again).
-- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Starting your team…" (about a
+- Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Resuming your team…" (about a
   minute, six languages), which reloads the same address after the control plane's `retryAfterSec` kept to 3-20 s
   (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
   one-minute boot was 20 reloads and wake calls). The page does not echo the address, so an OAuth callback's `code`
@@ -27942,7 +27942,7 @@ shared with people and groups, and files attached before the share stayed visibl
   counts is real use: a signed-in request (also one on an open connection), a message or answer, an upload, a connector
   call, a job, a schedule. The number of open connections is still reported in `status.json`.
 - **A WebSocket never wakes a stopped team.** An app that reconnects on its own would wake the team after every stop.
-  The socket is closed 1013; the next real request wakes it ("Starting your team…" or a retryable 503 `team_waking`).
+  The socket is closed 1013; the next real request wakes it ("Resuming your team…" or a retryable 503 `team_waking`).
 - The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
   `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
 

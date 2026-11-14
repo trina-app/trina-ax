@@ -102,7 +102,7 @@ export const isConnectionError = (e: unknown) =>
   isNetworkError(e) || (e instanceof ApiError && e.code === 'unavailable' && e.status >= 502 && e.status <= 504 && (e.body.params?.reason === undefined || isTeamWaking(e)))
 
 /** The relay says the team's server is starting after a pause (a free trial's server turns off when unused): not an
- * error to fear. It is a connection error too (it passes by itself), but the words say "Starting your team". */
+ * error to fear. It is a connection error too (it passes by itself), but the words say "Resuming your team". */
 export const isTeamWaking = (e: unknown) => e instanceof ApiError && e.status === 503 && e.body.params?.reason === 'team_waking'
 
 /**
