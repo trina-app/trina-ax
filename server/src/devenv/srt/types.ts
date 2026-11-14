@@ -1,6 +1,6 @@
 // The result shapes of srt runs (srt/runner.ts) that tool.ts and jobs.ts read.
 
-/** The end of a foreground command. signal: timeout | oom | stopped | "" (ended by itself). */
+/** The end of a foreground command. signal: timeout | oom | setting | stopped | "" (ended by itself). */
 export interface RunExit {
   ev: 'exit'
   code: number
