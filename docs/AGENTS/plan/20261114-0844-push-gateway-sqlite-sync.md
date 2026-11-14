@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 08:44
 - Branch: `fix/push-gateway-sqlite-sync`
-- Status: in progress
+- Status: done
 - Where: push-gateway/src. Why: the gateway's state store lives there (docs/REPOSITORY-RULES.md)
 - Version impact: none: the push gateway is deployed on its own; team servers and apps do not change
 
@@ -39,4 +39,4 @@ Losing them can at worst let a retry send once more. A crash of the gateway proc
 
 ## Result
 
-Filled in at the end.
+As planned: `openSqlite` sets `synchronous = NORMAL` after WAL; the server test checks both; README "State on disk"; changes/push-gateway-sqlite-sync.md.

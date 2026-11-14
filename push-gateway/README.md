@@ -45,6 +45,15 @@ HTTP version is its
 [2019 changelog](https://developers.cloudflare.com/workers/platform/changelog/historical-changelog/): "Cloudflare
 communicates with origin servers using HTTP/1.1".
 
+## State on disk
+
+One SQLite file (`PUSH_GATEWAY_DB`) in WAL mode with `synchronous = NORMAL`: a write does not wait for the disk. With
+SQLite's default (`FULL`) every one of a send's 4 to 5 writes waited for the disk on the only thread, and a load test
+on the production server (2 vCPU, gp3 disk, fake providers) stopped at about 75 sends a second with the CPU idle. With
+`NORMAL` it sent 400 a second (p99 279 ms). A power loss can drop the last few commits; they are rate-limit
+counters, dedupe entries and first-seen records that expire within a day, so at worst a retry sends once more. A
+crash of the gateway process alone loses nothing.
+
 ## Tests and typecheck
 
 ```sh
