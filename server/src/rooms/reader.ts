@@ -19,6 +19,7 @@
 // The caller (chat/room-tools.ts) marks the chat (chats.rooms_seen), taints it and adds the rooms whose messages a result
 // gave (`seen`; a list of rooms gives none) to its read scope.
 import type { Database } from 'bun:sqlite'
+import { reachFilter } from '../auth/guests'
 import { isStatusEmoji } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
@@ -172,7 +173,9 @@ export const PERSON_REF = 'person:'
  */
 export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[]; total: number } | null {
   const raw = ref.trim()
-  const people = db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]
+  // (only the people I may reach: a guest, the people of their one place; nobody, a guest outside my places)
+  const reach = reachFilter(db, userId)
+  const people = (db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]).filter((p) => reach(p.id))
   const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
     .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
   const out = (p: { id: string; name: string }, exact: boolean): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact })

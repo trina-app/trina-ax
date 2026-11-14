@@ -19,6 +19,7 @@
 import type { PresenceFrame, PresenceState, WindowActivity } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { parsePrefs } from '../auth/users'
+import { placePeople } from '../auth/guests'
 import type { Hub } from './hub'
 
 /** a change is told once it has held this long */
@@ -305,15 +306,48 @@ const stateOf = (p: Person): PresenceState => {
 
 const started = new WeakMap<AppContext, Presence>()
 
+/**
+ * Presence frames cut to what each window's person may know (docs/DECISIONS.md "Guests: only what they were invited
+ * to"): a guest is told only about the people of their one place, and a member is not told about a guest who shares no
+ * place with them. Who is a guest and each guest's place people are worked out once per frame (the same frame object
+ * goes to every window of a change), never once per window; with no guest on the team the frame goes as it is.
+ */
+export function guestPresenceSend(ctx: AppContext, send: PresenceOptions['send']): PresenceOptions['send'] {
+  const seen = new WeakMap<PresenceFrame, { guests: Set<string>; places: Map<string, Set<string>> }>()
+  const viewOf = (frame: PresenceFrame) => {
+    let v = seen.get(frame)
+    if (!v) {
+      const guests = new Set((ctx.db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id))
+      const places = new Map<string, Set<string>>()
+      for (const g of guests) places.set(g, placePeople(ctx.db, g))
+      v = { guests, places }
+      seen.set(frame, v)
+    }
+    return v
+  }
+  return (to, frame, windowId) => {
+    const v = viewOf(frame)
+    if (!v.guests.size) return send(to, frame, windowId)
+    const mine = v.places.get(to)
+    const keep = mine
+      ? (id: string) => id === to || mine.has(id)
+      : (id: string) => !v.guests.has(id) || !!v.places.get(id)?.has(to)
+    const people = frame.people.filter((x) => keep(x.id))
+    if (!frame.full && !people.length) return
+    send(to, people.length === frame.people.length ? frame : { ...frame, people }, windowId)
+  }
+}
+
 /** The team's presence, on the hub's windows and client frames (chat/runtime.ts starts it with the hub). */
 export function startPresence(hub: Hub, ctx: AppContext, o: Partial<PresenceOptions> = {}): Presence {
+  const send = guestPresenceSend(ctx, o.send ?? ((userId, frame, windowId) => hub.sendControl(userId, frame, windowId)))
   const p = new Presence({
-    send: (userId, frame, windowId) => hub.sendControl(userId, frame, windowId),
     recipients: () => hub.connectedUsers(),
     isPerson: (id) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id),
     activeIds: () => new Set((ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)),
     awayOf: (id) => parsePrefs((ctx.db.query('SELECT prefs FROM users WHERE id = ?').get(id) as { prefs: string } | null)?.prefs).away === true,
     ...o,
+    send,
   })
   hub.onWindow((userId, windowId, state) => (state === 'open' ? p.open(userId, windowId) : p.close(userId, windowId)))
   hub.onClientFrame((s, f) => { if (f.type === 'presence') p.activity(s.userId, s.windowId, f.state) })
