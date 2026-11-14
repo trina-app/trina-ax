@@ -70,6 +70,7 @@ import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder 
 import type { LocalSpeechTool } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
 import { WideningAnswer } from '@mycel/shared/api'
+import { ACCOUNT_DELETION_GRACE_DAYS } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
@@ -250,6 +251,9 @@ const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code: 'web_a
 /** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
 const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
+
+/** an account deletion request's automatic date (server/src/auth/deletion-requests.ts: 7 days after asking) */
+const deletionDue = (at: string) => new Date(Date.parse(at) + ACCOUNT_DELETION_GRACE_DAYS * 86_400_000).toISOString()
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
@@ -1432,9 +1436,9 @@ export class MockServer {
   }
 
   deletionOf(u: User) {
-    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null }
+    if (u.role === 'owner') return { state: 'owner' as const, requestedAt: null, dueAt: null, auditDays: 90 }
     const at = this.deletionRequests.get(u.id)
-    return at ? { state: 'pending' as const, requestedAt: at } : { state: 'none' as const, requestedAt: null }
+    return at ? { state: 'pending' as const, requestedAt: at, dueAt: deletionDue(at), auditDays: 90 } : { state: 'none' as const, requestedAt: null, dueAt: null, auditDays: 90 }
   }
 
   startSession(u: User) {
@@ -2320,6 +2324,7 @@ export class MockServer {
     myDeletionRequest: (c) => this.deletionOf(c.user),
     requestAccountDeletion: (c) => {
       if (c.user.role === 'owner') fail('conflict', 409)
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, 'Wrong password.', { 'body.password': 'wrong password' })
       if (!this.deletionRequests.has(c.user.id)) this.deletionRequests.set(c.user.id, now())
       return this.deletionOf(c.user)
     },
@@ -3311,7 +3316,10 @@ export class MockServer {
     postResult: () => fail('not_found', 404),
 
     // the people who asked to have their account deleted: the owner sees them all, an admin the members' only
-    listUsers: (c) => ({ items: this.users, deletionRequested: this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member')).map((u) => u.id) }),
+    listUsers: (c) => {
+      const asked = this.users.filter((u) => this.deletionRequests.has(u.id) && (c.user.role === 'owner' || u.role === 'member'))
+      return { items: this.users, deletionRequested: asked.map((u) => u.id), deletionDue: Object.fromEntries(asked.map((u) => [u.id, deletionDue(this.deletionRequests.get(u.id)!)])) }
+    },
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
