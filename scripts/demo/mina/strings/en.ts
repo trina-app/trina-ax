@@ -83,7 +83,8 @@ export const en = {
         '',
         '**This week**: Yuzu Ginger launches **Monday**. The launch banner is the big open item.',
       ].join('\n'),
-      /** the "people to know" chips, one line each */
+      /** "people to know", one line each (in the answer's text) */
+      peopleTitle: 'People to know',
       people: {
         sara: 'Your lead. Ask her anything.',
         leo: 'Made the first banner. Moves to Sales Monday.',
@@ -138,7 +139,9 @@ export const en = {
       brandCheck: 'Brand check',
       background: 'Higgsfield background',
     },
-    compare: { before: 'Leo\'s draft', after: 'New' },
+    compare: { before: 'Before: Leo\'s draft', after: 'After' },
+    /** the other sizes, shown in the answer under the new banner */
+    otherSizes: 'Same look, every size:',
     sendTo: 'Send to #Marketing',
     mail: {
       prompt: 'Email the banner to Chris',
@@ -195,6 +198,8 @@ export const en = {
     leoHow: 'wait how did you do this so fast 😂',
     leadGmail: 'Mina, Gmail\'s connected. Ask Trina to send it to Chris at Fieldnote, our agency.',
     chrisReply: 'Looks great, running it Monday.',
+    /** Sara passes on the agency's reply in #Marketing; {reply} is chrisReply */
+    chrisRelayed: 'Chris just replied to your email: "{reply}" 🎉 Great first day, Mina.',
   },
 
   /** each step's line, and `away`: the line while the visitor is somewhere else */
@@ -204,13 +209,14 @@ export const en = {
     project: { text: 'Open the project in Sara\'s message →', away: 'Sara is waiting in your DMs →' },
     banner: { text: 'Pick one: brand guide or Higgsfield →', away: 'Leo\'s banner is waiting in the project →' },
     share: { text: 'Send it to #Marketing →', away: 'Your new banner is ready to share →' },
+    room: { text: 'Open #Marketing: the team is reacting →', away: 'Open #Marketing: the team is reacting →' },
     mail: { text: 'Ask ✦ Trina to email Chris →', away: 'Chris still needs the banner →' },
   },
 
   fallback: { text: 'This demo follows suggested prompts. Try this one:', question: 'Next step' },
 
   end: {
-    title: 'Mina\'s first day',
+    title: 'That\'s Mina\'s first day',
     body: 'From "what do we do here?" to a launch banner the CEO approved and the agency is running. Day one.',
     stats: {
       time: 'Time',

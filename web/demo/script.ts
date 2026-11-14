@@ -52,10 +52,8 @@ export interface DemoScript {
     prompt: string
     /** the button's label (default: the app's own "Ask") */
     button?: string
-    /** v2: who invited the visitor: their photo and "<name> invited you" on the card (default: the first event's sender) */
+    /** who invited the visitor: "<name> invited you" on the app's welcome card (default: the first event's sender) */
     inviter?: Id
-    /** v2: the line under the title (default: the app's "<name> invited you · N people are here") */
-    subtitle?: string
   }
   /** the canned AI answers; the visitor's message is matched to `prompt` (trimmed, exact) */
   answers: DemoAnswer[]
@@ -79,9 +77,9 @@ export interface DemoPerson {
   /** a profile picture in assets/ (square PNG, JPEG or WebP, 256 px or more); without one the app shows initials.
    * Swap a photo by replacing that file: nothing else changes */
   avatar?: Asset
-  /** v2: someone outside the team (e.g. Chris at the agency): not in the people list or rooms, only in toasts */
+  /** someone outside the team (e.g. Chris at the agency): not in the people list or rooms */
   outside?: true
-  /** v2: their organisation, shown after the name in a toast: "Chris (Fieldnote)" */
+  /** their organisation */
   org?: string
   /** v2: shown online (a presence dot) from the start; default: online */
   online?: boolean
@@ -168,20 +166,9 @@ export interface DemoAnswer {
   files?: DemoFile[]
   /** a card after the text with buttons; the chosen option's reply goes on in the same answer */
   ask?: DemoAsk
-  /** v2: shown under the answer, in this order (all optional) */
-  /** team files the answer read, as chips that open the file */
+  /** team files the answer read: the app's own "sources" under the answer (paths of `files`). Pictures the answer made
+   * show in its text, as a real answer shows them: `![label]({{file:<path>}})` */
   sources?: string[]
-  /** people to know, each a chip with their photo and one line */
-  people?: { id: Id; why: string }[]
-  /** a before/after slider of two team pictures (paths), e.g. Leo's banner and the new one */
-  compare?: { before: string; after: string; beforeLabel?: string; afterLabel?: string }
-  /** the things the answer made, as tiles that open the file (pictures show a thumbnail; a text file its first lines) */
-  deliverables?: { path: string; label: string }[]
-  /** ONE big button under the answer: posts the answer (with its deliverables' pictures) to the room in one click, no
-   * dialog, and opens that room. Counts as { shared: room } */
-  sendTo?: { room: Id; label: string }
-  /** files shown as attachment chips under the text, while its card waits too (e.g. a mail's banner and square) */
-  attachments?: string[]
 }
 
 export interface DemoReply {
@@ -190,8 +177,6 @@ export interface DemoReply {
   files?: DemoFile[]
   /** another card after this reply (e.g. "Send it?" after a draft) */
   ask?: DemoAsk
-  /** v2: files shown as attachment chips above the card (e.g. the banner and the square version of a mail) */
-  attachments?: string[]
 }
 
 export interface DemoAsk {
@@ -227,16 +212,13 @@ export interface DemoEvent {
   after: DemoTrigger
   /** wait this long after the trigger (default 1500 ms) */
   delayMs?: number
-  /** where: a room id. v2: none for someone `outside` (a toast only) */
-  room?: Id
+  /** where: a room id */
+  room: Id
   from: Id
   /** the message; v2: none for an event that only reacts (see `reactions`) */
   text?: string
   /** v2: how long "<name> is typing…" shows before the message (default 1100 ms; 0: none) */
   typingMs?: number
-  /** v2: a toast slides in at the top right with the message ("Sara: Got a sec? 🙏"); clicking it opens `open`
-   * (default: the event's room). Shown whatever screen the visitor is on */
-  toast?: true | { text?: string; open?: DemoGo }
   /** v2: emoji reactions that pile up, one by one: on this event's message, or with `on: 'visitor'` on the visitor's
    * latest message in the room (e.g. on Mina's post). `afterMs`: after the previous one (default 2500) */
   reactions?: { from: Id; emoji: string; afterMs?: number }[]
@@ -258,12 +240,12 @@ export interface DemoGuideStep {
   away?: string
   /** where the line takes the visitor when they click it (brings them back if they wandered off) */
   go: DemoGo
-  /** the control to highlight there, as a CSS selector (copy the ones in the example; most are data-testid). Exactly one
-   * control glows at a time: this one, or the step's suggested buttons when it has `suggest`. v2 selectors the demo adds:
-   * [data-testid="demo-send-to"] (the answer's big send button), [data-testid="room-side-chat-button"] (✦ in a room),
-   * [data-testid="demo-toast"], [data-testid="demo-project-card"] (a project link in a message) */
+  /** the app's control to ring there, as a CSS selector (copy the ones in the example; most are data-testid). Exactly one
+   * thing is ringed at a time. Without one, the demo rings the way there when the visitor is elsewhere (the room's or
+   * project's link, the ✦ button of a side chat) */
   highlight?: string
-  /** answer ids offered as big buttons right above the message box there (e.g. the two banner prompts) */
+  /** answer ids offered as buttons in the guide line (e.g. the two banner prompts); the guide line's own click sends
+   * the first */
   suggest?: Id[]
   /** the step is over when this happens; the next one shows */
   until: DemoTrigger
@@ -271,19 +253,17 @@ export interface DemoGuideStep {
   after?: DemoTrigger
 }
 
+/** The end: the guide line's last state (no card over the app): the title, the real time since the first question and
+ * the contrast, and the sign-up link. */
 export interface DemoEnd {
   /** shown when this happens */
   after: DemoTrigger
   /** delay after the trigger (default 2500 ms) */
   delayMs?: number
+  /** e.g. "That's Mina's first day" */
   title: string
-  body?: string
-  /** v2: the numbers on the card, in order; 'elapsed' is the real time since the start (m:ss) */
-  stats?: { label: string; value: number | 'elapsed' }[]
-  /** one small line under the numbers, e.g. "Usually: 2 days" */
+  /** a short line after the time, e.g. "Without Trina: about 2 days" */
   contrast?: string
-  /** the sign-up link (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
+  /** the sign-up link, opened in a new tab (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
   signup: { label: string; url: string }
-  /** closes the card; the visitor looks around freely */
-  explore: { label: string }
 }
