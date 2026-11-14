@@ -15138,8 +15138,9 @@ be asked again):
   (team), `shareProject` (personal → team) and a leftover folder adopted as a project set it too. `PATCH
   /api/projects/:id {shareChats: false}` is 409 `share_chats_always` (the field stays so older apps parse; `true` is
   accepted and changes nothing).
-- **"Only me" per new chat.** Next to a team project's box (the project page, Home's `?project=`), before the first
-  message: `POST /api/chats {private: true}` makes the chat its creator's alone (`shared = sharesNewChats(p) &&
+- **"Only me" per new chat.** In a team project's box (the project page, Home's `?project=`), as one quiet chip right
+  after + in the box's row ("👥 5 people", pressed "🔒 Only me"; its tooltip says who sees the chat being started; QA
+  TC-1401, it was a line and a pill under the box), before the first message: `POST /api/chats {private: true}` makes the chat its creator's alone (`shared = sharesNewChats(p) &&
   !private`). The whole chat keeps that; the next new chat starts shared again (the switch does not stick). A private
   chat keeps every tool of a chat of one's own (memories, personal connections, browser, schedules); a shared chat keeps
   `SHARED_TOOLS`. A private chat becomes shared only through `POST /api/chats/:id/share` (its check and confirm, "An
