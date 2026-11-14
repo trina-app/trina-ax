@@ -181,6 +181,21 @@ test('room settings: a guest changes their own notification level, never the roo
   expect(named.name).toBe('Client chat')
 })
 
+test('mentions (QA M7): a guest mentions people of their place; anyone else stays plain text, the words are never cut', async () => {
+  const { mia, nora, pia, room, gus } = await setup('a-guests-rooms-mentions')
+  const body = 'Hello from the guest, @MIA and @PIA'
+  const sent = await gus.client.call('POST', `/api/rooms/${room}/messages`, { body, mentions: [mia.id, pia.id], fileIds: [], clientMessageId: cm() })
+  expect(sent.body).toBe(body)
+  expect(sent.mentions).toEqual([mia.id])
+  // as the others read it: the same words, mia mentioned and told (a mention notice); pia is not in it and hears nothing
+  const read = ((await nora.client.call('GET', `/api/rooms/${room}/messages`)).items as { id: string; body: string; mentions: string[] }[]).find((m) => m.id === sent.id)!
+  expect(read).toMatchObject({ body, mentions: [mia.id] })
+  expect(((await mia.client.call('GET', '/api/rooms')).items as { id: string; mentioned: boolean }[]).find((r) => r.id === room)?.mentioned).toBe(true)
+  // an edit keeps the same rule
+  const edited = await gus.client.call('PATCH', `/api/rooms/${room}/messages/${sent.id}`, { body: `${body}!`, mentions: [pia.id, nora.id] })
+  expect(edited).toMatchObject({ body: `${body}!`, mentions: [nora.id] })
+})
+
 test('removal from the one place switches the guest off: taken out by the manager', async () => {
   const { owner, mia, room, gus } = await setup('a-guests-rooms-remove')
   expect((await gus.client.call('GET', '/api/me')).user.role).toBe('guest')

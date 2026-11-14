@@ -34,7 +34,7 @@ import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMedia
 import { answerHref, WideningList } from './WideningList'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../store/wideningDraft'
 import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
-import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf } from './GuestInvite'
+import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
 import { isGuestMe } from '../lib/guests'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
@@ -176,6 +176,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [access, project.folderPath])
   const options = useParticipantOptions(extra)
+  // guests in another room or project: greyed out in the search, no Add (a guest is in one place only)
+  const elsewhere = useGuestsElsewhere({ kind: 'project', id: project.id })
   // the creator and anyone who sees it by another setting of the folder (read): not changed in the list. A "no access"
   // setting is no member: it stays in the box below
   const fixed = useMemo(() => {
@@ -287,7 +289,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
                 <InviteGuestRow place="project" onOpen={() => setGuestInvite(true)} />
               </ul>
             )}
-            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} />
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} current={current} groupPeople={groupPeople} notes={notes} unavailable={elsewhere} />
             {/* the one count of this dialog: everyone who sees it, me included (after the change while one is pending) */}
             <AccessSummary count={count} />
             {/* the widening warning: answers the people being added would start seeing that used places they miss */}

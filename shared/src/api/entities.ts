@@ -86,8 +86,9 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
-  /** a guest invite's one place; absent on member invites */
-  guestPlace: GuestPlace.optional(),
+  /** a guest invite's one place; absent on member invites. `name`: a project's name (the invite list names it; a room's
+   * name is left out, since a group chat is its people's) */
+  guestPlace: GuestPlace.extend({ name: z.string().optional() }).optional(),
   /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
    * the links apart by it); absent when none was given and on member invites */
   guestName: z.string().optional(),

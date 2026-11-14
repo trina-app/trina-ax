@@ -1,0 +1,2 @@
+- A guest invited with **their own sign-in** can now connect their own Claude or ChatGPT account: Ask Trina, their project and the room's ✦ side chat offer **Connect my AI**, and Settings › AI accounts lets them add it. Before, they were told to ask the person who invited them. It is only their own account, never the team's.
+- A guest without AI who opened Settings from its address no longer sees the Trina list behind it.

@@ -29,7 +29,7 @@ import { useRailPanel } from './railPanel'
 export function Rail({ showList }: { showList: boolean }) {
   const t = useT()
   const current = useRailHere()
-  // a guest: no 파일, and no 프로젝트 without one (components/GuestView.tsx)
+  // a guest: no 파일, no 프로젝트 without one, no 대화 for a guest in a project with none (components/GuestView.tsx)
   const guestHidden = useGuestHidden()
   const last = useRailMemory((s) => s.last)
   const attention = useAttention()

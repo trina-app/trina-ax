@@ -34,6 +34,7 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
+import { meGuest } from '../../lib/guests'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
@@ -116,6 +117,7 @@ const typeOf = (name: string) => {
 
 /** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
  * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
+// (a guest with their own sign-in reads the member's "connect your own" for the no-AI ones, with its button)
 const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'trial_credit_used', 'trial_ended', 'engine_missing'])
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
@@ -663,12 +665,15 @@ export function AssistantMessage({
   // admins; what happened and who to tell for everyone else. Never the provider's HTTP status (params.status)
   // a guest reads the words everyone reads, with no button: asking or telling an admin is not theirs (the person who
   // invited them turns their AI on; lib/guests.ts)
-  const myRole = useMe()?.user.role
+  const meNow = useMe()
+  const myRole = meNow?.user.role
   const guest = myRole === 'guest'
+  // a guest with their own sign-in (Me.guest.ai 'own') connects it themselves: "no AI" says so, with "Connect my AI"
+  const guestOwn = guest && meGuest(meNow)?.ai === 'own'
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
-  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? 'guest.aiLimit' as const : reason && GUEST_ASKS.has(reason) ? 'guest.noAi' as const : null
+  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? 'guest.aiLimit' as const : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
     ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
@@ -761,7 +766,7 @@ export function AssistantMessage({
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
-                {isNoAiReason(reason) && !guest && <AiAccessButton />}
+                {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}

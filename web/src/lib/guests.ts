@@ -21,6 +21,14 @@ export function meGuest(me: Me | null | undefined): { place: GuestPlaceView | nu
   return { place: me!.guest?.place ?? null, ai: me!.guest?.ai.mode }
 }
 
+/** The address of the signed-in guest's one place as the server names it (Me.guest.place): their room or their project;
+ * null for anyone else or before the server names it. A guest opens straight into it (Slack's single-channel guests). */
+export function guestPlacePath(me: Me | null | undefined): string | null {
+  const place = meGuest(me)?.place
+  if (!place?.id) return null
+  return place.kind === 'room' ? `/rooms/${place.id}` : `/projects/${place.id}`
+}
+
 /** A guest invite's place (InviteInfo.guestPlace); null for a member invite. */
 export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null } | null {
   return info.role === 'guest' ? { place: info.guestPlace ?? null } : null

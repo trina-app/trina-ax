@@ -12,7 +12,7 @@ import type { EngineConfs } from '../chat/engines'
 import { credentialBackAt, hasCredentialFor, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
 import { memberOwnAllowed } from './policy'
-import { isGuestUser } from './guest-ai'
+import { guestAiOf, isGuestUser } from './guest-ai'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
 export interface AccessOptions {
@@ -158,9 +158,15 @@ export interface AiAccess {
   trial?: 'used' | 'ended'
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
-  // a guest: canUseAi says (never true on a server without AI connections); they ask, they connect nothing for the team,
-  // and the trial credit is never theirs to be told about
-  if (p.role === 'guest' || isGuestUser(ctx.db, p.id)) return { usable: canUseAi(ctx, p, o), action: 'ask_owner' }
+  // a guest: canUseAi says (never true on a server without AI connections); they connect nothing for the team, and the
+  // trial credit is never theirs to be told about. With their own sign-in (AI choice 'own') they connect their own, on a
+  // server that answers with AI connections (on any other a guest is never answered, so there is nothing to connect);
+  // otherwise they ask the person who invited them
+  const guest = guestAiOf(ctx.db, p.id)
+  if (p.role === 'guest' || guest) {
+    const own = guest?.ai === 'own' && isManaged(ctx.config)
+    return { usable: canUseAi(ctx, p, o), action: own ? 'connect_own' : 'ask_owner' }
+  }
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
   const action: AiAction = p.role === 'owner' || p.role === 'admin' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
   if (usable || !enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api')) return { usable, action }

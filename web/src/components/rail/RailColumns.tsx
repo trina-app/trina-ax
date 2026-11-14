@@ -9,6 +9,7 @@ import { matchPath, useLocation } from 'react-router-dom'
 import { rememberRail, useRailHere } from '../../lib/rail'
 import { useSidePanel } from '../../lib/sidePanel'
 import { useRooms } from '../../store/rooms'
+import { useGuestHidden } from '../GuestView'
 import { ActivityPanel } from '../panels/ActivityPanel'
 import { ChatsPanel } from '../panels/ChatsPanel'
 import { FilesPanel } from '../panels/FilesPanel'
@@ -21,7 +22,11 @@ import { PANEL_ALWAYS_PX, panelState, useRailPanel } from './railPanel'
 /** whether this place has a list panel and how it shows now */
 function useRailPanelShown(): { has: boolean; state: ReturnType<typeof panelState> } {
   const { pathname } = useLocation()
-  const has = !!useRailHere()
+  // a place a guest does not have (components/GuestView.tsx useGuestHidden: 트리나 while their AI is off, 파일) has no
+  // list either, also under Settings opened straight from its address (the page under it is then Home's, 트리나's)
+  const item = useRailHere()
+  const notMine = useGuestHidden()
+  const has = !!item && !notMine.has(item)
   const wide = useMediaQuery(`(min-width: ${PANEL_ALWAYS_PX}px)`)
   const roomId = matchPath('/rooms/:roomId/*', pathname)?.params.roomId ?? null
   const thread = !!matchPath('/rooms/:roomId/t/:messageId', pathname)

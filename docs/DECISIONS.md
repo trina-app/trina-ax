@@ -27358,12 +27358,53 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
 - **One place.** Adding a guest to a second room or project is refused by the server (`409 conflict` reason `guest_one_place`); the add list shows the owner's words right under that guest's row (in the project dialog, under the list), and for the owner and admins a **Make team member** button on its own line that opens the guest's row in Admin. No floating message (on a phone it covered the search).
 - **Invite page.** The team and who invited them in the title, then exactly where they will be ("You'll join only the 'Quote prep' project. You won't see the rest of the team."), then the members' sign-up form. A guest invite is never stopped by full seats.
 - **Guest tag.** A quiet outline "Guest" beside a guest's name in list rows, the room's members, mentions, a message's author and a project's people; "Includes 1 guest" after a room's and a project's member count.
-- **A guest's own view.** No Files place or tab, no Projects for a guest in a room, no Scheduled or Skills, the team's pages (Files, Skills, Scheduled, Admin, the welcome steps, connecting apps) go Home, Settings keeps their own sections (no connected apps, AI apps, allowances, browser, dev environment, and no Memory: the server has no memories for guests; with their AI off no Usage or AI accounts either, while their own sign-in keeps AI accounts), no "New project", 1:1 chats only (the chats list's + and its start line only while someone of their place is there to write to; the empty screen's line then drops "or start a new one with +"), no folders to make in the chats list, no Invite in the room info, nothing to change on their project. Home is the greeting and the box only; its footer drops "only you can see new chats" for a guest (in a project: "Members of this project can see chats you start here").
+- **A guest's own view.** No Files place or tab, no Projects for a guest in a room, no Scheduled or Skills, the team's pages (Files, Skills, Scheduled, Admin, the welcome steps, connecting apps) go Home, Settings keeps their own sections (no connected apps, AI apps, allowances, browser, dev environment, and no Memory: the server has no memories for guests; with their AI off no Usage or AI accounts either, while their own sign-in keeps AI accounts), no "New project", 1:1 chats only (since feat/guest-ux-nav no + or start line in the chats list: a 1:1 opens from Search), no folders to make in the chats list, no Invite in the room info, nothing to change on their project. Home is the greeting and the box only; its footer drops "only you can see new chats" for a guest (in a project: "Members of this project can see chats you start here").
 - **A guest whose AI is off** (the default; coordinator review 2026-11-14): no 트리나 place or tab at all (no Ask Trina, no history), Home opens their one place (their room or their project); their project's page is its files and members under one quiet line "AI isn't on for you. Ask the person who invited you." (no Trina history, no box); a room has no ✦ side chat and no "✦ to ask" in its box. Other ways to the box (a chat, a side chat opened from a message) show that line instead of a box. With their own sign-in the box stays (its sign-in offer) and their project says once (first visit, remembered in the browser) "Members of this project can see your chats here."
 - **Everyone:** the Trina panel's "No history yet." sits under the "Trina history" heading, not above it.
+- **A guest's navigation** (feat/guest-ux-nav, 2026-11-14, the owner's guest UX audit M3/M5/M6/S4/S9/N7): a guest opens
+  straight into their one place, as Slack does for single-channel guests: sign-in, an accepted invite, Settings opened by
+  its address (the page under it) and, on a computer, the chats page of a guest in a room go to their room or project
+  (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
+  the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
+  a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
+  usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
+  you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,
+  instructions and history, and Settings keeps Usage and AI accounts. Nothing to start from the chats list for any guest (no "+", no start line, no "or start a new one with +";
+  a 1:1 with someone of their place still opens from Search). A guest in a project with no conversation has no 대화
+  place or tab, and `/rooms` opens their project. A guest with no AI sees no project instructions (they are for the AI).
+  Their profile says "visible to the people in '<place>'" and the role line drops "No groups". A guest whose account is
+  turned off while signed in (`session.ended` reason `disabled`) lands on a sign-in page titled "You're no longer in
+  <team>" with "ask the person who invited you" and no forgot-password line (session status reason `removed`); this
+  browser keeps the team's name (`mycel.removedFrom`) until the next sign-in, so a later visit says it too (the server's
+  answer to their password is only "wrong"). A member's sign-in page stays as before. On a computer a guest in a room
+  still gets the chats page while they have hidden conversations (that page lists them).
 - **Admin › Members & invites › Guests.** Guests are out of the members table and its count; their own list says where each one is and their AI; "…" changes the AI (`PATCH /api/admin/users/:id/guest-ai`, the same three choices), **Make team member** (takes a seat: "Every seat is taken…" when none is free) or **Remove guest** (the account is turned off; a removed guest can then be deleted as a member is). Guest invite links say which room or project they join, after who the link is for (the dialog's name, sent as `CreateGuestInviteBody.name`).
 - **API fields read** (in one place, `lib/guests.ts`): Person.guest, Me.guest, User.guest, InviteInfo.guestPlace. `Invite.guestName` (added here: `server/src/auth/accounts.ts` toInvite returns `invites.guest_name`, test `tests/unit/a-guests-invite-name.test.ts`) puts who a link is for on its Invite links row.
 - Version impact: **minor** (new screens; no API change in this PR).
+
+## Guest invites: the admin and invite screens, simpler — 게스트 초대·관리 화면 다듬기 (feat/guest-ux-admin, 2026-11-14, the owner; guest UX audit M1, M4, S1–S3, S5–S7, N1, N2, N6, N8)
+
+넣을 곳: Team AX core (`web/src/components/GuestInvite.tsx`, `web/src/pages/admin/Guests.tsx`, `web/src/pages/admin/Members.tsx`, the invite page in `web/src/pages/Auth.tsx`; server `GET /api/guest-invites/limit`), 이유: builds on "Guest invites, phase 2: the screens" above; the server still decides everything.
+
+- **A guest elsewhere is greyed out, not refused after.** In a group chat's add list and in the search of a project's members dialog, a guest who is in another room or project shows with "In the 'Quote prep' project" and no tick or Add; the owner and admins get **Make team member** on that row, which opens its dialog right there (the add list and its picks stay; the list is read again after). In "New chat" a guest can still be picked alone for a 1:1 chat; once someone else is picked the guest is greyed out the same way, and a group with a guest already ticked says "A guest can be in one room or project only." with its button off. The place comes from `Person.guestPlace` (kind, id, name), which `GET /api/people` sends only for a guest the viewer sees at all, so only for a place the viewer is in. The 409 `guest_one_place` note stays for anything that gets through.
+- **The guest cap is read first.** `GET /api/guest-invites/limit` (anyone signed in but a guest: `{ full, limit }`; the owner and admins also `seatsFull` and the plan page) is read when the invite dialog opens. A full plan shows the limit at the top in place of the form: members "Ask an admin if you need to invite more.", the owner and admins what to do and **See plans** (never in a store app). This replaces "nothing about a cap before the first refused Create link"; Create link is never a dead button.
+- **Make team member** reads the seats before its dialog: with every seat taken it says so, with See plans, and has nothing to confirm. Picked: the guest's AI **resets**, said plainly ("Their AI then follows the team's settings, like any member's."), because a member's AI follows the team's rules and keeping a guest-only team AI under a member would be a second, hidden kind of member.
+- **AI choice.** Team AI's account and monthly limit sit right under Team AI. Without a team AI account Team AI cannot be picked (so Save and Create link never wait on it) and says "The team has no AI account yet. **Add an AI account**" (a link to Admin › AI accounts). No hover fill on the rows (a phone kept it on an unpicked one). The "AI for Alex" dialog has one title (the choices' heading is for screen readers only).
+- **An Office Mac** (local-login mode: the team's AI runs on that Mac's own sign-in, `CredentialsResponse.guestAiUnavailable` 'host_sign_in', from feat/guest-own-signin; hosted, Linux and Docker installs are managed and never show it): in the invite and Change AI dialogs Team AI and their own sign-in are off, No AI stays picked, and one line says "On this server, guests can't use AI. Installing with the admin installer (.pkg) makes it possible." (the owner's words, with the way out; docs/OFFICE.md says the same). A member's invite dialog cannot read it (the AI accounts list is the admins'), so the server's refusal of a guest's turn stays the backstop there.
+- **Admin › Members & invites.** Guests is in the Role filter (then only the guests' list and the guest links); the search narrows guests too. Removed guests are out of sight behind "Show removed (N)". A used guest link leaves the invite list (the guest is in Guests now); member links keep "Used by". A project guest link names its project (`Invite.guestPlace.name`, projects only: a room's name stays with its people).
+- **The link, made:** Copy link is the dialog's main button, Done beside it.
+- **Invite page:** the Name starts with the name the inviter typed (`InviteInfo.guestName`, only while the link works); one language control (the switcher under the card, no browser-language line); no "Already joined? Sign in" or "Open in the app" for a guest. The username rule in plain words for everyone: "You'll use it to sign in: at least 2 English letters or numbers, no spaces. You can also use . _ - @" (the check itself is unchanged; the same words are its error).
+- **Dark mode:** a disabled main button keeps a quiet edge, so it still reads as a button that is off (not as one to press).
+## Guest screens, small fixes: two-word names in the "@" list, "the other N people", a project's guest for admins, "No files yet", tooltips on phones (feat/guest-ux-misc, 2026-11-14, guest UX audit M7, N3, S8, N4, N5)
+
+넣을 곳: Team AX core (`web/src/lib/rooms.ts` mentionAt, `components/rooms/useMentionMenu.tsx`, `components/GuestTag.tsx`, `store/people.ts`, `components/ProjectPeople.tsx`, `pages/Projects.tsx`, `components/Tooltip.tsx`; `server/src/chat/project-access.ts` projectPeople, `shared/src/api/chats.ts` ProjectPerson), 이유: findings of the guest UX audit after phase 2; each one also reached members.
+
+- **"@" and a name of two words (M7).** A guest typed "@QA Member" and the message mentioned nobody. Root cause in the box, for everyone: the "@" list closed at the first space (`mentionAt`), so a name with a space could only be picked after its first word, and typed out in full it was plain text ("text that only looks like a mention notifies nobody", 메시지 상자의 멘션). The server was not the cause: it keeps the words as sent and keeps a mention only of someone in the room (`validMentions`), which for a guest is their place (test `tests/unit/a-guests-rooms.test.ts` "mentions"). Now a space keeps the list while a member's name (or a word of "@전체") still starts with what was typed; a whole name with a space after it ends it, so Enter sends again. A name typed out still has to be picked (Enter, Tab or a click) to become a mention, as a one-word name always had to; "@Ben " in a room with "Ben Lee" and no "Ben" keeps the list, so Enter right then picks Ben Lee. A guest still mentions only the people of their place (the room's members); anyone else stays plain text. The lost words of the audit's shot (08) did not happen again on dev (desktop and phone, typed, picked, Enter or the send button).
+- **"@전체" says who it reaches (N3).** The row said "notify all 2 in this room" under a header that says "3 members" (the header counts me). The number stays everyone but me; the words say so: "notify the other 2 people here" (ko "이 방의 다른 2명에게 알림").
+- **A project's guest for an owner or admin outside it (S8).** A guest sees and is seen only inside their place (sharesPlace), so an admin who is not in a members-only project has no guest in their people list, and the project page (#848 for members) missed "Includes 1 guest" and the Guest tags. The project's people list (`GET /api/projects/:id/people`) already names that guest to whoever may read it; it now says `guest: true`, and the client keeps those ids (`usePeople.guestIds`) for the tag and the count. No one learns of a person they could not see before.
+- **"No files yet" on a computer too (N4).** The Files row of a project page said "0 items" and opened onto "No files yet"; it now says "No files yet" as the phone row does, with nothing to open.
+- **Tooltips on phones (N5).** Tooltips never show for a finger, but a phone with a pen (any-pointer fine) showed one on the focus a tap moved (a dialog's close X, the side chat's history button) and it stayed. Focus shows a tip only when the last thing done was a key press (not a tap or click), and a tap or click anywhere takes a tip away.
+- Version impact: **patch** (UI; one optional API field).
 
 ## Owners and admins choose where phone notifications go — 휴대폰 알림 경로는 소유자·관리자가 고른다 (feat/push-gateway-admin, 2026-11-14, product owner)
 
@@ -27891,6 +27932,41 @@ shared with people and groups, and files attached before the share stayed visibl
 - The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
   `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
 
+## A guest with their own sign-in connects it themselves — 게스트 본인 로그인 (feat/guest-own-signin, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`server/src/credentials/policy.ts`, `server/src/credentials/access.ts`,
+`server/src/routes/credentials.ts`, `web/src/components/rooms/SideChatPanel.tsx`), 이유: AI connections and guests are core.
+Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
+
+- **The bug.** A guest whose AI is `own` ("Their own sign-in") and who had not connected yet read "AI isn't on for you.
+  Ask the person who invited you." `aiAccessFor` answered `ask_owner` to every guest, and the personal-connection routes
+  followed the members' switch (`credentials.memberOwn`), so with it off the guest could not connect at all.
+- **One rule for "may keep a connection of one's own":** `personalConnectionsAllowed(db, userId)` (credentials/policy.ts).
+  A guest: only with AI `own`, whatever the members' switch says (the team chose it for this guest, as resolve.ts already
+  read it); `none` and `team`: never. Anyone else: the members' switch, as before. Used by every path that adds, signs in
+  or keeps a personal connection: `GET /api/me/credentials` (`allowed`), `POST /api/me/credentials`, `POST
+  /api/me/credential-logins` and the sign-in's store step (ChatGPT and Claude; a choice changed while it ran ends it
+  `policy_changed`), `createCredential`'s policy check, the ChatGPT token refresh (idle refresh and the proxy's 401). The
+  guest endpoint allow-list already had these routes; the team ones (`/api/admin/credential*`) stay closed.
+- **What a guest is told:** `aiAccessFor` answers `connect_own` to an `own` guest on a server that answers with AI
+  connections; anyone else of the guests, and an `own` guest on a server on the host's own sign-in (where a guest is
+  never answered), still `ask_owner`. Still never the trial credit, a team or group connection, or the API engine
+  (credentials/resolve.ts unchanged).
+- **Screens:** the line above the box ("You have no AI to use. Connect your own…" with **Connect my AI**) on Ask
+  Trina, their project and, for a guest, the room's ✦ side chat; a failed answer for want of AI says the same with the
+  button (not "ask the person who invited you"); Settings › AI accounts says "Your questions use only your own account"
+  for a guest (no team accounts behind theirs), and its Add account dialog drops the company key and "made for team
+  use" words for a guest (`credentials.personalFirstGuest`, `credentials.kind.*-api-key.descGuest`). An `own` guest may
+  add their own API key too, as a member may (coordinator, 2026-11-14).
+- **Servers on the host's own sign-in** (engine.authMode not managed: office mode, local dev, self-hosted without AI
+  connections) keep refusing every guest turn, Team AI and own alike. There the engines run with the host's Claude /
+  ChatGPT login inside a sandbox that can read it, no AI connection is used by anyone (no credential broker, often no
+  model proxy), so a guest's turn could only run next to the owner's login. Running a guest on an API-key connection
+  there would be a new engine mode, not a fix. The admin's guest dialogs read `CredentialsResponse.guestAiUnavailable`
+  ('host_sign_in', on `GET /api/admin/credentials`) and say Team AI and their own sign-in cannot work on this server.
+- **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
+  is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
+- Version impact: **patch** (no API shape change).
 
 ## Apps in rooms: presets and JANDI — 방 앱: 서비스 프리셋과 잔디 (feat/room-apps-presets-server, 2026-11-14, the owner, QA TC-1634)
 

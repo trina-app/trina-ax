@@ -32,6 +32,8 @@
 // here (`frame`), or by the room page around this (frame={false}). `closeX`: the ✕ at every width, never the phone's ‹
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
+import { meGuest } from '../../lib/guests'
+import AiAccessBanner from '../chat/AiAccessBanner'
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -229,6 +231,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const me = useMeStrict()
   const navigate = useNavigate()
   const guestNoAi = useGuestNoAi()
+  // a guest with their own sign-in not made yet: the line above the box offers it (Connect my AI), as Home's box does
+  const guestOwn = meGuest(me)?.ai === 'own'
   // opened while the room's side chat was closed: which chat it starts on (sideChatOpening), decided once, written to
   // the store before the first paint and shown by this panel until then, so nothing here sees the chat it replaces
   const opening = useRef<Partial<SideChatState> | null | undefined>(undefined)
@@ -550,7 +554,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
               </span>
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
-              {!quoted && (
+              {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
+              {!quoted && !guestNoAi && (
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
                   {chip && (
                     <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(chip === 'forms' ? 'roomApps.askForms' : 'roomApps.askToday'))}
@@ -590,6 +595,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
         {/* a guest whose AI is off: one line in place of the box (components/GuestView.tsx) */}
         {guestNoAi ? <GuestNoAi /> : (<>
+        {guestOwn && <AiAccessBanner />}
         {quoted && (
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
