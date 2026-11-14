@@ -306,6 +306,9 @@ export const ChatAudienceRow = z.object({
   members: z.number().int().nonnegative().optional(),
   /** I am in this group */
   mine: z.literal(true).optional(),
+  /** a person whose account is disabled (they do not see the chat now; back in once enabled): the creator and admins
+   * only, everyone else does not get the row */
+  inactive: z.literal(true).optional(),
 })
 /** GET /api/chats/:id/audience: who the chat is shared with (docs/DECISIONS.md "Chats shared with people and groups").
  * `kind`: 'people' (shared with the subjects listed), 'project' (a shared project chat: its project's members see it,

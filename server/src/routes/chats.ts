@@ -39,7 +39,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { chatAudienceView, chatWidening, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
+import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -861,6 +861,8 @@ export const chatsRoutes: RouteModule = {
       if (body.target.kind === 'chat') {
         const a = chatOf(rt, c, auth, body.target.chatId, 'view')
         if (!a.creator || a.kind === 'project') fail('forbidden', tr('wideningNotAllowed', locale), { params: { reason: 'widening_not_allowed' } })
+        // the picks checked as a save checks them: no probe of who is active or of other people's groups
+        checkWideningAdd(ctx, p, a.row, body.add, locale)
         const gained = resolveSubjects(ctx.db, body.add.map((x) => ({ type: x.subjectType, id: x.subjectId })))
         const cstate = (at: number) => ({ kind: 'widening', target: body.target, add: body.add.map((x) => `${x.subjectType}:${x.subjectId}`).sort(), gained, at })
         let before: number | null = null

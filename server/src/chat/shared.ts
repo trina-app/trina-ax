@@ -465,7 +465,9 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
 }
 
 /**
- * Rollback guard (migration 265). This build marks every turn it makes (turns.shared_checked). An older build knows
+ * Rollback guard (migration 265). This build marks every turn it starts (turns.shared_checked: set when it moves a
+ * queued turn to running or ends one without running it; a turn waits in the queue with 0, so a queued turn an older
+ * build ran after a rollback is caught too; turns still queued are passed over). An older build knows
  * nothing about shared chats and runs turns there without the read gate; when this build starts again, a shared chat
  * with a turn after it was shared that this build did not make stops being shared (its creator keeps it as their own
  * chat), and turns still queued there by anyone else are stopped. Returns the chats unshared.
@@ -473,7 +475,7 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
 export function unshareUncheckedChats(db: Database): string[] {
   // every turn of a shared chat came after it was shared: no time filter (a clock set back must not hide one)
   const rows = db.query(`SELECT c.id, c.user_id FROM chats c WHERE c.shared_at IS NOT NULL AND EXISTS (SELECT 1 FROM turns t
-    WHERE t.chat_id = c.id AND t.shared_checked = 0)`).all() as { id: string; user_id: string }[]
+    WHERE t.chat_id = c.id AND t.shared_checked = 0 AND t.status <> 'queued')`).all() as { id: string; user_id: string }[]
   if (!rows.length) return []
   const now = new Date().toISOString()
   db.transaction(() => {
@@ -481,7 +483,7 @@ export function unshareUncheckedChats(db: Database): string[] {
       db.query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(r.id)
       const queued = db.query("SELECT id, message_id FROM turns WHERE chat_id = ? AND status = 'queued' AND user_id <> ?").all(r.id, r.user_id) as { id: string; message_id: string | null }[]
       for (const t of queued) {
-        db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ?").run(now, t.id)
+        db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ?").run(now, t.id)
         if (t.message_id) db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status = 'streaming'").run(now, t.message_id)
       }
     }
