@@ -7,7 +7,7 @@
 //                            ordinary private chat of its creator)
 //   chat_audience            the people (by name) and the groups it is shared with
 //   chat_list_hidden         "Hide from my list", per person
-//   chat_audience_past       who was one of its people at some point (migration 403): their old link says "This chat is
+//   chat_audience_past       who was one of its people at some point (migration 404): their old link says "This chat is
 //                            no longer shared with you" instead of the plain 404 (QA TC-2009)
 //
 // The people who see it now are its creator and the active people listed or in a listed group, read per request: a
@@ -104,7 +104,7 @@ export function peopleChatsLost(db: Database, before: ReadonlyMap<string, readon
   return out
 }
 
-/** Record that these people were in this people-shared chat (chat_audience_past, migration 403): a save of its audience
+/** Record that these people were in this people-shared chat (chat_audience_past, migration 404): a save of its audience
  * that showed it to them or took it away, a group they left, a listed group deleted. Never its creator. */
 export function rememberAudience(db: Database, chatId: string, userIds: Iterable<string>, at = new Date().toISOString()): void {
   const ins = db.query('INSERT OR IGNORE INTO chat_audience_past (chat_id, user_id, at) SELECT id, ?, ? FROM chats WHERE id = ? AND user_id <> ?')

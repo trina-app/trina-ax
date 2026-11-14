@@ -7,7 +7,7 @@
 --     the 404 with reason `no_longer_shared` ("This chat is no longer shared with you"); everyone else keeps the one 404
 --     of a missing chat. Never the chat's creator. The rows go with the chat (ON DELETE CASCADE) and with the person's
 --     account (chat/account-cleanup.ts).
--- Additive only (reader 1). 402 is taken by an open branch (room message link previews).
+-- Additive only (reader 1). 402 and 403 are taken (room message link previews; room app states, #874).
 CREATE TABLE chat_audience_past (
   chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,

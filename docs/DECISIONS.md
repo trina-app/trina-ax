@@ -28127,7 +28127,7 @@ and JANDI" (#854) and its web PR. No migration: presets are `room_apps.preset` (
 ## A link to a chat you were taken out of says so (fix/qa-1115-sharing, 2026-11-15, QA TC-2009/TC-2032/TC-2034)
 
 Where: `server/src/chat/{chat-audience,shared,people-share,chat-files,store}.ts`, `server/src/admin/{folders,groups}.ts`,
-migration `403_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, `web/src/pages/Chat.tsx`,
+migration `404_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, `web/src/pages/Chat.tsx`,
 `web/src/components/chat/{ChatShareDialog,Messages}.tsx`, `web/src/lib/{sharedChat,upload}.ts`.
 
 - **The rule.** A chat shared with people and groups answers someone who does not see it now with the 404 of a missing
