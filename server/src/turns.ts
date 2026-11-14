@@ -72,7 +72,8 @@ export class TurnRegistry {
       const updated = this.db.query("UPDATE turns SET status = 'running', started_at = COALESCE(dispatched_at, started_at), engine = ?, model = ? WHERE id = ? AND user_id = ? AND chat_id = ? AND status IN ('queued','running')").run(engine, model, id, userId, chatId)
       if (updated.changes !== 1) throw new Error('turn is not available for registration')
     }
-    else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model) VALUES (?,?,?,?,?)').run(id, chatId, userId, engine, model)
+    // people_checked: this build knows chats shared with people and groups (chat/people-guard.ts rollback guard)
+    else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model, people_checked) VALUES (?,?,?,?,?,1)').run(id, chatId, userId, engine, model)
     // Publish no usable token until the durable row accepted this execution.
     this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)
     return { turn, token }

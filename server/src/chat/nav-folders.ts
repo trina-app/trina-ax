@@ -210,8 +210,10 @@ export function setChatFolder(rt: ChatRuntime, userId: string, chatId: string, f
     }
     return chatView(rt, userId, a.row)
   }
+  // a chat someone shared with me stays in my list (list folders hold only my own chats); its creator may file it
+  if (a.kind === 'people' && !a.creator) fail('conflict', tr('navFolderSharedChat', locale), { params: { reason: 'folder_shared_chat' } })
   // a project chat (shared or not) stays in its project: its people find it there
-  if (a.shared || a.row.project_id || a.row.shared_at) fail('conflict', tr('navFolderProjectChat', locale), { params: { reason: 'folder_project_chat' } })
+  if ((a.shared && a.kind !== 'people') || a.row.project_id || a.row.shared_at) fail('conflict', tr('navFolderProjectChat', locale), { params: { reason: 'folder_project_chat' } })
   if (a.row.user_id !== userId) return fail('not_found')
   const f = mine(db, userId, folderId, 'chats')
   const now = db.query('SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').get(userId, a.row.id) as { folder_id: string } | null

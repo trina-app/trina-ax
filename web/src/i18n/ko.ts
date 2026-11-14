@@ -4877,6 +4877,7 @@ export const ko = {
   "handover.conn.service": "팀 연결 '{label}' (내 계정으로 로그인)",
   "notifications.event.owner.lead_joined": "팀장 링크로 누군가 들어왔어요.",
   "notifications.event.owner.transferred": "팀장이 바뀌었어요.",
+  "notifications.event.chat.shared": "누군가 채팅을 공유했어요.",
   "notifications.event.project.joined": "누군가 프로젝트에 들어왔어요.",
   "notifications.event.project.joinedNamed": "{name}님이 '{project}' 프로젝트에 들어왔어요.",
   "notifications.event.project.joinedName": "{name}님이 프로젝트에 들어왔어요.",

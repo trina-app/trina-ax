@@ -331,6 +331,11 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // and the chats shared with them by name (chat/chat-audience.ts; their messages there stay under the tombstone name),
+    // and their "Hide from my list" rows. Their own chats shared with people and groups go with their other chats after
+    // the retention period (auth/sweeper.ts: shared_at is NULL there), as Drive deletes an owner's files
+    ctx.db.query("DELETE FROM chat_audience WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    ctx.db.query('DELETE FROM chat_list_hidden WHERE user_id = ?').run(id)
     // their own AI connections (tokens and keys included) go with them, like their own service connections; team
     // connections assigned to them lose that row, and one left with no group or person is switched off, not team-wide
     ownAi = (ctx.db.query('SELECT id FROM engine_credentials WHERE owner_user_id = ?').all(id) as { id: string }[]).map((r) => r.id)

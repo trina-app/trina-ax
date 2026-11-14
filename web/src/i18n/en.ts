@@ -4877,6 +4877,7 @@ export const en: Record<MessageKey, string> = {
   "handover.conn.service": "Team connection '{label}' (signed in with my account)",
   "notifications.event.owner.lead_joined": "Someone joined with your owner link.",
   "notifications.event.owner.transferred": "The team owner changed.",
+  "notifications.event.chat.shared": "Someone shared a chat with you.",
   "notifications.event.project.joined": "Someone joined a project.",
   "notifications.event.project.joinedNamed": "{name} joined '{project}'.",
   "notifications.event.project.joinedName": "{name} joined a project.",

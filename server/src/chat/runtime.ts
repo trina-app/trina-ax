@@ -34,6 +34,7 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
+import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
 
@@ -906,9 +907,10 @@ export class ChatRuntime {
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
       // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
       if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
-      // shared_checked: this build runs the turn, with the read gate of shared chats (chat/shared.ts rollback guard)
-      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+      // shared_checked and people_checked: this build runs the turn, with the read gate of shared chats of both kinds
+      // (the rollback guards: chat/shared.ts unshareUncheckedChats, chat/people-share.ts unsharePeopleChecked)
+      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked, people_checked)
+        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
       const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
@@ -1061,13 +1063,13 @@ export class ChatRuntime {
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
     if (r && isSharedRow(r)) {
-      const project = this.store.projectRow(r.project_id!)
       const aud = new Audiences(this.db, this.files)
       const hide = redactorFor(this.ctx, r.user_id).hide
       // the rows' faces (Chat.shared.people, as the lists give them): who wrote in it, read once, each person's own
       // view leaving them out; none for a chat in the trash (the trash list has none either)
       const writers = change === 'deleted' || r.deleted_at ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
-      for (const uid of project ? aud.of(project) : []) {
+      // (its project's people, or the people and groups a chat outside projects is shared with: Audiences.ofChat)
+      for (const uid of aud.ofChat(r)) {
         if (o.window && uid !== userId) continue
         const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
         const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
@@ -1113,6 +1115,10 @@ export class ChatRuntime {
     // (fails closed: a check that cannot run stops the recovery, nothing runs)
     const unshared = unshareUncheckedChats(this.db)
     if (unshared.length) this.log.warn('shared chats with turns of an older build are no longer shared', { n: unshared.length })
+    // the same for chats shared with people and groups (chat/people-share.ts), and such a chat an older build moved
+    // into a project becomes its creator's private project chat
+    const peopleUnshared = unsharePeopleChecked(this.db)
+    if (peopleUnshared.unshared.length || peopleUnshared.moved.length) this.log.warn('people-shared chats an older build ran or moved are no longer shared', { ran: peopleUnshared.unshared.length, moved: peopleUnshared.moved.length })
     // answers of shared chats from before migration 273 (or an older build's): seen by who sees the chat now, nobody
     // else (chat/shared-answers.ts). A failure leaves them hidden from everyone but their runners (fails closed)
     try { recordOlderAnswers(this.db, this.files) } catch (e) { this.log.warn('older shared answers not recorded', { err: e }) }

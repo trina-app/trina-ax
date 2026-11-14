@@ -25,6 +25,7 @@ import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
 import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
+import { peopleChatsLost } from '../chat/chat-audience'
 import { syncRoomsNow } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
@@ -512,6 +513,19 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
       for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
     }
   } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
+  // chats shared with people and groups follow the groups and the accounts (chat/chat-audience.ts): whoever left a listed
+  // group, or whose account is gone or disabled, loses them the same way (their turn there stops first, their windows
+  // drop them by id). Group membership is compared directly: a group with no folder rule changes no folder access
+  try {
+    const groupsOf = (s: AccessState) => new Map(s.principals.map((p) => [p.id, p.groups] as const))
+    for (const [userId, chats] of peopleChatsLost(ctx.db, groupsOf(before), groupsOf(after))) {
+      stopTurnsIn(ctx, userId, chats)
+      for (const chatId of chats) {
+        ctx.db.query('DELETE FROM chat_list_hidden WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+        ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+      }
+    }
+  } catch (e) { ctx.log.warn('people-shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)

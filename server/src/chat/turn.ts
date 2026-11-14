@@ -108,7 +108,8 @@ import { audienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
-import { publicStep, type ProjectRow, type StoredStep } from './store'
+import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
+import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 
 /** One answer has no time limit (owner decision 2026-11-14, docs/DECISIONS.md "No time limit on one answer"): it ends
@@ -294,9 +295,15 @@ export class TurnExec {
   roomReadable: ((rel: string) => boolean) | null = null
   /** changes the person allowed on a card in this room turn (confirmRoomChange), by tool and input */
   private roomAllowed = new Set<string>()
-  /** a shared project chat (chat/shared.ts, chats.shared_at): everyone who sees its project sees the transcript, so
-   * what some of them cannot read enters it only after this person's yes on a card (confirmSharedRead); null elsewhere */
-  shared: { project: ProjectRow } | null = null
+  /** a shared chat (chat/shared.ts): a shared project chat (chats.shared_at; everyone who sees its project) or a chat
+   * shared with chosen people and groups (chats.people_shared_at, chat/chat-audience.ts). Everyone who sees it sees the
+   * transcript, so what some of them cannot read enters it only after this person's yes on a card
+   * (confirmSharedRead). Every gate of a shared chat (SHARED_TOOLS, no browser, no dev environment, no memories, the read
+   * gate, the instructions' allowlist) is on this being set, whatever its kind; null elsewhere */
+  shared: { kind: 'project'; project: ProjectRow } | { kind: 'people'; chat: ChatRow } | null = null
+  /** a people-shared chat: where a search without a path looks (the one folder everyone in it may read), or why it does
+   * not run; worked out once per turn */
+  private peopleSearch: { path: string } | { refuse: string } | null = null
   /** the places (sourceKey) this person allowed (shared) or refused (refused) on a shared chat's read card in this turn */
   private sharedAllowed = new Set<string>()
   /** refused places, with why (the card's no, no answer, nobody to ask): a later call says the same reason */
@@ -425,12 +432,13 @@ export class TurnExec {
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
-    const row = rt.db.query('SELECT room_id, shared_at, project_id FROM chats WHERE id = ?').get(spec.chatId) as { room_id: string | null; shared_at: string | null; project_id: string | null } | null
+    const row = rt.store.chatRow(spec.chatId)
     if (row?.room_id) this.oldRoomSession = true
-    // a shared project chat: known from the start, so every check of the turn sees it (a project gone: fails below)
+    // a shared chat: known from the start, so every check of the turn sees it (a project gone: fails below)
+    else if (row && isPeopleRow(row)) this.shared = { kind: 'people', chat: row }
     else if (row && isSharedRow(row)) {
       const project = rt.store.projectRow(row.project_id!)
-      this.shared = { project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
+      this.shared = { kind: 'project', project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
   }
 
@@ -641,9 +649,20 @@ export class TurnExec {
     // person still sees its project (access may have gone while the turn waited in the queue)
     if (this.shared) {
       if (confidentialChat(rt.db, spec.chatId)) { this.error = { code: 'conflict', message: tr('sharedChatSafeOps', spec.locale) }; return }
-      const p = rt.store.projectRow(this.shared.project.id)
-      if (!p || !audienceOf(rt.db, rt.files, p).includes(spec.userId)) { this.error = engineError('crash', spec.locale); return }
-      this.shared = { project: p }
+      if (this.shared.kind === 'project') {
+        const p = rt.store.projectRow(this.shared.project.id)
+        if (!p || !audienceOf(rt.db, rt.files, p).includes(spec.userId)) { this.error = engineError('crash', spec.locale); return }
+        this.shared = { kind: 'project', project: p }
+      } else {
+        // a chat shared with people and groups: only while this person is still in it (removed people's turns are
+        // stopped first, chat/people-share.ts; this covers a change while the turn waited). Its creator's turn that
+        // waited while everyone was taken out keeps the shared chat's gates for this turn (the safer way; the next one
+        // is an ordinary turn of their own chat)
+        const c = rt.store.chatRow(spec.chatId)
+        const creatorAlone = !!c && !isPeopleRow(c) && !isSharedRow(c) && c.user_id === spec.userId
+        if (!c || (!creatorAlone && (!isPeopleRow(c) || !inPeopleAudience(rt.db, c, spec.userId)))) { this.error = engineError('crash', spec.locale); return }
+        this.shared = { kind: 'people', chat: c }
+      }
     }
 
     // never in a shared chat: the in-app browser shows the person's signed-in pages
@@ -751,7 +770,7 @@ export class TurnExec {
     const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
-    const shared = this.shared ? { project: this.shared.project.name, audience: audienceOf(rt.db, rt.files, this.shared.project).length, asker: this.principal.name } : null
+    const shared = this.shared ? { project: this.shared.kind === 'project' ? this.shared.project.name : null, audience: this.sharedAudience().length, asker: this.principal.name } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId)
     const promptInput = (fresh: boolean): PromptInput => ({
@@ -841,7 +860,7 @@ export class TurnExec {
     // without room_read: why not, and where the person can read the room instead (the AI said "Rooms cannot be read in
     // this chat" with no reason)
     const roomsOff = toolSet.has('room_read') ? true
-      : this.shared ? 'this is a shared project chat: everyone who sees it would see what the room says'
+      : this.shared ? 'this is a shared chat: everyone who sees it would see what the room says'
       : confidential ? 'this chat is confidential (safe operations): only team files can be used here'
       : this.templateScope ? 'a scheduled template run reads only its own folders'
       : 'this kind of chat has no room tools'
@@ -2581,11 +2600,58 @@ export class TurnExec {
   }
 
   // ---------------- shared project chats (chat/shared.ts) ----------------
-  /** The people who see this shared chat now (its project's audience: who can read the project folder). */
+  /** The people who see this shared chat now: its project's audience (who can read the project folder), or for a chat
+   * shared with people and groups its creator and the active people in it (chat/chat-audience.ts). */
   private sharedAudience(): string[] {
     if (!this.shared) return []
+    if (this.shared.kind === 'people') return peopleAudience(this.rt.db, this.shared.chat)
     const p = this.rt.store.projectRow(this.shared.project.id)
     return p ? audienceOf(this.rt.db, this.rt.files, p) : []
+  }
+
+  /**
+   * Where a search without a path looks in a chat shared with people and groups (S4): never the sender's whole access
+   * (it would reach their own folder and every place only they may read). The candidates are the team's top folders (not users/ or skills/) and
+   * the folders one level under groups/ and projects/; the ones every person in the chat may read now are kept (a folder
+   * whose parent is kept is left out). One: the search starts there (what some of them cannot read below it still waits
+   * for the read card). None or several: the call is refused, saying which folders everyone may read so the AI names
+   * one (their names are readable by everyone in the chat, the sender included). Worked out once per turn.
+   */
+  private peopleSearchPlace(): { path: string } | { refuse: string } {
+    if (this.peopleSearch) return this.peopleSearch
+    const NONE = { refuse: 'Not searched: there is no folder everyone in this chat can open. Name a folder to search.' }
+    try {
+      const rules = this.rt.files.rules()
+      const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id))
+      if (!people.length || people.some((x) => !x)) return (this.peopleSearch = NONE)
+      const root = this.rt.files.fx.root
+      const dirs = (rel: string): string[] => {
+        try {
+          return fs.readdirSync(rel ? `${root}/${rel}` : root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => (rel ? `${rel}/${e.name}` : e.name)).sort()
+        } catch { return [] }
+      }
+      const everyone = (rel: string) => people.every((x) => atLeast(rules.access(x!, rel.split('/')), 'read'))
+      const out: string[] = []
+      for (const top of dirs('')) {
+        if (top === 'users' || top === 'skills') continue // never anyone's own folder; skills are found with the skill tools
+        if (everyone(top)) { out.push(top); continue }
+        if (top === 'groups' || top === 'projects') for (const d of dirs(top)) if (everyone(d)) out.push(d)
+      }
+      if (out.length === 1) return (this.peopleSearch = { path: out[0]! })
+      if (!out.length) return (this.peopleSearch = NONE)
+      const names = out.slice(0, 20).map((p) => `"${neutralizeTags(p)}"`).join(', ')
+      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}) as the path and search again.` })
+    } catch { return (this.peopleSearch = NONE) }
+  }
+
+  /** A people-shared chat's search without a path that cannot run (peopleSearchPlace): the refusal, else null. */
+  sharedSearchRefusal(tool: string, args: unknown): string | null {
+    if (this.shared?.kind !== 'people' || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return null
+    const a = args as Record<string, unknown>
+    if (typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.') return null
+    const place = this.peopleSearchPlace()
+    return 'refuse' in place ? place.refuse : null
   }
 
   /** May everyone who sees this shared chat use this team path (the folder lists, skills, team rules and company profile
@@ -2623,11 +2689,17 @@ export class TurnExec {
   }
 
   /** A shared chat's call as it runs: a search without a path looks in the project folder only (the project's people
-   * may all read it); the AI is told so in its instructions. */
+   * may all read it), or in a chat shared with people and groups in the one folder everyone in it may read
+   * (peopleSearchPlace; none: sharedSearchRefusal refuses the call first, and this never falls back to the sender's whole
+   * access); the AI is told so in its instructions. */
   sharedArgs(tool: string, args: unknown): unknown {
     if (!this.shared || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return args
     const a = args as Record<string, unknown>
-    return typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.' ? args : { ...a, path: this.shared.project.folder_path }
+    if (typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.') return args
+    if (this.shared.kind === 'project') return { ...a, path: this.shared.project.folder_path }
+    const place = this.peopleSearchPlace()
+    // (refused before it runs; a path nobody can read is the safe stand-in should it ever get here)
+    return { ...a, path: 'path' in place ? place.path : 'users/.none' }
   }
 
   /**
@@ -2729,7 +2801,7 @@ export class TurnExec {
    */
   sharedReadText(done: string, no: SharedNo): string {
     const name = neutralizeTags(this.principal?.name ?? 'the user')
-    const project = this.shared ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
+    const project = this.shared?.kind === 'project' ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
     const why = no === 'failed' ? { kind: 'failed' as const, what: 'who in this shared chat can open that place' } : no === 'declined'
       ? { kind: 'declined' as const, who: name } : cardReason(no, { who: name })
     const dont = 'Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there'

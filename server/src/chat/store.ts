@@ -24,6 +24,9 @@ export interface ChatRow {
   shared_at: string | null
   /** migration 276: a chat opened from this room's side panel (✦ Trina); null: an ordinary chat */
   side_room_id: string | null
+  /** migration 297: shared with chosen people and groups (chat_audience; chat/people-share.ts); its project_id is NULL
+   * and shared_at stays NULL. null: not shared that way */
+  people_shared_at: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -48,7 +51,7 @@ export interface ProjectRow {
   folder_made?: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
@@ -194,7 +197,7 @@ export class ChatStore {
    * project chat is not theirs alone: the chat routes find both through chat/shared.ts chatFor, these flows never */
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)
-    if (!r || r.user_id !== userId || r.room_id || r.shared_at) return null
+    if (!r || r.user_id !== userId || r.room_id || r.shared_at || r.people_shared_at) return null
     // nor one others wrote in before it stopped being shared (a deleted project's, the rollback guard): their words and
     // answers there are not the person's alone either
     if (this.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(id, userId)) return null

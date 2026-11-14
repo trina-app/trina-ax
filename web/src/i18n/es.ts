@@ -4833,6 +4833,7 @@ export const es: Record<MessageKey, string> = {
   "handover.conn.service": "Conexión del equipo '{label}' (con mi cuenta)",
   "notifications.event.owner.lead_joined": "Alguien se unió con su enlace de propietario.",
   "notifications.event.owner.transferred": "Cambió el propietario del equipo.",
+  "notifications.event.chat.shared": "Alguien compartió un chat con usted.",
   "notifications.event.project.joined": "Alguien se unió a un proyecto.",
   "notifications.event.project.joinedNamed": "{name} se unió a «{project}».",
   "notifications.event.project.joinedName": "{name} se unió a un proyecto.",

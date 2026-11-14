@@ -4833,6 +4833,7 @@ export const ja: Record<MessageKey, string> = {
   "handover.conn.service": "チーム接続「{label}」（自分のアカウントでサインイン）",
   "notifications.event.owner.lead_joined": "オーナー用リンクで誰かが参加しました。",
   "notifications.event.owner.transferred": "チームのオーナーが変わりました。",
+  "notifications.event.chat.shared": "誰かがチャットを共有しました。",
   "notifications.event.project.joined": "誰かがプロジェクトに加わりました。",
   "notifications.event.project.joinedNamed": "{name}さんが「{project}」に加わりました。",
   "notifications.event.project.joinedName": "{name}さんがプロジェクトに加わりました。",

@@ -4877,6 +4877,7 @@ export const id: Record<MessageKey, string> = {
   "handover.conn.service": "Koneksi tim '{label}' (masuk dengan akun saya)",
   "notifications.event.owner.lead_joined": "Seseorang bergabung lewat tautan owner Anda.",
   "notifications.event.owner.transferred": "Owner tim berganti.",
+  "notifications.event.chat.shared": "Seseorang membagikan obrolan dengan Anda.",
   "notifications.event.project.joined": "Seseorang bergabung ke sebuah proyek.",
   "notifications.event.project.joinedNamed": "{name} bergabung ke '{project}'.",
   "notifications.event.project.joinedName": "{name} bergabung ke sebuah proyek.",

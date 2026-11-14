@@ -291,6 +291,61 @@ export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
 /** Who works in a team project (each gets read and write; nobody else but the creator, the owner and admins). */
 export const ProjectParticipant = z.object({ subjectType: z.enum(['group', 'user']), subjectId: z.string().min(1).max(64) })
 export type ProjectParticipant = z.infer<typeof ProjectParticipant>
+// ---------------- a chat outside projects shared with chosen people and groups (Share…) ----------------
+/** At most this many people and groups in one chat's audience (a group is one entry). */
+export const CHAT_AUDIENCE_MAX = 100
+/** One row of GET /api/chats/:id/audience. A group's `members` only for the chat's creator and admins (others learn
+ * names only, never a group's size); `mine`: I am in that group. */
+export const ChatAudienceRow = z.object({
+  subjectType: z.enum(['user', 'group']), subjectId: z.string(), name: z.string(),
+  /** a person's profile line, when set */
+  title: z.string().optional(),
+  /** a person's photo (/api/people/:id/avatar?v=<it>); absent without one */
+  avatarVersion: z.number().int().positive().optional(),
+  /** a group's size: the creator and admins only */
+  members: z.number().int().nonnegative().optional(),
+  /** I am in this group */
+  mine: z.literal(true).optional(),
+})
+/** GET /api/chats/:id/audience: who the chat is shared with (docs/DECISIONS.md "Chats shared with people and groups").
+ * `kind`: 'people' (shared with the subjects listed), 'project' (a shared project chat: its project's members see it,
+ * nothing is listed), 'private' (its creator's alone). `canEdit`: I may change who sees it here (its creator, for a
+ * chat outside projects). */
+export const ChatAudience = z.object({
+  kind: z.enum(['private', 'project', 'people']),
+  canEdit: z.boolean(),
+  /** who started the chat */
+  by: z.object({ id: z.string(), name: z.string() }),
+  subjects: z.array(ChatAudienceRow),
+  /** how many people see it now, its creator included (with a group in it: for the creator and admins only) */
+  count: z.number().int().nonnegative().optional(),
+})
+export type ChatAudience = z.infer<typeof ChatAudience>
+export const PutChatAudienceBody = z.object({
+  /** everyone it is shared with after the save (Drive's save model: the whole list); [] makes it mine alone again */
+  subjects: z.array(ProjectParticipant).max(CHAT_AUDIENCE_MAX + 1),
+  /** the last "confirm"'s key: I saw that state and said yes */
+  confirmKey: z.string().min(1).max(200).optional(),
+}).strict()
+export const PutChatAudienceResult = z.discriminatedUnion('status', [
+  /** saved: the chat as I see it and its audience now */
+  z.object({ status: z.literal('saved'), chat: Chat, audience: ChatAudience }),
+  /** nothing changed yet: the check for the people who would start to see it. `added`: how many people (never who);
+   * `provenance`: its answers carry content from places some of them cannot open (null: none); `memories`: an answer
+   * may have used my personal memories; `hiddenAnswers`: answers whose recorded places some of them cannot open;
+   * `confirmKey`: send it back to save. `reason` 'changed': asked again after a key, something changed meanwhile */
+  z.object({
+    status: z.literal('confirm'),
+    added: z.number().int().nonnegative(),
+    provenance: AnswerShareProvenance.nullable(),
+    memories: z.boolean(),
+    hiddenAnswers: z.number().int().nonnegative(),
+    confirmKey: z.string(),
+    reason: z.literal('changed').optional(),
+  }),
+])
+export type PutChatAudienceResult = z.infer<typeof PutChatAudienceResult>
+
 /**
  * Two kinds (docs/DECISIONS.md "Projects live only in projects/"):
  * - scope 'team': a new folder projects/<name> (its name from slug, else folderPath's last name, else the project's name;
@@ -465,7 +520,7 @@ export type ChatAudienceSubject = z.infer<typeof ChatAudienceSubject>
  * the participants its Members dialog would save (`add`: the whole list, as for the dry run); `cursor` from the page
  * before; `limit` 1..50 (20). */
 export const WideningAnswersBody = z.object({
-  target: z.discriminatedUnion('kind', [z.object({ kind: z.literal('project'), projectId: Uuid7 })]),
+  target: z.discriminatedUnion('kind', [z.object({ kind: z.literal('project'), projectId: Uuid7 }), z.object({ kind: z.literal('chat'), chatId: Uuid7 })]),
   add: z.array(ChatAudienceSubject).min(1).max(200),
   cursor: z.string().max(500).optional(),
   limit: z.number().int().min(1).max(50).optional(),
@@ -507,6 +562,11 @@ export const CHATS = {
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
+  getChatAudience: endpoint({ method: 'GET', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', response: ChatAudience, summary: 'Who a chat I can see is shared with: for a chat outside projects shared with people and groups, the people and groups by name (a group\'s size and the count only for its creator and admins when a group is in it); a shared project chat or my private chat lists nobody. Anyone who cannot see the chat gets the 404 of a missing chat.' }),
+  putChatAudience: endpoint({ method: 'PUT', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', body: PutChatAudienceBody, response: PutChatAudienceResult, summary: 'Its creator saves who sees a chat outside projects (the whole list, at most 100 people and groups; [] makes it theirs alone again). Adds that bring in new people first answer "confirm" when its answers carry content from places some of them cannot open, may have used my memories, or used recorded places they cannot open (counts and places I may look myself, never who), with a confirmKey; sent again with that key it saves. Removed people\'s turns there stop first. 403 chat_share_creator_only to others who see it, the 404 of a missing chat to everyone else; 409 share_people_in_project, project_personal, safe_ops (adds), scheduled_run, side_chat, chat_busy (adds); 400 audience_full, unknown_subject (newly added only), needs_people. Rate-limited like a room message; audited (counts only); people added by name and through a group get an Inbox notice (at most one per chat and person a day).' }),
+  userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups hold other people\'s messages. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
+  hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
+  unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
@@ -523,7 +583,7 @@ export const CHATS = {
   dismissProjectsUpdateNotice: endpoint({ method: 'POST', path: '/api/projects/update-notice/dismiss', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Hide the card for good, for the caller (every device).' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
   previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants (for the owner and admins also apart: by its rules, by role only), or (projectId: its creator or an admin) who gains and loses an existing one, what the people who gain it would see, and whether saving also writes the floor rule or puts the creator\'s rule back (the screen asks first then). Nothing is saved.' }),
-  wideningAnswers: endpoint({ method: 'POST', path: '/api/sharing/widening-answers', auth: 'user', owner: 'B', body: WideningAnswersBody, response: WideningAnswers, summary: 'The widening list: the answers of a team project\'s shared chats that the people its Members dialog would add start seeing although they used places some of them can\'t open, newest first, 20 a page (the caller\'s own view: answers hidden from them left out, a place by name only when they may open it, "missed by" only the people and groups they picked). Whoever may change its members (403 widening_not_allowed to another viewer, 404 to anyone else). The first page takes a room-send token (429); a cursor of a list whose people or position changed answers 409 changed. Nothing is saved.' }),
+  wideningAnswers: endpoint({ method: 'POST', path: '/api/sharing/widening-answers', auth: 'user', owner: 'B', body: WideningAnswersBody, response: WideningAnswers, summary: 'The widening list: the answers of a team project\'s shared chats (target project) or of one chat outside projects (target chat: its Share dialog\'s whole list in add; its creator only) that the people its Members dialog would add start seeing although they used places some of them can\'t open, newest first, 20 a page (the caller\'s own view: answers hidden from them left out, a place by name only when they may open it, "missed by" only the people and groups they picked). Whoever may change its members (403 widening_not_allowed to another viewer, 404 to anyone else). The first page takes a room-send token (429); a cursor of a list whose people or position changed answers 409 changed. Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', query: ProjectsQuery, response: Project, summary: 'One project (manage=1: also one the owner or an admin manages without being a member, without its contents, or one in the trash the caller is a member of: name and state only).' }),
   restoreProject: endpoint({ method: 'POST', path: '/api/projects/:id/restore', auth: 'user', owner: 'B', response: Project, summary: 'Put a team project whose folder is in the trash back, with its folder (the owner or an admin, or its creator while a member; audited).' }),
   getProjectPeople: endpoint({ method: 'GET', path: '/api/projects/:id/people', auth: 'user', owner: 'B', response: ProjectPeople, summary: 'Who is in a team project in projects/<name>, each person once with their photo, groups expanded (the groups only for whoever manages it). Its members, and the owner and admins who manage it; anyone else 404. 409 project_personal for a personal project, project_legacy for one made before outside projects/.' }),
