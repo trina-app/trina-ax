@@ -13,6 +13,11 @@ export const goBackOffered = (u: Pick<UpdateStatus, 'previous' | 'managed' | 'pr
  * Admin › Home and Admin › System both say it is paused and offer no install button (QA TC-361). */
 export const releasePaused = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'paused'
 
+/** The release cannot open this server's data yet (a newer build, a dev one say, already updated the database): the
+ * server refuses it (409) and waits for a newer release, so Admin › Home and Admin › System say that and offer no install
+ * button. */
+export const releaseCannotRead = (u: Pick<UpdateStatus, 'hold'> | null | undefined): boolean => u?.hold === 'cannot_read'
+
 export type UpdateOutcome =
   | { kind: 'ok' }
   /** the version did not stay; message: the server's words (null: none, say it in the client's) */

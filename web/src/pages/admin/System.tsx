@@ -31,7 +31,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
 import { addressToTell, teamAddressShown } from '../../lib/team-address'
-import { goBackOffered, releasePaused } from '../../lib/updateOutcome'
+import { goBackOffered, releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -750,7 +750,7 @@ function Update() {
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting
   const u0 = state.data
-  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
+  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
     <Card title={t('system.updates')}>
       <Loadable state={state} lines={2}>
@@ -780,8 +780,9 @@ function Update() {
                   label={t('system.row.status')}
                   long
                   action={
-                    // a paused release: the server refuses it, so no button (Admin › Home says the same; QA TC-361)
-                    u.needsRoot || releasePaused(u) ? undefined : (
+                    // a paused release, or one that cannot open this server's data: the server refuses it, so no
+                    // button (Admin › Home says the same; QA TC-361)
+                    u.needsRoot || releasePaused(u) || releaseCannotRead(u) ? undefined : (
                       <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
                         <Upload size={14} aria-hidden /> {t('system.installUpdate')}
                       </Button>
@@ -789,10 +790,11 @@ function Update() {
                   }
                 >
                   {releasePaused(u) ? <span className="font-medium" data-testid="update-paused">{t('adminHome.update.paused', { version: u.available.version })}</span>
+                    : releaseCannotRead(u) ? <span className="font-medium" data-testid="update-cannot-read">{t('adminHome.update.cannotRead', { version: u.available.version })}</span>
                     : <span className="font-medium">{t('system.available', { version: u.available.version })}</span>}
                   <ReleaseNotes notes={u.available.notes} />
                   {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
-                  {u.needsRoot && !releasePaused(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
+                  {u.needsRoot && !releasePaused(u) && !releaseCannotRead(u) && (phone ? <OnComputer className="mt-2" text={t('admin.onComputerUpdate')} testId="update-on-computer" />
                     : <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>)}
                 </Row>
               ) : (

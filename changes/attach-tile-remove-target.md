@@ -1,0 +1,1 @@
+- The ✕ on a picture you attached in a message box is now an easier target to tap or click (24 px on a computer, 44 px on a phone). It looks the same as before.

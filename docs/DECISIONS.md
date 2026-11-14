@@ -27405,6 +27405,47 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
   never throwing, rate-limit categories both ways).
 - Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).
 
+## Disk: what is kept and what goes on a small team disk (feat/disk-retention, 2026-11-14, the owner: trial servers get a 20 GB data disk)
+
+- **Already there, kept as it is** (checked in the code, not rebuilt): `system/prune.ts` keeps app/current, the running
+  version, state.json's current and previous (Roll back, the bootstrap's way back) and the newest staged update, and
+  removes every other version and engine folder hourly (so 3 × 483 MB on potenlab is current + previous + the staged
+  one); backups are kept 14 days (a hosted plan: 3) with a full archive every 7 days and a chain of incrementals
+  (`system/backup.ts`); the 80 % notice to owner and admins comes at 4 GB free on a 20 GB disk (90 % at 2 GB, a full
+  backup needs 2 GB), so no new low-disk notice.
+- **Why one daily was 1.8 GB:** the weekly full archive (an incremental is only changed files) walked the whole team
+  folder, and a project folder in it holds the project's `node_modules`, `.next` and virtual environment (a chat with a
+  project runs there: `box_shell` description "node_modules ... use team disk"). Nothing was left out except
+  `.system/backups`. `devenv/work` and `devenv/home` are outside the team folder and were never in it. Fix: the backup
+  walk (`system/regenerable.ts`, `backupWalk`: also the archives of `mycel-ctl backup` and the hosting export) skips
+  `node_modules`, `.next`, `.turbo`, `.svelte-kit`, `.parcel-cache`, `__pycache__` and a `.venv`/`venv` that holds a
+  `pyvenv.cfg`, at any depth. NOT `dist`, `build`, `out`, `.cache`, `.git`: they can be a result or history. A restore
+  brings no `node_modules`; `npm install` makes it again. Archives made before stay until their chain is 14 days old.
+- **Migration copies** (`data/backups/pre-migrate-*.db`): the newest 5 stay and every one of the last 14 days
+  (`PRE_MIGRATE_KEEP_NEWEST/DAYS`), whichever keeps more; the newest, the copy before the latest migration that the
+  bootstrap's roll-back names, is always among them. Before: 14 days (a hosted plan: 3) and only the newest beyond that.
+- **Dev environment** (`system/devenv-clean.ts`, hourly from 20 minutes after start, as the server account): of the two
+  options (show the admin and clear on a click, or clear regenerable folders by itself) the second is the safer here,
+  because it can only remove what a command brings back and never a person's file, so there is nothing to confirm and
+  nobody has to remember. (1) Per person caches under `devenv/home/<user>`: `.npm/_cacache`, `.npm/_logs`, `.cache/pip`,
+  `.bun/install/cache` removed whole when idle 14 days or over 1 GiB, `tmp/` entries older than 7 days; not the browser
+  downloads (no network path to fetch them again); never while the person has a run. (2) The regenerable folders (same
+  list as the backup) of a chat's work folder `devenv/work/<chat>`, only when the chat is idle 14 days (no run, no
+  chat or turn change in the database, no other file changed). No work folder is removed here, `out/` and `dist/` stay,
+  project folders (team folders) are never touched. A project's own `node_modules` costs live disk but no backup space;
+  a click-to-clear list for those is not built.
+- **OS side:** `pk_apt_install` (`scripts/system/packages.sh`: the installer, the package sync, the image build) runs
+  `apt-get clean` after a successful install (798 MB of .deb files on potenlab); the journald cap is
+  `SystemMaxUse=100M` (was 200M) in `install-linux.sh` and the image's `journald-ax.conf`; an existing server gets it
+  at its next installer run, not at an update.
+- Not done: devenv is part of "other" in Admin > System (no own row); no cap on the number of project folders.
+- Steady state of a fresh trial team (numbers from potenlab's breakdown, no project data or uploads): app/versions
+  about 1 GB (current + previous; 1.5 GB while one update is staged), engines 0.56 GB, models 0.68 GB, journal at most
+  0.1 GB, apt cache 0, DB copies and backups a few hundred MB (team archives hold only the real files), devenv caches at
+  most 1 GB per person: about 3 GB on a 20 GB disk before the team's own files. The 3 × 483 MB / 0.5 GB engine /
+  0.7 GB models are fixed costs of the product, not growth.
+- Tests: `tests/unit/g-disk-retention.test.ts`, `tests/unit/system-packages.test.ts` (apt-get clean after install).
+
 ## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
 
 Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the
@@ -27519,3 +27560,39 @@ and the phone push are core.
 - Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
   label words), push-gateway.test.ts (text, mutable), mobile-labels.test.ts, push-locale.test.ts, b-rooms-notify.test.ts.
 - Version impact: **minor**.
+
+## Updates skip a release that cannot open the database (fix/update-skip-unreadable-db, 2026-11-14, the owner, QA TC-1513)
+
+- **Gap:** a server on a dev build (0.5.3-dev.x) whose database is at reader level 7 (since #787, 121_a_folder_limited)
+  and that is on the stable channel with automatic updates took stable 0.5.3 (level 6): by semver 0.5.3 is newer than
+  0.5.3-dev.x. Neither updater compared levels: mycel-ctl (native/cmd/mycel-ctl/update.go `gate` and `run`) went from
+  `notNewer` straight to the download and `updateRoot`; the app's `autoUpdateDecision` (server/src/system/update-job.ts)
+  had no such check, and its zod `ReleaseFeed` dropped `minReaderRequired`. 0.5.3 then refused the database (exit 75,
+  nothing written), the bootstrap rolled back after 3 tries, and every hold (20 h, 44 h, 92 h, 7 d) ended in another try.
+- **Rule (both updaters):** a release whose reader level is below the database's is not installed. Its level is the
+  feed's `minReaderRequired` (publish-server.ts writes the build's highest `min_compatible_reader`, which is its
+  `SCHEMA_READER_LEVEL`), else the bundle's own migrations (mycel-ctl after the download, before any root file; the app
+  for a staged copy, `canRead`). Unknown level: no check (old feeds, as before). Read leniently: a value that does not
+  read is unknown, never a reason to refuse the feed.
+- **The database's level:** the app reads it from the database (`requiredReaderLevel`). mycel-ctl has no SQLite, so it
+  reads the running version's migrations (app/versions/<app/current>/server/migrations, the same 400-byte head as
+  `bundleReaderLevel` and install-linux.sh `reader_level`, no link followed): a running build has applied all of its
+  migrations and would have refused a database that needs more, so the two are equal while the server runs.
+- **Skip, not failure:** the timer (`--scheduled`, `--only-if-needs-root`) and a plain `mycel-ctl update` answer "ok,
+  skipped" with the reason, write no root/update-failed.json, and do not download when the feed says the level. A
+  `--version` or `--bundle` an administrator asked for is refused with the same reason, nothing replaced. The app's
+  automatic update returns `cannot_read` (before the hold and roll-out checks); "Update now" is refused (409) and
+  `runUpdate` refuses before the download and again before the switch. A newer release that can read the database ends
+  it by itself; same-level dev → stable (0.5.3-dev.x at 7 → a 0.5.3 at 7) and real upgrades are unchanged.
+- **What people see:** the update status's `hold` gets `cannot_read`; Admin › Home and Admin › System say "Version
+  0.5.3 can't open this server's data yet. Waiting for a newer version." with no install button. A staged copy that
+  cannot open the database (left by a try that rolled back) is no longer offered as `available` (independent review).
+- **Known limit:** the updaters and publish-server.ts read a migration's declaration in its first 400 bytes, db.ts in its
+  first 10 lines. They agree for every migration today; a declaration past 400 bytes would make a release's level read
+  too low and the release be skipped (safe side), so declarations stay at the top of the file.
+- **Version order left as it is:** dev builds of a plain package version are `<v>-dev.<time>`, which semver sorts
+  before `<v>` (the comment in .github/workflows/dev-build.yml says "newer than the package version's release", true
+  only for a pre-release package version). Changing the order would touch every updater and the dev server's timer; the
+  reader-level check is what keeps data safe whatever the order, so the naming is a separate decision.
+- Tests: native/cmd/mycel-ctl/readerlevel_test.go (Linux Docker); tests/unit/update-reader-gate.test.ts;
+  tests/unit/g-update-auto.test.ts (hold and 409 through the app); web/test/unit/update-outcome.test.ts.
