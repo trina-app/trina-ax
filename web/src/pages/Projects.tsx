@@ -83,7 +83,7 @@ import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
 import { usePeopleList } from '../store/people'
 import { guestProject, isGuestMe } from '../lib/guests'
-import { GuestProjectNote, useGuestNoAi } from '../components/GuestView'
+import { GuestProjectNote, useGuestAiOff } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
@@ -669,9 +669,10 @@ function ProjectPage() {
   // a guest: the project with nothing to change on it (lib/guests.ts guestProject)
   const guestHere = isGuestMe(useMe())
   const p = useMemo(() => (guestHere && rawP ? guestProject(rawP) : rawP), [guestHere, rawP])
-  // a guest whose AI is off: no box and no Trina history; the project's files and members are the page, under one quiet
-  // line (components/GuestView.tsx)
-  const aiOff = useGuestNoAi()
+  // a guest whose invite gives them no AI: no box and no Trina history; the project's files and members are the page,
+  // under one quiet line (components/GuestView.tsx useGuestAiOff; Team AI that cannot answer yet keeps the page, and its
+  // box says why)
+  const aiOff = useGuestAiOff()
   const [missing, setMissing] = useState(false)
   // not found because I was taken out of it (or left): its name (QA TC-1067)
   const [goneFrom, setGoneFrom] = useState<string | null>(null)
@@ -963,7 +964,9 @@ function ProjectPage() {
   const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   // the folder read, with nothing in it yet, and someone here who may add files: the files box in place of its line
-  const filesEmpty = !!files && !files.failed && !files.entries.length && !files.more && p.canEdit
+  // the project has no files (as far as this person reads it)
+  const filesNone = !!files && !files.failed && !files.entries.length && !files.more
+  const filesEmpty = filesNone && p.canEdit
   // still reading it for someone who may add files: a box of the same height, so the column does not jump when an
   // empty folder comes back (a folder with files becomes its one line). A phone: always its one row (QA TC-1072)
   const filesBox = !phone && (filesEmpty || (!files && p.canEdit))
@@ -1117,7 +1120,8 @@ function ProjectPage() {
                       <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
                     </Button>
                   </EmptySideBox>
-                ) : !outside && (
+                ) : !outside && !aiOff && (
+                  // (a guest with no AI: the instructions are for the AI only, so none here; components/GuestView.tsx)
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}
@@ -1177,32 +1181,32 @@ function ProjectPage() {
                     testId="project-files"
                     icon={<Folder size={16} />}
                     label={t('files.title')}
-                    meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
+                    // none yet, for someone who cannot add them (who may, has the box above): the phone's words ("No
+                    // files yet", not "0 items", QA N4) and nothing to open
+                    meta={files && !files.failed && (filesNone ? <span data-testid="project-files-empty">{t('projects.page.filesEmpty')}</span> : files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
                     action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
                   >
-                    {!files && <Skeleton lines={3} />}
-                    {files && !files.failed && !files.entries.length && (
-                      // none yet, for someone who cannot add them (who may, has the box above)
-                      <p className="text-faint" data-testid="project-files-empty">
-                        {t('projects.page.filesEmpty')}
-                      </p>
-                    )}
-                    {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
-                    <ul className="-mx-3">
-                      {files?.entries.slice(0, 30).map((f) => (
-                        <ListRow
-                          key={f.path}
-                          onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                          icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
-                          name={f.name}
-                          nameTitle={f.name}
-                        />
-                      ))}
-                    </ul>
-                    {files && (files.more || files.entries.length > 30) && (
-                      <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
-                        {t('projects.openFolder')}
-                      </Link>
+                    {filesNone ? undefined : (
+                      <>
+                        {!files && <Skeleton lines={3} />}
+                        {/* the app's list rows (components/list/List.tsx), their icon under the box's own inset */}
+                        <ul className="-mx-3">
+                          {files?.entries.slice(0, 30).map((f) => (
+                            <ListRow
+                              key={f.path}
+                              onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                              icon={f.type === 'folder' ? <Folder className="text-accent-text" /> : <FileText />}
+                              name={f.name}
+                              nameTitle={f.name}
+                            />
+                          ))}
+                        </ul>
+                        {files && (files.more || files.entries.length > 30) && (
+                          <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
+                            {t('projects.openFolder')}
+                          </Link>
+                        )}
+                      </>
                     )}
                   </DisclosureRow>
                 )}

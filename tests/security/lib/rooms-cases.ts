@@ -83,6 +83,17 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // a guest invite into that group chat (docs/DECISIONS.md "Guests: only what they were invited to"): only the people
   // in it; the owner and the admin, not in it, are refused (403)
   createGuestInvite: { build: (c, w) => c.post('/api/guest-invites', { place: { kind: 'room', id: w.ids.groupRoom } }), scope: 'room-group' },
+  // whether one more guest fits the plan (read before the invite dialog's form): anyone signed in who may invite; the
+  // seats and the plan page only for the owner and admins
+  guestInviteLimit: {
+    build: (c) => c.get('/api/guest-invites/limit'), scope: 'byLevel',
+    check: (r, _w, who) => {
+      if (r.status !== 200) return
+      const staff = who === 'owner' || who === 'admin'
+      if (!staff && ('seatsFull' in r.json || 'manageUrl' in r.json)) throw new Error(`${who} was told the seats or the plan page`)
+      if (staff && typeof r.json.seatsFull !== 'boolean') throw new Error(`${who} was not told the seats`)
+    },
+  },
   inviteRoomMembers: {
     build: (c, w) => c.post(`/api/rooms/${w.ids.groupRoom}/members`, { userIds: ['frank'] }), scope: 'room-group',
     check: async (r, w, who) => {

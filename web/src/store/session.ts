@@ -17,7 +17,9 @@ import { forgetSkillList } from '../lib/skillTitles'
 export type AuthStatus =
   | { kind: 'loading' }
   | { kind: 'setup'; teamName: string | null }
-  | { kind: 'signed-out'; reason?: 'expired' | 'ended' }
+  // 'removed': a guest whose account was turned off (taken out of the team, or their one place is gone), with the team's
+  // name for the sign-in page's line (pages/Auth.tsx Login)
+  | { kind: 'signed-out'; reason?: 'expired' | 'ended' | 'removed'; team?: string }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -26,7 +28,7 @@ interface SessionState {
   load: () => Promise<void>
   /** after sign-in; `adoptPick`: a language picked on the sign-in screen becomes the account's own when it has none */
   signedIn: (me: Me, opts?: { adoptPick?: boolean }) => void
-  signedOut: (reason?: 'expired' | 'ended') => void
+  signedOut: (reason?: 'expired' | 'ended' | 'removed', team?: string) => void
   /** the team default or the person's language may have changed elsewhere (admin, another window): ask again */
   refreshMe: () => Promise<void>
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
@@ -41,6 +43,16 @@ interface SessionState {
   setAway: (away: boolean) => Promise<void>
   /** shown at once on this device; the account keeps it for the others */
   setTextSize: (s: TextSize) => Promise<void>
+}
+
+/** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
+ * still says why on a later visit (the server's answer to their password is only "wrong"). */
+const REMOVED_KEY = 'mycel.removedFrom'
+export function removedFrom(): string | null {
+  try { return localStorage.getItem(REMOVED_KEY) } catch { return null }
+}
+function rememberRemoved(team: string | null) {
+  try { if (team) localStorage.setItem(REMOVED_KEY, team); else localStorage.removeItem(REMOVED_KEY) } catch { /* storage blocked: said only this time */ }
 }
 
 function applyMe(me: Me) {
@@ -145,6 +157,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedIn(me, opts) {
+    rememberRemoved(null)
     lastTeamDefault = me.team.defaultLocale
     const picked = storedLocale()
     if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
@@ -168,7 +181,7 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  signedOut(reason) {
+  signedOut(reason, team) {
     forgetPersonInTab()
     pendingPick = null
     pickedBeforeSignIn = false
@@ -176,7 +189,8 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-    set({ status: { kind: 'signed-out', reason } })
+    if (reason === 'removed' && team) rememberRemoved(team)
+    set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
   },
 
   async refreshMe() {

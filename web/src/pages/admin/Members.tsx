@@ -128,9 +128,12 @@ export default function Members() {
   const roomTitle = useRoomTitle()
   const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
     const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
-    const name = pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room)
+    // a project's name comes with the link (Invite.guestPlace.name); a room's only when I am in it
+    const name = pl.kind === 'project' ? pl.name || projectsById[pl.id]?.name : room && roomTitle(room)
     return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
   }
+  // a used guest link says nothing new: the guest is in the Guests list now (member links keep "Used by")
+  const openInvites = invites.data?.filter((i) => !(i.role === 'guest' && i.usedAt))
   // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
   const phone = useMediaQuery('(max-width: 767.98px)')
   /** the owner and yourself have no actions here; an admin is managed by the owner only */
@@ -238,6 +241,7 @@ export default function Members() {
         { value: 'owner', label: t('role.owner') },
         { value: 'admin', label: t('role.admin') },
         { value: 'member', label: t('role.member') },
+        { value: 'guest', label: t('guest.admin.title') },
       ]}
       testId="member-role-filter"
     />
@@ -293,7 +297,10 @@ export default function Members() {
   })()
 
   // the team invite link's row (under Invite links): its details, Copy link only and its "…" (to change it or turn it off)
-  const link = teamLink.data?.link
+  // the Role filter's Guests: the guest links only (no team link, no member links)
+  const guestsOnly = roleFilter === 'guest'
+  const link = guestsOnly ? null : teamLink.data?.link
+  const listedInvites = guestsOnly ? openInvites?.filter((i) => i.role === 'guest') : openInvites
   const linkDetails = link && (
     <>
       {/* which groups everyone who joins is put in, in words (QA TC-458) */}
@@ -364,7 +371,8 @@ export default function Members() {
           <BarAdd label={t('members.inviteToTeam')} onClick={() => setInviteOpen(true)} testId="invite-new" />
         </AdminBarActions>
       )}
-      <section className="mb-8" aria-label={t('members.title')}>
+      {/* the Role filter's Guests: only the guests' list below */}
+      <section className="mb-8" aria-label={t('members.title')} hidden={roleFilter === 'guest'}>
         <Loadable state={users}>
           {({ items, noAi, noAiUntil }) => {
             const list = shown(items.filter((u) => u.role !== 'guest'))
@@ -450,13 +458,13 @@ export default function Members() {
       </section>
 
       {/* the people from outside the team (docs/DECISIONS.md "Guests: only what they were invited to") */}
-      {users.data && <GuestsSection guests={users.data.items.filter((u) => u.role === 'guest')} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} />}
+      {users.data && (roleFilter === 'all' || roleFilter === 'guest') && <GuestsSection guests={shown(users.data.items.filter((u) => u.role === 'guest'))} filtered={!!query.trim()} connections={connections.data} focusId={focusId} onChanged={() => users.reload()} onDelete={(u) => void remove(u)} />}
 
       <ScheduleReviews />
 
       {/* Invite links, quiet and only when there are any: the team link (copy, or "…" to change or turn it off in its
           popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
-      {(!!teamLink.data?.link || !!invites.data?.length) && (
+      {(!!link || !!listedInvites?.length) && (
         <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
           <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-title-sm font-semibold">
             {t('members.invites')}
@@ -482,9 +490,9 @@ export default function Members() {
                 {linkMenu}
               </div>
             ))}
-            {!!invites.data?.length && (
+            {!!listedInvites?.length && (
               <ul className="divide-y divide-line" data-testid="invite-list">
-                {invites.data.map((i) => {
+                {listedInvites.map((i) => {
                   const expired = Date.parse(i.expiresAt) < Date.now()
                   return (
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">

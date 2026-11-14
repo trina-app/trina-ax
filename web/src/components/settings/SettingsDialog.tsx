@@ -23,7 +23,7 @@
 // owners and admins 팀원 초대 and 관리자 (the computer's team menu; 관리자 moves here from the rows under the photo);
 // after the photo, 활동 with its count, the status ("상태 설정") and "자리 비움으로 표시" (the computer's account menu).
 import { isGuestMe } from '../../lib/guests'
-import { useGuestNoAi } from '../GuestView'
+import { useGuestAiOff } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowLeftRight, Bell, ChevronRight, LogOut, Search, Shield, Smile, UserPlus, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
@@ -115,7 +115,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const [webOn, setWebOn] = useState(me.user.webAllowAll === true)
   useEffect(() => { if (me.user.webAllowAll) setWebOn(true) }, [me.user.webAllowAll])
   // a guest whose AI is off: no usage or AI accounts either (components/GuestView.tsx)
-  const guestAiOff = useGuestNoAi()
+  const guestAiOff = useGuestAiOff()
   const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff)
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)

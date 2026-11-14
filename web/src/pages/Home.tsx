@@ -36,7 +36,7 @@
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
 import { useRealPath } from '../lib/realPath'
 import { isGuestMe } from '../lib/guests'
-import { GuestLanding, useGuestNoAi } from '../components/GuestView'
+import { GuestLanding, useGuestAiOff } from '../components/GuestView'
 import { Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
@@ -71,7 +71,7 @@ export default function Home() {
   const location = useLocation()
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a guest whose AI is off has nothing to ask: their one place opens (components/GuestView.tsx)
-  const guestNoAi = useGuestNoAi()
+  const guestNoAi = useGuestAiOff()
   const real = useRealPath()
   const route = homeRoute(location.pathname, location.search, phone)
   // (not while Settings is open over Home: the page under the dialog stays put)

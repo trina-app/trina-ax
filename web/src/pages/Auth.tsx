@@ -5,12 +5,12 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { guestPlacePath, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { useMe, useSession } from '../store/session'
+import { removedFrom, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -300,6 +300,8 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
+  // a removed guest (store/session.ts): now, or on a later visit from this browser
+  const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
@@ -323,7 +325,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
+    <AuthFrame title={removedTeam ? t('auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed">{t('auth.guestRemoved')}</span> : reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -341,7 +343,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+        {!removedTeam && <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>}
       </form>
     </AuthFrame>
   )
@@ -464,9 +466,11 @@ export interface JoinValues { name: string; username: string; password: string }
  * the eye button inside the field shows what was typed (PasswordField; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
-export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
+export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initialName }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void
+  /** the Name field's start (a guest invite: the name the inviter typed, InviteInfo.guestName) */
+  initialName?: string }) {
   const t = useT()
-  const [form, setForm] = useState({ name: '', username: '', password: '' })
+  const [form, setForm] = useState({ name: initialName?.slice(0, 100) ?? '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
@@ -541,7 +545,10 @@ function OpenInApp({ path }: { path: string }) {
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
  * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
  */
-function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
+function JoinChoices({ path, children, lean = false }: { path: string; children: ReactNode
+  /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
+   * has neither an account here nor the app; a used link leads to signing in anyway) */
+  lean?: boolean }) {
   const t = useT()
   const [web, setWeb] = useState(false)
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
@@ -552,8 +559,8 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
     return (
       <>
         {children}
-        <HaveAccount />
-        <OpenInApp path={path} />
+        {!lean && <HaveAccount />}
+        {!lean && <OpenInApp path={path} />}
       </>
     )
   // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's own
@@ -623,7 +630,7 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
           {t('auth.continueInBrowser')}
         </button>
       </p>
-      <HaveAccount />
+      {!lean && <HaveAccount />}
     </div>
   )
 }
@@ -708,7 +715,8 @@ export function AcceptInvite() {
     void run(async () => {
       const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
-      navigate('/', { replace: true })
+      // a guest opens straight into their one place (components/GuestView.tsx)
+      navigate(guestPlacePath(r.me) ?? '/', { replace: true })
     })
   if (info === null)
     return (
@@ -736,9 +744,10 @@ export function AcceptInvite() {
     )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <BrowserLanguageOffer />
-      <JoinChoices path={`/invite/${token}`}>
-        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
+      {!guest && <BrowserLanguageOffer />}
+      <JoinChoices path={`/invite/${token}`} lean={!!guest}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} initialName={guest ? info.guestName : undefined} />
       </JoinChoices>
     </AuthFrame>
   )

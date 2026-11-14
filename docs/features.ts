@@ -154,7 +154,7 @@ export const FEATURES: Feature[] = [
   { id: 'admin.home', name: 'Admin home and owner checklist', area: 'Admin', endpoints: ['afterUpdateActions', 'dismissAfterUpdate', 'managedNotices', 'plan'], screens: ['/admin'] },
   { id: 'admin.members', name: 'Members: add, change role, remove, reset password', area: 'Admin', endpoints: ['listUsers', 'createUser', 'updateUser', 'deleteUser', 'resetPassword', 'createResetLink', 'transferOwnership'], screens: ['/admin/members', '/admin/members/:id'] },
   { id: 'admin.invites', name: 'Invites', area: 'Admin', endpoints: ['listInvites', 'createInvite', 'revokeInvite'] },
-  { id: 'admin.guests', name: 'Guests', area: 'Admin', endpoints: ['createGuestInvite', 'convertGuest', 'updateGuestAi'] },
+  { id: 'admin.guests', name: 'Guests', area: 'Admin', endpoints: ['createGuestInvite', 'guestInviteLimit', 'convertGuest', 'updateGuestAi'] },
   { id: 'admin.groups', name: 'Groups', area: 'Admin', endpoints: ['listGroups', 'createGroup', 'updateGroup', 'deleteGroup', 'originCheck'], screens: ['/admin/groups', '/admin/groups/:id'] },
   { id: 'admin.folders', name: 'Folder permissions', area: 'Admin', endpoints: ['listFolders', 'createFolder', 'putFolderRules', 'deleteFolder', 'previewRules', 'explain*Access*', 'previewFolderEdit', 'folderAccessNotice', 'dismissFolderAccessNotice'], screens: ['/admin/folders'] },
   { id: 'admin.plugins', name: 'Plugins', area: 'Admin', endpoints: ['*Plugin*'], screens: ['/admin/plugins', '/admin/plugins/:id'] },

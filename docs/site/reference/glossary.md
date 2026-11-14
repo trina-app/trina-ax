@@ -12,6 +12,7 @@ description: Short definitions of the words used in Trina AX and these docs.
 | **Core** | Team AX, the shared codebase Trina AX is built on. |
 | **Engine** | The agent that answers: Claude Code, Codex or the API engine. |
 | **Group** | A set of people that folder rules can name. |
+| **Guest** | Someone from outside the team, in one group chat or one project only. Takes no seat. See [Guests](../use/guests.md). |
 | **Local-login** | Engines use the server OS user's own CLI sign-in. Used by office Macs and development. |
 | **Managed** | Engines use AI connections through the model proxy. Used by Linux servers. |
 | **MCP** | Model Context Protocol. How the AI talks to tools and outside services. |

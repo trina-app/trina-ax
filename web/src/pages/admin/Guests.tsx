@@ -5,11 +5,15 @@
 // (their account is turned off: PATCH status disabled; a removed guest's "…" deletes the account for good, as for a
 // member). Guests are invited from a room's or a project's "Add people", not here. The members table above leaves them
 // out. ?member=<id> marks and scrolls to a guest's row too (a refused "add to a second place" opens it: GuestInvite.tsx).
+// Removed guests stay out of sight behind "Show removed (N)". "Make team member" reads the seats before its dialog
+// (GET /api/guest-invites/limit): with every seat taken the dialog says so, with "See plans", and has nothing to confirm.
+// Its words say that their AI then follows the team's settings, like any member's (the guest AI choice ends).
 import { ArrowUpCircle, Bot, Trash2, UserRoundX } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { Credential, GuestAiChoice, User } from '@mycel/shared/api'
-import { api, API, isApiError } from '../../lib/api'
+import { api, API } from '../../lib/api'
 import { userGuest } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
@@ -17,7 +21,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { ListRow } from '../../components/list/List'
 import { Button, Modal, confirmDialog } from '../../components/ui'
-import { aiChoiceReady, GuestAiChoices, guestErrorText, useTeamConnections } from '../../components/GuestInvite'
+import { aiChoiceReady, ConvertGuestDialog, GuestAiChoices, guestErrorText, useTeamConnections } from '../../components/GuestInvite'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { OneLine, useAction } from './common'
 
@@ -29,8 +33,10 @@ function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connectio
   return [t('guest.ai.team'), label, `$${ai.limitUsd}`].filter(Boolean).join(' · ')
 }
 
-export function GuestsSection({ guests, connections, focusId, onChanged, onDelete }: {
+export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete }: {
   guests: User[]
+  /** the page's search narrowed `guests`: "No match" instead of "No guests yet" */
+  filtered?: boolean
   /** the team's AI accounts (Members reads them already), for a team AI's name */
   connections: readonly Credential[] | null | undefined
   focusId: string | null
@@ -39,10 +45,13 @@ export function GuestsSection({ guests, connections, focusId, onChanged, onDelet
   onDelete: (u: User) => void
 }) {
   const t = useT()
-  const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
   const [aiFor, setAiFor] = useState<User | null>(null)
+  const [converting, setConverting] = useState<User | null>(null)
+  const navigate = useNavigate()
+  // removed guests (their account off) are out of sight until asked for; the one an inbox entry points at shows anyway
+  const [showRemoved, setShowRemoved] = useState(false)
   const scrolled = useRef<string | null>(null)
   const focusRow = useCallback((el: HTMLElement | null) => {
     if (!el || scrolled.current === focusId) return
@@ -55,32 +64,24 @@ export function GuestsSection({ guests, connections, focusId, onChanged, onDelet
     if (!(await confirmDialog({ title: t('guest.admin.removeTitle', { name: u.name }), body: t('guest.admin.removeBody'), confirm: t('guest.admin.remove'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: 'disabled' } }), t('guest.admin.removed', { name: u.name }))) await onChanged()
   }
-  const convert = async (u: User) => {
-    if (!(await confirmDialog({ title: t('guest.admin.convertTitle', { name: u.name }), body: t('guest.admin.convertBody'), confirm: t('guest.makeMember') }))) return
-    try {
-      await api.call(API.convertGuest, { params: { id: u.id } })
-      toast({ level: 'success', text: t('guest.admin.converted', { name: u.name }) })
-      await onChanged()
-    } catch (e) {
-      // no free seat: say so in plain words (the plan's own message names the limit; this says what to do)
-      toast({ level: 'error', text: isApiError(e, 'plan_limit') && e.body.params?.reason === 'seat_limit' ? t('guest.admin.seatsFull') : guestErrorText(e, locale, t) })
-    }
-  }
   const items = (u: User): MemberMenuItem[] => u.status === 'active'
     ? [
         { label: t('guest.admin.changeAi'), icon: <Bot size={14} aria-hidden />, onSelect: () => setAiFor(u), testId: `guest-ai-${u.username}` },
-        { label: t('guest.makeMember'), icon: <ArrowUpCircle size={14} aria-hidden />, onSelect: () => void convert(u), testId: `guest-convert-${u.username}` },
+        { label: t('guest.makeMember'), icon: <ArrowUpCircle size={14} aria-hidden />, onSelect: () => setConverting(u), testId: `guest-convert-${u.username}` },
         { label: t('guest.admin.remove'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `guest-remove-${u.username}` },
       ]
     : [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => onDelete(u), danger: true, testId: `guest-delete-${u.username}` }]
 
-  const sorted = [...guests].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || a.name.localeCompare(b.name))
+  const removedCount = guests.filter((u) => u.status !== 'active' && u.id !== focusId).length
+  const sorted = [...guests]
+    .filter((u) => showRemoved || u.status === 'active' || u.id === focusId)
+    .sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || a.name.localeCompare(b.name))
   return (
     <section id="guests" className="mb-8 scroll-mt-16" aria-labelledby="guests-title" data-testid="guests-section">
       <h2 id="guests-title" className="text-title-sm font-semibold">{t('guest.admin.title')}</h2>
       <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('guest.admin.desc')}</OneLine>
       {!sorted.length ? (
-        <p className="border-y border-line py-4 text-sm text-faint" data-testid="guests-none">{t('guest.admin.none')}</p>
+        <p className="border-y border-line py-4 text-sm text-faint" data-testid="guests-none">{filtered ? t('members.noMatch') : removedCount ? t('guest.admin.noneActive') : t('guest.admin.none')}</p>
       ) : (
         <ul data-testid="guests-list">
           {sorted.map((u) => {
@@ -103,7 +104,13 @@ export function GuestsSection({ guests, connections, focusId, onChanged, onDelet
           })}
         </ul>
       )}
+      {removedCount > 0 && (
+        <Button size="sm" variant="ghost" className="mt-1 -ml-2.5" onClick={() => setShowRemoved((v) => !v)} aria-expanded={showRemoved} data-testid="guests-show-removed">
+          {showRemoved ? t('guest.admin.hideRemoved') : t('guest.admin.showRemoved', { n: removedCount })}
+        </Button>
+      )}
       {aiFor && <GuestAiDialog user={aiFor} onClose={() => setAiFor(null)} onSaved={onChanged} />}
+      {converting && <ConvertGuestDialog guest={converting} onClose={() => setConverting(null)} onDone={async () => { await onChanged(); navigate(`/admin/members?member=${encodeURIComponent(converting.id)}`, { replace: true }) }} />}
     </section>
   )
 }
@@ -113,7 +120,8 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
   const t = useT()
   const locale = useLocale()
   const [ai, setAi] = useState<GuestAiChoice>(() => userGuest(user)?.ai ?? { mode: 'none' })
-  const connections = useTeamConnections(ai.mode === 'team')
+  // read at once: without a team AI account, Team AI is off before anyone picks it
+  const { list: connections, noGuestAi } = useTeamConnections(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const save = async () => {
@@ -135,7 +143,8 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
     <Modal open onClose={onClose} title={t('guest.admin.aiTitle', { name: user.name })} width={440}
       footer={<><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" busy={busy} disabled={!aiChoiceReady(ai)} onClick={() => void save()} data-testid="guest-ai-save">{t('common.save')}</Button></>}>
       <div className="space-y-3" data-testid="guest-ai-dialog">
-        <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} />
+        {/* the dialog's title says "AI for Alex": no second heading over the choices */}
+        <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} noGuestAi={noGuestAi} legend={false} />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
     </Modal>

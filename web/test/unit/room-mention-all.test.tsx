@@ -19,6 +19,7 @@ import { FakeElement, FakeEvent, installDom, mount as mountInDom, removeDom, typ
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
+const en = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('en', k, p)
 
 describe('the words and the tokens (lib/rooms.ts)', () => {
   test('each language\'s word and Slack\'s find it; a person\'s name does not', () => {
@@ -166,7 +167,9 @@ test('the first row: its word and how many it notifies; found by any word, not b
   await typeText(box, '@')
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
-  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 방의 2명에게 알림')
+  // everyone but me (QA N3: the header's "멤버 3명" counts me too, so the words say "다른")
+  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 방의 다른 2명에게 알림')
+  expect(en('rooms.mentionAllHint', { n: 2 })).toBe('notify the other 2 people here')
   for (const q of ['all', 'channel', 'everyone', '전체']) {
     await act(async () => { setValue.call(box, ''); box.setSelectionRange(0, 0); box.dispatchEvent(new FakeEvent('input', { bubbles: true })); box.dispatchEvent(new FakeEvent('keyup', { bubbles: true })) })
     await typeText(box, '@' + q)
@@ -230,6 +233,21 @@ test('picked it is a token and the message goes with mentionsAll; pasted it is t
   await m.click('room-send')
   await m.until(() => sent.length > 1, 'the second send', WAIT)
   expect(sent[1]!.mentionsAll).toBeUndefined()
+}, DOM_TEST_MS)
+
+test('a name of two words typed out keeps the list (QA M7): Enter picks it and the message mentions them', async () => {
+  const { m, box } = await open()
+  await typeText(box, 'Hello, @Cy')
+  await typeText(box, ' ')
+  await typeText(box, 'Pa')
+  await m.until(() => rows(m).length > 0, 'the @ list after the space', WAIT)
+  expect(rows(m)).toEqual(['CCy Park'])
+  expect(await key(box, 'Enter')).toBe(false)
+  await m.settle()
+  expect(box.value).toBe('Hello, @Cy Park ')
+  await m.click('room-send')
+  await m.until(() => sent.length > 0, 'the send', WAIT)
+  expect(sent[0]).toMatchObject({ body: 'Hello, @Cy Park', mentions: ['cy'] })
 }, DOM_TEST_MS)
 
 test('10 people or more: the send asks first, in one line in the box (취소 keeps the text; 보내기, Enter or the button send)', async () => {

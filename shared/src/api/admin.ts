@@ -106,6 +106,16 @@ export const CreateGuestInviteBody = z.object({
   /** who the link is for, in the inviter's words (shown in the invite list); not the account's name */
   name: z.string().trim().min(1).max(100).optional(),
 })
+/** GET /api/guest-invites/limit: whether one more guest fits the plan, read before the invite dialog shows its form.
+ * `limit`: the plan's guests (null: no cap). For the owner and admins also whether every seat is taken (making a guest a
+ * team member needs one) and the plan page when the server knows it. */
+export const GuestInviteLimit = z.object({
+  full: z.boolean(),
+  limit: z.number().int().nonnegative().nullable(),
+  seatsFull: z.boolean().optional(),
+  manageUrl: z.string().optional(),
+})
+export type GuestInviteLimit = z.infer<typeof GuestInviteLimit>
 /** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with
  * leadFor stopped an earlier open one (the form says "이전에 보낸 팀장 링크는 더 이상 안 돼요"). */
 export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: z.string(), replacedLead: z.boolean().optional() })
@@ -623,6 +633,7 @@ export const ADMIN = {
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),
   createGuestInvite: endpoint({ method: 'POST', path: '/api/guest-invites', auth: 'user', owner: 'A', status: 201, body: CreateGuestInviteBody, response: CreatedInvite, summary: 'Invite a guest into one place: a group chat the caller is in, or a project the caller created (the owner and admins: any project). 409 plan_limit reason guest_limit over the plan\'s guests.' }),
+  guestInviteLimit: endpoint({ method: 'GET', path: '/api/guest-invites/limit', auth: 'user', owner: 'A', response: GuestInviteLimit, summary: "Whether the plan has room for one more guest (and, for the owner and admins, whether every seat is taken), so the invite and Make team member dialogs say so before the form." }),
   updateGuestAi: endpoint({ method: 'PATCH', path: '/api/admin/users/:id/guest-ai', auth: 'admin', owner: 'A', body: GuestAiChoice, response: User, summary: "Change a guest's AI: none, own sign-in, or a team connection with a monthly limit." }),
   convertGuest: endpoint({ method: 'POST', path: '/api/admin/users/:id/convert-guest', auth: 'admin', owner: 'A', response: User, summary: 'Make a guest a team member (takes a seat: 409 plan_limit reason seat_limit when none is free). They keep their place.' }),
   revokeInvite: endpoint({ method: 'DELETE', path: '/api/admin/invites/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Revoke an unused invite.' }),

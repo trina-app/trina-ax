@@ -25,6 +25,7 @@ import { useTyping } from './typing'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
+import { isGuestMe } from '../lib/guests'
 import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
 import { useWelcome } from './welcome'
@@ -260,7 +261,14 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
-      if (useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('ended')
+      if (useSession.getState().status.kind === 'signed-in') {
+        // a guest whose account was turned off: the sign-in page says they are no longer in the team (not "signed out
+        // elsewhere"); docs/DECISIONS.md "Guests: only what they were invited to"
+        const st = useSession.getState().status
+        const me = st.kind === 'signed-in' ? st.me : null
+        if (ev.data.reason === 'disabled' && isGuestMe(me)) useSession.getState().signedOut('removed', me!.team.name)
+        else useSession.getState().signedOut('ended')
+      }
       return
   }
 }

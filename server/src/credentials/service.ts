@@ -11,7 +11,7 @@ import { newId } from '../db'
 import { fail } from '../http/errors'
 import { ct, ctAll } from './i18n'
 import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
-import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
+import { personalConnectionsAllowed, SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
   ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
@@ -115,7 +115,7 @@ export interface CreateInput {
 
 function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
   if (!i.ownerUserId && SUBSCRIPTION.has(i.kind) && !sharedSubscriptionsAllowed(cc.db)) fail('forbidden', ct('sharedSubscriptionsOff', locale))
-  if (i.ownerUserId && (!memberOwnAllowed(cc.db) || i.ownerUserId !== i.actor)) fail('forbidden', ct('memberOwnOff', locale))
+  if (i.ownerUserId && (i.ownerUserId !== i.actor || !personalConnectionsAllowed(cc.db, i.ownerUserId))) fail('forbidden', ct('memberOwnOff', locale))
 }
 
 /** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed). With moveFrom (a team connection

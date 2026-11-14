@@ -11,7 +11,7 @@ import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
 import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
-import { memberOwnAllowed } from './policy'
+import { personalConnectionsAllowed } from './policy'
 import {
   getRow, markInvalid, notifyAboutConnection, secretOf, teamDay, unusable,
   type CredCtx, type CredRow, type Secrets,
@@ -122,7 +122,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       // A late 401 must not start new maintenance after the owner withdrew permission.
       // An already-running refresh still persists rotated tokens; forRequest checks permission before use.
       if (unusable(cc.db, row, new Date(cc.now()), cc.allowedKinds)
-        || row.owner_user_id !== null && !memberOwnAllowed(cc.db)) return 'refused'
+        || row.owner_user_id !== null && !personalConnectionsAllowed(cc.db, row.owner_user_id)) return 'refused'
       const f = await ensureFresh(cc, credentialId, { force: true, sentAccess })
       return f.ok ? 'retry' : f.permanent ? 'refused' : 'temporary'
     },
