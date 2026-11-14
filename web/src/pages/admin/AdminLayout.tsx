@@ -112,9 +112,9 @@ export function pageName(to: string, t: (key: MessageKey) => string, devEnv: boo
   // a folder of Folder permissions (under its rule editor): its name; By person (under a person): that view
   if (path === '/admin/folders') {
     const q = new URLSearchParams(to.split('?')[1]?.split('#')[0] ?? '')
-    const folder = q.get('folder')
+    const folder = q.get('edit') ?? q.get('folder')
     if (folder !== null) return folder === '' ? t('accessView.rootFolder') : folderName(t, folder)
-    if (q.get('view') === 'people') return t('accessView.byPerson')
+    if (q.get('view') === 'people') return t('folders.tabPerson')
   }
   if (path.startsWith('/admin/')) {
     const [id, sub] = path.slice('/admin/'.length).split('/')

@@ -119,7 +119,6 @@ describe('translations', () => {
     expect(translate('en', 'steps.summary', { n: 3 })).toBe('3 steps')
     expect(translate('en', 'files.summary.conflicts', { n: 1 })).toBe('1 saved as a copy')
     expect(translate('en', 'members.days', { n: 1 })).toBe('1 day')
-    expect(translate('en', 'rules.losingLine', { name: 'Lee', paths: 'a/', n: 1 })).toBe('Lee: a/ (1 chat continues without what the AI read there before)')
     expect(translate('ko', 'steps.summary', { n: 1 })).toContain('1')
     expect(placeholdersOf('{n, plural, one {# day} other {# days}} {x}')).toEqual(['n', 'x'])
     // "1 steps" style texts: a count right before an English plural noun must use the plural form

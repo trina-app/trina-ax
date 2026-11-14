@@ -159,14 +159,10 @@ export function adminBarCases() {
     await expect(page.getByRole('dialog', { name: t['groups.new'] })).toBeVisible()
   })
 
-  test('TC-377 Folder permissions: + adds a folder (By folder); no button block', async ({ page }) => {
+  test('TC-377 Folder permissions: no buttons in the bar (no Add folder since P1.5: a folder is shared from its Share dialog)', async ({ page }) => {
     await openAdmin(page, 'folders', /\/admin\/folders$/)
-    await expect(page.getByTestId('access-tree')).toBeVisible()
-    // Filters (TC-379) and +
-    await barButtons(page, [t['activity.filters'], t['rules.addFolder']])
-    await noBlock(page, [t['rules.addFolder']])
-    await bar(page).getByTestId('folder-rule-new').click()
-    await expect(page.getByRole('dialog', { name: t['rules.addFolder'] })).toBeVisible()
+    await expect(page.getByTestId('folders-list')).toBeVisible()
+    await expect(bar(page).getByTestId('admin-bar-actions')).toHaveCount(0)
   })
 
   test('TC-377 Usage: + opens Usage limits, ⋯ downloads the CSV; no button block', async ({ page }) => {
@@ -231,30 +227,27 @@ export function adminBarCases() {
     await fits(page)
   })
 
-  test('TC-379 Folder permissions: By folder / By person on a row of their own; Filters is an icon in the bar', async ({ page }) => {
+  test('TC-379 Folder permissions: Folders / What a person can open on a row of their own; each tab\'s search under them', async ({ page }) => {
     await openAdmin(page, 'folders', /\/admin\/folders$/)
-    await expect(page.getByTestId('access-tree')).toBeVisible()
-    const views = page.getByRole('tablist', { name: t['accessView.tabs'] })
+    await expect(page.getByTestId('folders-list')).toBeVisible()
+    const views = page.getByRole('tablist', { name: t['admin.folders'] })
     await fullWidth(views)
     // both words whole on one line
     for (const tab of await views.getByRole('tab').all()) {
       expect(await tab.evaluate((el) => { const s = el.querySelector('span')!; return s.scrollWidth <= s.clientWidth + 1 })).toBe(true)
       expect(Math.round((await box(tab)).height)).toBeLessThanOrEqual(48)
     }
-    await inside(page.getByTestId('tree-filters-toggle'), bar(page))
+    const folders = page.getByTestId('folders-search')
+    await fullWidth(folders)
+    expect((await box(folders)).y).toBeGreaterThanOrEqual((await box(views)).y + (await box(views)).height)
     await fits(page)
-    await filtersIcon(page, 'tree-filters', async (sheet) => {
-      await sheet.getByText(t['accessTree.ruledOnly']).click()
-      await expect(sheet.getByTestId('tree-ruled-only')).toBeChecked()
-    })
-    // By person: its search under the two views, full width; no Filters or + of By folder
-    await views.getByRole('tab', { name: t['accessView.byPerson'] }).click()
+    // What a person can open: its search under the two views, full width; nothing in the bar
+    await views.getByRole('tab', { name: t['folders.tabPerson'] }).click()
     const search = page.getByTestId('access-person-search')
     await expect(search).toBeVisible()
     await fullWidth(search)
     expect((await box(search)).y).toBeGreaterThanOrEqual((await box(views)).y + (await box(views)).height)
-    await expect(bar(page).getByTestId('tree-filters-toggle')).toHaveCount(0)
-    await expect(bar(page).getByTestId('folder-rule-new')).toHaveCount(0)
+    await expect(bar(page).getByTestId('admin-bar-actions')).toHaveCount(0)
   })
 
   test('TC-379 Activity log: one full-width search with the Filters icon in it; its count when set', async ({ page }) => {
@@ -322,8 +315,7 @@ export function adminBarComputerCases() {
     await page.goto('/admin/groups')
     await expect(page.getByTestId('groups-header').getByTestId('group-new')).toBeVisible()
     await page.goto('/admin/folders')
-    await expect(page.getByTestId('folders-header').getByTestId('folder-rule-new')).toBeVisible()
-    await expect(page.getByTestId('folders-header').getByTestId('tree-ruled-only')).toBeVisible()
+    await expect(page.getByTestId('folders-header').getByTestId('folders-search')).toBeVisible()
     await page.goto('/admin/usage')
     for (const id of ['usage-limits-link', 'usage-csv', 'usage-filter-user']) await expect(page.getByTestId(id)).toBeVisible()
     await page.goto('/admin/audit')
