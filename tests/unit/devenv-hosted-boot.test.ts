@@ -48,8 +48,8 @@ describe.skipIf(!hasJq)('mycel-devenv-boot --map (needs jq)', () => {
       }
     }
   })
-  test('a plan under 4096 MiB (Free, the old trial) and a bad file get no dev environment', () => {
-    expect(map(cp('free', 2048, 2, 5, 1)).code).not.toBe(0)
+  test('a plan under 4096 MiB (the old small plans) and a bad file get no dev environment', () => {
+    expect(map(cp('small', 2048, 2, 5, 1)).code).not.toBe(0)
     expect(map({ format: 2, plan: 'x', memoryMiB: 4096, cpuCores: 2 }).code).not.toBe(0)
     expect(map({ format: 1, plan: 'x', memoryMiB: '4096', cpuCores: 2 }).code).not.toBe(0)
   })

@@ -337,7 +337,7 @@ describe('diagnostics of an installed Linux server', () => {
   })
   test('a plan limit is a warning, a full real disk a failure: the control plane rolls an update back on a failure', async () => {
     const GiB = 1024 ** 3
-    const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
+    const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'small', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
     let used = 0
     const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => {
       const b = 80 * GiB / 4096, free = (80 * GiB - used) / 4096
