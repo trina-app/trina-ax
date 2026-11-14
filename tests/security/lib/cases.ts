@@ -15,6 +15,7 @@ import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
+import { ROOM_APP_SPECS } from './room-apps-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
@@ -45,6 +46,7 @@ type Scope =
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
+  | 'room-all-admins' // the everyone room's apps: its owners and admins (everyone is in it; members are refused)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -92,6 +94,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
+    case 'room-all-admins': return who === 'owner' || who === 'admin'
     case 'nobody': return false
   }
 }
@@ -106,6 +109,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
   // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
   if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
+  // "Resume now" on an app that is not paused: the owner and an admin pass the checks and get 409 not_paused
+  if (route === 'resumeRoomApp' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -119,6 +124,7 @@ export const SPECS: Record<string, Spec> = {
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
+  ...ROOM_APP_SPECS,
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,

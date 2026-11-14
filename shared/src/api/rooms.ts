@@ -41,6 +41,7 @@ import { IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Lo
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
+import { RoomAppCard, RoomAppRef } from './room-apps'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
@@ -381,6 +382,12 @@ export const RoomMessage = z.object({
    * (author) and when stay. Nothing can be done on it (react, reply in its thread, quote: refused like a message I do
    * not see) */
   withheld: z.literal(true).optional(),
+  /** a message an app posted (docs/DECISIONS.md "Apps posting in rooms"): author is null, authorKind 'user'; shown as
+   * the app's name with an "App" tag, never as a person. `body` is the card's plain text with Markdown marks escaped
+   * (older apps show it as text) */
+  app: RoomAppRef.optional(),
+  /** the app's card (plain text fields, one checked link): show it as text, never as Markdown or HTML */
+  appCard: RoomAppCard.optional(),
   /** my own message: the id my app made when it sent it (SendRoomMessageBody.clientMessageId), so a send whose answer
    * was lost is matched to its message when that comes another way (the live event, a replay, a page read again).
    * Only ever on the viewer's own messages */
@@ -430,6 +437,8 @@ export const RoomLastMessage = z.object({
   fileCount: z.number().int().nonnegative(),
   deleted: z.boolean(),
   createdAt: IsoTime,
+  /** a message an app posted (author null): the app, shown as its name with the "App" tag */
+  app: RoomAppRef.optional(),
 })
 export type RoomLastMessage = z.infer<typeof RoomLastMessage>
 
@@ -557,6 +566,8 @@ export const RoomSearchHit = z.object({
   markdown: z.boolean(),
   snippet: z.string(),
   createdAt: IsoTime,
+  /** a message an app posted (author null): the app, shown as its name with the "App" tag; snippet is plain text */
+  app: RoomAppRef.optional(),
 })
 export type RoomSearchHit = z.infer<typeof RoomSearchHit>
 /** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */

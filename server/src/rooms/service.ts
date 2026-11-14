@@ -46,7 +46,7 @@ import { teamTimeZone } from '../admin/settings'
 import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
   dmPeerGone, lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
@@ -842,6 +842,16 @@ export class Rooms {
    * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
   private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
+    // a message an app posted (rooms/apps): whoever manages the room's apps (in a team room or the everyone room its
+    // owners and admins; in a 1:1 or a group chat its members), audited
+    if (m && m.app_card && !m.author_id && !m.event) {
+      if (!canSee(this.db, m, me)) return fail('not_found')
+      const room = roomRow(this.db, roomId)!
+      if (!mayManageApps(this.db, room, userId)) return fail('forbidden')
+      if (m.deleted_at) return fail('conflict')
+      audit(this.db, { actor: userId, action: 'room_app.message_delete', target: m.id, detail: { ...roomAuditRef(room), ...(room.kind === 'team' || room.kind === 'all' ? { appId: m.app_id } : {}) } })
+      return m
+    }
     // my own message (own() decides, also for one hidden from me)
     if (m && m.author_kind !== 'ai' && m.author_id === userId) return this.own(roomId, messageId, userId, me, true)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
@@ -953,7 +963,8 @@ export class Rooms {
    * else brings a team room or the everyone room back, at any level: a room still hidden makes no notice
    * (recordNotices). Never an event line, a deleted or a private message. */
   private unhideFor(row: MessageRow) {
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return
+    // an app's quiet line brings nothing back (rooms/apps: Quiet)
+    if (row.visibility !== 'room' || row.deleted_at || row.event || row.app_quiet) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
     // only the members who hid it (an everyone room may have hundreds of members, few of them hiding it)
@@ -971,7 +982,8 @@ export class Rooms {
   }
   private recordNotices(row: MessageRow): Map<string, RoomNoticeEvent> {
     const out = new Map<string, RoomNoticeEvent>()
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return out
+    // an app's quiet line tells nobody (rooms/apps: Quiet, the paused line)
+    if (row.visibility !== 'room' || row.deleted_at || row.event || row.app_quiet) return out
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
     // a room I still hide (unhideFor did not bring it back) tells me nothing

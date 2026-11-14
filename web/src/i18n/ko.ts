@@ -3692,6 +3692,7 @@ export const ko = {
   "accountDeletion.removeBodyDue": "{name}님이 계정 삭제를 요청했어요. {date}에 어차피 삭제되고, 지금 삭제하면 더 빨리 삭제돼요. 개인 파일은 팀장만 읽을 수 있는 보관 폴더(팀장의 개인 폴더 안)로 옮겨지고, 개인 대화와 메모리는 바로 지워져요.",
   "notifications.event.account.deletion_request": "팀원이 계정 삭제를 요청했어요.",
   "notifications.event.account.deletion_due": "계정 삭제 요청에 날짜가 정해졌어요.",
+  "notifications.event.room_app.paused": "대화방의 앱이 오늘 보낼 수 있는 메시지 수에 도달해 멈췄어요. 내일 다시 시작해요.",
   "notifications.event.account.reset_link": "내 계정의 비밀번호 재설정 링크가 만들어졌어요.",
   "notifications.resetLink.server": "서버에서 내 계정의 비밀번호 재설정 링크를 만들었어요.",
   "notifications.resetLink.by": "{name} 님이 내 계정의 비밀번호 재설정 링크를 만들었어요.",

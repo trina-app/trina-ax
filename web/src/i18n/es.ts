@@ -3649,6 +3649,7 @@ export const es: Record<MessageKey, string> = {
   "accountDeletion.removeBodyDue": "{name} pidió que se elimine su cuenta; se elimina el {date} de todos modos. Eliminarla ahora lo adelanta. Sus archivos personales pasan a un archivo en la carpeta personal del propietario que solo él puede leer; sus chats privados y memorias se eliminan ahora.",
   "notifications.event.account.deletion_request": "Un miembro del equipo pidió que se elimine su cuenta.",
   "notifications.event.account.deletion_due": "Tu solicitud para eliminar la cuenta ya tiene fecha.",
+  "notifications.event.room_app.paused": "Una aplicación de una sala llegó a sus mensajes de hoy y se pausó. Vuelve a empezar mañana.",
   "notifications.event.account.reset_link": "Se creó un enlace para restablecer la contraseña de su cuenta.",
   "notifications.resetLink.server": "Se creó en el servidor un enlace para restablecer la contraseña de su cuenta.",
   "notifications.resetLink.by": "{name} creó un enlace para restablecer la contraseña de su cuenta.",

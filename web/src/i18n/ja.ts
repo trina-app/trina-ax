@@ -3649,6 +3649,7 @@ export const ja: Record<MessageKey, string> = {
   "accountDeletion.removeBodyDue": "{name}さんがアカウントの削除を依頼しました。{date}にはいずれにしても削除されます。今削除すると早まります。個人ファイルはオーナーの個人フォルダー内の、オーナーだけが読めるアーカイブに移され、個人のチャットとメモリーはすぐに削除されます。",
   "notifications.event.account.deletion_request": "チームメンバーがアカウントの削除を依頼しました。",
   "notifications.event.account.deletion_due": "アカウント削除の依頼に日付が決まりました。",
+  "notifications.event.room_app.paused": "ルームのアプリが今日のメッセージ数の上限に達したため一時停止しました。明日また始まります。",
   "notifications.event.account.reset_link": "あなたのアカウントのパスワード再設定リンクが作成されました。",
   "notifications.resetLink.server": "サーバー上で、あなたのアカウントのパスワード再設定リンクが作成されました。",
   "notifications.resetLink.by": "{name}さんがあなたのアカウントのパスワード再設定リンクを作成しました。",
