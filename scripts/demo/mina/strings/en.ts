@@ -86,9 +86,9 @@ export const en = {
       /** "people to know", one line each (in the answer's text) */
       peopleTitle: 'People to know',
       people: {
-        sara: 'Your lead. Ask her anything.',
-        leo: 'Made the first banner. Moves to Sales Monday.',
-        daniel: 'CEO. Says yes to the launch.',
+        sara: 'ask her anything.',
+        leo: 'made the first banner and hands it over to you.',
+        daniel: 'says yes to the launch.',
       },
     },
     bannerA: {
