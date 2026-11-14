@@ -247,7 +247,9 @@ export class RoomApps {
   create(userId: string, roomId: string, b: CreateRoomAppBody, locale: Locale): RoomAppCreated {
     const room = this.managed(userId, roomId)
     if (this.base() === null) fail('conflict', appText('noAddress', locale), { params: { reason: 'no_public_address' } })
-    const name = line(b.name ?? ROOM_APP_DEFAULT_NAMES[b.kind], 40)
+    // a name the person gave, else the kind's in the team's language (Google Forms and Other; Sentry and GitHub are names)
+    const L = this.locale()
+    const name = line(b.name ?? (b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })

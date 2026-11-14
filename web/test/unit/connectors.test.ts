@@ -9,6 +9,7 @@ import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected, SLACK_APP } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
+import { APP_LOGOS } from '../../src/components/rooms/apps/AppParts'
 
 describe('the shared list of services (shared/src/service-catalog.ts)', () => {
   test('Discover is the shared list, with a logo for each', () => {
@@ -121,6 +122,13 @@ describe('Discover', () => {
       // them with a policy that runs and loads nothing, tests/unit/d-web.test.ts)
       expect({ logo: c.logo, problems: svgProblems(file.toString('utf8')) }).toEqual({ logo: c.logo, problems: [] })
     }
+  })
+
+  test('the marks of apps posting in rooms (web/public/icons/room-apps) are the listed ones, and run and load nothing', () => {
+    const dir = path.join(import.meta.dir, '../../public/icons/room-apps')
+    const files = Object.values(APP_LOGOS).map((u) => path.basename(u!))
+    expect(fs.readdirSync(dir).sort()).toEqual([...files].sort())
+    for (const f of files) expect({ f, problems: svgProblems(fs.readFileSync(path.join(dir, f), 'utf8')) }).toEqual({ f, problems: [] })
   })
 
   test('the logo check refuses what can run or load, however it is written', () => {

@@ -18,7 +18,7 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
   const out = apps.out(row)
   const skipped = (ctx.db.query('SELECT skipped FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { skipped: number } | null)?.skipped ?? 0
   return {
-    appId, name: plainLabel(row.name, 40), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
+    appId, name: plainLabel(row.name, 40), kind: row.kind, roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
     day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
   }
 }

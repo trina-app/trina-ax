@@ -1,8 +1,8 @@
 // A message an app posted in a room (docs/DECISIONS.md "Apps posting in rooms"): its card as plain text. Its fields come
 // from outside services (an error's title, a form answer, any text sent to the room's address), so nothing in them is
 // read as Markdown or HTML and no address in them becomes a link; the card's one link (https, checked by the server)
-// is the only one: "Open in Sentry ↗" ("Open link ↗" for Other), a small button at the status line's end on a
-// computer, a link on the status line on a phone, its host as its tooltip. One component for the timeline, the thread
+// is the only one: "Open in Sentry ↗" ("Open link ↗" for Other), a link on the status line on every screen, its host
+// as its tooltip. One component for the timeline, the thread
 // and every other place a card shows. `variant`: 'card' (the whole card), 'reply' (a reply in its thread: short lines,
 // the title and the first detail), 'quiet' (a Quiet app's message and the paused / turned-back-on lines: one short line
 // in the style of an event line). Names in it are the vendor's text, never a link to anyone's profile ("Resolved by Jun
@@ -26,8 +26,8 @@ function CardLink({ kind, name, link, small = false }: { kind: RoomAppKind; name
       title={link.host}
       className={small
         ? 'touch-hit inline-flex items-center gap-0.5 font-medium text-accent-text hover:underline'
-        // a phone: a link on the status line; a computer: a small button at the line's end
-        : 'touch-hit inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent-text hover:underline md:ml-auto md:rounded-md md:border md:border-field-border md:bg-surface md:px-2 md:py-1 md:text-ink md:hover:bg-hover md:hover:no-underline'}
+        // a link on the status line, the same on a phone and a computer
+        : 'touch-hit inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent-text hover:underline'}
       data-testid="room-app-link"
     >
       {kind === 'other' ? t('roomApps.openLink') : t('roomApps.openIn', { app: name })}

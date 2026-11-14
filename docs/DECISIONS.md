@@ -27655,6 +27655,46 @@ guides, "Apps posting here") are phase 2.
   - Tests: web/test/unit/room-apps.test.ts, web/test/e2e/room-apps.spec.ts (1440 and 390), web/test/e2e/shots-room-apps.spec.ts
     (ROOM_APPS_SHOTS).
 
+- **Settings, logos and Slack's words (fix/room-apps-settings-logos, 2026-11-14, the owner and an independent UX
+  review, QA TC-1632, TC-1633).**
+  - **Words: Slack's (owner, overrides "never say webhook" for these labels).** The room ⋯ says "Add an app", then
+    "Integrations · N"; the dialog lists the room's apps under "Apps" with "Add an App"; the sender tag is "APP"; the
+    address is the "Webhook URL" with "Copy" and "Regenerate"; Remove is "Remove app". The web unit test still greps
+    every `roomApps.*` text for "webhook" but allows "Webhook URL". "Summarise" became "Summarize" in these keys.
+  - **Marks instead of letter tiles (replaces owner decision 7).** `AppTile` (`AppParts.tsx`, sizes `title` 24 /
+    `row` 28 / `face` 32, one component for the picker, list, settings title, timeline and search) draws Sentry's and
+    GitHub's one-colour marks (Simple Icons 16.37.0, CC0; `web/public/icons/room-apps`) in the text colour through a CSS
+    mask, so they read in both themes (both brands allow black or white). Google asks for permission before its product
+    icons are used, so Google Forms gets a plain form icon (lucide ClipboardList) and Other a plain app icon (Blocks).
+    Sources and terms: docs/THIRD-PARTY-NOTICES.md.
+  - **Names.** An Other app is named at the top of its guide (sent with the first Copy); every app can be renamed in its
+    settings (PATCH name; the server's lookalike check stays). Default names follow the team's language on the server
+    (`rooms/apps/text.ts` nameForms, nameOther: "Google 설문지", "다른 앱"); Sentry and GitHub keep theirs. The settings
+    title is the name, with the kind small beside it when they differ.
+  - **"(unverified)" after each name is gone** (review: noisy on every card). A card from an unsigned request still
+    carries `unverified`; the app's settings say once "Not signed: anyone with the Webhook URL can post · Make it
+    safer" for GitHub and Sentry without a secret, and the guide's safer step says it too. Members no longer see a mark.
+  - **Settings layout:** "Set up by Mina · How to connect" (the guide again) on top; the status line (last message
+    "today 10:58", paused, or one waiting state for every kind: a breathing dot and "Waiting for the first message. You
+    can close this."); one warnings block with one action each (refusal → Check the secret, someone who left →
+    Regenerate, not signed → Make it safer, no connection), and Regenerate is not repeated on the Webhook URL row while
+    the warning offers it; Name; "Show in this room" only when the kind has more than one switch (Other has none);
+    "Post quietly"; Other's "How to send" (a JSON example of the fields `parse.ts other()` reads, Copy example, and on a
+    computer "Copy test command", a curl line whose URL is filled only in what is copied, never shown); Webhook URL;
+    Remove app.
+  - **Guide:** Forms shows only "Code to paste into your form" (no URL box) and "It's safe: the script is your own…"; the
+    Korean Forms steps quote Google's Korean screens; one main button at a time (Copy until used, then "✓ Copied" in
+    outline and Done main); "Nothing yet?"'s curl is folded under "For developers"; **Show an example previews the card
+    in the dialog and posts nothing** (the example API stays for older clients). The picker order is Google Forms,
+    Other, GitHub, Sentry.
+  - Cards: "Open in Sentry ↗" is an inline link on every width; the "Example" tag is neutral. The sender popover opens
+    under the name, left-aligned (`MenuButton startAligned`), headed "Set up by Mina". The paused notice carries the
+    app's kind (`roomApp.kind`); Google Forms says "responses" and that the skipped ones are still in the form's
+    Responses tab. No-connection screens: "Apps need an outside connection…", the owner's "Turn on connection", "Ask the
+    team owner to turn on the connection." (the people list has no roles, so no name).
+  - Not done (nice-to-have of the review): the empty room's hint about apps and showing the side chat's app chip by the
+    room's apps rather than the messages on screen.
+
 ## Hosted teams that sleep: idle facts, the relay's sleep flag and wake, data disk grow (feat/trial-autostop, 2026-11-14, the owner)
 
 - Owner decision (2026-11-14): an idle hosted trial team's server stops by itself to save cost, and starts again when

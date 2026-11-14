@@ -11,8 +11,9 @@
 //   3. the app's own limits before the body: a burst then 1 a second, and the day's received count (429 + Retry-After).
 //   4. the content type (415), then the body: the raw bytes, at most 256 KiB (GitHub 1 MiB; 413), within 10 s (408).
 //   5. the signature over the raw bytes when a secret is set (GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
-//      Sentry-Hook-Signature "<hex>"; constant time; 401). Without a secret the token alone authenticates and every
-//      actor name in the card is marked "(unverified)" (owner decision 9: optional for both).
+//      Sentry-Hook-Signature "<hex>"; constant time; 401). Without a secret the token alone authenticates and the
+//      card carries `unverified` when it names someone; the app's settings say "Not signed" once (owner decision 9:
+//      optional for both; no "(unverified)" after each name since the 2026-11-14 review).
 //   6. parse (400 unreadable), the app's switch (off: 200, skipped), the day's caps (pause: 429), then one transaction
 //      posts it with its delivery row (a retry posts once). 200 "ok" (Slack-style senders look for it).
 // No network I/O and no AI on this path. A refusal is written to the app's status line at most once a minute, never the

@@ -303,7 +303,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
-  if (m.app) return <AppTile kind={m.app.kind} name={m.app.name} size={32} className="mt-0.5" />
+  if (m.app) return <AppTile kind={m.app.kind} size="face" className="mt-0.5" />
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
   return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
