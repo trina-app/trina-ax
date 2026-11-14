@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="하은">
-  <clipPath id="c"><circle cx="128" cy="128" r="128"/></clipPath>
-  <g clip-path="url(#c)"><rect width="256" height="256" fill="#C55A7A"/><rect x="150" y="-30" width="140" height="140" rx="30" transform="rotate(20 220 40)" fill="#DA86A0"/></g>
-  <text x="128" y="128" dy=".35em" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-weight="700" font-size="84" letter-spacing="-3" fill="#FFF3F6">하은</text>
-</svg>

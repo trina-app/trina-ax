@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="레오">
-  <clipPath id="c"><circle cx="128" cy="128" r="128"/></clipPath>
-  <g clip-path="url(#c)"><rect width="256" height="256" fill="#D9824B"/><circle cx="40" cy="220" r="80" fill="#E9A574"/></g>
-  <text x="128" y="128" dy=".35em" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-weight="700" font-size="84" letter-spacing="-3" fill="#FFF7EE">레오</text>
-</svg>
