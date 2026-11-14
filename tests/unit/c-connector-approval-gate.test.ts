@@ -6,7 +6,7 @@
 //   Always allow there. Reads never ask. A declined card sends nothing.
 // - QA TC-130: every connection's card offers Send once, Always allow and Don't send. Always allow is the caller's own:
 //   their own connection's write rule, or a row of their own for a team connection (never the team's rule), shown in
-//   the list and turned back there; it never applies in a scheduled run, after a room read or once the connection moved
+//   the list and turned back there; it holds in the person's own scheduled run (owner 2026-11-14), after a room read, and not once the connection moved
 //   to another address. Fake services only.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
@@ -218,8 +218,9 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     const seen = asker('no')
     expect((await turn('alice', { person: seen, roomsSeen: true }).call('team_teamboard__create_task', { title: 'room' })).isError).toBe(false)
     expect(seen.cards).toEqual([])
-    expect((await turn('alice', { scheduled: true }).call('team_teamboard__create_task', { title: 'run' })).isError).toBe(true)
-    expect(created()).toBe(n0 + 4)
+    // her own run: her own Always allow holds there too (owner 2026-11-14), nobody is asked
+    expect((await turn('alice', { scheduled: true }).call('team_teamboard__create_task', { title: 'run' })).isError).toBe(false)
+    expect(created()).toBe(n0 + 5)
     // an admin moves it to another address: her choice no longer counts
     expect((await json('carol', `/api/integrations/${teamAsk.id}`, 'PATCH', { url: `${fake.base}/mcp-open?team=ask-moved` })).status).toBe(200)
     const moved = asker('always')
