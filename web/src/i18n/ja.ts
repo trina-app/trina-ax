@@ -4119,6 +4119,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.discard": "破棄",
   "rooms.openImage": "{name}を開く",
   "rooms.empty": "まだメッセージはありません。最初のメッセージを送りましょう。",
+  "rooms.emptyReadOnly": "メッセージはありません。",
   "rooms.notFound": "このトークルームが見つかりません",
   "rooms.notFoundHint": "ルームを退出したか、アドレスが間違っている可能性があります。",
   "rooms.removed": "このトークルームのメンバーではなくなりました。",

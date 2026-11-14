@@ -4163,6 +4163,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.discard": "Buang",
   "rooms.openImage": "Buka {name}",
   "rooms.empty": "Belum ada pesan. Kirim pesan pertama.",
+  "rooms.emptyReadOnly": "Belum ada pesan.",
   "rooms.notFound": "Ruang obrolan ini tidak ditemukan",
   "rooms.notFoundHint": "Kamu mungkin sudah keluar, atau alamatnya salah.",
   "rooms.removed": "Kamu bukan lagi anggota ruang obrolan ini.",

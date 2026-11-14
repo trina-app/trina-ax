@@ -4104,6 +4104,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.discard": "放弃",
   "rooms.openImage": "打开{name}",
   "rooms.empty": "还没有消息。发送第一条吧。",
+  "rooms.emptyReadOnly": "没有消息。",
   "rooms.notFound": "找不到此群聊",
   "rooms.notFoundHint": "你可能已经退出，或者地址有误。",
   "rooms.removed": "你已不再是此群聊的成员。",

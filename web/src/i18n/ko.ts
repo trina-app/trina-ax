@@ -4162,6 +4162,7 @@ export const ko = {
   "rooms.discard": "지우기",
   "rooms.openImage": "{name} 크게 보기",
   "rooms.empty": "아직 메시지가 없어요. 첫 메시지를 보내 보세요.",
+  "rooms.emptyReadOnly": "메시지가 없어요.",
   "rooms.notFound": "이 대화방을 찾을 수 없어요",
   "rooms.notFoundHint": "대화방에서 나갔거나 주소가 틀렸을 수 있어요.",
   "rooms.removed": "이제 이 대화방의 멤버가 아니에요.",

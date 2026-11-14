@@ -4119,6 +4119,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.discard": "Descartar",
   "rooms.openImage": "Abrir {name}",
   "rooms.empty": "Todavía no hay mensajes. Envíe el primero.",
+  "rooms.emptyReadOnly": "No hay mensajes.",
   "rooms.notFound": "No se encuentra esta sala de chat",
   "rooms.notFoundHint": "Puede que haya salido de ella o que la dirección sea incorrecta.",
   "rooms.removed": "Ya no es miembro de esta sala de chat.",

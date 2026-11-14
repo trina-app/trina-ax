@@ -4163,6 +4163,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.discard": "Discard",
   "rooms.openImage": "Open {name}",
   "rooms.empty": "No messages yet. Send the first one.",
+  "rooms.emptyReadOnly": "No messages.",
   "rooms.notFound": "This chat room can't be found",
   "rooms.notFoundHint": "You may have left it, or the address is wrong.",
   "rooms.removed": "You are no longer a member of this chat room.",
