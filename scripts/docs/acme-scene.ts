@@ -1,6 +1,6 @@
 // Fills a running Acme demo (`bun run demo:company`, scripts/demo/acme) with what the docs screenshots show: room
-// messages, a thread and a DM, a team project, a few chats with real answers (one pinned), an AI answer sent to a room
-// from its side chat, and a scheduled task. Everything is fictional, like Acme itself. Run it once after the demo
+// messages, a thread and a DM, a team project, a few chats with real answers (one pinned), a project chat two people
+// asked in, a chat shared with Priya (Share…), an AI answer sent to a room from its side chat, and a scheduled task. Everything is fictional, like Acme itself. Run it once after the demo
 // starts; a second run adds the same lines again, so start from a fresh data folder instead.
 //
 //   bun run demo:company --local --data <new folder>       (in another terminal)
@@ -63,10 +63,26 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
   // Jordan's chats with real answers; the first is pinned, one is in the project
   const a = await runPrompt(p.jordan!, 'Summarize the November campaign plan in five bullet points.', { log })
   await p.jordan!.call(API.pinChat, { params: { id: a.chatId } })
-  await runPrompt(p.jordan!, 'What does our brand voice say about exclamation marks?', { log })
+  const voice = await runPrompt(p.jordan!, 'What does our brand voice say about exclamation marks?', { log })
   const inProject = await runPrompt(p.jordan!, 'Draft the launch email for the November campaign.', { log })
   await p.jordan!.call(API.updateChat, { params: { id: inProject.chatId }, body: { projectId: project.id } })
   log('jordan: 3 chats, 1 pinned, 1 in the project')
+
+  // A chat started in the team project is shared with its members by default: Jordan asks, then Sam asks in it too, so
+  // Jordan's lists show Sam's face on it
+  const together = await runPrompt(p.jordan!, 'Which channels does the November campaign use? One line each.', { log, projectId: project.id })
+  await runPrompt(p.sam!, 'Which of these channels gets the biggest budget? One line.', { log, chatId: together.chatId })
+  log('project: a shared chat with Jordan and Sam')
+
+  // The brand-voice chat (outside projects) shared with Priya by name (Share…); the share's check may ask once first
+  let shareKey: string | undefined
+  for (let i = 0; i < 3; i++) {
+    const r = await p.jordan!.call(API.putChatAudience, { params: { id: voice.chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'priya' }], ...(shareKey ? { confirmKey: shareKey } : {}) } }) as { status: string; confirmKey?: string }
+    if (r.status !== 'confirm') break
+    shareKey = r.confirmKey
+  }
+  await runPrompt(p.priya!, 'Does the same rule apply to subject lines? One line.', { log, chatId: voice.chatId })
+  log('jordan: the brand-voice chat shared with Priya, who asked in it')
 
   // A scheduled task from a template: every Monday, a summary of the week's meeting notes in Jordan's own folder
   try {
