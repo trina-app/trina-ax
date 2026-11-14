@@ -197,6 +197,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       delayMs: 5000,
       title: s.end.title,
       body: s.end.body,
+      contrast: s.end.usually,
       stats: [
         { label: s.end.stats.time, value: 'elapsed' },
         { label: s.end.stats.filesRead, value: 3 },

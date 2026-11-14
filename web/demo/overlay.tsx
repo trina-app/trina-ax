@@ -359,7 +359,7 @@ function Extra({ server, messageId, x }: { server: DemoServer; messageId: string
         <div className="demo-tiles" data-testid="demo-deliverables">
           {x.deliverables.map((d) => (
             <button key={d.path} type="button" className="demo-tile" onClick={() => navigate(viewUrl(d.path))}>
-              {isPicture(d.path) ? <img src={fileUrl(d.path)} alt="" /> : <span className="demo-tile-doc" aria-hidden>📝</span>}
+              {isPicture(d.path) ? <span className="demo-tile-pic"><img src={fileUrl(d.path)} alt="" /></span> : <span className="demo-tile-doc">{previewOf(server, d.path)}</span>}
               <span>{d.label}</span>
             </button>
           ))}
@@ -374,6 +374,15 @@ function Extra({ server, messageId, x }: { server: DemoServer; messageId: string
   )
 }
 
+/** a text file's first lines, without Markdown marks, for a tile */
+function previewOf(server: DemoServer, path: string): string {
+  const data = server.files.get(path)?.data
+  if (!data) return ''
+  return new TextDecoder().decode(data).split('\n')
+    .map((l) => l.replace(/^\s*(#+|[-*>]|\d+[.)])\s*/, '').replace(/[*_`"“”]/g, '').trim())
+    .filter((l) => l && !/^---/.test(l)).slice(0, 4).join(' · ')
+}
+
 function FileChip({ path }: { path: string }) {
   return (
     <button type="button" className="demo-file" onClick={() => navigate(viewUrl(path))}>
@@ -385,7 +394,20 @@ function FileChip({ path }: { path: string }) {
 
 /** before/after: the after picture over the before one, cut where the handle is */
 function Compare({ before, after, beforeLabel, afterLabel }: { before: string; after: string; beforeLabel?: string; afterLabel?: string }) {
-  const [at, setAt] = useState(50)
+  // starts on the before (Leo's draft), then the new one sweeps in once to 40%: both read
+  const [at, setAt] = useState(92)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setAt(55); return }
+    const t0 = performance.now()
+    let id = 0
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 1400)
+      setAt(92 - (92 - 55) * (1 - Math.pow(1 - k, 3)))
+      if (k < 1) id = requestAnimationFrame(step)
+    }
+    const start = setTimeout(() => { id = requestAnimationFrame(step) }, 400)
+    return () => { clearTimeout(start); cancelAnimationFrame(id) }
+  }, [])
   return (
     <div className="demo-compare" data-testid="demo-compare">
       <img src={fileUrl(before)} alt={beforeLabel ?? ''} />
@@ -470,6 +492,7 @@ function EndCard({ server, signupUrl }: { server: DemoServer; signupUrl: string 
             ))}
           </dl>
         )}
+        {end.contrast && <p className="demo-contrast" data-testid="demo-contrast">{end.contrast}</p>}
         <div className="demo-end-actions">
           <a className="demo-primary" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{end.signup.label}</a>
           <button type="button" className="demo-secondary" onClick={() => e.closeEnd()} data-testid="demo-explore">{end.explore.label}</button>

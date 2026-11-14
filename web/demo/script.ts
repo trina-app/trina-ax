@@ -280,6 +280,8 @@ export interface DemoEnd {
   body?: string
   /** v2: the numbers on the card, in order; 'elapsed' is the real time since the start (m:ss) */
   stats?: { label: string; value: number | 'elapsed' }[]
+  /** one small line under the numbers, e.g. "Usually: 2 days" */
+  contrast?: string
   /** the sign-up link (the build's VITE_DEMO_SIGNUP_URL replaces `url` when set) */
   signup: { label: string; url: string }
   /** closes the card; the visitor looks around freely */

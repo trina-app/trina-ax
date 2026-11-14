@@ -219,6 +219,8 @@ export const en = {
       approvals: 'CEO approval',
       emails: 'Email sent',
     },
+    /** one line under the numbers: what this usually takes */
+    usually: 'Usually: 2 days',
     signup: 'Start your team\'s free trial',
     explore: 'Look around',
   },
