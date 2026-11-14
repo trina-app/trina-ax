@@ -44,9 +44,13 @@ export function alwaysOn(db: Database, userId: string, kind: CardAlwaysKind): bo
 /** 'on': no card for this kind here; 'offer': the card offers "Always allow"; null: the card as before (nobody is
  * watching, a confidential chat, or the team's switch off). */
 export function alwaysHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind): 'on' | 'offer' | null {
-  if (!p || p.restricted || !LIVE_CLIENTS.has(p.clientKind ?? '')) return null
+  if (!p || p.restricted) return null
+  // a scheduled run (owner 2026-11-14, QA TC-320): nobody is there to answer a card, so only the choice its own person
+  // already made counts ('on'); it is never offered, and no one else's choice is used (alwaysOn reads p.userId only)
+  const scheduled = p.clientKind === 'schedule'
+  if (!scheduled && !LIVE_CLIENTS.has(p.clientKind ?? '')) return null
   if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
-  return alwaysOn(p.db, p.userId, kind) ? 'on' : 'offer'
+  return alwaysOn(p.db, p.userId, kind) ? 'on' : scheduled ? null : 'offer'
 }
 
 /** Keep the person's "Always allow" for this kind (their own answer on a card). Audited. */

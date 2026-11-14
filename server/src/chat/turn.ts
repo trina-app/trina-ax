@@ -3007,8 +3007,13 @@ export class TurnExec {
     const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true, place: (p) => this.place(p) } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
-    // `room`: this card is the room's card too (confirmRoomChange): no "Always allow" here, so neither choice skips it
-    const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => o.room ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('save_wider', req, 'save')
+    // `room`: this card is the room's card too (confirmRoomChange). Its "Always allow" is the person's own for both kinds
+    // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
+    // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
+    const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
+      if (!o.room) return this.askAlways('save_wider', req, 'save')
+      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
+    }
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
@@ -3234,11 +3239,13 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
       missing = r.missing
+      // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
+      if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
       return r.value
     })
     return { value, missing }

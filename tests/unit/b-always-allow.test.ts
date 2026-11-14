@@ -1,6 +1,6 @@
 // "Always allow" on every card (server/src/chat/always-allow.ts, docs/DECISIONS.md "Always allow on every card"; the
 // owner, 2026-11-13: "항상 허용을 눌렀으면 안해야하는거 아니야?"). Covered: where it applies (the person's own app only: never
-// a scheduled run, a Slack question, a restricted turn or a confidential chat; the team's switch off: as before, the
+// a Slack question, a restricted turn or a confidential chat; a scheduled run only for a choice already made; the team's switch off: as before, the
 // rows kept), the card (the "Always allow" answer before the no, buttons for three, the note), picking it (kept for
 // that person and kind only, audited once; the next card of that kind is not raised, another kind's is), Settings
 // (listed among the allowances, deleted by its own person only, another person's or a made-up id: 404).
@@ -54,13 +54,21 @@ describe('where it applies', () => {
   test('the person\'s own app: offered; a scheduled run, a Slack question, a restricted turn: never', () => {
     clear()
     for (const k of ['web', 'desktop', 'mobile']) expect(alwaysHere(place({ clientKind: k }), 'remember'), k).toBe('offer')
-    for (const k of ['schedule', 'slack', null]) expect(alwaysHere(place({ clientKind: k }), 'remember'), String(k)).toBeNull()
+    for (const k of ['slack', null]) expect(alwaysHere(place({ clientKind: k }), 'remember'), String(k)).toBeNull()
+    // a scheduled run: nobody to answer, so never offered (owner 2026-11-14: a choice already made holds there)
+    expect(alwaysHere(place({ clientKind: 'schedule' }), 'remember')).toBeNull()
     expect(alwaysHere(place({ restricted: true }), 'remember')).toBeNull()
     expect(alwaysHere(null, 'remember')).toBeNull()
-    // on for alice: also never in a scheduled run (nobody there chose anything now)
+    // on for alice: also in her own scheduled run (owner 2026-11-14), only hers: carol's run asks as before, and a
+    // restricted or confidential turn still never; another kind is not covered
     keepAlways(h.ctx.db, 'alice', 'remember', null)
     expect(alwaysHere(place(), 'remember')).toBe('on')
-    expect(alwaysHere(place({ clientKind: 'schedule' }), 'remember')).toBeNull()
+    expect(alwaysHere(place({ clientKind: 'schedule' }), 'remember')).toBe('on')
+    expect(alwaysHere(place({ clientKind: 'schedule', userId: 'carol' }), 'remember')).toBeNull()
+    expect(alwaysHere(place({ clientKind: 'schedule' }), 'video')).toBeNull()
+    expect(alwaysHere(place({ clientKind: 'schedule', restricted: true }), 'remember')).toBeNull()
+    // and in a ✦ side chat or after a room read, in her own app, a grant is only hers: carol is offered it
+    expect(alwaysHere(place({ userId: 'carol' }), 'remember')).toBe('offer')
   })
 
   test('the team\'s switch off: no "Always allow" and the rows are ignored, kept; on again, they count', () => {

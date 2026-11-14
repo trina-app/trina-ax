@@ -19,7 +19,7 @@ import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { noLongerMemberOf, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
@@ -91,7 +91,10 @@ function ChatView({ chatId }: { chatId: string }) {
   const backLink = useBackLink()
   // my chat list, or a shared chat of someone else's that this screen shows (store/chats.ts `others`)
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId) ?? s.others[chatId])
-  const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
+  // a chat opened from a list that already holds it (a project page's rows: someone else's shared chat is not in my list
+  // yet) shows its title, crumb and people on the first frame, before the read comes back (QA TC-1293)
+  const handed = (useLocation().state as { chat?: Chat } | null)?.chat
+  const [chat, setChat] = useState<Chat | null>(chatFromList ?? (handed?.id === chatId ? handed : null))
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -116,7 +119,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
   const readOnly = !!shared && !!me.server.allChatsConfidential
-  const title = chat?.title || t('chat.untitled')
+  // no title yet while the chat is read: nothing, not "Untitled" (that is a chat without one)
+  const title = chat ? chat.title || t('chat.untitled') : loading ? '' : t('chat.untitled')
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
