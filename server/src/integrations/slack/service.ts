@@ -301,6 +301,9 @@ export class SlackConnector {
     // the official app removed from the workspace: that stays the reason until it is added again
     const now = this.config()
     if (now?.last_error === 'removed' && !now.secret_enc) return
+    // the own app's bot token Slack refused: that stays the reason until new tokens are saved (the app-level token
+    // still connects, so the connection coming back says nothing about the bot token)
+    if (now?.mode === 'own' && now.last_error === 'bot_refused') return
     try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
     // each new connection reads the bot's name again: it may have been renamed in Slack's app settings
     if (s === 'connected') void this.readBotName()
@@ -340,10 +343,11 @@ export class SlackConnector {
     const linked = (this.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n
     const official = cfg?.mode === 'official'
     const live = official ? this.feed : this.socket
-    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : live?.state ?? (official && !this.broker ? 'error' : 'connecting')
+    const botRefused = !official && !!cfg?.secret_enc && cfg.last_error === 'bot_refused'
+    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : botRefused ? 'error' : live?.state ?? (official && !this.broker ? 'error' : 'connecting')
     // the official app removed from the workspace: said whether it is on or off, until it is added again
     const removed = official && !cfg?.secret_enc && cfg?.last_error === 'removed'
-    const lastError = (removed ? 'removed' : cfg?.enabled ? (live?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
+    const lastError = (removed ? 'removed' : botRefused && cfg?.enabled ? 'bot_refused' : cfg?.enabled ? (live?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
     return {
       mode: official ? 'official' : 'own', official: !!this.broker && this.brokerOk,
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
@@ -1079,7 +1083,15 @@ export class SlackConnector {
   /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
    * own "removed" event (the hosting service may not have heard yet). */
   private tokenRefused(e: unknown) {
-    if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && this.config()?.mode === 'official') this.removedInSlack('tokens_revoked')
+    if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
+    const cfg = this.config()
+    if (cfg?.mode === 'official') this.removedInSlack('tokens_revoked')
+    // the team's own app: its bot token is revoked; Admin says so (and offers new tokens) instead of "Connected"
+    else if (cfg?.mode === 'own' && cfg.secret_enc && cfg.last_error !== 'bot_refused') {
+      this.db.query("UPDATE slack_config SET last_error = 'bot_refused', updated_at = ? WHERE id = 1 AND mode = 'own'").run(iso(this.now()))
+      audit(this.db, { actor: null, action: 'slack.bot_token_refused', target: cfg.team_id, detail: { reason: e.code } })
+      this.log.warn('slack refused the own app\'s bot token', { reason: e.code })
+    }
   }
 
   private localeOf(userId: string | null): Locale {

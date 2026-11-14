@@ -4311,6 +4311,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.err.broker_unreachable": "サーバーがホスティングサービスに接続できません。接続できると自動で再開します。",
   "slack.err.not_served": "現在ホスティングサービスはこのサーバーのSlackに対応していません。サーバーの管理者に確認してください。",
   "slack.err.removed": "Slackからアプリが削除されました。もう一度Slackに追加してください。",
+  "slack.err.bot_refused": "Slackが保存済みのボットトークンを受け付けなくなったため、回答を投稿できません。[トークンを変更]で新しいトークンを入力してください。",
   "slack.admin.removeOfficialBody": "Slackワークスペースからアプリを外し、全員のアカウント連携を削除します。",
   "slack.admin.removeRemovedBody": "連携サービスからSlackを外し、全員のアカウント連携を削除します。あとでまた追加できます。",
   "slack.official.title": "{product}をSlackに追加",

@@ -4355,6 +4355,7 @@ export const id: Record<MessageKey, string> = {
   "slack.err.broker_unreachable": "Server tidak bisa menghubungi layanan hosting. Akan tersambung lagi dengan sendirinya.",
   "slack.err.not_served": "Layanan hosting tidak melayani Slack untuk server ini sekarang. Minta pengelola server memeriksanya.",
   "slack.err.removed": "Aplikasi sudah dihapus dari Slack. Tambahkan lagi ke Slack.",
+  "slack.err.bot_refused": "Slack tidak lagi menerima token bot yang tersimpan, jadi jawaban tidak bisa diposting. Masukkan token baru di [Ganti token].",
   "slack.admin.removeOfficialBody": "Aplikasi dikeluarkan dari workspace Slack Anda dan tautan akun semua orang dihapus.",
   "slack.admin.removeRemovedBody": "Slack dikeluarkan dari Aplikasi terhubung dan tautan akun semua orang dihapus. Anda bisa menambahkannya lagi nanti.",
   "slack.official.title": "Tambahkan {product} ke Slack",

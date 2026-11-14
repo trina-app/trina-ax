@@ -4354,6 +4354,7 @@ export const ko = {
   "slack.err.broker_unreachable": "호스팅 서비스에 연결하지 못하고 있어요. 연결되면 저절로 이어져요.",
   "slack.err.not_served": "지금은 호스팅 서비스가 이 서버의 Slack을 지원하지 않아요. 서버를 운영하는 사람에게 확인을 부탁해 주세요.",
   "slack.err.removed": "Slack에서 앱이 빠졌어요. 다시 Slack에 추가해 주세요.",
+  "slack.err.bot_refused": "Slack이 저장된 봇 토큰을 받지 않아서 답을 올릴 수 없어요. [토큰 바꾸기]에서 새 토큰을 넣어 주세요.",
   "slack.admin.removeOfficialBody": "Slack 워크스페이스에서 앱을 빼고, 모든 사람의 계정 연결을 지워요.",
   "slack.admin.removeRemovedBody": "연결한 서비스에서 Slack을 빼고, 모든 사람의 계정 연결을 지워요. 나중에 다시 추가할 수 있어요.",
   "slack.official.title": "Slack에 {product} 추가",

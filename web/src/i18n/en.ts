@@ -4355,6 +4355,7 @@ export const en: Record<MessageKey, string> = {
   "slack.err.broker_unreachable": "The server can't reach the hosting service. It reconnects by itself.",
   "slack.err.not_served": "The hosting service does not serve this server's Slack now. Ask whoever runs the server to check it.",
   "slack.err.removed": "The app was removed from Slack. Add it to Slack again.",
+  "slack.err.bot_refused": "Slack no longer accepts the saved bot token, so answers cannot be posted. Enter new tokens under [Replace tokens].",
   "slack.admin.removeOfficialBody": "The app is taken out of your Slack workspace and everyone's account links are deleted.",
   "slack.admin.removeRemovedBody": "Slack leaves Connected apps and everyone's account links are deleted. You can add it again later.",
   "slack.official.title": "Add {product} to Slack",

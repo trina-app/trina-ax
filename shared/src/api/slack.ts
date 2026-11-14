@@ -21,7 +21,7 @@ export type SlackState = z.infer<typeof SlackState>
 /** reason codes only (never Slack's own text): the screen puts them in the reader's words. The official app's own:
  * broker_unreachable (the hosting service does not answer now), not_served (it does not serve this server now),
  * removed (the app was removed from the workspace: "Add to Slack" again) */
-export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'broker_unreachable', 'not_served', 'removed', 'unknown'])
+export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'broker_unreachable', 'not_served', 'removed', 'bot_refused', 'unknown'])
 export type SlackErrorCode = z.infer<typeof SlackErrorCode>
 
 export const SlackWorkspace = z.object({ teamId: z.string(), name: z.string(), url: z.string().nullable() })

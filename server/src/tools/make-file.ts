@@ -9,7 +9,7 @@
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
 //   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
 //   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
-//   is refused and nothing is saved. The file has no stored results: Excel / LibreOffice calculate them on open.
+//   is refused and nothing is saved. Simple formulas also store their result (formula-values.ts); Excel / LibreOffice calculate every one on open.
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
@@ -69,7 +69,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; html?: FromHtml }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; html?: FromHtml }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -252,7 +252,8 @@ export class MakeFile {
       /** pptx from Markdown: what decides the slides (pptx-check.ts) */
       let shape: DeckShape | null = null
       let formulas: number | undefined
-      if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
+      let stored = 0
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced); formulas = x.formulas; stored = x.stored }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -312,7 +313,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
-      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -483,8 +484,8 @@ export class MakeFile {
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
-  /** Writes the workbook; returns the number of formula cells. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<number> {
+  /** Writes the workbook; returns the number of formula cells and how many of them have their result stored. */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<{ formulas: number; stored: number }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -494,10 +495,10 @@ export class MakeFile {
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()
-    // formulas are written without a result: the spreadsheet app calculates them when it opens the file
+    // the spreadsheet app calculates every formula when it opens the file; the simple ones also get a stored result below
     wb.calcProperties.fullCalcOnLoad = true
     const used = new Set<string>()
-    let formulas = 0
+    let formulas = 0, stored = 0
     for (const s of sheets) {
       let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
@@ -512,6 +513,7 @@ export class MakeFile {
         return cv
       }))
       addFormulaResults(grid)
+      for (const row of grid) for (const c of row) if (typeof c === 'object' && c !== null && 'formula' in c && (c as { result?: unknown }).result !== undefined) stored++
       for (const row of grid) ws.addRow(row)
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
@@ -524,7 +526,7 @@ export class MakeFile {
       }
     }
     await wb.xlsx.writeFile(out)
-    return formulas
+    return { formulas, stored }
   }
 
   private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {

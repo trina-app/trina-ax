@@ -1336,6 +1336,46 @@ describe('text', () => {
     expect((para.blocks.at(-1)!.elements.at(-1) as { elements: unknown[] }).elements.slice(-2)).toEqual([a('https://acme.example/end', '끝'), t(' (acme.example)')])
   })
 
+  test('an HTML link the AI wrote becomes a Slack link; code stays as written; what is not a whole link stays text', () => {
+    expect(one('Quelle: <a href="https://acme.example/refunds">Refund policy</a> und mehr')).toEqual([t('Quelle: '), a('https://acme.example/refunds', 'Refund policy'), t(' (acme.example) und mehr')])
+    expect(one(`<A HREF='https://acme.example/x?a=1&amp;b=2' target="_blank">acme.example</A>`)).toEqual([a('https://acme.example/x?a=1&b=2', 'acme.example')])
+    expect(one('<a href="https://acme.example/b"><b>Bold</b> text</a>')[0]).toMatchObject({ type: 'link', url: 'https://acme.example/b' })
+    // the app's own page opens at the team's address
+    expect(one('<a href="/files/view?p=a">budget.txt</a>')).toEqual([a(`${o}/files/view?p=a`, 'budget.txt')])
+    // code spans and code blocks are not touched
+    expect(one('Write `<a href="https://acme.example">x</a>` like this')).toEqual([t('Write '), t('<a href="https://acme.example">x</a>', { code: true }), t(' like this')])
+    const block = richText('```\n<a href="https://acme.example">x</a>\n```')
+    expect(block).toEqual([{ type: 'rich_text_preformatted', elements: [{ type: 'text', text: '<a href="https://acme.example">x</a>' }] }])
+    // not a whole link, or not a web link: as written
+    expect(plainOf(richText('<a href="https://acme.example">no end'))).toBe('<a href="https://acme.example">no end')
+    expect(plainOf(richText('<a name="x">anchor</a>'))).toBe('<a name="x">anchor</a>')
+    expect(plainOf(richText('<a href="javascript:alert(1)">click</a>'))).toBe('<a href="javascript:alert(1)">click</a>')
+    expect(plainOf(richText('<abbr title="x">y</abbr> and a < b'))).toBe('<abbr title="x">y</abbr> and a < b')
+  })
+
+  test('a very large answer of unclosed or nested HTML links is read in linear time (no backtracking)', () => {
+    const big = (unit: string) => unit.repeat(Math.ceil((2 * 1024 * 1024) / unit.length))
+    const cases = [
+      big('<a href="https://acme.example/x" '), // opened, never closed
+      big('<a '), big('<a href="'), big('<a href=https://acme.example>'), big('</a>'),
+      big('<a href="https://acme.example">x'), big('<a href="https://acme.example">x</a'),
+      big('<a href="https://acme.example/a">a</a> '),
+      `<a href="https://acme.example">${'x'.repeat(2 * 1024 * 1024)}</a>`,
+      `<a ${'href '.repeat(400_000)}>`,
+    ]
+    for (const md of cases) {
+      const t0 = performance.now()
+      const els = richText(md, o)
+      const ms = performance.now() - t0
+      expect(els.length).toBeGreaterThan(0)
+      expect(ms).toBeLessThan(5000)
+    }
+    // the same inside a long list and many lines
+    const t0 = performance.now()
+    richText(Array.from({ length: 40_000 }, (_, i) => `- Source ${i}: <a href="https://acme.example/${i}">page ${i}</a>`).join('\n'), o)
+    expect(performance.now() - t0).toBeLessThan(5000)
+  })
+
   test('a reason code is a plain sentence in Slack; a sentence stays; one wording for an outsider', () => {
     expect(sayText('failed', 'en', { reason: 'gone' })).toBe('Could not answer. The chat was deleted.')
     expect(sayText('failed', 'en', { reason: 'error' })).toBe('Could not answer. Something went wrong while answering.')
@@ -1344,5 +1384,25 @@ describe('text', () => {
     expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
     expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
+  })
+})
+
+describe('the own app\'s bot token is refused by Slack', () => {
+  test('Admin says so in a state of its own (not Connected) and offers new tokens; saving tokens again clears it', async () => {
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.enabled).toBe(true)
+    expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    // Slack refuses the bot token at the next post (revoked in the app's settings)
+    fake.failNext['chat.postEphemeral'] = { error: 'token_revoked' }
+    mention('U0ALICE', say('Does the bot still post?'))
+    const bad = await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.lastError === 'bot_refused' ? v : null }, { timeoutMs: 15_000 })
+    expect(bad).toMatchObject({ mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true })
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(1)
+    // a socket that reconnects does not turn it back into "Connected"
+    await Bun.sleep(300)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'error', lastError: 'bot_refused' })
+    // new tokens: the problem is gone
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect(await waitFor(async () => { const v = (await call('dana', 'GET', '/api/admin/slack')).json; return v.state === 'connected' && v.lastError === null })).toBe(true)
   })
 })
