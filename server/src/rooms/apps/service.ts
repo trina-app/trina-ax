@@ -614,7 +614,10 @@ export class RoomApps {
           const status = ev.status ? line(ev.status) : stored?.status
           const kind = ev.rootKind ? line(ev.rootKind) : stored?.kind
           if (stored && typeof stored.title === 'string' && (status !== stored.status || kind !== stored.kind)) {
-            const next: StoredCard = { ...stored, ...(status ? { status } : {}), ...(kind ? { kind } : {}) }
+            // a headline taken from an unsigned request that names someone ("Resolved by Jun") marks the card as such
+            // (security review of #890); a mark once there stays
+            const marked = !!ev.rootKind && kind !== stored.kind && !!ev.card.unverified
+            const next: StoredCard = { ...stored, ...(status ? { status } : {}), ...(kind ? { kind } : {}), ...(marked ? { unverified: true as const } : {}) }
             db.query('UPDATE room_messages SET app_card = ?, body = ? WHERE id = ?').run(JSON.stringify(next), bodyOf(next.app.name, cleanCard({ ...next, link: next.link?.url })), root.id)
             rootChanged = true
           }
