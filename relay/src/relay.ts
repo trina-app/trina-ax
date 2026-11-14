@@ -28,9 +28,10 @@ import { handleRegistryApi } from './api.ts'
 import type { RelayLog } from './log.ts'
 import { renderMetrics, type MetricsSource } from './metrics.ts'
 import { OpsApi } from './ops-api.ts'
-import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, headTooBigResponse, htmlPage, pageMessage, pickLang, type PageKind, type PageLinks } from './pages.ts'
+import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, headTooBigResponse, htmlPage, pageMessage, wakingRefreshSec, pickLang, type PageKind, type PageLinks } from './pages.ts'
 import { ipInRanges, unmapIp, visitorKey } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
+import { WakeClient, type WakeAnswer } from './wake.ts'
 
 export const RELAY_VERSION = '0.2.0'
 /** biggest WebSocket message (one control-connection message carries one frame; a little room for batching) */
@@ -123,6 +124,8 @@ export class RelayServer {
   /** loopback health of this process (RELAY_HEALTH_LISTEN) */
   private healthServer: http.Server | null = null
   readonly ops: OpsApi
+  /** F2: asks the control plane to wake sleeping hosted teams (RELAY_WAKE_URL); null = off */
+  wake: WakeClient | null = null
   /** where the cloud pages send people (account console, status page) */
   pageLinks: PageLinks = { ...DEFAULT_PAGE_LINKS }
   /** browser WebSockets (messages up to the client cap) */
@@ -140,7 +143,7 @@ export class RelayServer {
   private registerHits = new Map<string, number[]>()
   readonly counters = {
     ctlConnects: 0, ctlDrops: 0, silentDrops: 0, stallDrops: 0, authFail: 0, replaced: 0,
-    http: 0, httpOffline: 0, ws: 0, wsOffline: 0, notifications: 0,
+    http: 0, httpOffline: 0, ws: 0, wsOffline: 0, notifications: 0, httpWaking: 0, wsWaking: 0,
     httpSuspended: 0, httpUnknown: 0, httpMaintenance: 0, httpRedirect: 0, httpVisitorLimit: 0, clientStalls: 0,
     wsSuspended: 0, wsUnknown: 0,
     bytesIn: 0, bytesOut: 0, regPow: 0, regClaim: 0, regOperator: 0, tlsClientErrors: 0, headTooBig: 0,
@@ -176,6 +179,7 @@ export class RelayServer {
       this.server = http.createServer({ maxHeaderSize: MAX_REQUEST_HEAD }, onReq)
     }
     this.ops = new OpsApi(this, cfg.operatorKeysFile)
+    if (cfg.wake) this.wake = new WakeClient({ url: cfg.wake.url, keyFile: cfg.wake.keyFile, keyId: cfg.wake.keyId, log })
     this.server.requestTimeout = 0
     this.server.headersTimeout = 30_000
     this.server.keepAliveTimeout = 65_000
@@ -271,7 +275,7 @@ export class RelayServer {
     return {
       teams: this.registry.counts(), teamsOnline: live.online, ctlConnections: live.conns, openStreams: streams,
       clientWebsockets: this.clientSockets.size,
-      counters: { ...this.counters, opsRequests: this.ops.counters.requests, opsAuthFailures: this.ops.counters.authFailures + this.ops.counters.replays },
+      counters: { ...this.counters, opsRequests: this.ops.counters.requests, opsAuthFailures: this.ops.counters.authFailures + this.ops.counters.replays, ...(this.wake?.counters ?? {}) },
     }
   }
 
@@ -422,8 +426,22 @@ export class RelayServer {
     }
     const visitor = visitorKey(this.clientIp(req) ?? 'unknown')
     if (this.overVisitorCap(row.id, visitor)) return this.refuseOverCap(req, res)
-    const ctl = await this.connFor(row.id, req)
+    // only a person wakes a team: a browser page load, a request with a cookie or a token (the apps, the connector), not
+    // a scanner, a link preview or an uptime check (each would keep an idle trial running)
+    const sleeping = mayWake(req) ? this.startWake(row, 'http') : null
+    const navigation = isNavigation(req)
+    const ctl = await this.connFor(row.id, req, sleeping ? { holdMs: navigation ? this.cfg.wake!.pageMs : this.cfg.wake!.holdMs, stop: sleeping.stop } : undefined)
     if (res.destroyed || req.destroyed) return
+    if (!ctl && sleeping) {
+      // F2: the VM sleeps. Waking: the browser gets the reloading page, everything else a retryable 503
+      const a = sleeping.answered()
+      // limited: this relay asked for too many wakes this minute; the page reloads and asks again
+      if (!a || a.state === 'waking' || a.state === 'awake' || a.state === 'limited') {
+        this.counters.httpWaking++
+        return this.sendPage(req, res, 'team_waking', null, { html: navigation, retryAfter: navigation ? wakingRefreshSec(a?.retryAfterSec) : Math.max(1, Math.min(a?.retryAfterSec ?? 3, 30)) })
+      }
+      if (a.state === 'busy') { this.counters.httpOffline++; return this.sendPage(req, res, 'team_busy', null, { html: navigation, retryAfter: a.retryAfterSec }) }
+    }
     if (!ctl) {
       const t = this.teams.get(row.id)
       if (row.maintenance_until && Date.parse(row.maintenance_until) > Date.now()) {
@@ -455,19 +473,21 @@ export class RelayServer {
     this.sendPage(req, res, 'team_busy')
   }
 
-  /** A live control connection for the team; waits up to the restart hold for one to appear. */
-  private async connFor(teamId: string, req: http.IncomingMessage): Promise<Ctl | null> {
+  /** A live control connection for the team; waits up to the restart hold for one to appear. `wake` (F2, a sleeping
+   * team): wait at least holdMs, and stop at once when `stop` resolves (the control plane cannot wake it). */
+  private async connFor(teamId: string, req: http.IncomingMessage, wake?: { holdMs: number; stop: Promise<unknown> }): Promise<Ctl | null> {
     const now = Date.now()
     const t = this.teams.get(teamId)
     let c = t ? this.pick(t) : null
     if (c) return c
-    const holdUntil = Math.max(this.startedAt + this.cfg.holdMs, (t?.offlineAt ?? 0) + this.cfg.holdMs, t && t.conns.size ? now + this.cfg.holdMs : 0)
+    const holdUntil = Math.max(this.startedAt + this.cfg.holdMs, (t?.offlineAt ?? 0) + this.cfg.holdMs, t && t.conns.size ? now + this.cfg.holdMs : 0, wake ? now + wake.holdMs : 0)
     if (holdUntil <= now) return null
     const ts = this.teamState(teamId, '')
     return new Promise<Ctl | null>((resolve) => {
+      let stopped = false
       const done = () => {
         c = this.pick(ts)
-        if (!c && Date.now() < holdUntil && !req.destroyed) return
+        if (!c && Date.now() < holdUntil && !req.destroyed && !stopped) return
         clearTimeout(timer)
         ts.waiters.delete(done)
         req.off('close', done)
@@ -476,7 +496,23 @@ export class RelayServer {
       const timer = setTimeout(() => { ts.waiters.delete(done); req.off('close', done); resolve(this.pick(ts)) }, holdUntil - now)
       ts.waiters.add(done)
       req.once('close', done)
+      wake?.stop.then(() => { stopped = true; done() })
     })
+  }
+
+  /**
+   * F2: a team the control plane put to sleep and that has no live connection: ask for a wake (shared per team for
+   * 10 s). `stop` resolves when the answer says the hold is useless (busy, unknown, error); `answered` is the answer
+   * once it is in, else null (still waiting: treated as waking). null = not sleeping, or waking is off.
+   */
+  private startWake(row: TeamRow, reason: 'http' | 'ws'): { stop: Promise<unknown>; answered: () => WakeAnswer | null } | null {
+    if (!this.wake || !row.sleeping_since) return null
+    const t = this.teams.get(row.id)
+    if (t && this.pick(t)) return null
+    let got: WakeAnswer | null = null
+    const p = this.wake.wake(row.id, reason).then((a) => { got = a; return a })
+    const stop = p.then((a) => (a.state === 'waking' || a.state === 'awake' ? new Promise(() => {}) : a))
+    return { stop, answered: () => got }
   }
 
   private pick(t: TeamState): Ctl | null {
@@ -499,18 +535,18 @@ export class RelayServer {
     return t
   }
 
-  sendPage(req: http.IncomingMessage, res: http.ServerResponse, kind: PageKind, offlineForMs: number | null = null): void {
+  sendPage(req: http.IncomingMessage, res: http.ServerResponse, kind: PageKind, offlineForMs: number | null = null, o: { html?: boolean; retryAfter?: number } = {}): void {
     if (res.headersSent) { res.destroy(); return }
     const lang = pickLang(req.headers)
     const status = PAGE_STATUS[kind]
-    const wantsHtml = !(req.url ?? '').startsWith('/api/') && /text\/html/.test(req.headers.accept ?? '')
+    const wantsHtml = o.html ?? (!(req.url ?? '').startsWith('/api/') && /text\/html/.test(req.headers.accept ?? ''))
     const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': kind }
-    const retryAfter = status === 503 ? PAGE_RETRY_AFTER[kind] ?? 5 : null
+    const retryAfter = status === 503 ? o.retryAfter ?? PAGE_RETRY_AFTER[kind] ?? 5 : null
     if (retryAfter !== null) extra['retry-after'] = String(retryAfter)
     if (this.cfg.hsts && this.teamName(req)) extra['strict-transport-security'] = HSTS
     if (wantsHtml) {
       res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', ...extra })
-      res.end(htmlPage(kind, lang, offlineForMs, this.pageLinks))
+      res.end(htmlPage(kind, lang, offlineForMs, this.pageLinks, kind === 'team_waking' ? retryAfter : null))
       return
     }
     // codes from the app's ErrorCode list (shared/src/api/common.ts), so the web client handles relay answers alike
@@ -705,8 +741,10 @@ export class RelayServer {
     const { row } = this.lookupName(host.name)
     if (!row) { this.counters.wsUnknown++; rawHttp(socket, 404); return }
     if (row.status === 'suspended') { this.counters.wsSuspended++; rawHttp(socket, 403); return }
-    const ctl = await this.connFor(row.id, req)
+    const sleeping = this.startWake(row, 'ws')
+    const ctl = await this.connFor(row.id, req, sleeping ? { holdMs: this.cfg.wake!.holdMs, stop: sleeping.stop } : undefined)
     if (socket.destroyed) return
+    if (!ctl && sleeping) this.counters.wsWaking++
     if (!ctl) {
       // browsers can't read a status on a failed upgrade: accept, then close 1013 so the client knows why
       this.counters.wsOffline++
@@ -951,6 +989,7 @@ export class RelayServer {
     t.conns.add(c)
     this.counters.ctlConnects++
     this.registry.touchConnected(row.id, key.id)
+    if (row.sleeping_since) this.nameCache.delete(row.name)
     const wasOffline = t.offlineAt
     t.offlineAt = null
     const ok: AuthOk = {
@@ -1120,6 +1159,27 @@ export function teamRequestHeaders(raw: readonly string[], kind: 'http' | 'ws', 
 function errorName(e: unknown): string {
   if (!(e instanceof Error)) return 'unknown'
   return (e as Error & { code?: string }).code ?? e.name
+}
+
+/** A browser page load (F2 waking page): GET/HEAD that asks for HTML. Under /api/ only the provider callbacks
+ * (connector OAuth, Google Drive) are pages: a browser lands on them from the provider with the code in the query. */
+const CALLBACK_PATHS = new Set(['/api/integrations/oauth/callback', '/api/integrations/google-drive/callback'])
+/** Paths that browsers and crawlers fetch on their own: never a reason to wake a team */
+const PROBE_PATHS = new Set(['/robots.txt', '/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/.well-known/security.txt'])
+/** A request that may wake a sleeping team: a real browser's page load (Sec-Fetch-Mode: navigate, which crawlers and
+ *  link previews do not send), or a request with a cookie or an Authorization header (a signed-in web page, the
+ *  desktop and phone apps, the connector). Not HEAD, not the probe paths. */
+export function mayWake(req: Pick<http.IncomingMessage, 'method' | 'url' | 'headers'>): boolean {
+  if (req.method === 'HEAD' || req.method === 'OPTIONS') return false
+  if (PROBE_PATHS.has((req.url ?? '/').split('?')[0]!)) return false
+  return req.headers['sec-fetch-mode'] === 'navigate' || !!req.headers.cookie || !!req.headers.authorization
+}
+
+export function isNavigation(req: Pick<http.IncomingMessage, 'method' | 'url' | 'headers'>): boolean {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false
+  const p = (req.url ?? '/').split('?')[0]!
+  const html = req.headers['sec-fetch-mode'] === 'navigate' || /text\/html/.test(req.headers.accept ?? '')
+  return html && (!p.startsWith('/api/') || CALLBACK_PATHS.has(p))
 }
 
 function bodyless(req: http.IncomingMessage): boolean {

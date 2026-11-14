@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import tls from 'node:tls'
 import { generateTeamKey } from '@mycel/shared/relay-protocol'
+import { REGISTRY_SCHEMA_VERSION } from '../../relay/src/registry.ts'
 import {
   F_WORK, REPO, makeTestPki, opsCall, opsCreateBody, spawnFakeTeam, spawnNodeRelay, teamUrl, until, waitHttp, writeOldRegistry,
   writeOpsKeys, type Proc, type TestPki,
@@ -72,7 +73,7 @@ describe('an old registry file opens under node:sqlite', () => {
     expect(p.exitCode).toBe(0)
     expect(p.stdout.toString()).toMatch(/^oldteam\tsuspended\tself\tteam-old-1/m)
     const v = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', `const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(path.join(dir, 'registry.db'))}); console.log(d.prepare('PRAGMA user_version').get().user_version)`])
-    expect(v.stdout.toString().trim()).toBe('1')
+    expect(v.stdout.toString().trim()).toBe(String(REGISTRY_SCHEMA_VERSION))
   })
 })
 
