@@ -128,6 +128,57 @@ describe('the waking page (a stopped hosted server starts in about a minute)', (
   })
 })
 
+describe('the waking page shows that it is working', () => {
+  test('a spinner without script, the seconds counted by a tiny inline script, in every language', () => {
+    for (const lang of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      const h = htmlPage('team_waking', lang, null, undefined, 20)
+      expect(h).toContain('class="sp"')
+      expect(h).toContain('@keyframes sp')
+      expect(h).toContain('prefers-reduced-motion')
+      expect(h).toContain('prefers-color-scheme:dark')
+      expect(h).toContain('id="w"')
+      expect(h).toContain('name="viewport"')
+      expect(h).toContain('<meta http-equiv="refresh"')
+      // the label is in the page language and the script holds no other text
+      expect(h).toContain('%N%')
+    }
+    expect(htmlPage('team_waking', 'en')).toContain('Waiting: %N% s')
+    expect(htmlPage('team_waking', 'ko')).toContain('기다린 시간')
+  })
+  test('the other pages have no spinner and no script', () => {
+    for (const k of ['team_offline_cloud', 'team_busy', 'team_maintenance'] as const) {
+      const h = htmlPage(k, 'en')
+      expect(h).not.toContain('class="sp"')
+      expect(h).not.toContain('<script')
+    }
+  })
+  test('the inline script runs: counts from the first load and starts over after 10 minutes', () => {
+    const h = htmlPage('team_waking', 'en', null, undefined, 20)
+    const code = /<script>([\s\S]*?)<\/script>/.exec(h)![1]!
+    const el = { hidden: true, textContent: '' }
+    const store: Record<string, string> = {}
+    let now = 1_000_000
+    const realNow = Date.now
+    Date.now = () => now
+    let tick: (() => void) | null = null
+    try {
+      new Function('document', 'sessionStorage', 'setInterval', code)(
+        { getElementById: () => el },
+        { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: unknown) => { store[k] = String(v) } },
+        (f: () => void) => { tick = f },
+      )
+      expect(el.hidden).toBe(false)
+      expect(el.textContent).toBe('Waiting: 0 s')
+      now += 42_000
+      tick!()
+      expect(el.textContent).toBe('Waiting: 42 s')
+      // a reload of the page keeps counting
+      new Function('document', 'sessionStorage', 'setInterval', code)({ getElementById: () => el }, { getItem: (k: string) => store[k] ?? null, setItem: () => {} }, () => {})
+      expect(el.textContent).toBe('Waiting: 42 s')
+    } finally { Date.now = realNow }
+  })
+})
+
 describe('who may wake a sleeping team (trial auto-stop, 2026-11-14)', () => {
   const req = (method: string, url: string, headers: Record<string, string> = {}) => ({ method, url, headers })
   test('a browser page load, a cookie or a token wakes it', () => {

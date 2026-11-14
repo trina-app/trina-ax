@@ -94,6 +94,8 @@ export const en: Record<MessageKey, string> = {
   'conn.cantReachHint': 'Check your internet connection and try again in a moment.',
   'conn.now': "Can't connect right now.",
   'conn.retrying': "Reconnecting…",
+  'conn.waking': "Starting your team…",
+  'conn.wakingDetail': "This takes about a minute. It opens by itself when it is ready.",
   'conn.loadFailed': "Couldn't load this.",
   'conn.unsent': "Can't connect right now, so it wasn't sent. Your message is still here.",
   "dev.banner": "Development mode: no production OS account isolation. The AI runs as the server OS user.",
