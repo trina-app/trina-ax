@@ -3823,6 +3823,8 @@ export const es: Record<MessageKey, string> = {
   "notifications.event.skill.contributed": "{name} quiere aportar {n, plural, one {# habilidad} other {# habilidades}} al equipo",
   "notifications.event.skill.contributedGone": "Un compañero quiere aportar {n, plural, one {# habilidad} other {# habilidades}} al equipo",
   "demo.bar": "Demo · empresa ficticia {company}",
+  "demo.restart": "Empezar de nuevo",
+  "demo.guideLabel": "Guía de la demo",
   "demo.switch": "Cambiar de persona",
   "demo.persona.newHire": "Nueva incorporación",
   "demo.persona.lead": "Jefe de equipo",

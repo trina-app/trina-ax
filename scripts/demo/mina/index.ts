@@ -9,8 +9,7 @@ const BANNER_A = `projects/${P}/런칭배너_v2.png`
 const BANNER_B = `projects/${P}/런칭배너_v3_새배경.png`
 const BG_B = `projects/${P}/배경_유자생강.png`
 const FINAL = `projects/${P}/런칭배너_최종.png`
-/** The CEO's final file. The format has no "the banner the visitor made", so it is version A, the first suggestion;
- * if the engine learns to pick the asset of the banner answer that finished, use banner-b.png after `banner-b`. */
+/** The CEO's final file: the banner the visitor made (DemoFile.pick); version A if neither answer finished. */
 const FINAL_ASSET = 'banner-a.png'
 const GUIDE = 'shared/브랜드 가이드.md'
 const BRIEF = `groups/마케팅/${P} 브리프.md`
@@ -297,7 +296,7 @@ const script: DemoScript = {
       from: 'woojin',
       text: '좋네요, 진행하세요 👍',
       files: [FINAL],
-      newFiles: [{ path: FINAL, asset: FINAL_ASSET }],
+      newFiles: [{ path: FINAL, asset: FINAL_ASSET, pick: { 'banner-a': 'banner-a.png', 'banner-b': 'banner-b.png' } }],
     },
     {
       id: 'gmail',

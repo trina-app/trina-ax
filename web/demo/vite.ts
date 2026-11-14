@@ -8,10 +8,22 @@ import type { Plugin, UserConfig } from 'vite'
 
 const here = import.meta.dirname
 const shim = (f: string) => path.join(here, 'shims', f)
-/** the story: the real one when its folder is there (written on feat/mina-demo-content), else the example */
+const STORY = path.resolve(here, '../../scripts/demo/mina')
+/** the story's language (DEMO_LOCALE=en|ko|ja|es|id, default en): scripts/demo/mina/<locale>/index.ts when there, else
+ * scripts/demo/mina/index.ts, else the example. The app shows its own words in the story's language too. */
+export const demoLocale = () => process.env.DEMO_LOCALE ?? 'en'
 export const contentDir = () => {
-  const real = path.resolve(here, '../../scripts/demo/mina')
-  return fs.existsSync(path.join(real, 'index.ts')) ? real : path.join(here, 'example')
+  for (const dir of [path.join(STORY, demoLocale()), STORY]) if (fs.existsSync(path.join(dir, 'index.ts'))) return dir
+  return path.join(here, 'example')
+}
+/** assets/ next to the story file, then the story's shared assets/ (a language's own file of the same name wins) */
+const assetFiles = () => {
+  const out = new Map<string, string>()
+  for (const dir of [path.join(contentDir(), 'assets'), path.join(STORY, 'assets')]) {
+    if (!fs.existsSync(dir)) continue
+    for (const f of fs.readdirSync(dir).sort()) if (!f.startsWith('.') && !out.has(f)) out.set(f, path.join(dir, f))
+  }
+  return [...out]
 }
 
 const ASSETS_ID = 'virtual:demo-assets'
@@ -23,11 +35,12 @@ function demoPages(): Plugin {
     // the story's assets/ folder as { file name: its built URL } (web/demo/seed.ts reads them at the start)
     resolveId: (id) => (id === ASSETS_ID ? '\0' + ASSETS_ID : null),
     load(id) {
+      // a Markdown file the mock imports `with { type: 'text' }` (server/src/onboarding/skill-examples.ts), as Bun does
+      if (id.endsWith('.md') && !id.includes('?')) return `export default ${JSON.stringify(fs.readFileSync(id, 'utf8'))}\n`
       if (id !== '\0' + ASSETS_ID) return null
-      const dir = path.join(contentDir(), 'assets')
-      const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => !f.startsWith('.')).sort() : []
-      return files.map((f, i) => `import a${i} from ${JSON.stringify(path.join(dir, f) + '?url')}\n`).join('')
-        + `export default {${files.map((f, i) => `${JSON.stringify(f)}: a${i}`).join(', ')}}\n`
+      const files = assetFiles()
+      return files.map(([, file], i) => `import a${i} from ${JSON.stringify(file + '?url')}\n`).join('')
+        + `export default {${files.map(([name], i) => `${JSON.stringify(name)}: a${i}`).join(', ')}}\n`
     },
     // the dev server (bun run dev:demo) serves the demo's worker as /sw.js too
     configureServer(server) {
@@ -38,7 +51,7 @@ function demoPages(): Plugin {
       })
     },
     // the page starts the demo's entry, which then loads the app's own src/main.tsx
-    transformIndexHtml: (html) => html.replace('/src/main.tsx', '/demo/main.tsx'),
+    transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/main.tsx', '/demo/main.tsx') },
     // the mock loads the HWP renderer from the server's folder (Bun only): never in the browser
     transform(code, id) {
       if (!id.endsWith('/test/mock/server.ts')) return null

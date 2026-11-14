@@ -3866,6 +3866,8 @@ export const ko = {
   "notifications.event.skill.contributed": "{name}님이 스킬 {n}개를 팀에 올리자고 했어요",
   "notifications.event.skill.contributedGone": "팀원이 스킬 {n}개를 팀에 올리자고 했어요",
   "demo.bar": "데모 · 가상 회사 {company}",
+  "demo.restart": "처음부터",
+  "demo.guideLabel": "데모 안내",
   "demo.switch": "사람 바꾸기",
   "demo.persona.newHire": "신입",
   "demo.persona.lead": "팀장",

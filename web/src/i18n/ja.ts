@@ -3823,6 +3823,8 @@ export const ja: Record<MessageKey, string> = {
   "notifications.event.skill.contributed": "{name}さんがスキル{n, plural, one {#件} other {#件}}をチームに出したいそうです",
   "notifications.event.skill.contributedGone": "メンバーがスキル{n, plural, one {#件} other {#件}}をチームに出したいそうです",
   "demo.bar": "デモ · 架空の会社 {company}",
+  "demo.restart": "最初から",
+  "demo.guideLabel": "デモの案内",
   "demo.switch": "人を切り替える",
   "demo.persona.newHire": "新入社員",
   "demo.persona.lead": "チームリーダー",

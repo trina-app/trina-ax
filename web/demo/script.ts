@@ -2,11 +2,15 @@
 // TypeScript module that default-exports a `DemoScript`. The demo build (`bun run build:demo`) runs the real web app
 // against a scripted backend in the browser and plays this story; nothing here reaches a server or an AI.
 //
-// Where content lives: `scripts/demo/mina/index.ts` (default export) with its pictures and files in
-// `scripts/demo/mina/assets/`. Without that folder the build plays `web/demo/example/index.ts`.
+// Where content lives: one story per language, `scripts/demo/mina/<locale>/index.ts` (default export; en first, then
+// ko, id, ja, es with no code change), or `scripts/demo/mina/index.ts` for one language. The build picks the language
+// with DEMO_LOCALE (default en). Pictures and files are in `assets/` next to the story file, or in the shared
+// `scripts/demo/mina/assets/` (a language's own file of the same name wins). Without a story the build plays
+// `web/demo/example/index.ts`. The demo's own words around the story ("Start over", the badge) are app i18n keys
+// (demo.*); every story word (guide line, fallback, end card) comes from here.
 //
 // Rules for content: fictional company and people only (no real persons, brands or addresses); every person is a
-// plain member (DECISIONS "Demo company"); words in the story's language (Korean first). Keep it short: the whole
+// plain member (DECISIONS "Demo company"); words in the story's language. Keep it short: the whole
 // story is about 10 clicks.
 //
 // Ids: every person, group, room, project, answer and event has a short id of your choice (`[a-z0-9-]+`), used to
@@ -14,6 +18,7 @@
 //
 // Text: Markdown, as an AI answer or a chat message shows it. In any text, `{{project:<id>}}` becomes a link to that
 // project's shared chat, `{{room:<id>}}` a link to that room, `{{file:<path>}}` a link to that team file.
+import type { Locale } from '@mycel/shared/api'
 
 /** A person's, group's, room's, project's, answer's or event's id in this script. */
 export type Id = string
@@ -24,8 +29,8 @@ export type Asset = string
 export interface DemoScript {
   /** the format's version; this file describes 1 */
   version: 1
-  /** the story's language: the app shows its own words in it too */
-  locale: 'ko' | 'en'
+  /** the story's language (en, ko, ja, es, id): the app shows its own words in it too */
+  locale: Locale
   /** the fictional company: the team's name in the app */
   company: { name: string }
   /** the visitor (one of `people`): signed in as them */
@@ -126,6 +131,10 @@ export interface DemoFile {
   /** its content: a file in assets/, or a text */
   asset?: Asset
   text?: string
+  /** follow the visitor's choice: when one of these answers finished, its asset is used instead of `asset` (the
+   * latest one wins), e.g. the CEO's final file is the banner the visitor made: { 'banner-a': 'banner-a.png',
+   * 'banner-b': 'banner-b.png' } */
+  pick?: Record<Id, Asset>
 }
 
 /** Where an answer is given: Home's new chat, a project's chat, the ✦ side chat beside a room, or anywhere. */

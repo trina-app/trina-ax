@@ -3867,6 +3867,8 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.skill.contributed": "{name} wants to bring {n, plural, one {# skill} other {# skills}} to the team",
   "notifications.event.skill.contributedGone": "A teammate wants to bring {n, plural, one {# skill} other {# skills}} to the team",
   "demo.bar": "Demo · fictional company {company}",
+  "demo.restart": "Start over",
+  "demo.guideLabel": "Demo guide",
   "demo.switch": "Switch person",
   "demo.persona.newHire": "New hire",
   "demo.persona.lead": "Team lead",
