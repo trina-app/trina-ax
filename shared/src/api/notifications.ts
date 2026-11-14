@@ -81,8 +81,9 @@ export type PushEventType = z.infer<typeof PushEventType>
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
  * taking this server's key because the team address was moved to another key, and account.deletion_due to a person whose
  * open account deletion request got its automatic date when this server started deleting by itself (account_deletion_due_notices),
- * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due'])
+ * and chat.shared to a person someone shared a chat with, by name or through a group (chat_share_notices), and room_app.paused to the people who manage an app in a room that paused for the day
+ * (room_app_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'account.deletion_due', 'room_app.paused'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -117,6 +118,14 @@ export const InboxNotification = z.object({
   /** 'account.deletion_due' only (the person themselves): the date their account is deleted while the request is open
    * (link 'account_deletion' opens Settings › Profile › Delete account), null once it was cancelled or done */
   deletionDue: z.object({ dueAt: IsoTime.nullable() }).optional(),
+  /** 'room_app.paused' only (the people who manage the app, docs/DECISIONS.md "Apps posting in rooms"): the app, its room
+   * (link 'room' while I am still in it; roomId null else), the cap it reached, how many more were skipped that day and
+   * whether it can be resumed now (paused, not resumed that day). The app's and the room's names are plain lines. Absent
+   * once the app is removed, and from older servers */
+  roomApp: z.object({
+    appId: z.string(), name: z.string(), roomId: z.string().nullable(), roomKind: RoomKind.nullable(), roomName: z.string().nullable(),
+    day: z.string(), cap: z.number().int().positive(), skipped: z.number().int().nonnegative(), pausedUntil: IsoTime.nullable(), canResume: z.boolean(),
+  }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

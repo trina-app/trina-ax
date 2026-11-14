@@ -110,6 +110,8 @@ export interface World {
     dmRoom: string; dmMsg: string; dmMsgDel: string; dmFile: string
     /** a group chat alice made with erin and frank (alice is its manager), and a second one only for leaving */
     groupRoom: string; groupLeaveRoom: string
+    /** the everyone room, a GitHub app the owner added there, and an Other app alice added in her DM with erin */
+    allRoom: string; allApp: string; dmApp: string
     /** Team plan's shared chat, its trashed file and an old version of its plan.md */
     teamChat: string; trashTeam: string; teamVersion: string
   }
@@ -305,6 +307,13 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await alice.ok('POST', `/api/rooms/${groupRoom}/messages`, { body: `${C.groupMsg} agenda`, clientMessageId: cm() })
   const groupLeaveRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'] })).id
 
+  // ---------------- apps posting in rooms: one in the everyone room (the owner's), one in the DM of alice and erin ----------------
+  // (an app needs an internet address: the instance gets a public one from here on)
+  inst.ctx.config.publicOrigins = ['https://team.acme-corp.com']
+  const allRoom = ((await alice.ok('GET', '/api/rooms')).items as { id: string; kind: string }[]).find((r) => r.kind === 'all')!.id
+  const allApp = (await as.owner.ok('POST', `/api/rooms/${allRoom}/apps`, { kind: 'github' })).app.id
+  const dmApp = (await alice.ok('POST', `/api/rooms/${dmRoom}/apps`, { kind: 'other', name: 'Deploys' })).app.id
+
   // a scheduled task of alice's own (a template needs no card); its run history is hers alone
   const scheduleAlice = (await alice.ok('POST', '/api/schedule-templates', { requestId: crypto.randomUUID(), templateId: 'daily-file-index', version: 1, sourcePath: 'shared', outputPath: 'users/alice/reports', time: '09:00' })).id
 
@@ -320,7 +329,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice,
+      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice, allRoom, allApp, dmApp,
     },
   }
 }

@@ -24187,6 +24187,15 @@ An update with about 1 GB free stopped both units, ran out of space while copyin
 - Diagnostics follow the `/etc/os-release` link (the system's own root-owned file; the target must be a regular file of
   at most 64 KB); `root/` files and machine-id still use lstat.
 
+## Phones: a room's box is a frame; a row's note goes under its name (fix/phone-row-and-room-box, 2026-11-14, QA TC-1549, TC-1550)
+
+- A room's message box on a phone had been a flat bar under a hairline since the room screen was first built; #795 (one
+  frame for every box) only changed the computer's box, so the phone's was left behind, not decided. It now has the
+  same frame (`rounded-2xl border`) at every width, one line inside it with only + and send.
+- A connection row's note (`ConnectorRow` `note`: "Not in your chats", "Nobody can use it yet") sits under the name on a
+  phone (`more`); at the row's right it left the name one letter. Other admin lists' chips sit beside fixed short
+  labels (Admin's rows, System), so they keep their place.
+
 ## Phones: a room's message box within about 35 % of the screen (fix/phone-composer-height, 2026-11-12, QA TC-252)
 
 With the keyboard up, the text field's cap is 35 % of the app height minus the box's other rows (about 6rem with the
@@ -27342,6 +27351,88 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
   a full event with every new option leaking nothing, route patterns against real paths, check-in body allowlist,
   never throwing, rate-limit categories both ways).
 - Version impact: **none** (no team server or app change; relay and push gateway behaviour unchanged).
+
+## Apps posting in rooms — 대화방에 앱 추가 (feat/room-apps-p1, 2026-11-14, the owner, QA TC-1546, TC-1547, TC-1412)
+
+Plan: docs/AGENTS/plan/20261114-0900-room-apps.md (revision 2 and the owner's decisions of 2026-11-14). Phase 1 is the
+server: the rows, the public address, the cards, the API, the AI's view. The screens (room menu "Add an app", the
+guides, "Apps posting here") are phase 2.
+
+- **What.** Sentry, GitHub, Google Forms or any other service ("Other": a Slack-shaped `{"text": …}`, Discord's
+  `content`, a few simple fields, form-encoded `payload`, plain text) posts to a room's secret address
+  `POST https://<team address>/in/<token>`. Each event becomes a card from the app (author NULL, `room_messages.app_id`
+  / `app_card` / `app_quiet`, migration 299), never a person. Repeats of one thing (a Sentry issue, a pull request or
+  issue, a failed workflow on a branch, an edited form response, the same Other text within an hour or an Other
+  `thread`) go into one thread under the first card for 30 days; the root's status line changes in place; "came back"
+  (Sentry `unresolved`, a reopened issue or pull request) goes to the room too.
+- **Words (owner decision 6).** "Add an app", "Apps posting here", the sender tag "App", scoped to the room menu and its
+  sheet; Trina never says "webhook" (vendor labels quoted). Code: `room_apps`, `RoomApp`, `room_app.*`.
+- **Any room (owner decision 4).** Team rooms, the everyone room, 1:1s and group chats. Who manages (owner decision 5):
+  in a team room or the everyone room its owners and admins who are in it; in a 1:1 or a group chat any of its members
+  (there are no admins there). A member without the right gets 403, anyone not in the room 404 (admins too). Members
+  see, reply, react and ask the AI; no per-person mute in v1. Deleting an app's message: whoever manages the apps
+  (audited `room_app.message_delete`). Visibility follows the room: an app's message has no `source_scope`, so a team
+  room's later member sees it (rooms/history.ts never makes it a candidate) and a group chat's from their join on.
+- **The address.** `tax_in_` + 43 base64url characters (256 bits), stored as its sha256 for the lookup and sealed with
+  the credentials vault (kinds `room_app_token` / `room_app_secret`, the app id in the AAD) so owners/admins can copy
+  it again (owner decision 10); `credentials/rekey.ts` seals them again with the other secrets. "Get a new address"
+  stops the old one at once. Unknown, rotated, removed and archived-room tokens answer the same `404 not_found`; any
+  other method on `/in/*` too (never the web app's page). `loggablePath` hides the token.
+- **Order of work at /in/** (rooms/apps/inbound.ts): token lookup first (a live token is not counted with anonymous
+  traffic); a browser `Origin` → 403; the app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
+  for unknown tokens 30 a minute per client address (and 4× per /24 or IPv6 /48); content type (415); the raw body,
+  256 KiB (GitHub 1 MiB, 413) within 10 s (408); the signature when a secret is set (401); parse (400); the switch
+  (200, skipped); the caps (429); then one transaction writes the delivery row, the card or reply, the root's status,
+  the counters. Answer `200 ok`; the room hears of it after the answer. The limiter is in memory per process (minute
+  buckets need no history; nothing shared with the external apps' limits), not the plan's `room_app_limits` table.
+- **Signatures optional for both (owner decision 9).** "Make it safer": GitHub gets a secret Trina makes (`tax_whs_…`,
+  shown on the address again); Sentry takes its Client Secret (64 hex). Once set, a request without the right
+  signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)".
+- **Delivery keys.** GitHub `X-GitHub-Delivery`; Sentry sha256(resource + body), never the unsigned timestamp; Forms
+  `id + at`; Other `Idempotency-Key`, else the body's hash within 10 minutes. Written with the post, so a retry after a
+  429 posts once.
+- **Caps (owner decision 3).** 500 shown per app and team day; past it the app pauses until the team's midnight: a quiet
+  line from the app in the room, a `room_app.paused` notice (table `room_app_notices`, Activity only in phase 1) to the
+  people who manage it and the person who added it, an audit row; 429 meanwhile. "Resume now" once a day allows as many
+  again. 5,000 per team a day pauses every app the same way (no resume). 10 apps a room, 10 added per person an hour,
+  5 examples an app an hour.
+- **Quiet.** Short lines that count nowhere: no unread, no notice, not the rooms list's line, no activity bump
+  (`app_quiet`; unreadCount, threadsUnread, lastMessage, recordNotices, unhideFor). Otherwise an app's message counts
+  and alerts like any message by the room's level; it never mentions (mentions '[]').
+- **Text.** Card fields are plain one-line text, bounded, without control, bidi or zero-width characters; one https link
+  without credentials, with its host; a Slack label that looks like another address shows the real one. `body` holds
+  the plain text with Markdown marks (and "@") escaped, so older apps and the Markdown renderer show text; the rooms
+  list, search, push and the AI read it unescaped. Push: "<app> · App" as who, one line of at most 120 characters.
+- **Google Forms (owner decision 12).** The respondent's email is sent and shown by default; the app's `email` switch
+  turns it off (the server drops it then either way). Everyone in the room, later members too, sees it.
+- **AI (owner decision 11).** An app's message reaches the AI as `<room_message from="<app>" who="an app (automated,
+  not a person)" app="<kind>">` with its plain text (never the card JSON); `reader.ts` DATA_NOTE and the MCP rooms'
+  DATA carry `APP_DATA_NOTE`. A read that returns app messages marks the chat as having seen outside content
+  (`ReadResult.outside` → `markOutside()`, chats.room_outside): no room card is skipped after it. "Always allow" keeps
+  its existing web-page rule. The AI never runs by itself on an app's message.
+- **Country and IP lists (owner decision 8).** `POST /in/<well-formed token>` is exempt from `tunnel.countries` /
+  `allowFrom` while the team has at least one app; https is still required, and unknown tokens there get 10 a minute.
+- **Not in phase 1:** the web screens and their i18n (phase 2), the paused notice's push, the "Admin › Connection" line
+  about the exemption, email in and the mailbox (phase 5), a daily digest (owner decision 2).
+- **After the security review of #826.**
+  - The web app renders an app's message as plain text (`web/src/components/rooms/AppCard.tsx`): no Markdown, no link
+    detection, only the card's one checked link. In `body`, outside addresses are unlinked (`:\/\/`, `www\.`) and
+    the card's link is written as an autolink `<url>`, so its brackets make no second link.
+  - Day counters (`room_app_days`) carry the room and kind and have no foreign key: removing and adding an app again
+    counts the removed one's day (same room and kind), "Resume now" is remembered there, and the team's cap sums every
+    row. Pruned after 30 days.
+  - **Leavers: marked, not rotated by itself** (rotation would silently stop a working Sentry or GitHub setup, and an
+    app's message is always tagged as an app, never a person). `room_app_viewers` records who was shown the address
+    (or a secret Trina made); when one of them can no longer manage the app (left the room or the team, an admin of a
+    team room made a member), `RoomApp.leaverKnows` drives "Someone who left knows this address · Get a new address".
+    A new address keeps only its caller.
+  - Requests the limits turn away are counted in memory and written at most once a minute per app. GitHub deliveries
+    are also deduplicated by the body's hash (a replay under a new `X-GitHub-Delivery`). App names: lookalikes of a
+    person's name (NFKC, lookalike letters, Latin mixed with Cyrillic or Greek) and the AI's or the product's name are
+    refused. An app's messages keep the name it had when it posted. "Ask Trina about this" on an app's message (a quote
+    naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
+- Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
+  tests/security/lib/room-apps-cases.ts.
 
 ## Chats shared with me: a push that names the sharer — 나에게 공유된 채팅 알림 (feat/shared-chats-push, 2026-11-14, product owner)
 

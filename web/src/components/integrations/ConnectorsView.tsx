@@ -9,7 +9,7 @@ import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
-import { Button, IconButton, StickyHeader, inputCls } from '../ui'
+import { Button, IconButton, StickyHeader, inputCls, useMediaQuery } from '../ui'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
 // the split button (Add ⌄, a connector's Connect ⌄) is every page's now (components/PageActions.tsx)
@@ -133,12 +133,15 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
   testId?: string
 }) {
   const t = useT()
+  // a phone: the note goes under the name; at the row's right it would take the room the name needs (QA TC-1549)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={onOpen} openTestId="connector-row-open"
       logo={logo ? <LogoTile src={logo} className={connectionLogo} /> : <InitialTile name={name} className={connectionLogo} />} name={name}
       badge={team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
+      more={phone && note ? <span className="mt-1 flex">{note}</span> : undefined}
       end={<>
-        {note}
+        {!phone && note}
         {status === 'connected' || status === 'on' ? (
           <span className="flex items-center gap-1 text-xs text-muted" data-testid="connector-row-status">
             <Check size={14} className="text-ok" aria-hidden /> {t(status === 'on' ? 'appConnectors.on' : 'drive.status.connected')}

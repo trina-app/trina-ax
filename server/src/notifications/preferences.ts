@@ -88,6 +88,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'account.deletion_request': return true
     // my own account's automatic deletion date (shown always, Notifications.deletionDue)
     case 'account.deletion_due': return true
+    // an app in a room I manage paused for the day (shown always: Notifications.roomAppPaused)
+    case 'room_app.paused': return true
     // a Drive shared with the team stopped and needs an admin's new sign-in (shown always, Notifications.driveShareReconnect)
     case 'drive.share_reconnect': return true
     // an admin changed the team's AI (told to the owners), or switched off / removed a member's own connection (told to them)
