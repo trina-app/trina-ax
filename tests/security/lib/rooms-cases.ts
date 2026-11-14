@@ -76,6 +76,28 @@ export const ROOM_SPECS: Record<string, Spec> = {
   editRoomMessage: { build: (c, w) => c.patch(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}`, { body: `${C.dmMsg} (edited)` }), scope: 'own-alice' },
   deleteRoomMessage: { build: (c, w) => c.del(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsgDel}`), scope: 'own-alice' },
   markRoomRead: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/read`, { seq: 1 }), scope: 'room-dm' },
+  // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts). The composer's question
+  // in the everyone room (everyone is in it) about a link to the DM's message: alice and erin (who see it) are told
+  // that someone there cannot; everyone else gets the answer of a message that is not there, byte for byte. Their own
+  // "Show message" of it stores nothing, and a link to it in the everyone room shows them nothing of it
+  roomMessageLinkAudience: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.allRoom}/message-links/audience`, { links: [{ roomId: w.ids.dmRoom, messageId: w.ids.dmMsg }] }), scope: 'self',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const inDm = who === 'memberIn' || who === 'other'
+      const items = r.json.items as { messageId: string }[]
+      if (inDm !== (items.length === 1 && items[0]!.messageId === w.ids.dmMsg)) throw new Error(`${who}: the audience answered ${r.text.slice(0, 300)}`)
+      if (inDm) return
+      const none = await w.as[who].req('POST', `/api/rooms/${w.ids.allRoom}/message-links/audience`, { links: [{ roomId: w.ids.dmRoom, messageId: '019a0000-0000-7000-8000-0000000fffff' }] })
+      if (none.text !== r.text || none.status !== r.status) throw new Error(`${who}: a DM message they cannot see answered unlike one that is not there: ${r.text} / ${none.text}`)
+      const sent = await w.as[who].req('POST', `/api/rooms/${w.ids.allRoom}/messages`, { body: `see https://acme.example/rooms/${w.ids.dmRoom}?m=${w.ids.dmMsg}`, showMessages: [w.ids.dmMsg], clientMessageId: cm() })
+      if (sent.status !== 201 || sent.json.linkPreviews !== undefined || leaks(who, sent.text).length) throw new Error(`${who}: a send with Show message of a DM message answered ${sent.status} ${sent.text.slice(0, 300)}`)
+      const list = await w.as[who].req('GET', `/api/rooms/${w.ids.allRoom}/messages`)
+      if (leaks(who, list.text).length) throw new Error(`${who}: the everyone room shows the DM: ${leaks(who, list.text).join(', ')}`)
+    },
+  },
+  // "Remove preview": a message of my own with that link only; the DM's message has none (alice too gets 404)
+  hideRoomLinkPreview: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/hide-preview`, { linkedMessageId: w.ids.dmMsgDel }), scope: 'nobody' },
   listRoomMembers: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/members`), scope: 'room-dm' },
   // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): alice and erin are in it (frank too, held back by his
   // password change); the owner and the admin are not, so they get 404 like everyone outside it. Inviting someone who

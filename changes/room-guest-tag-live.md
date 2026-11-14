@@ -1,0 +1,1 @@
+- A guest who joins a room while you have it open now shows the "Guest" tag and "Includes 1 guest" at once. Before, the header said "4 members" and the member list had no tag until the page was reloaded.

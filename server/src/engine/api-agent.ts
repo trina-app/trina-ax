@@ -6,7 +6,7 @@
 // API key stays in the server (<data>/secrets/api-engine.key); only the model's provider sees the conversation, as with
 // the other engines.
 //
-// Settings: <data>/engine-api.json { "baseUrl": "https://api.openai.com/v1", "model": "gpt-4.1", "label": "GPT-4.1" }.
+// Settings: <data>/engine-api.json { "baseUrl": "https://api.openai.com/v1", "model": "gpt-5.4-mini", "label": "GPT-5.4 mini" }.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'

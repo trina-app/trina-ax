@@ -27392,6 +27392,7 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
 - **AI choice.** Team AI's account and monthly limit sit right under Team AI. Without a team AI account Team AI cannot be picked (so Save and Create link never wait on it) and says "The team has no AI account yet. **Add an AI account**" (a link to Admin › AI accounts). No hover fill on the rows (a phone kept it on an unpicked one). The "AI for Alex" dialog has one title (the choices' heading is for screen readers only).
 - **An Office Mac** (local-login mode: the team's AI runs on that Mac's own sign-in, `CredentialsResponse.guestAiUnavailable` 'host_sign_in', from feat/guest-own-signin; hosted, Linux and Docker installs are managed and never show it): in the invite and Change AI dialogs Team AI and their own sign-in are off, No AI stays picked, and one line says "On this server, guests can't use AI. Installing with the admin installer (.pkg) makes it possible." (the owner's words, with the way out; docs/OFFICE.md says the same). A member's invite dialog cannot read it (the AI accounts list is the admins'), so the server's refusal of a guest's turn stays the backstop there.
 - **Admin › Members & invites.** Guests is in the Role filter (then only the guests' list and the guest links); the search narrows guests too. Removed guests are out of sight behind "Show removed (N)". A used guest link leaves the invite list (the guest is in Guests now); member links keep "Used by". A project guest link names its project (`Invite.guestPlace.name`, projects only: a room's name stays with its people).
+- **Guest QA fixes (2026-11-15).** A chat's Share list never offers a guest (a chat shared with people is no place of theirs; the server refuses too, and the dialog now leaves them out so nobody is offered someone who cannot be added). A guest who opens a connect-an-app address (`/connectors/authorize`) reads "Guests can't connect apps to Trina" in place of the redirect Home; nothing is asked of the server and no grant is made (it answered 403 and still does). The realtime `profile_changed` notice (empty, carries no name) goes only to a window whose person may see the one who changed (`sharesPlace`): a guest's rename or photo is not signalled to members outside their place, and a member's change is not signalled to a guest outside that member's places. The notice only says "read the directory again", but its time showed that a guest was there.
 - **The link, made:** Copy link is the dialog's main button, Done beside it.
 - **Invite page:** the Name starts with the name the inviter typed (`InviteInfo.guestName`, only while the link works); one language control (the switcher under the card, no browser-language line); no "Already joined? Sign in" or "Open in the app" for a guest. The username rule in plain words for everyone: "You'll use it to sign in: at least 2 English letters or numbers, no spaces. You can also use . _ - @" (the check itself is unchanged; the same words are its error).
 - **Dark mode:** a disabled main button keeps a quiet edge, so it still reads as a button that is off (not as one to press).
@@ -27574,7 +27575,10 @@ guides, "Apps posting here") are phase 2.
   stops the old one at once. Unknown, rotated, removed and archived-room tokens answer the same `404 not_found`; any
   other method on `/in/*` too (never the web app's page). `loggablePath` hides the token.
 - **Order of work at /in/** (rooms/apps/inbound.ts): token lookup first (a live token is not counted with anonymous
-  traffic); a browser `Origin` → 403; the app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
+  traffic); a browser `Origin` → 403; the server refusing writes (full disk or plan, `storageRefusesWrites`, the rule
+  of `assertStorageRoom`) → `503 storage_full` with `Retry-After: 600` before the body, and the app's status line says
+  "the server's storage was full" (QA TC-2285: it answered 200 and posted the card while nothing could be saved); the
+  app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
   for unknown tokens 30 a minute per client address (and 4× per /24 or IPv6 /48); content type (415); the raw body,
   256 KiB (GitHub 1 MiB, 413) within 10 s (408); the signature when a secret is set (401); parse (400); the switch
   (200, skipped); the caps (429); then one transaction writes the delivery row, the card or reply, the root's status,
@@ -28161,3 +28165,53 @@ migration `404_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, 
   deleted chat, a group left and deleted), tests/unit/b-chat-files.test.ts (GPS photo on both upload paths, the count,
   the hidden tile), web unit tests for the page, the dialog and the upload check.
 - Version impact: **patch**.
+
+## Message links and their previews — 메시지 링크 미리보기 (feat/message-link-previews, 2026-11-15, the owner, plan docs/AGENTS/plan/20261114-1705-message-link-previews.md)
+
+The owner asked for Slack's behaviour: copy a message's link, paste it, and the message shows under it as a card that
+opens it; for people who may not see it, "the same way as Slack". Read as the same behaviour and structure, in our own
+words and components.
+
+- **Copy link** in a message's ⋮ menu and long-press sheet: `/rooms/<room>?m=<message>` (a reply
+  `/rooms/<room>/t/<root>?m=<reply>`) on the team address (GET /api/me team.address) when there is one, else this page's
+  origin: in the desktop app on an office network the page is a LAN address others cannot open.
+- **Previews are decided on the server, per viewer, per read**, inside `messagesOut` (rooms/link-previews.ts), so every
+  list and the live event give the same answer: the viewer's member row of the original's room, the room not archived,
+  the DM still open to them (guests), `canSee` (where they see the room from, hidden old answers and their threads,
+  private previews), the link's room and thread its own. The place is named as the viewer names it, never stored.
+  Batched per read: the linked rows, rooms, files, people and apps once (once per live event for all members), the
+  viewer's member rows in one query; at most 100 linked messages per read, 5 cards per message, none when a message has
+  more than 5 links of any kind (Slack's rule).
+- **No trace for no access**: a link the viewer may not see, one to nothing and another team's all give a message with
+  no `linkPreviews` field; the web leaves the address the plain link it was, and the room opens on its usual "can't be
+  found". The web draws a chip and a card only for its own host or the team address (a look-alike address of another
+  site never shows a real-looking card under it).
+- **Show message (Slack's private-link prompt)**: when the box holds links some reader of the room or thread cannot see,
+  the composer asks `POST /api/rooms/:id/message-links/audience` (yes per link only, never names or counts; a link the
+  sender cannot see answers exactly as one that is not there; 30 then one a second per person) and shows one line with
+  **Only show link** (default) / **Show message**. Show message is a person's explicit, per-link consent: the server
+  builds a frozen snapshot from the original with the sender's own access at send time (`showMessages` on the person's
+  own send route, `POST /api/rooms/:id/messages`, which the web app uses and a script with the person's own sign-in could
+  too; never an AI, an app, the Team AX connector, a shared answer or an import, which do not pass it). This does not contradict "Nothing read is sent wider":
+  that rule binds what an AI does for a person; a person who can read a message choosing to show it after a warning is
+  the same human-consent pattern as "대화방에 보내기" and the widening cards.
+- **A snapshot's boundaries**: only a person's own message (never an AI answer, an app's card or a shared answer: those
+  carry team-file links and what they read, and have their own way to a room); text at most 4,000 characters; files as a
+  count and the first name (no ids, no contents); mentions as ids (names read when shown; they notify nobody); a DM or
+  group chat by its kind only ("Direct message", "Group chat"), a team room by its name as the sender saw it; marked
+  "Shared by". A reader outside the original conversation (a guest too) sees its author's name and photo: the sender
+  chose to show the message, with who wrote it. Its words are wiped when the original is deleted, when the sender removes the preview, when an edit takes
+  the link out and when the message holding it is deleted; on a delete of the original, the open windows of the messages
+  holding its snapshot hear it at once (room.message.updated). An edit never makes one (it notifies nobody and cannot widen).
+- **Remove preview**: `POST /api/rooms/:id/messages/:messageId/hide-preview`, the author of a person's message only (404
+  otherwise, as for a message that is not theirs), not through the edit route (no "(edited)").
+- Push, the rooms list's line, search and every AI read (rooms/reader.ts) get the typed text only (the address holds
+  ids, no name or content); they never read previews or snapshots (`messagesOut(…, false)`).
+- Storage: migration 402 `room_messages.link_previews` (JSON: removed previews and snapshots; ids, never names).
+- Step 0 (2026-11-15, Slack test workspace, read only): the ⋮ menu has **Copy link**; a pasted message link in the box
+  turns into the conversation's name ("<me> with <them>" for a DM) with a preview card ("Direct message" as its label)
+  that the writer can remove with "Remove link preview" before sending. No "Show message" prompt appeared there (every
+  reader could see the message); the non-member view could not be checked with one account, so the plan's behaviour
+  stands.
+- Not in v1: AI chat messages and `/c/<id>` links, links to a whole room, Forward, a per-person "no previews" setting,
+  Slack's one-hour repeat rule, thumbnails in a card, live updates of cards in other rooms, other websites' previews.

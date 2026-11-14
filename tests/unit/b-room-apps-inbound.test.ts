@@ -8,6 +8,8 @@ import { ROOM_APP_BURST, ROOM_APP_DAILY_CAP, ROOM_APP_TEAM_DAILY_CAP, ROOM_APP_U
 import { roomAppsOf, teamDay } from '../../server/src/rooms/apps/service'
 import { appText } from '../../server/src/rooms/apps/text'
 import { loggablePath } from '../../server/src/http/middleware'
+import { STORAGE_RETRY_AFTER_S } from '../../server/src/rooms/apps/inbound'
+import { configureStorageGuard, type StatFs } from '../../server/src/system/storage'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 setDefaultTimeout(60_000)
@@ -102,6 +104,35 @@ test('content type, size and an unreadable body are refused, and the status line
   roomAppsOf(h.ctx).clock = () => Date.now() + 61_000
   expect((await post(s.token, 'x'.repeat(256 * 1024 + 1))).status).toBe(413)
   expect((await owner.call('GET', `/api/rooms/${all}/apps`)).items[0].lastRefusal.reason).toBe('too_big')
+})
+
+test('the server refusing writes (full disk): 503 + Retry-After before the body, no card, the status line says why; free space and it posts (QA TC-2285)', async () => {
+  const { owner, add, post, messages, all } = await setup()
+  const { token } = await add('other', all, owner, 'Backups')
+  const GiB = 1024 ** 3
+  // 20 GiB disk, 100 MiB free: under the 512 MiB reserve, so writes are refused (system/storage.ts)
+  let free = 100 * 1024 * 1024
+  const disk = (): StatFs => ({ bsize: 4096, blocks: (20 * GiB) / 4096, bfree: free / 4096, bavail: free / 4096 })
+  configureStorageGuard({ root: '/', statfs: disk, enforce: () => true })
+  try {
+    // a body the reader would refuse (unreadable JSON) still gets the 503: the body is never read
+    for (const body of [JSON.stringify({ text: 'Backup finished' }), '{"no":']) {
+      const r = await post(token, body)
+      expect(r.status).toBe(503)
+      expect(r.headers.get('retry-after')).toBe(String(STORAGE_RETRY_AFTER_S))
+      expect(await r.text()).toBe('storage_full\n')
+    }
+    await settle()
+    expect(await messages()).toEqual([])
+    const app = (await owner.call('GET', `/api/rooms/${all}/apps`)).items[0]
+    expect(app.lastRefusal.reason).toBe('storage_full')
+    expect(app.firstOkAt).toBeNull()
+    // space freed: the vendor's retry posts
+    free = 10 * GiB
+    expect((await post(token, JSON.stringify({ text: 'Backup finished' }))).status).toBe(200)
+    await settle()
+    expect((await messages()).map((m) => m.appCard?.title)).toEqual(['Backup finished'])
+  } finally { configureStorageGuard(null) }
 })
 
 test('Sentry: a new issue is a card; resolved goes to its thread and the card\'s status changes; came back goes to the room too; the delivery key ignores the timestamp', async () => {

@@ -10,6 +10,16 @@ see your company's name on Google's screen, with no "unverified app" warning and
 
 It takes about 15 minutes: most of it in Google Cloud, then one dialog in Trina AX.
 
+:::tip
+**What you need**
+
+| Value | Where it comes from | Where it goes |
+|---|---|---|
+| Two **return addresses** | The Trina AX dialog, step **In Google Cloud**, each with **Copy** | Google Cloud › Clients › your client › **Authorized redirect URIs** |
+| The list of **permissions** (scopes) | The block on this page, [Add the permissions](#in-google-cloud) | Google Cloud › **Data access** › **Manually add scopes** |
+| The client's **JSON file** (or **Client ID** and **Client secret**) | Google Cloud › **Clients** › **Download JSON**, right after you make the client | The Trina AX dialog, step **Add it here** |
+:::
+
 :::note
 The screenshots on this page use a made-up team, "Acme". Google Cloud's own screens are not shown, because they change
 often: this page quotes Google's labels and links to each Google Cloud page instead.

@@ -7,6 +7,7 @@ import { GUEST_ONE_PLACE_MSG } from '../../server/src/auth/guests'
 import { findPeople } from '../../server/src/rooms/reader'
 import { readersOf } from '../../server/src/rooms/ai-grants'
 import { guestPresenceSend } from '../../server/src/realtime/presence'
+import { MY_PROFILE_CHANGED, PROFILE_CHANGED, profileChangedFor } from '../../server/src/auth/profiles'
 import { RuleSet } from '../../server/src/policy/access'
 import type { PresenceFrame } from '@mycel/shared/api'
 import { makePng } from '../lib/images'
@@ -95,6 +96,24 @@ test('presence: a guest is told only about their place; a member outside it is n
   sent.length = 0
   send(gus.id, { type: 'presence', full: false, people: [{ id: pia.id, state: 'away' }] })
   expect(sent).toHaveLength(0)
+})
+
+test('profile notice: "someone changed their profile" goes only to people who may see that person (a guest and outsiders never exchange it)', async () => {
+  const { mia, nora, pia, gus } = await setup('a-guests-rooms-profile-notice')
+  const db = h.ctx.db
+  // the guest changes their name or photo: themselves, and the people of their place, are told; a member outside it is not
+  const byGuest = profileChangedFor(db, gus.id)
+  expect(byGuest(gus.id)).toEqual(MY_PROFILE_CHANGED)
+  expect(byGuest(mia.id)).toEqual(PROFILE_CHANGED)
+  expect(byGuest(nora.id)).toEqual(PROFILE_CHANGED)
+  expect(byGuest(pia.id)).toBeNull()
+  // a member outside the guest's place changes theirs: the guest is not told, the team is
+  const byPia = profileChangedFor(db, pia.id)
+  expect(byPia(gus.id)).toBeNull()
+  expect(byPia(mia.id)).toEqual(PROFILE_CHANGED)
+  // several people at once (statuses that ended): told when any of them may be seen
+  expect(profileChangedFor(db, [pia.id, mia.id])(gus.id)).toEqual(PROFILE_CHANGED)
+  expect(profileChangedFor(db, [pia.id])(gus.id)).toBeNull()
 })
 
 test('DMs: a guest opens one only with the people of their place, a member outside it cannot open one with the guest', async () => {

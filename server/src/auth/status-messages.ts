@@ -17,7 +17,7 @@ import type { AppContext } from '../context'
 import { teamTimeZone } from '../admin/settings'
 import { fail } from '../http/errors'
 import { zonedDay } from '../system/time-zone'
-import { MY_PROFILE_CHANGED, PROFILE_CHANGED } from './profiles'
+import { MY_PROFILE_CHANGED, PROFILE_CHANGED, profileChangedFor } from './profiles'
 import { LIVE_SQL, planStatus, STATUS_TEXT, statusOut, type StatusRow } from './status-plan'
 
 export { LIVE_SQL, planStatus, STATUS_TEXT, statusForAi, statusOut, type StatusPlan, type StatusRow } from './status-plan'
@@ -103,8 +103,7 @@ export function clearStatus(db: Database, userId: string, now: Date): { removed:
 export function tellAfterWrite(ctx: AppContext, userId: string, r: { changed: boolean; cleared: string[] }): void {
   const rt = ctx.services.realtime
   if (!r.changed && !r.cleared.length) return rt.publish(userId, MY_PROFILE_CHANGED)
-  const own = new Set([userId, ...r.cleared])
-  rt.publishEach((to) => (own.has(to) ? MY_PROFILE_CHANGED : PROFILE_CHANGED))
+  rt.publishEach(profileChangedFor(ctx.db, [userId, ...r.cleared]))
 }
 
 /** A person's account was turned off or deleted (admin/users.ts): when they had a status the team sees, open windows
@@ -159,8 +158,7 @@ export class StatusClock {
     }
     this.lastLook = now
     if (changed.length) {
-      const own = new Set(changed)
-      this.ctx.services.realtime.publishEach((to) => (own.has(to) ? MY_PROFILE_CHANGED : PROFILE_CHANGED))
+      this.ctx.services.realtime.publishEach(profileChangedFor(this.ctx.db, changed))
     }
     this.arm()
     return changed

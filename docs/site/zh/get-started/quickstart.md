@@ -39,12 +39,12 @@ bun run demo
 #### 登录
 打开 http://127.0.0.1:19760，用 `alice` 和 `teamax-demo-1` 登录。其他账号是 `bob`、`admin1` 和所有者 `dion`。密码是有意公开的。
 
-![Trina AX 登录页面，有用户名和密码输入框以及登录按钮](../../images/quickstart/sign-in.webp "登录页面")
+![Trina AX 登录页面，有用户名和密码输入框以及登录按钮](../../images/zh/quickstart/sign-in.webp "登录页面")
 
 #### 检查文件夹权限
 打开 **文件 → 全公司共享（Company-wide） → 팀-용어집.md**。然后在无痕窗口中以 `bob` 登录。Bob 能看到财务小组，但看不到市场小组。
 
-![文件：团队的文件夹列在左侧栏旁边，共享文件夹已打开，术语表文件显示在侧边面板中](../../images/quickstart/files-glossary.webp "在文件中打开的术语表文件")
+![文件：团队的文件夹列在左侧栏旁边，共享文件夹已打开，术语表文件显示在侧边面板中](../../images/zh/quickstart/files-glossary.webp "在文件中打开的术语表文件")
 :::
 
 :::tip

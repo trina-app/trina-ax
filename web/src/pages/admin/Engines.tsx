@@ -25,6 +25,7 @@ import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../com
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
 import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, useTeamCredentials, type ProviderMark } from './Credentials'
 import { TrialCreditBar } from '../../components/TrialCreditBar'
+import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
 import { technicalEngineState } from './plain'
@@ -250,13 +251,40 @@ function EngineRow({ e, accounts, accountsShown, phone, page, owner, initiallyOp
 }
 
 /** Presets of the API engine's address (any OpenAI-compatible Chat Completions API works with "custom"). */
-const API_PRESETS = [
-  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
-  { id: 'anthropic', label: 'Claude API (Anthropic)', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5' },
-  { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash' },
-  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1' },
-  { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' },
+/** `keys`: where that provider's API keys are made (QA TC-2312, the same kind of link as Add account's and Voice input's);
+ * Ollama runs on this computer and needs none. */
+export const API_PRESETS = [
+  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4-mini', keys: 'https://platform.openai.com/api-keys' },
+  { id: 'anthropic', label: 'Claude API (Anthropic)', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', keys: 'https://platform.claude.com/settings/keys' },
+  { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', keys: 'https://aistudio.google.com/apikey' },
+  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-5.4-mini', keys: 'https://openrouter.ai/keys' },
+  { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', keys: null },
 ] as const
+
+/** The Model field after the provider changes to `presetId` (QA TC-2440): that provider's own default model, unless the
+ * field holds a model the person typed themselves (not empty and not any provider's default), which is kept. Before, an
+ * earlier provider's default ("gpt-4.1") stayed when Claude API was picked. */
+export function presetModel(current: string, presetId: string): string {
+  const p = API_PRESETS.find((x) => x.id === presetId)
+  if (!p) return current
+  const typed = current.trim()
+  return !typed || API_PRESETS.some((x) => x.model === typed) || FORMER_PRESET_MODELS.includes(typed) ? p.model : current
+}
+/** Defaults the presets had before (a team may have saved one): also replaced when the provider changes */
+const FORMER_PRESET_MODELS: readonly string[] = ['gpt-4.1', 'openai/gpt-4.1']
+
+/** Under the API key field: where the chosen provider's keys are made, or that Ollama needs none; nothing for Custom. */
+export function ApiKeyHint({ preset }: { preset: string }) {
+  const t = useT()
+  const p = API_PRESETS.find((x) => x.id === preset)
+  if (!p) return null
+  const site = p.keys ? new URL(p.keys).host + new URL(p.keys).pathname : null
+  return (
+    <p className="mt-1 text-xs text-muted" data-testid="api-engine-key-hint">
+      {p.keys && site ? <ExtLink href={p.keys} name={t('engines.api.getKeyAt', { site })} testId="api-engine-key-link">{t('engines.api.getKeyAt', { site })}</ExtLink> : t('engines.api.noKeyLocal')}
+    </p>
+  )
+}
 
 /** The team's API engine settings (owner and admins): address, model, display name, key (never shown again once saved). */
 function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
@@ -283,7 +311,7 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
           <Field label={t('engines.api.preset')}>
             <select className={inputCls} value={preset} onChange={(e) => {
               const p = API_PRESETS.find((x) => x.id === e.target.value)
-              if (p) setForm({ ...form, baseUrl: p.baseUrl, model: form.model || p.model })
+              if (p) setForm({ ...form, baseUrl: p.baseUrl, model: presetModel(form.model, p.id) })
             }}>
               {API_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
               <option value="custom">{t('engines.api.custom')}</option>
@@ -298,9 +326,12 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
           <Field label={t('engines.api.label')}>
             <input className={inputCls} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder={form.model} maxLength={40} />
           </Field>
-          <Field label={t('engines.api.key')}>
-            <input type="password" autoComplete="off" className={inputCls} value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder={state.data?.hasKey ? t('engines.api.keyKeep') : 'sk-…'} />
-          </Field>
+          <div>
+            <Field label={t('engines.api.key')}>
+              <input type="password" autoComplete="off" className={inputCls} value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder={state.data?.hasKey ? t('engines.api.keyKeep') : 'sk-…'} />
+            </Field>
+            <ApiKeyHint preset={preset} />
+          </div>
           <Field label={t('credentials.reauth')}>
             <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
           </Field>

@@ -20,6 +20,7 @@ import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { mayManageApps, useRoomApps } from '../../store/roomApps'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
@@ -74,7 +75,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     toast({ level: 'info', text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), action: { label: t('common.undo'), run: () => void undo() } })
   }
   const leave = async () => {
-    const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t('rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
+    const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
   const fallbackOf = useNameFallback()

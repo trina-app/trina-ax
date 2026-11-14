@@ -368,7 +368,8 @@ function Storage() {
                   ))}
                 </ul>
               )}
-              {!!s.breakdown?.kept && s.breakdown.kept >= 1024 ** 2 && <p className="text-xs text-faint" data-testid="storage-kept">{t('storage.kept', { size: formatSize(s.breakdown.kept, locale) })}</p>}
+              {/* any kept bytes (KB under 1 MB): a small set-aside folder is still on the disk (QA TC-2284) */}
+              {!!s.breakdown?.kept && s.breakdown.kept > 0 && <p className="text-xs text-faint" data-testid="storage-kept">{t('storage.kept', { size: formatSize(s.breakdown.kept, locale) })}</p>}
               {(s.measuredAt || s.planDiskGiB !== null) && (
                 <p className="text-xs text-faint">
                   {s.measuredAt && t('storage.measured', { date: formatDateTime(s.measuredAt, locale) })}
