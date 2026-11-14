@@ -473,9 +473,31 @@ highlights it briefly; an answer no longer visible opens the chat at its end wit
    so this is a handful of rule checks however many answers there are.
 3. Listed: some new person misses one of its places, and it is hidden neither from that person (rule (b)) nor from the
    viewer.
-4. Pages of 20; at most 2,000 candidates scanned per request (the page then ends with `nextCursor`); `total` counted in
-   the same pass up to 2,000 (`totalCapped`: shown as "2,000+", and the button reads "Show more"). Budget: under 100 ms
-   for a project with 5,000 answers (a bench in `tests/unit/b-widening-answers.test.ts`).
+4. Pages of 20. The count and the first page come from **one pass**: the walk reads every candidate's `reads` (one
+   query per request, rows of the project's shared chats through the indexes below), counts the listed ones for
+   `total` and keeps the newest 20 for the page; the preview text, titles and askers are read only for those 20 (by
+   primary key). Next pages seek below the cursor's rowid. Beyond 50,000 candidates the count stops (`totalCapped`,
+   shown as "50,000+", and the button reads "Show more").
+
+**Performance budget (owner, 2026-11-14).** The warning's count plus the list's first page answer in **under 300 ms**
+on a project with **10,000 shared answers in 50 chats** (server side, warm cache, the CI machine). The same function
+serves `ProjectAccessPreview.hiddenAnswers` and the Share confirm, so they meet it too. How:
+- Each **distinct recorded place** is checked against the new people's access **once per request** (a map keyed by
+  `sourceKey`), and once for the viewer's name-or-hidden; never once per answer. Group membership and rules are read
+  once (`Audiences`-style per-request cache).
+- Rule (b) for the new people and the viewer is decided from the same parsed groups (no second walk); answers after the
+  cutover skip it.
+- Indexes: `chats_shared_project` (265) finds the project's shared chats; the new `shared_answer_reads_chat_msg
+  (chat_id, message_id)` reads each chat's records in order; `messages` by primary key for the 20 shown.
+- No per-answer query anywhere in the pass (checked by a query counter in the test).
+
+**Bench that fails over budget** (in phase 1): `tests/unit/b-widening-answers-bench.test.ts` builds a team with 50
+people in 6 groups, a project with 50 shared chats and 10,000 answers whose records use 40 distinct places (a mix of
+yes-covered, silent and `x: 1` groups, before and after the cutover), adds a group of 8, and calls `wideningAnswers` for
+the count and first page: it **fails when the median of 5 warm runs exceeds 300 ms** (and fails when more than 3 SQL
+queries run, or when the rule check runs more than once per place and person set). It runs in the normal unit shard
+(no flag); the timing assertion is skipped only when `CI_SLOW_RUNNER=1` is set by a known slow runner, and the query and
+check counts are asserted always. `scripts/bench/widening-answers.ts` runs the same world at 10x for manual profiling.
 - New index (phase 1 migration, additive): `CREATE INDEX shared_answer_reads_chat_msg ON shared_answer_reads(chat_id,
   message_id)`; the walk joins `messages` by primary key for rowid, time, turn and text.
 
@@ -635,7 +657,8 @@ the Members dialog with **Show answers ›** and the widening list (endpoint wit
 silent-group answer still hidden; old card-yes answer visible; `x: 1` still hidden), `b-room-history*` (new shared
 answer visible; old closed-scope answer hidden; old folder answer visible), `b-answer-share`, `b-rooms-*`, the members
 warning and list (`b-widening-answers.test.ts`: places named only when the caller reads them, rule (b) answers left
-out, cursor and `changed`, the 100 ms bench; the `wideningAnswers` matrix case), web unit for the list and the phone
+out, cursor and `changed`; `b-widening-answers-bench.test.ts`, 300 ms for count + first page on 10,000 answers in 50
+chats, fails over budget; the `wideningAnswers` matrix case), web unit for the list and the phone
 way back, e2e "later reader" and "members widening list". QA TC-1404: (a) a new answer in a project chat is visible to someone added afterwards;
 (b) a new answer sent to a team room is visible to a later member; (c) the card's words in en and ko; (d) a removed
 member gets not-found; (e) the Members dialog warns when added people miss places.
