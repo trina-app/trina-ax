@@ -132,7 +132,7 @@ export class ChatStore {
     // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them
     if (viewer !== undefined) {
       const blank = (a: Attachment) => (a.source === 'team' ? blankTeamAttachment(a) : { ...blankTeamAttachment(a), source: a.source })
-      if (!this.viewAttachmentsAs) return atts.map((a) => (a.source !== 'team' && r.author_id === viewer ? a : blank(a)))
+      if (!this.viewAttachmentsAs) return atts.map((a) => (a.source === 'chat' || (a.source !== 'team' && r.author_id === viewer) ? a : blank(a)))
       try { return this.viewAttachmentsAs(viewer, r.author_id ?? null, atts) } catch { return atts.map(blank) }
     }
     if (!atts.some((a) => a.source === 'team')) return atts

@@ -1,7 +1,8 @@
 // Chat attachments (tab 4 "첨부"): stored in the person's own folder users/<id>/.attachments/<chatId>/ (normal
 // permission rules apply: nobody else, admins included, can read them), recorded in `attachments` so messages can
 // refer to them by id (B: attachmentsByIds when a message is sent). In a shared project chat a file from the computer
-// goes into the project folder instead and is attached as a team file (uploads/shared-chat.ts).
+// goes into the project folder instead and is attached as a team file (uploads/shared-chat.ts); in a chat shared with
+// people and groups it is kept with the chat (chat/chat-files.ts, source 'chat').
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
@@ -25,6 +26,9 @@ import { instructionFile } from '../team-files/ai-trash'
 import { FileError } from '../team-files/errors'
 import { ToolError } from '../policy/errors'
 import { sharedUploadPlace } from './shared-chat'
+import { chatFilesOf } from '../chat/chat-files'
+import { isPeopleRow } from '../chat/chat-audience'
+import { safeOpsEnabled } from '../safe-ops/runner'
 
 export const ATTACHMENTS_DIR = '.attachments'
 /** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
@@ -60,8 +64,15 @@ export class Attachments {
    * refused before its bytes are sent). Checked again when the file is placed (rules may change meanwhile). */
   assertUploadChat(userId: string, chatId: string, sha256?: string) {
     const shared = visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
+    if (shared && isPeopleRow(shared)) { this.peopleChecks(); return }
     if (shared) { this.sharedChecks(userId, shared, sha256); return }
     this.assertOwnChat(userId, chatId)
+  }
+
+  /** A chat shared with people and groups (chat/chat-files.ts): the file is kept with the chat. Read-only while safe
+   * operations are on, as the chat is (409 safe_ops). */
+  private peopleChecks() {
+    if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
   }
 
   /** The place of a shared chat's upload and what refuses it before anything is written. */
@@ -95,6 +106,7 @@ export class Attachments {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = clean.includes('/') ? 'names cannot contain "/"' : badSegment(clean)
     if (bad) fileError('validation', 'badName', { name: bad })
+    if (shared && isPeopleRow(shared)) { this.peopleChecks(); return chatFilesOf(this.ctx).create(userId, chatId, clean, src, sha256) }
     if (shared) return this.createShared(userId, shared, clean, src, sha256)
     const user = this.files.principal(userId)
     const rules = this.files.rules()
@@ -163,6 +175,7 @@ export class Attachments {
   /** An upload whose chip was taken out before its answer reached the box (a cancelled session, a dropped request): a
    * file it put in a shared chat's project folder goes to the trash (TeamFileRefs.discard); anything else stays. */
   discardSaved(userId: string, a: Attachment | null | undefined) {
+    if (a?.source === 'chat') { chatFilesOf(this.ctx).discard(userId, a.id); return }
     if (a?.source !== 'team' || !this.refs) return
     try { this.refs.discard(userId, a.id) } catch (e) { this.ctx.log.debug('a removed upload was not taken out', { err: e }) }
   }
@@ -182,6 +195,8 @@ export class Attachments {
     if (!ids.length) return { found: [], unavailable: [] }
     const rows = this.ctx.db.query(`SELECT ${COLS} FROM attachments WHERE user_id = ? AND chat_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(userId, chatId, ...ids) as Row[]
     const m = new Map<string, Attachment>(rows.map((r) => [r.id, toApi(r)]))
+    // the caller's own files kept with this chat (a chat shared with people: chat/chat-files.ts)
+    for (const [id, a] of chatFilesOf(this.ctx).ownByIds(userId, chatId, ids.filter((i) => !m.has(i)))) m.set(id, a)
     const refs = this.refs?.byIds(userId, chatId, ids.filter((i) => !m.has(i)))
     for (const [id, a] of refs?.found ?? []) m.set(id, a)
     const seen = new Set<string>()
@@ -192,6 +207,7 @@ export class Attachments {
   /** Thumbnail file of an own image attachment (generated, or the original when it is a small web image). */
   thumbnail(userId: string, id: string): { abs: string; name: string } | { bytes: Buffer; name: string; mime: string; etag: string } {
     const r = this.row(id)
+    if (!r && chatFilesOf(this.ctx).has(id)) return chatFilesOf(this.ctx).thumbnail(userId, id)
     if (!r && this.refs?.isRef(id)) return this.refs.thumbnail(userId, id)
     if (!r || r.user_id !== userId || r.kind !== 'image') throw new HttpError('not_found')
     // the file itself may have been moved / deleted on the file screen: the person must still be able to read it

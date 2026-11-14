@@ -47,6 +47,9 @@ import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
+import { chatFilesOf } from '../chat/chat-files'
+import { streamFile } from '../team-files/download'
+import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -159,6 +162,10 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
 }
 
 /** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first, as `viewer` sees them. */
+/** May this attachment go into a message of this shared chat: a team file, or in a chat shared with people a file kept
+ * with it (chat/chat-files.ts: Attachments.lookup finds only the caller's own of this chat). */
+const sharedAttachment = (a: ChatAccess, x: Attachment): boolean => x.source === 'team' || (x.source === 'chat' && a.kind === 'people')
+
 function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale, through?: string): { items: Message[]; nextCursor: string | null } {
   // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
   const view = messageView(rt, chat, viewer, locale)
@@ -657,6 +664,17 @@ export const chatsRoutes: RouteModule = {
     // the delete-account dialog's count (admins): the chats this person shared with people that others wrote in
     kit.handle(API.userSharedChats, ({ params }) => ({ sharedChats: peopleSharedChatsOf(ctx, params.id) }))
     kit.handle(API.hideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), true))
+    // a file kept with a chat shared with people (chat/chat-files.ts): whoever sees the chat now (its creator in the trash
+    // too), else the 404 of a missing chat; a file not sent yet only for its sender. Sent as a room file is (streamFile:
+    // nosniff, a sandbox CSP, a page or script type inline as text/plain); one on the download-only list only as a
+    // download, never a thumbnail, an inline read or a page's picture, frame, player or script (Fetch Metadata)
+    kit.handle(API.chatFile, ({ c, params, query, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      const f = chatFilesOf(ctx).open(auth.user.id, a.row.id, params.fileId, !!query.thumb)
+      const dest = c.req.raw.headers.get('sec-fetch-dest')
+      if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
+      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
+    })
     kit.handle(API.unhideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), false))
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {
@@ -671,8 +689,9 @@ export const chatsRoutes: RouteModule = {
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
-      // a shared chat takes team files only (D3): a computer upload never reaches it
-      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      // a shared chat takes team files only (D3), and a chat shared with people its own files too (chat/chat-files.ts):
+      // a computer upload in someone's own folder never reaches it
+      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
@@ -719,7 +738,7 @@ export const chatsRoutes: RouteModule = {
       if (a.shared && target.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
       busy(a, c.get('locale'), auth.user.id)
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
-      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {

@@ -483,6 +483,14 @@ export const SPECS: Record<string, Spec> = {
   uploadAttachment: { build: (c, w) => c.req('POST', '/api/uploads', undefined, { form: aform(w.ids.chatA, 'x.png') }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached into alice's chat`) } },
   attachmentThumbnail: { build: (c, w) => c.get(`/api/uploads/${w.ids.attachment}/thumbnail`), scope: 'own-alice' },
+  // a file kept with a chat shared with people (chat/chat-files.ts) goes only through its chat: alice's private chat holds
+  // none, and her computer upload there is no chat file (an upload's id never opens through this route; 404 for her
+  // too). Everyone else gets the 404 of a missing chat first, admins and the owner included
+  chatFile: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/files/${w.ids.attachment}`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} opened an upload's id as a chat file`)
+      if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
+    } },
   // team files attached by reference (the composer's "Add from team files") and the picker's listings: each persona
   // makes an own chat and aims at a file NAME inside users/alice/ (only alice may read it; owner and admin included
   // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.

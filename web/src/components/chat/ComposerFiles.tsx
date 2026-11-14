@@ -17,6 +17,8 @@
 // Chat.shared.canUpload false: `computer` off) is offered team files only: pasted files are ignored and files dragged from
 // the computer get the not-allowed cursor (on the chat's page, its drop overlay says why), so nobody picks a file only
 // to be refused.
+// In a chat shared with people and groups the file is kept with the chat (Attachment source 'chat'): the line under the
+// row says everyone who sees the chat can open it, and ✕ before sending removes it (DELETE /api/attachments/:id).
 import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
@@ -60,6 +62,8 @@ export interface Pending {
 
 /** A file from this computer that a shared chat saved in its project folder (the server attached it as a team file). */
 export const savedInProject = (f: Pick<Pending, 'source' | 'attachment'>): boolean => f.source === 'upload' && f.attachment?.source === 'team'
+/** A file from this computer kept with a chat shared with people (not sent yet: ✕ removes it on the server too). */
+export const keptWithChat = (f: Pick<Pending, 'source' | 'attachment'>): boolean => f.source === 'upload' && f.attachment?.source === 'chat'
 
 /** Its chip taken out before sending: that file goes to the team trash (the server leaves it when it was sent, moved or
  * edited meanwhile). Nothing else about the box waits for it. */
@@ -141,7 +145,7 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
           // removed just as it finished: what it saved in a shared chat's project folder goes too
           const saved = savedInProject({ source: 'upload', attachment: r.attachment })
-          if (it.abort.signal.aborted) return saved ? discardSaved(r.attachment) : undefined
+          if (it.abort.signal.aborted) return saved || r.attachment.source === 'chat' ? discardSaved(r.attachment) : undefined
           // saved in the project folder: the chip shows the name it got there ("견적 (2).pdf", "CLAUDE (2).md")
           update(it.id, { status: 'done', attachment: r.attachment, ...(saved ? { name: r.attachment.name } : {}) })
         } catch (e) {
@@ -194,7 +198,7 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const removeFile = (f: Pending) => {
     f.abort?.abort()
     setFiles((p) => p.filter((x) => x.id !== f.id))
-    if (f.status === 'done' && savedInProject(f)) discardSaved(f.attachment!)
+    if (f.status === 'done' && (savedInProject(f) || keptWithChat(f))) discardSaved(f.attachment!)
   }
 
   const ready = files.filter((f) => f.status === 'done')
@@ -446,11 +450,21 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
 /**
  * A shared project chat's line under the chips while a file from this computer is attached: it is saved in the project
  * folder (the folder it went to, else the one the team's language names) and who can see it there (`audience`: the
- * project's people, as the line under the box counts them). Nothing while only team files are attached.
+ * project's people, as the line under the box counts them). In a chat shared with people (`kind` people) the file is
+ * kept with the chat: everyone who sees the chat can open it. Nothing while only team files are attached.
  */
-export function SharedUploadLine({ files, audience, className }: { files: Pending[]; audience: number; className?: string }) {
+export function SharedUploadLine({ files, audience, kind, className }: { files: Pending[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
   const t = useT()
   const team = useMe()?.team.defaultLocale
+  if (kind === 'people') {
+    const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || keptWithChat(f)))
+    if (!ups.length) return null
+    return (
+      <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="shared-upload-line">
+        {t('chat.share.uploadLine')}
+      </p>
+    )
+  }
   // on its way, or saved there (an upload of my own folder from before the chat was shared is not: the send refuses it)
   const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || savedInProject(f)))
   if (!ups.length) return null

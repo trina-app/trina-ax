@@ -270,6 +270,13 @@ export const RoomFileInput = z.strictObject({
   as_images: roomAsImages,
 })
 
+/** chat_file: the text (or the picture) of a file sent from the computer in a chat shared with people
+ * (server/src/chat/chat-file-tool.ts) */
+export const ChatFileInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id from the message ("file_id=…"), or its exact name.'),
+  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+})
+
 const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
 /** save_room_file in a person's own chat: a copy of a file sent in one of their rooms put into the team folder */
 export const SaveRoomFileInput = z.strictObject({
@@ -336,6 +343,7 @@ export const OTHER_TOOLS = {
   rooms: { input: RoomsInput, output: TextOutput },
   room_read: { input: RoomReadInput, output: TextOutput },
   room_file: { input: RoomFileInput, output: TextOutput },
+  chat_file: { input: ChatFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },

@@ -657,6 +657,7 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
+    this.peopleChats.clear()
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -799,6 +800,9 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
+  /** POST /__test/people-chat {chatId}: chats shared with people and groups (Chat.shared.kind people); a file from the
+   * computer there is kept with the chat (server/src/chat/chat-files.ts: Attachment source 'chat', no team path) */
+  peopleChats = new Set<string>()
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   /** a trash item the person sees and may restore (server trashVisible): write access to its original path, and never
@@ -3229,6 +3233,12 @@ export class MockServer {
       await this.uploadAnswer()
       return { status: 201, body: this.makeAttachment(c.body.chatId, c.body.name ?? c.file!.name, data, c.file!.type, c.user) }
     },
+    // a file kept with a chat shared with people (server/src/routes/chats.ts chatFile)
+    chatFile: (c) => {
+      const a = this.attachments.get(c.params.fileId!)
+      if (!a || a.source !== 'chat' || !this.peopleChats.has(c.params.id!)) fail('not_found', 404)
+      return new Response(a!.data as unknown as BodyInit, { headers: { 'content-type': a!.mime, 'content-disposition': c.query.download ? 'attachment' : 'inline' } })
+    },
     attachmentThumbnail: (c) => {
       const a = this.attachments.get(c.params.id!) ?? fail('not_found', 404)
       return new Response(a.data as unknown as BodyInit, { headers: { 'content-type': a.mime } })
@@ -5302,6 +5312,14 @@ export class MockServer {
   }
 
   makeAttachment(chatId: string, name: string, data: Uint8Array, mime: string, user: User): Attachment {
+    if (this.peopleChats.has(chatId)) {
+      // kept with the chat (server/src/chat/chat-files.ts): no team path
+      const k = mime || mimeOf(name) || 'application/octet-stream'
+      const kept: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: data.byteLength, mime: k, kind: k.startsWith('image/') ? 'image' : /\.(txt|md)$/i.test(name) ? 'text' : 'other', source: 'chat', data }
+      this.attachments.set(kept.id, kept)
+      const { data: _k, ...shown } = kept
+      return shown
+    }
     const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: `users/${user.id}/.attachments/${chatId}/${name}`, size: data.byteLength, mime: mime || 'application/octet-stream', kind: mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : 'other', data }
     this.attachments.set(a.id, a)
     this.putFile(a.path, data)
@@ -5561,6 +5579,13 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/people-chat') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat) return Response.json({ ok: false }, { status: 404 })
+      const by = this.users.find((u) => u.username === String(body.by ?? 'olga')) ?? this.users[0]!
+      this.peopleChats.add(chat.id)
+      chat.shared = { kind: 'people', by: { id: by.id, name: by.name }, audience: Number(body.audience ?? 3), answering: null, mine: true, canDelete: true, canUpload: true }
+    }
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }

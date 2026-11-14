@@ -17,9 +17,8 @@
 // First share of a private chat: people_shared_at set, the engine session forgotten (its instructions held the
 // memories), the earlier turns marked as before the share (their steps are their runner's: chat/store.ts viewSteps;
 // the rollback guard passes them: chat/people-guard.ts), every earlier answer recorded with the people who see it now
-// (chat/shared-answers.ts). A computer upload from before the share stays its sender's alone (Message attachments are
-// shown to their sender only in a shared chat); a chat-scoped file store for computer uploads comes later, so none are
-// taken in a people-shared chat yet (Chat.shared.canUpload false).
+// (chat/shared-answers.ts), and the creator's computer uploads in it copied to the chat's own files (chat/chat-files.ts
+// copyEarlier), which everyone in it sees; later computer uploads go there directly (Chat.shared.canUpload).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ChatAudience, Locale, PutChatAudienceResult } from '@mycel/shared/api'
@@ -46,6 +45,7 @@ import { wideningAnswers, type WideningResult, type WideningSubject } from './wi
 import { isPeopleRow, peopleAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
 import { tr } from './i18n'
 import { notificationsOf } from '../notifications/service'
+import { chatFilesOf } from './chat-files'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
@@ -152,7 +152,7 @@ export function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, 
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
   const rules = ctx.files.rules()
-  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, viewer.id)
   return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place })
@@ -288,6 +288,9 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     if (first) fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
+    // the creator's earlier computer uploads: copied to the chat's own files so everyone in it sees them (S6). A copy
+    // that fails leaves that one its sender's alone, as before; the share stands
+    if (first) { try { await chatFilesOf(ctx).copyEarlier(r.id) } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
     // the people who lost it: their windows drop it (its id alone, nothing of it)
     for (const id of lost) rt.hub.publish(id, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
     // everyone in it now hears the chat as they see it (the newly added get it as a new row of their list)

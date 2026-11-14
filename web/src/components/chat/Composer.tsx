@@ -140,7 +140,7 @@ export default function Composer({
   /** a shared project chat: a file from this computer is saved in its project folder (the server's doing), and a line
    * under the chips says so and how many people see it there (`audience`). `allowed` false: the person may not write
    * that folder (Project.chatUploads, Chat.shared.canUpload), so files come from the team folder only */
-  sharedUploads?: { audience: number; allowed?: boolean }
+  sharedUploads?: { audience: number; allowed?: boolean; kind?: 'project' | 'people' }
   /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
   projectId?: string | null
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
@@ -631,7 +631,7 @@ export default function Composer({
         data-testid="composer"
       >
         <ComposerFileList files={files} onRemove={removeFile} className="px-4 pt-3" />
-        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} className="px-4 pt-2" />}
+        {sharedUploads && <SharedUploadLine files={files} audience={sharedUploads.audience} kind={sharedUploads.kind} className="px-4 pt-2" />}
 
         {voice.recording ? (
           stacked ? (

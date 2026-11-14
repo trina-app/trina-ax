@@ -26,6 +26,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts)
+  'chat_file',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
