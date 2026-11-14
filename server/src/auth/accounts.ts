@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
-import { SETUP_TOKEN_HEADER } from '@mycel/shared/api'
+import { ROOM_GROUP_MAX, SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
   type AcceptInviteBody, type ChangePasswordBody, type CreateGuestInviteBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
@@ -481,7 +481,12 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
     if (ai.mode === 'team') ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
-    if (place!.kind === 'room') line = roomsOf(ctx).addInTx(place!.id, r.created_by ?? id, [id])
+    if (place!.kind === 'room') {
+      // the group chat's size limit holds here too (Rooms.invite checks it for people added in the app)
+      const n = (ctx.db.query('SELECT COUNT(*) AS n FROM room_members WHERE room_id = ?').get(place!.id) as { n: number }).n
+      if (n + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.username': `at most ${ROOM_GROUP_MAX} people in a group chat` }, params: { reason: 'room_full' } })
+      line = roomsOf(ctx).addInTx(place!.id, r.created_by ?? id, [id])
+    }
     else {
       const folder = ensureFolderRow(ctx.db, projectFolder(ctx.db, place!.id)!)
       writeFolderAccess(ctx.db, folder.id, { rules: [...rulesOf(ctx.db, folder.id).filter((x) => !(x.subjectType === 'user' && x.subjectId === id)), { subjectType: 'user', subjectId: id, access: 'write' }] }, r.created_by)

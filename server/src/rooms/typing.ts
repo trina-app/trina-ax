@@ -14,6 +14,7 @@ import { ROOM_TYPING_EXPIRES_MS, type RoomTypingFrame } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Hub } from '../realtime/hub'
 import { canSee, memberRow, members, messageRow, roomRow, threadable } from './store'
+import { dmPairOk } from './guest-reach'
 
 export const TYPING_WINDOW_MS = 10_000
 export const TYPING_BUDGET = 20
@@ -93,6 +94,8 @@ export class RoomTyping {
   private readers(userId: string, roomId: string, threadRootId: string | null): string[] | null {
     const db = this.ctx.db
     const room = roomRow(db, roomId)
+    // a DM whose two no longer share a guest's place is closed (rooms/guest-reach.ts)
+    if (room && !dmPairOk(db, room.kind, room.dm_key)) return null
     if (!room || room.archived_at) return null
     const me = memberRow(db, roomId, userId)
     if (!me) return null

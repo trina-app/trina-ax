@@ -108,8 +108,16 @@ test('DMs: a guest opens one only with the people of their place, a member outsi
   expect((await pia.client.call('POST', '/api/rooms', { kind: 'dm', userId: mia.id })).kind).toBe('dm')
   // the DM never counts as a place: mia leaves the group chat, the DM stops working for both
   await mia.client.call('POST', `/api/rooms/${(await rooms(gus.client)).find((r) => r.kind === 'group')!.id}/leave`)
-  expect((await gus.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'still there?', clientMessageId: cm() })).status).toBe(403)
-  expect((await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'yes', clientMessageId: cm() })).status).toBe(403)
+  // closed to both as if it were not there (security review): no send, no reading, no members, not listed, not searched
+  expect((await gus.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'still there?', clientMessageId: cm() })).status).toBe(404)
+  expect((await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'yes', clientMessageId: cm() })).status).toBe(404)
+  expect((await gus.client.try('GET', `/api/rooms/${dm.id}/messages`)).status).toBe(404)
+  expect((await gus.client.try('GET', `/api/rooms/${dm.id}/members`)).status).toBe(404)
+  expect((await rooms(gus.client)).some((r) => r.id === dm.id)).toBe(false)
+  expect((await rooms(mia.client)).some((r) => r.id === dm.id)).toBe(false)
+  expect((await gus.client.call('GET', '/api/room-messages?q=hello')).items).toEqual([])
+  // members' own DMs are untouched
+  expect((await rooms(pia.client)).some((r) => r.kind === 'dm')).toBe(true)
 })
 
 test('group chats: a guest makes none; a member cannot put a guest into a second group chat (409 guest_one_place)', async () => {

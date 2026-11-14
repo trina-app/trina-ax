@@ -8,7 +8,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { createGuestInviteFor, createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
-import { convertGuest } from '../admin/guests'
+import { convertGuest, disablePlacelessGuests } from '../admin/guests'
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
@@ -69,6 +69,9 @@ export const adminRoutes: RouteModule = {
   name: 'admin',
   owner: 'A',
   register(kit, ctx) {
+    // at start: a guest whose one place went away without an access change (a backup restored, a folder removed on
+    // disk) is switched off (admin/guests.ts)
+    try { disablePlacelessGuests(ctx, null) } catch (e) { ctx.log.warn('placeless guests check failed at start', { err: e }) }
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------

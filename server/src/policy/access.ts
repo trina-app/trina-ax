@@ -376,6 +376,9 @@ export class RuleSet {
     }
     if (best < 0) { if (why) why.kind = 'no-rule'; return 'none' }
     if (why) why.kind = 'rule'
+    // a guest never writes a project's skills (projects/<name>/skills/...): members' AI loads them as instructions
+    // (chat/skills.ts liveProjectRoots; security review of guests phase 1)
+    if (guest && best > RANK.read && segs.length >= 3 && segs[2]!.normalize('NFC').toLowerCase() === 'skills') return 'read'
     return BY_RANK[best]!
   }
 

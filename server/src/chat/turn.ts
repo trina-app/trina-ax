@@ -769,8 +769,10 @@ export class TurnExec {
     // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved
     // template run (its scope is fixed); see LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS for confidential chats in office mode
     const confidential = confidentialChat(rt.db, spec.chatId)
-    const webSearch = !this.templateScope && !this.restricted && !confidential
-    const subagents = !!claude && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
+    // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
+    const guestTurn = isGuestUser(rt.db, spec.userId)
+    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
+    const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -1181,7 +1183,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false

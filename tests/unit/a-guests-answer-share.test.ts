@@ -44,3 +44,22 @@ test('a skill the answer read: left out for members, counted as unseen for the g
   expect(await missing(file, [nora.id])).toEqual([])
   expect(await missing(file, [nora.id, g.id])).toEqual([g.id])
 })
+
+test('the team rules and company profile every prompt carries count as "can\'t see" for a guest audience', async () => {
+  const { withSkillReads } = await import('../../server/src/chat/answer-share')
+  const { addMember: add, harness: mk, withOwner: own } = await import('./a-lib')
+  const { addGuest: guest, groupChat: chat } = await import('./guest-lib')
+  const hh = await mk('a-guests-answer-share-prompt')
+  try {
+    const owner = await own(hh)
+    const mia = await add(hh, owner, { username: 'mia' }), nora = await add(hh, owner, { username: 'nora' }), otto = await add(hh, owner, { username: 'otto' })
+    const room = await chat(mia.client, [nora.id, otto.id])
+    const g = await guest(hh, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
+    const use = { answers: ['a1'], files: [], other: [], known: true, roomsUnseen: false }
+    const carried = ['skills/pricing.md', 'skills/company-profile.json']
+    // a guest among the audience: the carried instruction files are counted (no hash: never matched as a copy)
+    expect(withSkillReads(hh.ctx.db, use, [nora.id, g.id], carried).files.map((f) => f.path)).toEqual(carried)
+    // members only: nothing added (every member reads skills/)
+    expect(withSkillReads(hh.ctx.db, use, [nora.id, otto.id], carried).files).toEqual([])
+  } finally { await hh.close() }
+})

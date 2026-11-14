@@ -109,6 +109,8 @@ export class Rooms {
     const room = roomRow(this.db, roomId)
     let me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
     if (!room || !me) return fail('not_found')
+    // a DM whose two no longer share a guest's place: closed to both, as if it were not there (rooms/guest-reach.ts)
+    if (!dmPairOk(this.db, room.kind, room.dm_key)) return fail('not_found')
     // a team room or the everyone room whose history is not open to me yet (rooms/history.ts): now, before anything is
     // read; a failure leaves me seeing it from my join on
     if ((me.history_from_seq === null || me.history_recheck) && historyKinds(room.kind)) {
@@ -203,7 +205,7 @@ export class Rooms {
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
-    const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
+    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
     const rank = (k: Room['kind']) => (k === 'all' ? 0 : k === 'team' ? 1 : 2)
     return out.sort((a, b) => (b.activityAt.localeCompare(a.activityAt)) || rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id))
   }

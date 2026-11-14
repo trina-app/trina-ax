@@ -23,6 +23,7 @@
 // start, and these turns were just checked); and is audited (chat.share: counts and whether it was confirmed; no names,
 // no content). Nothing unshares it (D1). The steps of the earlier answers show their words alone to everyone but the
 // person whose turn it was (chat/store.ts viewSteps): their labels can name paths, addresses or a remembered text.
+import { instructionFiles } from './prompt'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -137,7 +138,8 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     const before = stateOf(ctx, rt, userId, a.row.id, locale)
     const { project, audience, messages } = before
     // a guest among the project's people: what the chat took from skills/ counts too (answer-share.ts withSkillReads)
-    const use = withSkillReads(db, chatUse(db, a.row.id), audience)
+    const sender = loadPrincipal(db, userId)
+    const use = withSkillReads(db, chatUse(db, a.row.id), audience, sender ? instructionFiles(ctx.files, sender) : [])
     const prov = await provenanceChecker(ctx, userId, audience, use.answers).of([use], new Set())
     // (also with nobody else in the project now: whoever gets access later sees the whole chat)
     const memories = memoriesInPlay(db, a.row.id, userId)

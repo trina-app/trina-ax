@@ -135,3 +135,25 @@ test('removal: a save that leaves the guest out switches the account off; trashi
   expect(status(g3.id)).toBe('disabled')
   expect((await g3.client.try('GET', '/api/me')).status).toBe(401)
 })
+
+test('a guest never writes the project\'s skills (members\' AI loads them); elsewhere in the project they write', async () => {
+  const { mia, quote, g } = await setup('a-guests-projects-skills')
+  const folder = quote.folderPath as string
+  await mia.client.call('POST', '/api/files/mkdir', { path: `${folder}/skills` })
+  const write = (c: any, p: string) => c.try('PUT', '/api/files/content', { path: p, content: '# notes', baseSha256: null })
+  expect((await write(g.client, `${folder}/skills/evil.md`)).status).toBeGreaterThanOrEqual(400)
+  expect((await write(g.client, `${folder}/notes.md`)).status).toBeLessThan(300)
+  // they still read it
+  expect((await g.client.try('GET', `/api/files/tree?path=${encodeURIComponent(`${folder}/skills`)}`)).status).toBe(200)
+  // a member writes there as before
+  expect((await write(mia.client, `${folder}/skills/rule.md`)).status).toBeLessThan(300)
+})
+
+test('at start: a guest whose place went away without an access change is switched off', async () => {
+  const { quote, g } = await setup('a-guests-projects-start')
+  const { disablePlacelessGuests } = await import('../../server/src/admin/guests')
+  // the project's row points elsewhere (a restored backup, a folder gone on disk): no rule change ran
+  h.ctx.db.query("UPDATE projects SET trashed_with = 'restored-elsewhere' WHERE id = ?").run(quote.id)
+  expect(disablePlacelessGuests(h.ctx, null)).toEqual([g.id])
+  expect((await g.client.try('GET', '/api/me')).status).toBe(401)
+})
