@@ -122,12 +122,14 @@ describe('a sleeping team that stays asleep (the control plane answers waking)',
     expect([r.status, r.headers.get('retry-after')]).toEqual([503, '4'])
     expect(await r.json()).toMatchObject({ error: { code: 'unavailable', reason: 'team_waking', retryAfter: 4 } })
   })
-  test('WebSocket: held, then closed 1013', async () => {
+  test('WebSocket: closed 1013 and never asks for a wake (an app left open must not wake the team again after every stop)', async () => {
+    const before = calls.filter((c) => c.teamId === t.id).length
     const code = await new Promise<number>((resolve) => {
       const ws = new WebSocket(teamUrl(PORT, 'sleepy', '/chat').replace('http:', 'ws:'))
       ws.onclose = (e) => resolve(e.code)
     })
     expect(code).toBe(1013)
+    expect(calls.filter((c) => c.teamId === t.id).length).toBe(before)
   })
 })
 

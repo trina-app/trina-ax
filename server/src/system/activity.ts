@@ -1,10 +1,11 @@
 // When this server was last in use, for the hosted service's sleep policy (F2: an idle hosted team's server is stopped,
 // a free team's VM suspended to disk or a trial team's EC2 instance stopped, and started on the next request). One
 // clock per server process; it starts at the last use saved before (configureActivityStore), else at the start.
-//   in use: a signed-in API request (session middleware; every chunk of an upload is one), an open realtime connection,
+//   in use: a signed-in API request (session middleware; every chunk of an upload is one),
 //   a running or queued answer, a queued or running background job (transcribe, backup, export, update, restore), a
 //   dev environment job that waits or runs, or a backup in progress (the nightly one has no jobs row)
-//   (Ops.statusFile, every 30 s). Requests that no one signed in to make (health checks, probes) do not count.
+//   (Ops.statusFile, every 30 s). An open realtime connection that does nothing (a web, desktop or phone app left open) is
+//   NOT use (owner decision 2026-11-14); a message, answer or other signed-in request made from it still is (HTTP requests and jobs; presence and typing frames are not). Requests that no one signed in to make (health checks, probes) do not count.
 //   due work: the next enabled schedule and the next push retry (every push delivery queue); the control plane wakes
 //   the server before it.
 // status/status.json carries the result as `activity` (durations, not times: the guest clock can be behind after a
@@ -93,10 +94,11 @@ export function busyJobs(db: Database): number {
   } catch { return 1 }
 }
 
-/** The facts for status.json. Connections, running or queued answers and background jobs count as use now. */
+/** The facts for status.json. Running or queued answers and background jobs count as use now; open connections are
+ *  reported but do not (an idle app left open must not keep a hosted team awake). */
 export function activityFacts(o: { db: Database; connections: number; busy: boolean; now?: number }): ActivityFacts {
   const now = o.now ?? Date.now()
-  if (o.connections > 0 || o.busy || busyJobs(o.db) > 0) touchActivity(now)
+  if (o.busy || busyJobs(o.db) > 0) touchActivity(now)
   saveActivity(now)
   const due = nextScheduleDue(o.db, now)
   return {
@@ -106,7 +108,7 @@ export function activityFacts(o: { db: Database; connections: number; busy: bool
   }
 }
 
-/** Is the team sleepable by these facts (no answer, no connection, no schedule due within the guard)? */
+/** Is the team sleepable by these facts (no answer, no schedule due within the guard)? Open connections are ignored. */
 export function sleepableBy(f: ActivityFacts, running: number, queued: number): boolean {
-  return running === 0 && queued === 0 && f.connections === 0 && (f.nextScheduleInSec === null || f.nextScheduleInSec > SLEEP_SCHEDULE_GUARD_SEC)
+  return running === 0 && queued === 0 && (f.nextScheduleInSec === null || f.nextScheduleInSec > SLEEP_SCHEDULE_GUARD_SEC)
 }

@@ -26,16 +26,19 @@ function insertSchedule(d: ReturnType<typeof db>, id: string, nextRunAt: string 
 }
 
 describe('activity clock', () => {
-  test('touch moves the clock forward only; connections and answers count as use now', () => {
+  test('touch moves the clock forward only; answers count as use now; open connections do not', () => {
     const d = db()
     try {
       setLastActivity(1_000_000)
       touchActivity(900_000)
       expect(lastActivity()).toBe(1_000_000)
       expect(activityFacts({ db: d, connections: 0, busy: false, now: 1_600_000 })).toEqual({ connections: 0, idleForSec: 600, nextScheduleInSec: null })
-      expect(activityFacts({ db: d, connections: 2, busy: false, now: 1_700_000 }).idleForSec).toBe(0)
+      // an app left open (2 live connections, nothing else) is not use: the clock keeps running
+      expect(activityFacts({ db: d, connections: 2, busy: false, now: 1_700_000 })).toMatchObject({ connections: 2, idleForSec: 700 })
       expect(activityFacts({ db: d, connections: 0, busy: true, now: 1_800_000 }).idleForSec).toBe(0)
       expect(activityFacts({ db: d, connections: 0, busy: false, now: 1_860_000 }).idleForSec).toBe(60)
+      touchActivity(1_900_000) // a request on an open connection is a signed-in request: it counts
+      expect(activityFacts({ db: d, connections: 2, busy: false, now: 1_960_000 }).idleForSec).toBe(60)
     } finally { d.close() }
   })
 
@@ -50,7 +53,7 @@ describe('activity clock', () => {
       expect(sleepableBy(f, 0, 0)).toBe(false) // due within 15 minutes
       expect(sleepableBy({ ...f, nextScheduleInSec: 901 }, 0, 0)).toBe(true)
       expect(sleepableBy({ ...f, nextScheduleInSec: null }, 1, 0)).toBe(false)
-      expect(sleepableBy({ ...f, nextScheduleInSec: null, connections: 1 }, 0, 0)).toBe(false)
+      expect(sleepableBy({ ...f, nextScheduleInSec: null, connections: 1 }, 0, 0)).toBe(true) // open connections are ignored
     } finally { d.close() }
   })
 
@@ -132,10 +135,10 @@ describe('admin.js cloud-idle (status.json)', () => {
     statusFile(dir, { activity: { connections: 0, idleForSec: 1800, nextScheduleInSec: 3600 } })
     expect(cloudIdle({ statusDir: dir, now: at(30) })).toEqual({ fresh: true, connections: 0, idleForSec: 1830, nextScheduleInSec: 3570, queued: 0, sleepable: true })
   })
-  test('not sleepable: an open connection, a queued answer, a schedule soon, a stale file, an older server', () => {
+  test('not sleepable: a queued answer, a schedule soon, a stale file, an older server', () => {
     const dir = path.join(W, 'st2')
     statusFile(dir, { activity: { connections: 1, idleForSec: 0, nextScheduleInSec: null } })
-    expect(cloudIdle({ statusDir: dir, now: at(1) }).sleepable).toBe(false)
+    expect(cloudIdle({ statusDir: dir, now: at(1) }).sleepable).toBe(true) // an open app alone is not use (the idle clock decides)
     statusFile(dir, { activity: { connections: 0, idleForSec: 4000, nextScheduleInSec: null }, queue: { running: 0, queued: 1 } })
     expect(cloudIdle({ statusDir: dir, now: at(1) }).sleepable).toBe(false)
     statusFile(dir, { activity: { connections: 0, idleForSec: 4000, nextScheduleInSec: 900 } })
