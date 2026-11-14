@@ -13,6 +13,7 @@ import type { Project, ProjectAccess, ProjectAccessPreview, WideningAnswers } fr
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ProjectMembersDialog } from '../../src/components/ProjectMembersDialog'
 import { WideningDraftHost } from '../../src/components/WideningDraftHost'
+import { ACCESS_COUNT_DEBOUNCE_MS } from '../../src/components/ProjectParticipants'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useProjects } from '../../src/store/projects'
@@ -107,6 +108,26 @@ describe('the warning and the list', () => {
     await m.click('widening-list-back')
     await m.until(() => m.find('participant-user-bob'), 'Bob still picked', 2000)
     expect(m.get('participant-user-bob').getAttribute('data-state')).toBe('new')
+    await m.unmount()
+  })
+
+  test('QA TC-1408: the dry run (with its widening count) is asked 400 ms after the last pick, once', async () => {
+    screen(false)
+    routesWith(2)
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await new Promise((r) => setTimeout(r, ACCESS_COUNT_DEBOUNCE_MS + 150))
+    const previews = () => sent.filter((x) => x.key === 'POST /api/projects/access-preview').length
+    const before = previews()
+    await m.type('project-participants-search', 'bob')
+    await m.click(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000))
+    await m.click('participant-remove-user-sora')
+    await new Promise((r) => setTimeout(r, 300))
+    expect(previews()).toBe(before)
+    await m.until(() => (previews() > before ? m.find('project-access-summary') : null), 'the dry run', 2000)
+    await new Promise((r) => setTimeout(r, ACCESS_COUNT_DEBOUNCE_MS + 100))
+    expect(previews()).toBe(before + 1)
+    expect(ACCESS_COUNT_DEBOUNCE_MS).toBe(400)
     await m.unmount()
   })
 
