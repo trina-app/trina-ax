@@ -3,7 +3,7 @@
 import { plainLabel, ROOM_APP_DAILY_CAP, type InboxNotification } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { groupName, mayManageApps, memberRow, roomRow } from '../store'
-import { roomAppsOf, type AppRow } from './service'
+import { leaverSource, roomAppsOf, type AppRow } from './service'
 
 export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomApp']> | null {
   const m = /^(.+)\.(\d{4}-\d{2}-\d{2})$/.exec(sourceId)
@@ -21,6 +21,21 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
     appId, name: plainLabel(row.name, 40), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
     day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
   }
+}
+
+/** The "someone who left knows the address" notice (notifications 'room_app.leaver', table room_app_leaver_notices,
+ * migration 351): the app and its room, read when the notice is read. Null once the app is removed or got a new address
+ * (the source's token hash prefix is no longer the app's). The room is named and linked only while the person is in it. */
+export function roomAppLeaverOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomAppLeaver']> | null {
+  const m = /^(.+)\.([0-9a-f]{12})$/.exec(sourceId)
+  if (!m) return null
+  const [, appId, hash] = m as unknown as [string, string, string]
+  const row = ctx.db.query('SELECT id, room_id, name, token_hash FROM room_apps WHERE id = ?').get(appId) as Pick<AppRow, 'id' | 'room_id' | 'name' | 'token_hash'> | null
+  if (!row || leaverSource(row) !== `${appId}.${hash}`) return null
+  const room = roomRow(ctx.db, row.room_id)
+  const inRoom = !!room && !room.archived_at && !!memberRow(ctx.db, room.id, userId)
+  const name = inRoom && room.kind !== 'dm' ? room.name || groupName(ctx.db, room) : null
+  return { appId, name: plainLabel(row.name, 40), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null }
 }
 
 /** The notice's app and its room while the person is still in that room and it is not archived (ids only: it runs inside

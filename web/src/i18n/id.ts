@@ -3714,6 +3714,7 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "Seorang anggota tim meminta akunnya dihapus.",
   "notifications.event.account.deletion_due": "Permintaan penghapusan akun Anda kini punya tanggal.",
   "notifications.event.room_app.paused": "Sebuah aplikasi di ruangan mencapai batas pesan hari ini dan dijeda. Mulai lagi besok.",
+  "notifications.event.room_app.leaver": "Seseorang yang sudah keluar tahu alamat sebuah aplikasi di ruangan. Buat alamat baru di pengaturannya.",
   "notifications.event.account.reset_link": "Tautan reset kata sandi dibuat untuk akun Anda.",
   "notifications.resetLink.server": "Tautan reset kata sandi untuk akun Anda dibuat di server.",
   "notifications.resetLink.by": "{name} membuat tautan reset kata sandi untuk akun Anda.",

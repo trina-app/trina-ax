@@ -3670,6 +3670,7 @@ export const ja: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "チームメンバーがアカウントの削除を依頼しました。",
   "notifications.event.account.deletion_due": "アカウント削除の依頼に日付が決まりました。",
   "notifications.event.room_app.paused": "ルームのアプリが今日のメッセージ数の上限に達したため一時停止しました。明日また始まります。",
+  "notifications.event.room_app.leaver": "退出した人がルームのアプリのアドレスを知っています。アプリの設定で新しいアドレスを発行してください。",
   "notifications.event.account.reset_link": "あなたのアカウントのパスワード再設定リンクが作成されました。",
   "notifications.resetLink.server": "サーバー上で、あなたのアカウントのパスワード再設定リンクが作成されました。",
   "notifications.resetLink.by": "{name}さんがあなたのアカウントのパスワード再設定リンクを作成しました。",
