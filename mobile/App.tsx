@@ -13,6 +13,7 @@ import { documentId, documentScript, FileTransfers, loadStartFences, MobileRecei
 import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhotoPicks } from './src/photos'
+import { Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
 import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
@@ -572,11 +573,27 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
   const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setPageNav(null); setFailed(kind) }
+  // The failure screen tries again by itself (src/reconnect.ts, QA TC-2265): when the team answers its health check
+  // again, the page loads again, as Try again does (the source is still the page that failed: a tapped push's chat)
+  const reconnect = useRef<Reconnect | null>(null)
+  if (!reconnect.current) reconnect.current = new Reconnect(
+    async () => { const c = await checkTeam(address.origin, service.teamDomain); return c.ok || c.reason !== 'unreachable' },
+    () => setFailed(null))
+  useEffect(() => {
+    const again = reconnect.current!
+    if (failed) again.start(); else again.stop()
+  }, [failed])
+  useEffect(() => {
+    const again = reconnect.current!
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') again.wake(); else again.pause() })
+    return () => { sub.remove(); again.stop() }
+  }, [])
   /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
   function settle(url: string) {
     void loaded(url).then(installed => {
       ready.current = installed && !loadFailed.current
       if (ready.current) {
+        reconnect.current?.reset()
         checkSession()
         if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)
       }
@@ -590,7 +607,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       }, 3000)
     }, () => fail('unreachable'))
   }
-  // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page.
+  // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page; the
+  // app also does by itself once the team answers (reconnect above)
   if (failed) return <Center>
     <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
     <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>

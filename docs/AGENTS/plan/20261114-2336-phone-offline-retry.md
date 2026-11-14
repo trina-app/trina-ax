@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 23:36
 - Branch: `fix/qa-1115-phone-offline-retry`
-- Status: in progress
+- Status: done
 - Where: mobile/ (Team AX core). Why: the phone app's own native failure screen (see docs/REPOSITORY-RULES.md: 휴대폰 → core)
 - Version impact: patch, a fix in the phone app (needs a new store build: the app has no over-the-air updates)
 
@@ -31,3 +31,9 @@ module is a bigger change. The 15 s cap keeps the wait short without one.
 
 A server that answers health but fails the page (500, render process gone) would loop: the backoff is kept across
 failures and only reset after a page loads. No migrations, no server change.
+
+## Result
+
+`mobile/src/reconnect.ts` (backoff 2/4/8/15 s, paused in the background, at once on foreground, reset after a page
+loaded) wired into `TeamWeb` in `mobile/App.tsx`; hints in en/ko/zh say the page opens by itself;
+`tests/unit/mobile-reconnect.test.ts` with fake timers and a fake network. Reaches phones with the next store build.
