@@ -375,9 +375,12 @@ export class DemoServer extends MockServer {
 
   override async runSharedTurn(chat: Chat, user: User, prompt: string, assistant: Message) {
     await this.playTurn(chat, user, prompt, assistant)
+    // the answer's end goes to its runner (the mock sends a shared chat's turn events to the runner only), then the chat
+    // is free again
     const s = this.sharedChats.get(chat.id)
-    if (s) s.runner = null
     this.finishTurn(chat, assistant)
+    if (s) s.runner = null
+    this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
   }
 
   finishTurn(chat: Chat, assistant: Message) {
