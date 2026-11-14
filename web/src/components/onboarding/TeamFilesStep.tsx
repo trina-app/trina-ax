@@ -32,7 +32,7 @@ import { baseName } from '../../lib/paths'
 import { canPickHandle, canPickInput } from '../../lib/skillScan'
 import { allPersonal, dirFromEntry, dirFromFiles, dirFromHandle, findAlready, findDocs, forAi, groupDocs, mergeDocs, newPicks, rankEntries, tick, walkFolder, type DirEntryLike, type DirHandleLike, type LocalDoc, type WalkDir } from '../../lib/teamFiles'
 import { useFolderWords } from '../../lib/folderLabels'
-import { teamReach } from '../../lib/welcome'
+import { teamReach, wantsTeam } from '../../lib/welcome'
 import { currentLocale, t as tNow, useLocale, useT, type MessageKey } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -55,11 +55,13 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
  * everyone in the team sees; on a team that started before, its group's folder), then the other groups' folders. `id`:
  * the group's id, or 'shared'. `groupId`: the group whose members see it (null: everyone in the team). `name`: the
  * folder in words ("전사 공유", a group's name); `who`: who sees it ("Acme", a group's name). */
-interface Place { id: string; groupId: string | null; name: string; who: string; folder: string }
+export interface Place { id: string; groupId: string | null; name: string; who: string; folder: string }
 
-/** The team's home as a place (the welcome row's team group: teamHome). `teamName`: the team, for shared/'s audience. */
-function homePlace(team: NonNullable<WelcomeProgress['teamGroup']>, teamName: string, shared: string): Place {
-  return team.home === SHARED_HOME ? { id: SHARED_HOME, groupId: null, name: shared, who: teamName, folder: SHARED_HOME }
+/** The team's home as a place (the welcome row's team group: teamHome). `teamName`: the team, for shared/'s audience.
+ * No team group recorded (the team's start failed when 회사 소개 was left, or has not run): shared/, which every team
+ * has from its first start (admin/folders.ts) and which needs no group, so the step is never left without a place. */
+export function homePlace(team: WelcomeProgress['teamGroup'] | undefined, teamName: string, shared: string): Place {
+  return !team || team.home === SHARED_HOME ? { id: SHARED_HOME, groupId: null, name: shared, who: teamName, folder: SHARED_HOME }
     : { id: team.id, groupId: team.id, name: team.name, who: team.name, folder: team.folder }
 }
 
@@ -304,7 +306,13 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const team = progress.teamGroup
   const me = useMeStrict()
   const words = useFolderWords()
-  const home = team ? homePlace(team, me.team.name, words.name(SHARED_HOME, SHARED_HOME)) : null
+  const home = homePlace(team, me.team.name, words.name(SHARED_HOME, SHARED_HOME))
+  // the team's start did not go through when 회사 소개 was left (that failure never holds the owner there): tried again
+  // here, once, quietly; the files go to 전사 공유 either way (QA: step 4 had no picker, only "나중에 하기")
+  useEffect(() => {
+    if (!dialog && me.user.role === 'owner' && wantsTeam(useWelcome.getState().progress ?? progress)) void useWelcome.getState().setupTeam().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const draft = useDraft()
   const run = useRuns((s) => s.tagged[TAG] ?? null)
   const org = useOrganize()
@@ -319,7 +327,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const organizing = !!run && org.runId === run.view.id && (org.org.s === 'reading' || org.org.s === 'proposal' || org.org.s === 'result')
   // the team's home, and other groups' folders (Admin's folder list knows which folder is whose); with shared/ as the
   // home the team group's own folder is not offered (shared/ is the team's place: the same people and more)
-  const [places, setPlaces] = useState<Place[]>(() => (home ? [home] : []))
+  const [places, setPlaces] = useState<Place[]>(() => [home])
   useEffect(() => {
     let live = true
     void Promise.all([api.call(API.listGroups), api.call(API.listFolders)]).then(([groups, folders]) => {
@@ -328,11 +336,11 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         const f = folders.items.find((x) => x.groupId === g.id && x.exists)
         return f ? [{ id: g.id, groupId: g.id, name: g.name, who: g.name, folder: f.path }] : []
       })
-      setPlaces([...(home ? [home] : []), ...other])
+      setPlaces([home, ...other])
     }, () => {})
     return () => { live = false }
-  }, [team?.id, home?.id])
-  const place = places.find((p) => p.id === draft.placeId) ?? places[0] ?? null
+  }, [team?.id, home.id])
+  const place = places.find((p) => p.id === draft.placeId) ?? places[0] ?? home
   // the run is shown when the step opens with one and nothing else is under way here (F4/F5, never F1)
   useEffect(() => {
     const d = useDraft.getState()
@@ -452,15 +460,13 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     body = (
       <div className="space-y-5">
         <StepHead title={t('welcome.teamFiles.phoneTitle')} desc={t('welcome.teamFiles.phoneDesc')} />
-        {place ? <TeamReach team={place.who} groupId={place.groupId} /> : <p className="text-label text-muted">{t('welcome.teamFiles.noFolder')}</p>}
-        {place?.id === SHARED_HOME && <OrganizeLine />}
+        <TeamReach team={place.who} groupId={place.groupId} />
+        {place.id === SHARED_HOME && <OrganizeLine />}
         {notes}
         <div className="space-y-2">
-          {place && (
-            <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
-              <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
-            </Button>
-          )}
+          <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
+            <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
+          </Button>
           {progress.steps.files === 'done' && !dialog ? (
             <Button variant="ghost" className="w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>
           ) : later && <div className="flex justify-center">{later}</div>}
@@ -472,29 +478,25 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     body = (
       <div className="space-y-5">
         <StepHead title={t('welcome.teamFiles.title')} desc={t('welcome.teamFiles.desc')} />
-        {place ? (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              {done && <Button variant="primary" className="max-sm:w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>}
-              <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => void pickFolder(false)} data-testid="welcome-team-files-pick">
-                <FolderOpen size={14} aria-hidden /> {t(draft.blocked ? 'welcome.teamFiles.otherFolder' : 'welcome.teamFiles.pickFolder')}
-              </Button>
-            </div>
-            {draft.empty && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-empty">{t('welcome.teamFiles.empty')}</p>}
-            {draft.blocked && <MacBlocked folder={draft.blocked} />}
-            {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
-            <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
-            <TeamReach team={place.who} groupId={place.groupId} />
-            {place.id === SHARED_HOME && <OrganizeLine />}
-            {notes}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {done && <Button variant="primary" className="max-sm:w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>}
+            <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" disabled={stepBusy} onClick={() => void pickFolder(false)} data-testid="welcome-team-files-pick">
+              <FolderOpen size={14} aria-hidden /> {t(draft.blocked ? 'welcome.teamFiles.otherFolder' : 'welcome.teamFiles.pickFolder')}
+            </Button>
           </div>
-        ) : <p className="text-label text-muted">{t('welcome.teamFiles.noFolder')}</p>}
+          {draft.empty && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-empty">{t('welcome.teamFiles.empty')}</p>}
+          {draft.blocked && <MacBlocked folder={draft.blocked} />}
+          {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
+          <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
+          <TeamReach team={place.who} groupId={place.groupId} />
+          {place.id === SHARED_HOME && <OrganizeLine />}
+          {notes}
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {place ? (
-            <button type="button" className={clsx(quietLink, 'text-sm')} disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
-              {t('welcome.teamFiles.pickFiles')}
-            </button>
-          ) : <span />}
+          <button type="button" className={clsx(quietLink, 'text-sm')} disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
+            {t('welcome.teamFiles.pickFiles')}
+          </button>
           {!done && later}
         </div>
       </div>
