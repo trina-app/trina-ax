@@ -8,11 +8,12 @@ import path from 'node:path'
 import { FolderEditPreview, type Folder } from '@mycel/shared/api'
 import { msg } from '../../server/src/auth/messages'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { EDIT_BELOW, EDIT_BELOW_PEOPLE, EDIT_PEOPLE, editPreview, rulesHash, withRules } from '../../server/src/admin/access-edit'
+import { EDIT_BELOW, EDIT_BELOW_PEOPLE, EDIT_PEOPLE, editPreview, rulesHash } from '../../server/src/admin/access-edit'
 import { byPerson } from '../../server/src/admin/access-rows'
 import { treeCmp, whoAt } from '../../server/src/admin/access-tree'
 import { newId } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const rule = (subjectType: 'everyone' | 'role' | 'group' | 'user', subjectId: string | null, access: Access) => ({ subjectType, subjectId, access })
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
@@ -48,7 +49,7 @@ test('every change is RuleSet.access before and after, at the folder and the rul
       groups: groups.filter(() => rand() < 0.3),
     }))
     const folders = ['', 'a', 'a/b', 'a/b/c', 'a/b/c/d', 'a/e', 'a/e/f', 'g', 'skills', 'skills/x', 'shared', 'users/p3', '.system/trash/x', 'a/b/.MYCEL-TMP-z']
-    const rows: ConstructorParameters<typeof RuleSet>[0] = []
+    const rows: RuleRow[] = []
     const someRule = () => {
       const t = pick(['everyone', 'role', 'group', 'group', 'user'] as const)
       return { subjectType: t, subjectId: t === 'everyone' ? null : t === 'role' ? pick(['member', 'admin']) : t === 'group' ? pick(groups) : pick(people).id, access: pick(ACCESS) }
@@ -63,14 +64,14 @@ test('every change is RuleSet.access before and after, at the folder and the rul
         rows.push({ path: f, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })
       }
     }
-    const rules = new RuleSet(rows)
+    const rules = ruleWorld(rows)
     const at = pick(['', 'a', 'a/b', 'a/b/c', 'a/e', 'g', 'g/new', 'skills', 'skills/x', 'shared'])
     const next = Array.from({ length: Math.floor(rand() * 4) }, someRule).filter((r, i, all) => all.findIndex((x) => x.subjectType === r.subjectType && x.subjectId === r.subjectId) === i)
     const out = editPreview({ rules, people, groupName: (id) => `G ${id}`, personName: (id) => `U ${id}` }, at, next, { team: at === 'shared' ? 'shared' : at === 'skills' ? 'skills' : null })
-    const after = withRules(rules, at, next)
+    const after = rules.replacing(at, { rules: next })
 
     // the brute force: every person at the folder and at every shown rule folder strictly below it
-    const ruleBelow = rules.ruleFolders().filter((q) => q !== at && (at === '' || q.startsWith(at + '/')) && !q.startsWith('users') && !q.startsWith('.system') && !q.includes('.MYCEL-TMP-')).sort(treeCmp)
+    const ruleBelow = rules.boundaryFolders().filter((q) => q !== at && (at === '' || q.startsWith(at + '/')) && !q.startsWith('users') && !q.startsWith('.system') && !q.includes('.MYCEL-TMP-')).sort(treeCmp)
     const want = new Map<string, { before: Access; after: Access; below: string[] }>()
     for (const p of people) {
       const b = rules.access(p, segsOf(at))
@@ -115,7 +116,7 @@ test('every change is RuleSet.access before and after, at the folder and the rul
     const dirs = out.changes.map((c) => c.direction)
     expect(dirs).toEqual([...dirs].sort((x, y) => (x === y ? 0 : x === 'less' ? -1 : 1)))
     // "follow the folder above": who with no rules of its own there
-    expect(out.above).toEqual(at === '' ? null : whoAt({ rules: withRules(rules, at, []), people, groupName: (id) => `G ${id}`, personName: (id) => `U ${id}` }, segsOf(at)))
+    expect(out.above).toEqual(at === '' ? null : whoAt({ rules: rules.replacing(at, { rules: [], limited: false }), people, groupName: (id) => `G ${id}`, personName: (id) => `U ${id}` }, segsOf(at)))
     expect(out.hash).toBe(rulesHash(rules.rulesAt(at)))
     changed += want.size
     below += [...want.values()].filter((w) => w.below.length).length
@@ -129,7 +130,7 @@ test('converting old role rows changes nobody: member X becomes everyone X (repl
   for (let world = 0; world < 300; world++) {
     const groups = ['g0', 'g1', 'g2']
     const people: Principal[] = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, role: i === 0 ? 'owner' : i === 1 ? 'admin' : 'member', groups: groups.filter(() => rand() < 0.4) }))
-    const rows: ConstructorParameters<typeof RuleSet>[0] = []
+    const rows: RuleRow[] = []
     for (const f of ['', 'a', 'a/b', 'a/b/c']) {
       if (rand() < 0.4) continue
       if (rand() < 0.6) rows.push({ path: f, subject_type: 'role', subject_id: 'member', access: pick(ACCESS) })
@@ -138,7 +139,7 @@ test('converting old role rows changes nobody: member X becomes everyone X (repl
       if (rand() < 0.5) rows.push({ path: f, subject_type: 'group', subject_id: pick(groups), access: pick(ACCESS) })
       if (rand() < 0.3) rows.push({ path: f, subject_type: 'user', subject_id: pick(people).id, access: pick(ACCESS) })
     }
-    const rules = new RuleSet(rows)
+    const rules = ruleWorld(rows)
     const at = pick(['', 'a', 'a/b', 'a/b/c'])
     const now = rules.rulesAt(at)
     // the conversion the panel makes (web/src/lib/access-edit.ts): the member row's access, else the everyone row's

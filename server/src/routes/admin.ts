@@ -13,10 +13,9 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
-  previewRules, replaceRules, resolveFolderPath, rulesHashAt, rulesOf, toFolder, validateRules, type FolderRow,
+  actualFolderPath, afterAccessChange, assertNotInProject, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, isLimited, keepOfRow, listFolders, originKeepers,
+  previewRules, resolveFolderPath, rulesHashAt, rulesHashV1At, rulesOf, toFolder, validateRules, writeFolderAccess, type FolderRow,
 } from '../admin/folders'
-import { rulesHash } from '../admin/access-edit'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
@@ -110,6 +109,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.createGroup, ({ c, body }) => createGroup(c, ctx, body))
     kit.handle(API.updateGroup, ({ c, params, body }) => updateGroup(c, ctx, params.id, body))
     kit.handle(API.deleteGroup, ({ c, params }) => deleteGroup(c, ctx, params.id))
+    kit.handle(API.originCheck, ({ body }) => ({ kept: originKeepers(ctx.db, body.changes).map((k) => ({ user: { id: k.userId, name: k.name }, path: k.path, access: k.access, groupId: k.groupId })) }))
 
     // ---------------- folders and rules ----------------
     // What the admin API refuses here, and only here: replaceRules / dropFolderRow also serve deleting a group, deleting
@@ -124,8 +124,18 @@ export const adminRoutes: RouteModule = {
       if (!f || isParkedRow(f.path)) return fail('not_found')
       return f
     }
-    const keepsRules = (p: string, rules: readonly unknown[], locale: Locale) => {
-      if (!rules.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
+    // shared/ and skills/ keep at least one rule or a limit (with neither, everyone but the owner and admins gets what
+    // the team root gives)
+    const keepsRules = (p: string, rules: readonly unknown[], limited: boolean, locale: Locale) => {
+      if (!rules.length && !limited && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
+    }
+    // rules give view or edit (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): a "no access" rule
+    // or a role rule is refused, said per rule
+    const onlyGrants = (rules: readonly { subjectType: string; access: string }[], locale: Locale, field = 'body.rules') => {
+      for (const [i, r] of rules.entries()) {
+        if (r.subjectType === 'role') fail('validation', msg('noRoleRules', locale), { fields: { [`${field}.${i}.subjectType`]: 'no_role_rules' }, params: { reason: 'no_role_rules' } })
+        if (r.access === 'none') fail('validation', msg('noDenyRules', locale), { fields: { [`${field}.${i}.access`]: 'no_deny_rules' }, params: { reason: 'no_deny_rules' } })
+      }
     }
     // A save that names the rules it started from (`expectedHash`, Folder.rulesHash) is refused when the folder's rules
     // are not those any more: another admin, or the Members screen's skill manager switch, changed them in between, and
@@ -139,22 +149,23 @@ export const adminRoutes: RouteModule = {
       const locale = c.get('locale')
       // a project's folder and anything in it: its members are changed on its page (before anything else is looked at)
       assertNotInProject(body.path, locale)
+      onlyGrants(body.rules, locale)
       validateRules(ctx.db, body.rules, locale)
       // judged before anything is made on disk (create: true)
       const typed = actualFolderPath(ctx, body.path)
-      if (typed !== null) keepsRules(typed, body.rules, locale)
+      if (typed !== null) keepsRules(typed, body.rules, body.limited ?? (getFolderByPath(ctx.db, typed)?.limited === 1), locale)
       // another admin's rules made meanwhile: said as such, before anything is made on disk
       if (body.expectedHash !== undefined && typed !== null) sameRules(rulesHashAt(ctx.db, typed), body.expectedHash, locale)
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
       const existing = getFolderByPath(ctx.db, p)
       if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
       // a row with rules made meanwhile (a screen that read the folder list before it): told apart from a bare conflict
-      if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale), { params: { reason: 'folder_exists' } })
+      if (existing && (rulesOf(ctx.db, existing.id).length || existing.limited === 1)) fail('conflict', msg('folderExists', locale), { params: { reason: 'folder_exists' } })
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
         const row = ensureFolderRow(ctx.db, p)
-        replaceRules(ctx.db, row.id, body.rules, auth.user.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules } })
+        writeFolderAccess(ctx.db, row.id, { rules: body.rules, limited: body.limited }, auth.user.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules, ...(body.limited !== undefined ? { limited: body.limited } : {}) } })
         return row
       })()
       afterAccessChange(ctx, before, { actor: auth.user.id, target: p, created: created ? [p] : [] })
@@ -203,14 +214,23 @@ export const adminRoutes: RouteModule = {
       assertNotInProject(f.path, c.get('locale'), 'params.id')
       // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
       if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
-      keepsRules(f.path, body.rules, c.get('locale'))
+      onlyGrants(body.rules, c.get('locale'))
+      keepsRules(f.path, body.rules, body.limited ?? f.limited === 1, c.get('locale'))
       validateRules(ctx.db, body.rules, c.get('locale'))
       const before = captureState(ctx.db)
       const old = rulesOf(ctx.db, f.id)
+      const wasLimited = f.limited === 1
       ctx.db.transaction(() => {
-        sameRules(rulesHash(rulesOf(ctx.db, f.id)), body.expectedHash, c.get('locale'))
-        replaceRules(ctx.db, f.id, body.rules, auth.user.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules } })
+        const now = getFolder(ctx.db, f.id)!
+        // a page from before Limit access (a rules-v1 hash, or a script without a hash) saving a limited folder without
+        // `limited`: it never showed the limit, so it is told to reload instead of saving over it (missing keeps the
+        // limit anyway: this is the second guard)
+        if (now.limited === 1 && body.limited === undefined && (body.expectedHash === undefined || body.expectedHash === rulesHashV1At(ctx.db, f.path)))
+          fail('conflict', msg('clientOutdated', c.get('locale')), { params: { reason: 'client_outdated' } })
+        sameRules(rulesHashAt(ctx.db, f.path), body.expectedHash, c.get('locale'))
+        writeFolderAccess(ctx.db, f.id, { rules: body.rules, limited: body.limited }, auth.user.id)
+        const limitedNow = isLimited(ctx.db, f.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules, ...(limitedNow !== wasLimited ? { limited: { before: wasLimited, after: limitedNow } } : { limited: limitedNow }) } })
       })()
       afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
       return toFolder(ctx, f)
@@ -226,13 +246,13 @@ export const adminRoutes: RouteModule = {
       const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
         dropFolderRow(ctx.db, f.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f.path, detail: { before: old } })
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f.path, detail: { before: old, limited: f.limited === 1 } })
       })()
       afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
     })
 
     kit.handle(API.previewRules, ({ c, body }) => {
-      for (const [i, x] of body.changes.entries()) assertNotInProject(x.path, c.get('locale'), `body.changes.${i}.path`)
+      for (const [i, x] of body.changes.entries()) { assertNotInProject(x.path, c.get('locale'), `body.changes.${i}.path`); onlyGrants(x.rules, c.get('locale'), `body.changes.${i}.rules`) }
       return previewRules(ctx, body.changes, c.get('locale'))
     })
     // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
@@ -243,6 +263,7 @@ export const adminRoutes: RouteModule = {
     // the edit panel: what saving these rules would change (admin/access-edit.ts; nothing is saved)
     kit.handle(API.previewFolderEdit, ({ c, body }) => {
       assertNotInProject(body.path, c.get('locale'))
+      onlyGrants(body.rules, c.get('locale'))
       return explainEdit(ctx, body, c.get('locale'))
     })
 

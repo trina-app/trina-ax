@@ -21,6 +21,7 @@ import { RuleSet, type Access, type Principal } from '../../server/src/policy/ac
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../../server/src/admin/access-explain'
 import { OldRuleSet } from '../lib/access-before-explain'
 import { WORK } from '../lib/env'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 // sizes: PEOPLE=… RULE_FOLDERS=… bun tests/perf/access-explain.ts for another team size
 const PEOPLE = Number(process.env.PEOPLE ?? 300), GROUPS = 50, PROJECTS = 300, RULE_FOLDERS = Number(process.env.RULE_FOLDERS ?? 500)
@@ -85,7 +86,7 @@ const paths: string[][] = Array.from({ length: 3000 }, () => {
   const extra = Math.floor(rand() * 4)
   return [...f, ...Array.from({ length: extra }, (_, k) => (k === extra - 1 ? `file-${Math.floor(rand() * 100)}.md` : `sub${k}`))]
 }).concat(Array.from({ length: 300 }, (_, i) => ['users', `u${i}`, 'notes.md']))
-const now = new RuleSet(rows), old = new OldRuleSet(rows)
+const now = ruleWorld(rows), old = new OldRuleSet(rows)
 for (const p of members) for (const s of paths) if (now.access(p, s) !== old.access(p, s)) throw new Error(`answers differ: ${p.id} ${s.join('/')}`)
 const calls = members.length * paths.length
 function time(fn: (p: Principal, s: string[]) => unknown): number {

@@ -108,20 +108,28 @@ export function seed(db: Database) {
     q('INSERT INTO users (id, username, name, role) VALUES (?,?,?,?)', id, id, name, role)
   q("INSERT INTO groups (id, name) VALUES ('marketing','Marketing'), ('finance','Finance')")
   q("INSERT INTO group_members VALUES ('marketing','alice'), ('finance','bob'), ('marketing','erin')")
-  const rule = (p: string, t: string, s: string | null, a: string) => {
+  const row = (p: string) => {
     let f = db.query('SELECT id FROM folders WHERE path = ?').get(p) as any
     if (!f) { f = { id: 'f_' + p.replace(/[^a-z0-9]/gi, '_') }; q('INSERT INTO folders (id, path) VALUES (?,?)', f.id, p) }
-    q('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,?,?,?)', crypto.randomUUID(), f.id, t, s, a)
+    return f.id as string
   }
+  const rule = (p: string, t: string, s: string | null, a: string) => q('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,?,?,?)', crypto.randomUUID(), row(p), t, s, a)
+  // Limit access (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): the folder, and its legacy marker
+  // "everyone: none" while it has no everyone rule (invariant 1)
+  const limit = (p: string) => { q('UPDATE folders SET limited = 1 WHERE id = ?', row(p)); if (!db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ? AND r.subject_type = 'everyone'").get(p)) rule(p, 'everyone', null, 'none') }
   rule('shared', 'everyone', null, 'write')
   rule('skills', 'everyone', null, 'read')
   rule('groups/marketing', 'group', 'marketing', 'write')
-  rule('groups/marketing/salaries', 'group', 'marketing', 'none')
+  // the salaries: nobody below the owner and admins (before P2: "marketing: none")
+  limit('groups/marketing/salaries')
   rule('groups/finance', 'group', 'finance', 'write')
   rule('projects/falcon', 'user', 'alice', 'write')
   rule('projects/falcon', 'group', 'finance', 'read')
   rule('projects/falcon/public', 'everyone', null, 'read')
   rule('projects/atlas', 'group', 'finance', 'write')
+  // a projects/<name> folder is always limited
+  limit('projects/falcon')
+  limit('projects/atlas')
 }
 
 /** Expected access table: [user, path, access]. The unit test checks policy against this. */

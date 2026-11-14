@@ -4,7 +4,7 @@
 //   member alice   (Alice, 마케팅)  member bob    (Bob, 재무)       password of all four: teamax-demo-1
 //
 // Groups 마케팅 and 재무 (each gets groups/<name>/ with write access for its members), extra folder rules
-// (groups/재무/급여 hidden from the 재무 group, so only admin1 and dion see the payroll), the project "신제품 출시" (its
+// (groups/재무/급여 limited with no rules, so only admin1 and dion see the payroll), the project "신제품 출시" (its
 // members: 마케팅; a project's contents are its members' only), and the sample files in scripts/demo/files (Korean meeting notes,
 // an xlsx, a docx, a PDF, a team rule in skills/). Everything goes through the public REST API, the same calls the
 // admin screens make.
@@ -31,7 +31,7 @@ export const DEMO_TEAM_NAME = '데모 팀'
 export const DEMO_FILES = path.join(import.meta.dir, 'files')
 
 export interface DemoPerson { username: string; name: string; role: 'owner' | 'admin' | 'member'; group: string | null }
-type Level = 'none' | 'read' | 'write'
+type Level = 'read' | 'write'
 /** A folder rule of a demo company, by name: resolved to ids while seeding. */
 export type DemoRule = { group: string; access: Level } | { user: string; access: Level } | { everyone: true; access: Level }
 /** Everything one demo team is made of. The first person is the owner. */
@@ -39,8 +39,9 @@ export interface DemoCompany {
   teamName: string
   people: DemoPerson[]
   groups: { name: string; description: string }[]
-  /** folder rules beyond the group folders (the folder is made with its rules when it is missing) */
-  rules: { path: string; rules: DemoRule[]; why: string }[]
+  /** folder rules beyond the group folders (the folder is made with its rules when it is missing). `limited`: Limit
+   * access (nothing from the folders above reaches it; docs/DECISIONS.md "Folder access adds up like Google Drive (P2)") */
+  rules: { path: string; rules: DemoRule[]; limited?: boolean; why: string }[]
   /** sample files: <filesDir>/<team path> */
   filesDir: string
   /** who uploads a sample file (so the file history and the audit show different people) */
@@ -72,7 +73,7 @@ export const DEMO_COMPANY: DemoCompany = {
   people: DEMO_PEOPLE,
   groups: DEMO_GROUPS,
   rules: [
-    { path: 'groups/재무/급여', rules: [{ group: '재무', access: 'none' }], why: '재무 group: none (only admins and the owner see the payroll)' },
+    { path: 'groups/재무/급여', rules: [], limited: true, why: 'limited, no rules (only admins and the owner see the payroll)' },
     { path: 'projects/신제품-출시', rules: [{ group: '마케팅', access: 'write' }], why: '마케팅 write (the project\'s members)' },
   ],
   filesDir: DEMO_FILES,
@@ -228,11 +229,11 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     if (!f) {
       const parent = path.posix.dirname(r.path)
       if (parent !== '.') await mkdirs(owner, parent)
-      await owner.call(API.createFolder, { body: { path: r.path, create: true, rules } })
-    } else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules } })
+      await owner.call(API.createFolder, { body: { path: r.path, create: true, rules, ...(r.limited ? { limited: true } : {}) } })
+    } else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules, limited: !!r.limited || !!f.limited, ...(f.rulesHash ? { expectedHash: f.rulesHash } : {}) } })
     else {
       const missing = rules.filter((w) => !f.rules.some((x) => same(x, w)))
-      if (missing.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: [...f.rules.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId, access: x.access }) as FolderRuleInput), ...missing] } })
+      if (missing.length || (r.limited && !f.limited)) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: [...f.rules.map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId, access: x.access }) as FolderRuleInput), ...missing], limited: !!r.limited || !!f.limited, ...(f.rulesHash ? { expectedHash: f.rulesHash } : {}) } })
     }
     result.rules.push(`${r.path}: ${r.why}`)
   }

@@ -10,7 +10,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { uuidv7 } from '@mycel/shared/api'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
-import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
+import { ensureFolderRow } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 
 let A: CApp
@@ -105,7 +106,7 @@ describe('a new team project folder', () => {
     const r = await create('alice', { name: 'Secret plan' })
     expect(rulesAt('projects/Secret plan')).toEqual([floor, { t: 'user', s: 'alice', a: 'write' }])
     const root = ensureFolderRow(A.ctx.db, '')
-    A.ctx.db.transaction(() => replaceRules(A.ctx.db, root.id, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol'))()
+    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, root.id, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol'))()
     try {
       expect(await listed('bob', r.body.id)).toBe(false)
       expect(await listed('erin', r.body.id)).toBe(false)
@@ -116,7 +117,7 @@ describe('a new team project folder', () => {
         expect(await managed(who, r.body.id)).toMatchObject({ member: false })
         expect((await A.json('/api/files/tree' + q({ path: 'projects/Secret plan' }), { as: who })).status).toBe(404)
       }
-    } finally { A.ctx.db.transaction(() => replaceRules(A.ctx.db, root.id, [], 'carol'))() }
+    } finally { A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, root.id, [], 'carol'))() }
   })
 
   test('deleting the group that was a project folder\'s last rule keeps the floor (older folders too)', async () => {
@@ -126,7 +127,7 @@ describe('a new team project folder', () => {
     // an older build's project folder: one group rule, no floor
     fs.mkdirSync(path.join(A.team, 'projects/old-one'), { recursive: true })
     const row = ensureFolderRow(A.ctx.db, 'projects/old-one')
-    A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, [{ subjectType: 'group', subjectId: g, access: 'write' }], 'carol'))()
+    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, row.id, [{ subjectType: 'group', subjectId: g, access: 'write' }], 'carol'))()
     const old = uuidv7()
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Old', 'projects/old-one', '', 'carol', '2026-01-01T00:00:00Z')").run(old)
     expect((await A.json(`/api/admin/groups/${g}`, { as: 'carol', method: 'DELETE' })).status).toBe(204)

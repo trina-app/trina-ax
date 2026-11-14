@@ -4,15 +4,16 @@
 // editPreview on a RuleSet), so the words are checked against what the permission function says.
 import { describe, expect, test } from 'bun:test'
 import type { Access, FolderEditChange, FolderEditPreview } from '@mycel/shared/api'
-import { RuleSet, type Principal } from '../../../server/src/policy/access'
+import { type Principal } from '../../../server/src/policy/access'
 import { editPreview } from '../../../server/src/admin/access-edit'
 import { draftOf, rulesOf, type Draft } from '../../src/lib/access-edit'
 import { aboveRows, askTitle, generalLevel, hasPanel, inProjects, kindOf, latentLines, namesText, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk } from '../../src/lib/folder-sharing'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
+import { ruleWorld, type RuleRow } from '../../../tests/lib/rule-world'
 
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
-type Row = ConstructorParameters<typeof RuleSet>[0][number]
+type Row = RuleRow
 const row = (path: string, subject_type: Row['subject_type'], subject_id: string | null, access: Access): Row => ({ path, subject_type, subject_id, access })
 const people: Principal[] = [
   { id: 'olga', name: 'Olga', role: 'owner', groups: [] },
@@ -26,7 +27,7 @@ const people: Principal[] = [
 /** the server's answer for `rules` as the rules of `at`, with the full shape the panel reads */
 const answer = (rows: Row[], at: string, rules: { subjectType: string; subjectId: string | null; access: Access }[]): FolderEditPreview => ({
   path: at, exists: true, connected: false,
-  ...editPreview({ rules: new RuleSet(rows), people, groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => people.find((p) => p.id === id)?.name ?? id }, at, rules, { team: at === 'shared' ? 'shared' : null }),
+  ...editPreview({ rules: ruleWorld(rows), people, groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => people.find((p) => p.id === id)?.name ?? id }, at, rules, { team: at === 'shared' ? 'shared' : null }),
 })
 // "Quotes" (shared/sales/quotes): Sales can edit here, Alice only views; on shared/sales Leads can view and nobody else
 const WORLD = [
@@ -34,7 +35,7 @@ const WORLD = [
   row('shared/sales', 'group', 'leads', 'read'), row('shared/sales', 'everyone', null, 'none'),
   row('shared/sales/quotes', 'group', 'sales', 'write'), row('shared/sales/quotes', 'user', 'alice', 'read'),
 ]
-const QUOTES = new RuleSet(WORLD).rulesAt('shared/sales/quotes')
+const QUOTES = ruleWorld(WORLD).rulesAt('shared/sales/quotes')
 const groups = new Map([['sales', { id: 'sales', name: 'Sales', description: null, memberIds: ['alice', 'bob'] }], ['leads', { id: 'leads', name: 'Leads', description: null, memberIds: ['bob', 'carol'] }]])
 
 describe('which folders have a panel, and which ones it changes', () => {
@@ -120,7 +121,7 @@ describe('when Save asks first (from the server\'s answer only)', () => {
   /** the server's answer for the draft, with Gina switched off (not counted) */
   const answerFor = (draft: Draft, rows = WORLD) => ({
     path: 'shared/sales/quotes', exists: true, connected: false,
-    ...editPreview({ rules: new RuleSet(rows), people, uncounted: off, groupName: (id) => id, personName: (id) => id }, 'shared/sales/quotes', rulesOf(draft, { root: false }), { team: null }),
+    ...editPreview({ rules: ruleWorld(rows), people, uncounted: off, groupName: (id) => id, personName: (id) => id }, 'shared/sales/quotes', rulesOf(draft, { root: false }), { team: null }),
   }) as FolderEditPreview
   const decide = (draft: Draft, rows = WORLD) => saveAsk(answerFor(draft, rows))
 
@@ -144,7 +145,7 @@ describe('when Save asks first (from the server\'s answer only)', () => {
     expect(decide({ ...stored, named: [...stored.named, { subjectType: 'group', subjectId: 'nobody-yet', access: 'write' }] })?.later).toBe(true)
     // everyone may edit while every member today already can: only those who join later gain
     const all = [row('shared/x', 'group', 'sales', 'write'), row('shared/x', 'group', 'leads', 'write'), row('shared/x', 'user', 'erin', 'write'), row('shared/x', 'user', 'frank', 'write'), row('shared/x', 'everyone', null, 'none')]
-    const a = editPreview({ rules: new RuleSet(all), people, groupName: (id) => id, personName: (id) => id }, 'shared/x', [...new RuleSet(all).rulesAt('shared/x').filter((r) => r.subjectType !== 'everyone'), { subjectType: 'everyone', subjectId: null, access: 'write' }], { team: null })
+    const a = editPreview({ rules: ruleWorld(all), people, groupName: (id) => id, personName: (id) => id }, 'shared/x', [...ruleWorld(all).rulesAt('shared/x').filter((r) => r.subjectType !== 'everyone'), { subjectType: 'everyone', subjectId: null, access: 'write' }], { team: null })
     expect(a.more).toBe(0)
     expect(saveAsk(a)?.later).toBe(true)
   })
@@ -167,7 +168,7 @@ describe('who gains later, in the confirm (QA TC-232)', () => {
   const gina: Principal = { id: 'gina', name: 'Gina', role: 'member', groups: [] }
   const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
   const latentOf = (next: { subjectType: string; subjectId: string | null; access: Access }[]) =>
-    editPreview({ rules: new RuleSet(rows), people, uncounted: [gina], groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => id }, 'shared/x', next, { team: null }).latent
+    editPreview({ rules: ruleWorld(rows), people, uncounted: [gina], groupName: (id) => id[0]!.toUpperCase() + id.slice(1), personName: (id) => id }, 'shared/x', next, { team: null }).latent
   test('a change that only lets them view says "open", never "open or edit"', () => {
     const lines = latentLines(en, 'en', latentOf([{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'group', subjectId: 'design', access: 'read' }]), 'Acme')
     expect(lines).toEqual([

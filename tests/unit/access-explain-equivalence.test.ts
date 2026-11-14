@@ -14,6 +14,7 @@ import { makeEnv } from '../lib/env'
 import { projectsCaseInsensitive, RuleSet, setProjectsCaseInsensitive, SYSTEM_PRINCIPAL, type Access, type AccessReason, type Principal } from '../../server/src/policy/access'
 import { OldRuleSet, type OldRule } from '../lib/access-before-explain'
 import { shownPath } from '../../server/src/admin/access-rows'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 // ---------------- the reference: the old function and the members-only zone ----------------
 /** at or below projects/<name>: `projects` compared after NFC and lower-casing; projects/ itself is outside */
@@ -156,7 +157,7 @@ describe('access() and explain() answer exactly as the permission function did b
     for (let seed = 1; seed <= SEEDS; seed++) {
       const w = world(seed)
       const old = new ZonedOld(w.rows)
-      const now = new RuleSet(w.rows)
+      const now = ruleWorld(w.rows)
       const ruleFolders = [...new Set(w.rows.map((r) => r.path))]
       const listings = new Map<Principal, ReturnType<RuleSet['listing']>>()
       const navs = new Map<string, ReturnType<RuleSet['navigator']>>()
@@ -248,7 +249,7 @@ describe('access() and explain() answer exactly as the permission function did b
     let n = 0
     for (const rows of worlds) {
       const old = new OldRuleSet(rows)
-      const now = new RuleSet(rows)
+      const now = ruleWorld(rows)
       for (const p of people) {
         const list = now.listing(p)
         for (const segs of paths) {
@@ -263,7 +264,7 @@ describe('access() and explain() answer exactly as the permission function did b
       }
     }
     // what the answers show in those worlds
-    const [five, hole, ghosts] = worlds.map((w) => new RuleSet(w!))
+    const [five, hole, ghosts] = worlds.map((w) => ruleWorld(w!))
     const mia = people[0]!
     expect(five!.navigator([], 3, shownPath)(mia)).toEqual({ listable: true, via: ['users/mia', 'x1', 'x2'], more: true })
     expect(five!.navigator(['y'], 3, shownPath)(mia)).toEqual({ listable: true, via: ['y/1', 'y/2', 'y/3'], more: true })
@@ -292,7 +293,7 @@ describe('access() and explain() answer exactly as the permission function did b
         }
       }
       walkTree(env.fx.team, [])
-      for (const f of now.ruleFolders()) paths.push(f === '' ? [] : f.split('/'))
+      for (const f of now.boundaryFolders()) paths.push(f === '' ? [] : f.split('/'))
       const people = (env.db.query('SELECT id FROM users').all() as { id: string }[]).map((u) => env.files.principal(u.id))
       let n = 0, zone = 0
       for (const p of people) for (const segs of paths) {
@@ -316,7 +317,7 @@ describe('access() and explain() answer exactly as the permission function did b
   })
 
   test('reasons of a fixed table', () => {
-    const rules = new RuleSet([
+    const rules = ruleWorld([
       { path: 'shared', subject_type: 'everyone', subject_id: null, access: 'write' },
       { path: 'projects/x', subject_type: 'group', subject_id: 'sales', access: 'read' },
       { path: 'projects/x', subject_type: 'group', subject_id: 'ops', access: 'write' },
@@ -355,7 +356,7 @@ describe('access() and explain() answer exactly as the permission function did b
       row('projects/apollo/pub', 'everyone', null, 'read'), row('projects/apollo/memo', 'role', 'member', 'read'),
       // zeus: no rules of its own (an older build made it)
     ]
-    const rules = new RuleSet(rows)
+    const rules = ruleWorld(rows)
     const old = new ZonedOld(rows)
     const adam: Principal = { id: 'adam', name: 'Adam', role: 'admin', groups: [] }
     const olga: Principal = { id: 'olga', name: 'Olga', role: 'owner', groups: ['ops'] }

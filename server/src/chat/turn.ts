@@ -2630,7 +2630,7 @@ export class TurnExec {
       const bases = [...new Set(this.roomNames(start).map(fold))]
       if (SEARCH_TOOLS.has(tool)) {
         const under = (f: string) => { const k = fold(f); return bases.some((b) => b === '' || k === b || k.startsWith(b + '/')) }
-        for (const f of ['', ...rules.ruleFolders()]) {
+        for (const f of ['', ...rules.boundaryFolders()]) {
           if (!under(f) || f.split('/')[0] === 'users') continue
           if (readable(f ? f.split('/') : [])) out.push(sourceOf(this.rt.db, rules, f))
         }
@@ -2649,7 +2649,7 @@ export class TurnExec {
             if (++n > 2000) {
               // too many to look at one by one: the folder's readers, and each folder with its own rules in it by name
               out.push(sourceOf(this.rt.db, rules, r.rel))
-              for (const f of rules.ruleFolders()) if (f.split('/').length === r.segs.length + 1 && (r.rel === '' || f.startsWith(r.rel + '/'))) out.push({ type: 'name', path: f })
+              for (const f of rules.boundaryFolders()) if (f.split('/').length === r.segs.length + 1 && (r.rel === '' || f.startsWith(r.rel + '/'))) out.push({ type: 'name', path: f })
               break
             }
             if (e.isDirectory()) { if (rules.canList(me, segs)) out.push({ type: 'name', path: segs.join('/') }) }

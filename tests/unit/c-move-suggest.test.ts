@@ -19,7 +19,7 @@ const folders = (b: { suggested: { path: string }[] }) => b.suggested.map((s) =>
 /** A file-list line for a file as the nightly run would keep it (the sidecar row with its unit's chain). */
 const line = (rel: string, type: string, what: string) => {
   const st = fs.lstatSync(path.join(A.team, ...rel.split('/')))
-  const units = new Units(RuleSet.load(A.ctx.db).ruleFolders())
+  const units = new Units(RuleSet.load(A.ctx.db).boundaryFolders())
   const segs = rel.split('/')
   fileListOf(A.ctx).store.put({ path: rel, size: st.size, mtimeMs: st.mtimeMs, sha: null, kind: null, real: null, fields: { type, names: [], date: '', what, lang: 'en' },
     via: 'model', readAt: new Date().toISOString(), tries: 0, chain: units.chain(units.listFolderOf(segs).split('/').filter(Boolean)), ino: `${st.dev}:${st.ino}`, batch: null })

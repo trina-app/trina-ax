@@ -199,7 +199,7 @@ describe('one person: every team folder and why', () => {
     expect(r.folders.map((f) => f.path)).toEqual([...r.folders.map((f) => f.path)].sort((a, b) => (a < b ? -1 : 1)))
     const text = JSON.stringify(res)
     // the trashed folder's rules are there, parked under .system/trash/<month>/<id>: they must not show
-    expect(h.ctx.files.rules().ruleFolders().some((f) => f.startsWith('.system/trash/'))).toBe(true)
+    expect(h.ctx.files.rules().boundaryFolders().some((f) => f.startsWith('.system/trash/'))).toBe(true)
     for (const hidden of ['Alice-private-plan-7c1', 'Alice-secret-name-3e9', 'Alice-private-folder-5d2', 'old-team-4b8', '.system', '.mycel-tmp']) expect(text, hidden).not.toContain(hidden)
     expect(r.folders.filter((f) => f.path.startsWith('users')).map((f) => f.path)).toEqual(['users/alice'])
     const by = Object.fromEntries(r.folders.map((f) => [f.path, f]))

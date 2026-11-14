@@ -34,7 +34,7 @@ export function allowedRoots(fx: FsCtx, rules: RuleSet, user: Principal, base: s
   // projects/<name> (the members-only zone, policy/zone.ts) — collect those under base
   const pts = new Map<string, string[]>()
   const add = (s: string[]) => { if (under(base, s)) pts.set(s.join('/'), s) }
-  for (const f of rules.ruleFolders()) if (f !== '') add(f.split('/'))
+  for (const f of rules.boundaryFolders()) if (f !== '') add(f.split('/'))
   add(['users', user.id])
   add(['.system'])
   try { for (const n of fs.readdirSync(path.join(fx.root, 'users'))) add(['users', n]) } catch {}

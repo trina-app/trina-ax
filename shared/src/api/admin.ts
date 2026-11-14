@@ -97,6 +97,15 @@ export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: 
 // ---------------- groups ----------------
 export const GroupBody = z.object({ name: z.string().trim().min(1).max(100), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).default([]) })
 export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100).optional(), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).optional() })
+/**
+ * POST /api/admin/groups/origin-check, before saving a group's members, a person's groups or deleting a group: the
+ * people the one-time folder access conversion named by name (C1-A, docs/DECISIONS.md "Folder access adds up like
+ * Google Drive (P2)") whose membership in one of the groups it recorded changes. They keep that access by name (as
+ * Drive keeps access given by name): the screen warns, with a way to remove it. Each change: a person joins or leaves a
+ * group (or the group goes). Nothing is saved.
+ */
+export const OriginCheckBody = z.object({ changes: z.array(z.object({ userId: UserId, groupId: z.string().min(1).max(64) })).max(5000) })
+export const OriginCheckResponse = z.object({ kept: z.array(z.object({ user: UserRef, path: RelPath, access: Access, groupId: z.string() })) })
 
 // ---------------- folders and rules ----------------
 /** The folder's rules hash the editor started from (`Folder.rulesHash`, `FolderEditPreview.hash`): when the folder's
@@ -104,6 +113,10 @@ export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100
  * refused with 409 and `params.reason` `rules_changed`, and nothing changes. Optional: without it the save replaces
  * whatever is there, as before. */
 const ExpectedHash = z.string().min(1).max(64)
+/** Limit access (Folder.limited). Missing keeps the folder's current value (a new folder: not limited), so a page or
+ * script that does not know it never takes a limit away. Rules give view or edit: a "no access" rule is refused (400
+ * `no_deny_rules`), and so is a role rule (400 `no_role_rules`). */
+const Limited = z.boolean()
 export const CreateFolderBody = z.object({
   path: RelPath,
   /** create the folder on disk if missing */
@@ -111,14 +124,17 @@ export const CreateFolderBody = z.object({
   rules: z.array(FolderRuleInput).max(200).default([]),
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
+  limited: Limited.optional(),
 })
-export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional() })
+/** A save of a limited folder without `limited` that carries a hash from before the limit (or none) is refused with 409
+ * `client_outdated`: a page from an older build, which would not show the limit. */
+export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional() })
 /**
  * "Who sees what" before saving: send the proposed rule sets (each replaces the rules of that folder); the server
  * computes every active person's effective access before/after for those folders and their rule-free subfolders.
  */
 export const PreviewBody = z.object({
-  changes: z.array(z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200) })).min(1).max(50),
+  changes: z.array(z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200), limited: Limited.optional() })).min(1).max(50),
 })
 export const PreviewResponse = z.object({
   folders: z.array(z.object({
@@ -140,10 +156,16 @@ export type PreviewResponse = z.infer<typeof PreviewResponse>
  * no-rule: no folder on the way up has a rule for the person (only the owner and admins).
  */
 export const DecidingRule = z.object({ subjectType: SubjectType, subjectId: z.string().nullable(), access: Access })
-export const AccessReasonKind = z.enum(['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule'])
+export const AccessReasonKind = z.enum(['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule', 'left'])
 export type AccessReasonKind = z.infer<typeof AccessReasonKind>
+/** Since access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): rule = the folder of the
+ * widest rule that applies on the way up to the nearest limited folder (on a tie the nearest), its subject type
+ * (`tier`) and the applying rules there with that access; no-rule `cutAt` = the limited folder that stopped the walk;
+ * left = the person's own "no access" on a project's folder (`folder`). */
 export const AccessReason = z.discriminatedUnion('kind', [
-  z.object({ kind: AccessReasonKind.exclude(['rule']) }),
+  z.object({ kind: AccessReasonKind.exclude(['rule', 'no-rule', 'left']) }),
+  z.object({ kind: z.literal('no-rule'), cutAt: RelPath.optional() }),
+  z.object({ kind: z.literal('left'), folder: RelPath }),
   z.object({ kind: z.literal('rule'), folder: RelPath, tier: SubjectType, rules: z.array(DecidingRule) }),
 ])
 export type AccessReason = z.infer<typeof AccessReason>
@@ -316,7 +338,7 @@ export type AccessTreeResponse = z.infer<typeof AccessTreeResponse>
  * edits (Admin › Folder permissions, the edit panel). Nothing is saved. `path`: a folder with a rule row is taken as
  * stored; any other team folder as typed (actual names on disk, a missing tail as typed). Not for users/.
  */
-export const FolderEditBody = z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200) })
+export const FolderEditBody = z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200), limited: Limited.optional() })
 /** People whose access at the folder changes the same way (`before` → `after`). `less`: write → read or anything →
  * none; `more` the other way. `people` by name, at most 50 of `count`. `chatsReset`: their chats that start a fresh AI
  * session because they lose read (H7). */
@@ -352,6 +374,8 @@ export const FolderEditPreview = z.object({
   /** the folder's rules now, and their hash (`Folder.rulesHash`; no row: the hash of no rules) */
   current: z.array(DecidingRule),
   hash: z.string(),
+  /** the folder is limited now. Absent: an older server */
+  limited: z.boolean().optional(),
   /** at or inside a connected folder (a one-way copy of a folder elsewhere) */
   connected: z.boolean(),
   /** active people, and those of them that rules decide for (not the owner or admins) */
@@ -583,6 +607,7 @@ export const ADMIN = {
   createGroup: endpoint({ method: 'POST', path: '/api/admin/groups', auth: 'admin', owner: 'A', status: 201, body: GroupBody, response: Group, summary: 'New group.' }),
   updateGroup: endpoint({ method: 'PATCH', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', body: UpdateGroupBody, response: Group, summary: 'Rename / change members.' }),
   deleteGroup: endpoint({ method: 'DELETE', path: '/api/admin/groups/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a group (its folder rules go too).' }),
+  originCheck: endpoint({ method: 'POST', path: '/api/admin/groups/origin-check', auth: 'admin', owner: 'A', body: OriginCheckBody, response: OriginCheckResponse, summary: 'Before a group change: the people named by the folder access conversion who keep access by name after it. Nothing is saved.' }),
 
   listFolders: endpoint({ method: 'GET', path: '/api/admin/folders', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Folder) }), summary: 'Folders that carry rules, with their rules (= /api/admin/folder-rules of the design).' }),
   createFolder: endpoint({ method: 'POST', path: '/api/admin/folders', auth: 'admin', owner: 'A', status: 201, body: CreateFolderBody, response: Folder, summary: 'Put rules on a folder (creates it on disk if asked).' }),

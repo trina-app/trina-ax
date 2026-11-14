@@ -26,6 +26,7 @@ import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../s
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
@@ -44,10 +45,10 @@ const FIXTURE_ROWS = ruleRows([
   ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
   ['projects/atlas', 'group', 'finance', 'write'],
 ])
-const FIXTURE_RULES = new RuleSet(FIXTURE_ROWS)
+const FIXTURE_RULES = ruleWorld(FIXTURE_ROWS)
 /** the same, with carol (an admin) a member of projects/falcon: inside a team project the owner and admins are judged
  * as members (docs/DECISIONS.md "Project contents only for members") */
-const CAROL_IN_FALCON = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
+const CAROL_IN_FALCON = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/falcon', 'user', 'carol', 'write']])])
 const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
 
 describe('the folder access of a run (from the folder rules)', () => {
@@ -99,25 +100,25 @@ describe('the folder access of a run (from the folder rules)', () => {
     // a member keeps the rules above: no rule anywhere gives alice projects/plain, so it is hidden for her as before
     expect(viewAccess(folderView(FIXTURE_RULES, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('none')
     // rules on the team root or projects/ (an admin's own, a role rule, everyone) never reach in for admins; members get them
-    const above = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
+    const above = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['', 'user', 'carol', 'read'], ['projects', 'role', 'admin', 'write'], ['projects', 'everyone', null, 'read']])])
     const a = folderView(above, PEOPLE.carol!, undefined, undefined, zone)
     for (const f of ['projects/plain/notes.md', 'projects/falcon/plan.md', 'projects/atlas/x.md']) expect([f, viewAccess(a, f)]).toEqual([f, 'none'])
     expect(viewAccess(folderView(above, PEOPLE.alice!, undefined, undefined, zone), 'projects/plain/notes.md')).toBe('read')
     // a rule inside such a folder is a boundary without the runner's list too (its projects/<name> is a candidate)
-    const inner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
+    const inner = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'carol', 'read']])])
     const i = folderView(inner, PEOPLE.carol!)
     expect(i.denyRead).toContain('projects/plain')
     expect(viewAccess(i, 'projects/plain/notes.md')).toBe('none')
     // ...and that rule does not let her in while she does not read projects/plain itself; a member keeps it
     expect(viewAccess(i, 'projects/plain/inner/a.md')).toBe('none')
-    const aliceInner = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
+    const aliceInner = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain/inner', 'user', 'alice', 'read']])])
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/inner/a.md')).toBe('read')
     expect(viewAccess(folderView(aliceInner, PEOPLE.alice!), 'projects/plain/notes.md')).toBe('none')
     // once a member (read on projects/plain), the rule inside counts for her too
-    const both = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
+    const both = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read'], ['projects/plain/inner', 'user', 'carol', 'read']])])
     expect(viewAccess(folderView(both, PEOPLE.carol!, undefined, undefined, zone), 'projects/plain/inner/a.md')).toBe('read')
     // with a member rule the admin reads it, and nothing else changes
-    const member = new RuleSet([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
+    const member = ruleWorld([...FIXTURE_ROWS, ...ruleRows([['projects/plain', 'user', 'carol', 'read']])])
     const r = folderView(member, PEOPLE.carol!, undefined, undefined, zone)
     expect(r.denyWrite).toEqual(['projects/plain'])
     expect(r.denyRead).toEqual(['.system', 'users', 'projects/atlas', 'projects/falcon'])
@@ -148,7 +149,7 @@ describe('the folder access of a run (from the folder rules)', () => {
         const t = rnd(3)
         rows.push(t === 0 ? { path: f, subject_type: 'everyone', subject_id: null, access: acc[rnd(3)]! } : t === 1 ? { path: f, subject_type: 'user', subject_id: 'u', access: acc[rnd(3)]! } : { path: f, subject_type: 'group', subject_id: 'g', access: acc[rnd(3)]! })
       }
-      const rules = new RuleSet(rows)
+      const rules = ruleWorld(rows)
       const p = who('u', 'member', rnd(2) ? ['g'] : [])
       const v = folderView(rules, p)
       for (const f of folders) {
@@ -281,7 +282,7 @@ describe('a run writes only its starting folder and the person\'s own folder (Q0
         const t = rnd(3)
         rows.push(t === 0 ? { path: f, subject_type: 'everyone', subject_id: null, access: acc[rnd(3)]! } : t === 1 ? { path: f, subject_type: 'user', subject_id: 'u', access: acc[rnd(3)]! } : { path: f, subject_type: 'group', subject_id: 'g', access: acc[rnd(3)]! })
       }
-      const rules = new RuleSet(rows)
+      const rules = ruleWorld(rows)
       const p = who('u', 'member', rnd(2) ? ['g'] : [])
       const run = { start: rnd(5) === 0 ? null : folders[rnd(folders.length)]! }
       const v = folderView(rules, p, run)

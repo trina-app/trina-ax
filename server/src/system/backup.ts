@@ -25,7 +25,8 @@ import type { BackupInfo, LastRestore } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { userRef } from '../auth/users'
 import { RestorePending } from '@mycel/shared/install'
-import { SCHEMA_READER_LEVEL, checkReadable } from '../db'
+import { SCHEMA_READER_LEVEL, checkReadable, migrate } from '../db'
+import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY } from '../policy/access'
 import type { Logger } from '../log'
 import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
@@ -689,8 +690,41 @@ export function keepServerSettings(live: string, staged: string): void {
   } finally { d.close() }
 }
 
-interface FolderRowCopy { id: string; path: string; created_at: string }
-interface FolderRuleCopy { id: string; folder_id: string; subject_type: string; subject_id: string | null; access: string; updated_by: string | null; updated_at: string }
+interface FolderRowCopy { id: string; path: string; created_at: string; limited: number }
+interface FolderRuleCopy { id: string; folder_id: string; subject_type: string; subject_id: string | null; access: string; updated_by: string | null; updated_at: string; origin: string | null }
+
+const modelOf = (d: Database): string | null => {
+  try { return (d.query('SELECT value FROM settings WHERE key = ?').get(FOLDER_ACCESS_MODEL_KEY) as { value: string } | null)?.value ?? null } catch { return null }
+}
+/** Migrate a database file in place with this build's migrations and post-migration steps (the folder access
+ * conversion among them), without the pre-migration copy: the staged backup before a restore, a copy of the live
+ * database. Throws as openDb would (SchemaTooNewError for a newer one). */
+export function migrateFile(file: string): void {
+  const d = new Database(file, { strict: true })
+  try {
+    d.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;')
+    migrate(d, {})
+    d.run('PRAGMA wal_checkpoint(TRUNCATE)')
+  } finally { d.close() }
+}
+/** Person rules the folder access conversion wrote (`origin`, C1-A) whose recorded group memberships are not those of
+ * this database's people now: after a restore the groups are the backup's. Listed in the restore result (an admin may
+ * want to remove such a rule: Admin › Groups warns about the same after a group change). */
+export function originMismatches(file: string): { userId: string; path: string }[] {
+  const d = new Database(file, { readonly: true })
+  try {
+    const rows = d.query("SELECT f.path, r.subject_id, r.origin FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE r.origin IS NOT NULL AND r.subject_type = 'user'").all() as { path: string; subject_id: string; origin: string }[]
+    const out: { userId: string; path: string }[] = []
+    for (const r of rows) {
+      let groups: { id: string; member: boolean }[] = []
+      try { groups = (JSON.parse(r.origin) as { groups?: { id: string; member: boolean }[] }).groups ?? [] } catch { continue }
+      if (groups.some((g) => !!d.query('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(g.id, r.subject_id) !== g.member)) out.push({ userId: r.subject_id, path: r.path })
+    }
+    return out
+  } finally { d.close() }
+}
+/** The name of the converted copy of an unconverted live database, made for the restore and removed after it. */
+export const LIVE_CONVERTED_COPY = 'restore-live-converted.db'
 
 /**
  * A database-only restore leaves the team folder as it is now, so the folder permissions stay as they are now too
@@ -710,18 +744,48 @@ export function keepFolderAccess(live: string, staged: string, log?: Pick<Logger
   let rows: FolderRowCopy[]
   let rules: FolderRuleCopy[]
   if (!fs.existsSync(live)) return false
+  // (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)": both databases are in the additive model before
+  // anything is copied. The live one may still be unconverted: a restore staged on an older build, applied at the first
+  // start of this one. Then a copy of it is converted and read, never the backup's rules while a live database exists)
+  let source = live
+  let copy: string | null = null
   try {
     const d = new Database(live, { readonly: true })
-    try {
-      rows = d.query('SELECT id, path, created_at FROM folders').all() as FolderRowCopy[]
-      rules = d.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules').all() as FolderRuleCopy[]
-    } finally { d.close() }
+    let model: string | null
+    try { d.query('SELECT 1 FROM folders LIMIT 1').all(); model = modelOf(d) } finally { d.close() }
+    if (model !== FOLDER_ACCESS_MODEL) {
+      copy = path.join(path.dirname(live), LIVE_CONVERTED_COPY)
+      fs.rmSync(copy, { force: true })
+      const w = new Database(live, { readonly: true })
+      try { w.query('VACUUM INTO ?').run(copy) } finally { w.close() }
+      source = copy
+    }
   } catch (e) {
     log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
+    if (copy) fs.rmSync(copy, { force: true })
     return false
+  }
+  try {
+    // a converted copy that fails to convert stops the restore (the throw): never the backup's rules here
+    if (copy) migrateFile(copy)
+    try {
+      const d = new Database(source, { readonly: true })
+      try {
+        if (modelOf(d) !== FOLDER_ACCESS_MODEL) throw new Error('the current database\'s folder permissions are not converted')
+        rows = d.query('SELECT id, path, created_at, limited FROM folders').all() as FolderRowCopy[]
+        rules = d.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at, origin FROM folder_rules').all() as FolderRuleCopy[]
+      } finally { d.close() }
+    } catch (e) {
+      if (copy) throw e
+      log?.error('could not read the folder permissions of the current database; the restored database keeps the backup\'s', { err: e })
+      return false
+    }
+  } finally {
+    if (copy) for (const s of ['', '-wal', '-shm']) fs.rmSync(copy + s, { force: true })
   }
   const d = new Database(staged)
   try {
+    if (modelOf(d) !== FOLDER_ACCESS_MODEL) throw new Error('the restored database\'s folder permissions are not converted')
     d.transaction(() => {
       const ids = new Set(rows.map((r) => r.id))
       const paths = new Set(rows.map((r) => r.path))
@@ -740,10 +804,13 @@ export function keepFolderAccess(live: string, staged: string, log?: Pick<Logger
         if (!ids.has(r.id)) d.query('UPDATE groups SET folder_id = NULL WHERE folder_id = ?').run(r.id)
         d.query('DELETE FROM folders WHERE id = ?').run(r.id)
       }
-      const insRow = d.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)')
-      for (const r of rows) insRow.run(r.id, r.path, r.created_at)
-      const insRule = d.query('INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      for (const r of rules) insRule.run(r.id, r.folder_id, r.subject_type, r.subject_id, r.access, r.updated_by, r.updated_at)
+      // the backup's rows that stay without rules and are not parked: not limited either (the same access at every path
+      // as just before the restore; a parked one keeps its converted rules and flags)
+      for (const r of stays) if (!isParked(r.path)) d.query('UPDATE folders SET limited = 0 WHERE id = ?').run(r.id)
+      const insRow = d.query('INSERT INTO folders (id, path, created_at, limited) VALUES (?, ?, ?, ?)')
+      for (const r of rows) insRow.run(r.id, r.path, r.created_at, r.limited)
+      const insRule = d.query('INSERT OR REPLACE INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      for (const r of rules) insRule.run(r.id, r.folder_id, r.subject_type, r.subject_id, r.access, r.updated_by, r.updated_at, r.origin)
     })()
     d.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files
   } finally { d.close() }
@@ -798,11 +865,16 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     // backup would be signed in again. The restore screen says everyone signs in again (design tab 5), so it is so.
     endSessions(p.file)
     const live = path.join(dataDir, 'app.db')
+    // the backup in this build's schema first: its own folder rules converted once, with its own people and groups,
+    // under the rules they were written in (a backup newer than this build: SchemaTooNewError, the restore stops)
+    migrateFile(p.file)
     // the hosting service's key and this month's free hours stay as they are now (SERVER_OWN_SETTINGS)
     try { keepServerSettings(live, p.file) } catch (e) { log.error('could not keep this server\'s own settings in the restored database', { err: e }) }
     // the team folder stays as it is now, so who may open its folders does too (QA TC-195). A failure here stops the
     // restore; only a current database that is missing or cannot be read leaves the backup's rules (said in the result)
     const folderRules: 'kept' | 'backup' = keepFolderAccess(live, p.file, log) ? 'kept' : 'backup'
+    let originChanged = 0
+    try { originChanged = originMismatches(p.file).length } catch (e) { log.error('could not compare the named folder rules with the restored groups', { err: e }) }
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })
     const moved: string[] = []
@@ -828,8 +900,8 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
         fs.rmSync(sessions, { recursive: true, force: true })
       }
     }
-    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep, folderRules }), { mode: 0o600 })
-    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep, folderRules })
+    fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep, folderRules, ...(originChanged ? { originChanged } : {}) }), { mode: 0o600 })
+    log.info('database restored from backup', { backupId: p.backupId, previousDb: keep, folderRules, originChanged })
     return { applied: true, backupId: p.backupId, requestedBy: p.requestedBy, requestedAt: p.requestedAt, backupCreatedAt: p.backupCreatedAt ?? null, folderRules }
   } catch (e) {
     fs.writeFileSync(result, JSON.stringify({ ok: false, backupId: p.backupId, at: new Date().toISOString(), error: (e as Error).message }), { mode: 0o600 })

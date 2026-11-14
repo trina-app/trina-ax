@@ -100,7 +100,7 @@ function listedText(t: T, f: PersonFolderAccess, newPerson: boolean): string {
  * member", never the setting that decided ("모두: 권한 없음") nor "only the owner and admins can open it". */
 function decidedText(t: T, f: PersonFolderAccess, role: Role, names: Names): string {
   const r = f.reason
-  if ((r.kind === 'rule' || r.kind === 'no-rule') && projectFolderOf(f.path) !== null) return t(f.access === 'none' ? 'accessView.why.notMember' : 'accessView.why.member')
+  if ((r.kind === 'rule' || r.kind === 'no-rule' || r.kind === 'left') && projectFolderOf(f.path) !== null) return t(f.access === 'none' ? 'accessView.why.notMember' : 'accessView.why.member')
   switch (r.kind) {
     case 'own-personal':
       return t(role === 'owner' ? 'accessView.why.ownPersonalOwner' : role === 'admin' ? 'accessView.why.ownPersonalAdmin' : 'accessView.why.ownPersonal')
@@ -113,6 +113,9 @@ function decidedText(t: T, f: PersonFolderAccess, role: Role, names: Names): str
       return t('accessView.why.system')
     case 'owner-admin':
       return t(role === 'owner' ? 'accessView.why.owner' : 'accessView.why.admin')
+    // (a person's own "no access" on a project's folder: only inside projects/, said as "not a member" above)
+    case 'left':
+      return t('accessView.why.notMember')
     case 'no-rule': {
       // no folder on the way up has a rule FOR THIS PERSON; rules for others may be there
       if (!names.ruleFolders) return t('accessView.why.noRule')

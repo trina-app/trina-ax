@@ -8,6 +8,11 @@
 // and every other person has the role "member", so "role member X" gives the same as "everyone X" except that inside one
 // folder the role step comes before the everyone step. Both in one folder: the member row decides for everyone it can
 // decide for. So "member X" (else "everyone Y") saved as "everyone X" (resp. Y) is the same for every person.
+//
+// Since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"), "only the people
+// named" is Limit access (the folder's `limited`), not an "everyone: none" rule: the server refuses "no access" rules.
+// TODO(P2 UI, after the P1 Share dialog is on dev): the Limit access switch of its own, General access apart from it,
+// Access removed › Add, the Manager row and the "Added when folders changed" tag (docs/DECISIONS.md, same entry).
 import type { Access, FolderEditPreview, FolderRuleInput } from '@mycel/shared/api'
 
 /** The basic access, for everyone the rows below do not name: follow the folder above (no everyone rule), only the
@@ -30,28 +35,36 @@ const basicOf = (a: Access | undefined): Basic | undefined => (a === undefined ?
  * every member before an everyone row does), else the everyone row's, else "follow". At the team root there is no
  * folder above: no everyone rule there is "only the people named" too (nobody else gets a rule).
  */
-export function draftOf(rules: readonly RuleLike[], root: boolean): { draft: Draft; converted: Converted } {
+export function draftOf(rules: readonly RuleLike[], root: boolean, limited = false): { draft: Draft; converted: Converted } {
   const member = rules.find((r) => r.subjectType === 'role' && r.subjectId === 'member')
   const every = rules.find((r) => r.subjectType === 'everyone')
-  const basic = basicOf((member ?? every)?.access) ?? (root ? 'named' : 'follow')
+  // a limited folder without an everyone rule: only the people named
+  const basic = basicOf((member ?? every)?.access) ?? (root || limited ? 'named' : 'follow')
   const named = rules.filter((r): r is Named => (r.subjectType === 'user' || r.subjectType === 'group') && !!r.subjectId).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
   return { draft: { basic, named }, converted: { member: !!member, admin: rules.some((r) => r.subjectType === 'role' && r.subjectId === 'admin') } }
 }
 
 /**
- * The rules a draft saves: the people and groups named, then the basic access as an everyone rule ("follow": none).
- * At the team root, "only the people named" is no everyone rule unless the root had "everyone: none" (both give nobody
- * but the owner and admins; the stored form is kept).
+ * The rules a draft saves: the people and groups named, then the basic access as an everyone rule ("follow" and "only
+ * the people named": none; the second is the folder's limit, limitedOf). A person or group named with "no access" on a
+ * limited folder is left out (the limit keeps them out already); elsewhere it stays, and the server says why it cannot
+ * be saved (a folder cannot give less than the folder above unless it is limited).
  */
-export function rulesOf(draft: Draft, o: { root: boolean; rootNoneRow?: boolean }): FolderRuleInput[] {
-  const out: FolderRuleInput[] = draft.named.map((n) => (n.subjectType === 'user' ? { subjectType: 'user', subjectId: n.subjectId, access: n.access } : { subjectType: 'group', subjectId: n.subjectId, access: n.access }))
-  const every: Access | null = draft.basic === 'follow' ? null : draft.basic === 'named' ? (o.root && !o.rootNoneRow ? null : 'none') : draft.basic
+export function rulesOf(draft: Draft, _o: { root: boolean; rootNoneRow?: boolean } = { root: false }): FolderRuleInput[] {
+  const named = draft.basic === 'named' ? draft.named.filter((n) => n.access !== 'none') : draft.named
+  const out: FolderRuleInput[] = named.map((n) => (n.subjectType === 'user' ? { subjectType: 'user', subjectId: n.subjectId, access: n.access } : { subjectType: 'group', subjectId: n.subjectId, access: n.access }))
+  const every: Access | null = draft.basic === 'follow' || draft.basic === 'named' ? null : draft.basic
   if (every) out.push({ subjectType: 'everyone', subjectId: null, access: every })
   return out
 }
 
-/** The root had "everyone: none" (or "member: none"): kept as it is when the root stays "only the people named". */
-export const rootNoneRow = (rules: readonly RuleLike[]) => draftOf(rules, true).draft.basic === 'named' && rules.some((r) => (r.subjectType === 'everyone' || (r.subjectType === 'role' && r.subjectId === 'member')) && r.access === 'none')
+/** The folder's limit a draft saves: "only the people named" limits it, "follow the folder above" takes the limit away;
+ * an everyone choice keeps what the folder has (undefined: the server keeps it). At the team root nothing is above it:
+ * kept as it is. */
+export const limitedOf = (draft: Draft, root: boolean): boolean | undefined => (root ? undefined : draft.basic === 'named' ? true : draft.basic === 'follow' ? false : undefined)
+
+/** Kept for callers from before the limit: the root's "only the people named" is no everyone rule now. */
+export const rootNoneRow = (_rules: readonly RuleLike[]) => false
 
 const ruleKey = (r: RuleLike) => `${r.subjectType}\u0000${r.subjectId ?? ''}\u0000${r.access}`
 /** The same rules, in any order. */

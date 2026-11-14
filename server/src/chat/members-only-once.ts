@@ -19,6 +19,7 @@ import type { AppContext } from '../context'
 import { projectZoneFolders } from '../policy/zone'
 import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { audit } from '../admin/audit'
+import { ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
 import { markTeamShares } from './team-shares'
 import { getSetting, setSetting } from '../admin/settings'
 import { inZone } from '../policy/zone'
@@ -104,7 +105,10 @@ export function adoptLeftoverFolders(ctx: AppContext, actor: string): number {
     db.transaction(() => {
       db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,0)')
         .run(pid, name.normalize('NFC').slice(0, 100), rel, '', null, now, null, null)
-      if (!db.query('SELECT 1 FROM folders WHERE path = ?').get(rel)) db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(uuidv7(), rel, now)
+      // the project's folder is limited (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)", invariant 5):
+      // a new row, and an existing one too
+      const row = ensureFolderRow(db, rel)
+      if (!row.limited) writeFolderAccess(db, row.id, { rules: rulesOf(db, row.id).filter((x) => x.access !== 'none'), limited: true }, actor)
     })()
     // a team project: its new chats are shared with its members (docs/DECISIONS.md "Team project chats shared by default")
     markTeamShares(db, null, 'adopted', [pid])

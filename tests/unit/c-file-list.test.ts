@@ -84,7 +84,7 @@ describe('a first run', () => {
   })
 
   test('every call held files of one access unit only', () => {
-    const units = new Units(RuleSet.load(A.ctx.db).ruleFolders())
+    const units = new Units(RuleSet.load(A.ctx.db).boundaryFolders())
     expect(reader.calls.length).toBeGreaterThan(3)
     for (const c of reader.calls) expect(new Set(c.files.map((f) => units.chain(f.path.split('/')))).size).toBe(1)
   })

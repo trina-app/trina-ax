@@ -14,11 +14,12 @@ import { auditSight } from '../../server/src/admin/audit-sight'
 import { membersOnlyOnce } from '../../server/src/chat/members-only-once'
 import { setSetting } from '../../server/src/admin/settings'
 import { ruleFolderOf } from '../../server/src/admin/access-rows'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(60_000)
 const P = (id: string, role: Principal['role'], groups: string[] = []): Principal => ({ id, name: id, role, groups })
 const rules = (rows: [string, 'everyone' | 'role' | 'group' | 'user', string | null, 'none' | 'read' | 'write'][]) =>
-  new RuleSet(rows.map(([path, subject_type, subject_id, access]) => ({ path, subject_type, subject_id, access })))
+  ruleWorld(rows.map(([path, subject_type, subject_id, access]) => ({ path, subject_type, subject_id, access })))
 const segs = (p: string) => p.split('/')
 
 describe('the members-only zone of the permission function', () => {

@@ -16,7 +16,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { ensureFolderRow, replaceRules } from '../../server/src/admin/folders'
+import { ensureFolderRow } from '../../server/src/admin/folders'
+import { setFolderAccess } from '../lib/folder-access'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { legacyProjectFolder } from '../lib/legacy-project'
 
@@ -35,7 +36,7 @@ const read = (who: Who, p: string) => A.json('/api/files/content' + q({ path: p 
 function ruleFolder(p: string, group: string) {
   fs.mkdirSync(path.join(A.team, ...p.split('/')), { recursive: true, mode: 0o700 })
   const rules = [{ subjectType: 'group', subjectId: group, access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'none' }] as FolderRuleInput[]
-  A.ctx.db.transaction(() => replaceRules(A.ctx.db, ensureFolderRow(A.ctx.db, p).id, rules, 'carol'))()
+  A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, ensureFolderRow(A.ctx.db, p).id, rules, 'carol'))()
 }
 
 describe('#1 trash items follow the folder they were trashed from', () => {

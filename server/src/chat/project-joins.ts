@@ -12,19 +12,6 @@ import { atLeast, inProjectZone, RuleSet, type Principal } from '../policy/acces
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from './runtime'
 
-/** The rules as if a trashed folder were back: its parked rules (under its trash storage path) at its old path, and no
- * rules of a folder that took that path since (as chat/shared.ts rulesInPlace builds them from the database). */
-function parkedInPlace(rules: RuleSet, storage: string, original: string): RuleSet {
-  const rows: ConstructorParameters<typeof RuleSet>[0] = []
-  const under = (f: string, base: string) => f === base || f.startsWith(base + '/')
-  for (const f of rules.ruleFolders()) {
-    if (under(f, original)) continue
-    const path = under(f, storage) ? original + f.slice(storage.length) : f
-    for (const r of rules.rulesAt(f)) rows.push({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })
-  }
-  return new RuleSet(rows)
-}
-
 /** What projectJoins compares: the active people (with groups) and the rules, as admin/folders.ts captureState holds them. */
 export interface JoinState { principals: readonly Principal[]; rules: RuleSet }
 
@@ -44,7 +31,7 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
     for (const pr of projects) {
       const segs = pr.folder_path.split('/')
       if (segs.length !== 2 || !inProjectZone(segs)) continue
-      const inPlace = (s: JoinState): RuleSet => (pr.storage_path && pr.original_path ? parkedInPlace(s.rules, pr.storage_path, pr.original_path) : s.rules)
+      const inPlace = (s: JoinState): RuleSet => (pr.storage_path && pr.original_path ? s.rules.parkedInPlace(pr.storage_path, pr.original_path) : s.rules)
       const sets = new Map<JoinState, RuleSet>()
       const reads = (s: JoinState, p: Principal) => { let r = sets.get(s); if (!r) sets.set(s, (r = inPlace(s))); return atLeast(r.access(p, segs), 'read') }
       const was = new Set(before ? before.principals.filter((p) => reads(before, p)).map((p) => p.id) : [])

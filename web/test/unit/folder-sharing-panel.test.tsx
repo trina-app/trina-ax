@@ -7,13 +7,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { act, useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Folder } from '@mycel/shared/api'
-import { RuleSet, type Access, type Principal } from '../../../server/src/policy/access'
+import { type Access, type Principal } from '../../../server/src/policy/access'
 import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import FolderSharing from '../../src/pages/admin/FolderSharing'
 import { DialogHost } from '../../src/components/ui'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
+import { ruleWorld } from '../../../tests/lib/rule-world'
 
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
 const SALES = '01900000-0000-7000-8000-0000000000c1'
@@ -34,7 +35,7 @@ type R = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: strin
 /** the stub server's rule rows by folder, and its folder ids */
 let rows: Map<string, R[]>
 const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5']])
-const ruleSet = () => new RuleSet([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))))
+const ruleSet = () => ruleWorld([...rows].flatMap(([path, rs]) => rs.map((r) => ({ path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access }))))
 const folderOf = (path: string): Folder => ({
   id: ids.get(path)!, path, exists: true, createdAt: T0, groupId: null, keep: path === 'shared' ? 'team' : null, hidden: false,
   rules: (rows.get(path) ?? []).map((r, i) => ({ id: `01900000-0000-7000-8000-0000000001${String(i).padStart(2, '0')}`, folderId: ids.get(path)!, ...r, updatedBy: null, updatedAt: T0 })),

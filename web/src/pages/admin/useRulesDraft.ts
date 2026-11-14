@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Folder, FolderEditPreview } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { basicChoices, draftKey, draftOf, rootNoneRow, rulesKey, rulesOf, sameRules, type Draft, type RuleLike } from '../../lib/access-edit'
+import { basicChoices, draftKey, draftOf, limitedOf, rulesKey, rulesOf, sameRules, type Draft, type RuleLike } from '../../lib/access-edit'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 
@@ -21,7 +21,7 @@ type Answer = { key: string; attempt: number; data: FolderEditPreview }
  * before aborted, so an older answer never replaces a newer one. `key` names the folder and the rules: an answer for
  * another folder or other rules is never ready. `attempt` asks again (a retry, a 409): until that answer comes, the one
  * before does not count as ready. `put` keeps an answer asked outside the timer (Save's fresh ask). */
-export function useEditPreview(path: string, rules: unknown, key: string, attempt: number) {
+export function useEditPreview(path: string, rules: unknown, key: string, attempt: number, limited?: boolean) {
   const t = useT()
   const locale = useLocale()
   const [answer, setAnswer] = useState<Answer | null>(null)
@@ -34,7 +34,7 @@ export function useEditPreview(path: string, rules: unknown, key: string, attemp
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const data = await api.call(API.previewFolderEdit, { body: { path, rules: rules as never }, signal: ctl.signal })
+          const data = await api.call(API.previewFolderEdit, { body: { path, rules: rules as never, ...(limited !== undefined ? { limited } : {}) }, signal: ctl.signal })
           if (ctl.signal.aborted) return
           setAnswer({ key, attempt, data })
           setError(null)
@@ -74,8 +74,9 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   const locale = useLocale()
   const root = path === ''
   /** the rules the draft started from and their hash (null: not known yet, a folder without a row) */
-  const [base, setBase] = useState<{ rules: RuleLike[]; hash: string | null }>(() => ({ rules: folder?.rules ?? [], hash: folder?.rulesHash ?? null }))
-  const [initial, setInitial] = useState(() => sort(draftOf(base.rules, root).draft))
+  // (`limited`: the folder's Limit access; docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+  const [base, setBase] = useState<{ rules: RuleLike[]; hash: string | null; limited: boolean }>(() => ({ rules: folder?.rules ?? [], hash: folder?.rulesHash ?? null, limited: !!folder?.limited }))
+  const [initial, setInitial] = useState(() => sort(draftOf(base.rules, root, base.limited).draft))
   /** a folder without rules gets them "set", one with rules "changed" */
   const [hadRules] = useState(() => (folder?.rules.length ?? 0) > 0)
   const [draft, setDraft] = useState<Draft>(initial)
@@ -85,16 +86,17 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   const [saving, setSaving] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
 
-  const converted = draftOf(base.rules, root).converted
-  const rules = useMemo(() => rulesOf(draft, { root, rootNoneRow: rootNoneRow(base.rules) }), [draft, root, base.rules])
-  // the answer is kept by the folder and the rules it was asked for
-  const key = `${path}\u0003${rulesKey(rules)}`
-  const preview = useEditPreview(path, rules, key, attempt)
+  const converted = draftOf(base.rules, root, base.limited).converted
+  const rules = useMemo(() => rulesOf(draft, { root }), [draft, root])
+  const limited = limitedOf(draft, root)
+  // the answer is kept by the folder, the rules and the limit it was asked for
+  const key = `${path}\u0003${rulesKey(rules)}\u0003${limited ?? ''}`
+  const preview = useEditPreview(path, rules, key, attempt, limited)
   const data = preview.answer?.data ?? null
   const edited = draftKey(draft) !== draftKey(initial)
-  const saveable = !sameRules(rules, base.rules)
-  // shared/ and skills/ keep at least one rule (stage 1): said here, before the server refuses it
-  const keepsOne = folder?.keep === 'team' && rules.length === 0
+  const saveable = !sameRules(rules, base.rules) || (limited !== undefined && limited !== base.limited)
+  // shared/ and skills/ keep at least one rule or the limit (stage 1): said here, before the server refuses it
+  const keepsOne = folder?.keep === 'team' && rules.length === 0 && !(limited ?? base.limited)
   const connected = !!data?.connected
   const choices = basicChoices({ root, connected, current: initial.basic })
   // a connected folder is known from the first answer: "everyone reads and writes" picked before it came goes back to
@@ -109,15 +111,15 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
     const p = preview.answer?.data
     if (!p) return
     if (base.hash === null && sameRules(p.current, base.rules)) {
-      setBase({ rules: base.rules, hash: p.hash })
+      setBase({ rules: base.rules, hash: p.hash, limited: p.limited ?? base.limited })
       return
     }
     if (p.hash === base.hash) return
-    setBase({ rules: p.current, hash: p.hash })
+    setBase({ rules: p.current, hash: p.hash, limited: p.limited ?? base.limited })
     if (edited) setStale('kept')
     else {
       // nothing changed here: their rules are the draft now
-      const next = sort(draftOf(p.current, root).draft)
+      const next = sort(draftOf(p.current, root, p.limited ?? base.limited).draft)
       setInitial(next)
       setDraft(next)
       setStale('loaded')
@@ -128,7 +130,7 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
 
   /** their rules, in place of this draft (after "kept") */
   const loadTheirs = () => {
-    const next = sort(draftOf(base.rules, root).draft)
+    const next = sort(draftOf(base.rules, root, base.limited).draft)
     setInitial(next)
     setDraft(next)
     setStale('loaded')
@@ -144,7 +146,7 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
   const askNow = async (o: { live?: () => boolean } = {}): Promise<FolderEditPreview | null> => {
     const live = () => o.live?.() ?? true
     try {
-      const fresh = await api.call(API.previewFolderEdit, { body: { path, rules } })
+      const fresh = await api.call(API.previewFolderEdit, { body: { path, rules, ...(limited !== undefined ? { limited } : {}) } })
       if (live()) preview.put(fresh)
       return fresh
     } catch (e) {
@@ -162,8 +164,8 @@ export function useRulesDraft({ path, folder, sort, onStale }: RulesDraftOptions
     try {
       const expectedHash = base.hash ?? data?.hash
       const saved = folder
-        ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(expectedHash ? { expectedHash } : {}) } })
-        : await api.call(API.createFolder, { body: { path, create: false, rules, ...(expectedHash ? { expectedHash } : {}) } })
+        ? await api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}) } })
+        : await api.call(API.createFolder, { body: { path, create: false, rules, ...(limited !== undefined ? { limited } : {}), ...(expectedHash ? { expectedHash } : {}) } })
       toast({ level: 'success', text: t('common.saved') })
       return saved
     } catch (e) {

@@ -133,7 +133,7 @@ export class FileList implements VirtualFiles {
   // ---------------------------------------------------------------- the virtual lists (files/virtual.ts)
   private rules(): RuleSet { return RuleSet.load(this.ctx.db) }
   private groups(rules: RuleSet) {
-    const folders = rules.ruleFolders().sort()
+    const folders = rules.boundaryFolders().sort()
     const sig = folders.join('\u0000')
     const g = this.grouped
     // regrouped when the rules' folders change, and when lines changed (while a run writes, at most every REGROUP_MS:
@@ -233,7 +233,7 @@ export class FileList implements VirtualFiles {
     if (!e) return
     try {
       const root = this.ctx.files.fx.root
-      const units = new Units(this.rules().ruleFolders())
+      const units = new Units(this.rules().boundaryFolders())
       for (const m of e.moves ?? []) {
         for (const ent of this.store.under(m.from)) {
           const to = m.to + ent.path.slice(m.from.length)
@@ -409,7 +409,7 @@ export class FileList implements VirtualFiles {
     const root = this.ctx.files.fx.root
     const cur = await this.scan(signal)
     const old = this.store.all()
-    const units = new Units(this.rules().ruleFolders())
+    const units = new Units(this.rules().boundaryFolders())
     const chainOf = (rel: string) => this.chainOfFolder(units, units.listFolderOf(segsOf(rel)))
     const gone = new Map<string, Entry[]>()
     for (const [p, e] of old) if (!cur.has(p) && e.sha && e.fields) { const l = gone.get(e.sha) ?? []; l.push(e); gone.set(e.sha, l) }
@@ -469,7 +469,7 @@ export class FileList implements VirtualFiles {
   private async readPending(reader: Reader, st: RunState, deadline: number | null, runId: number): Promise<FileListStop> {
     const signal = st.abort.signal
     const rules = this.rules()
-    const units = new Units(rules.ruleFolders())
+    const units = new Units(rules.boundaryFolders())
     const maxFiles = this.ctx.config.fileList?.maxFilesPerRun ?? RUN_FILES
     const maxTokens = this.ctx.config.fileList?.maxTokensPerRun ?? RUN_TOKENS
     // this run's share: the first maxFiles in reading order, then grouped by access unit (one unit per model call)

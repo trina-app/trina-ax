@@ -2,9 +2,10 @@
 // (web/src/lib/access-edit.ts). Reading and saving again changes nothing; old role rows are saved as "everyone" and that
 // changes nobody's access, checked here against the server's own permission function (RuleSet) on random worlds.
 import { describe, expect, test } from 'bun:test'
-import { RuleSet, type Access, type Principal } from '../../../server/src/policy/access'
+import { type Access, type Principal } from '../../../server/src/policy/access'
 import { addNamed, basicChoices, draftKey, draftOf, outcomesOf, outcomeWords, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, setNamed, type RuleLike } from '../../src/lib/access-edit'
 import { translate } from '../../src/i18n'
+import { ruleWorld } from '../../../tests/lib/rule-world'
 
 const every = (access: Access) => ({ subjectType: 'everyone' as const, subjectId: null, access })
 const member = (access: Access) => ({ subjectType: 'role' as const, subjectId: 'member' as const, access })
@@ -133,9 +134,9 @@ test('reading old role rows and saving them changes nobody\'s access (the server
     if (rand() < 0.4) here.push(user(pick(people).id, pick(ACCESS)))
     const above = ['', 'a', 'a/b'].filter((f) => f !== at && rand() < 0.5).flatMap((f) => [{ path: f, subject_type: 'everyone' as const, subject_id: null, access: pick(ACCESS) }])
     const rows = (rules: RuleLike[]) => [...above, ...rules.map((r) => ({ path: at, subject_type: r.subjectType as 'everyone', subject_id: r.subjectId, access: r.access }))]
-    const before = new RuleSet(rows(here))
+    const before = ruleWorld(rows(here))
     const root = at === ''
-    const after = new RuleSet(rows(rulesOf(draftOf(here, root).draft, { root, rootNoneRow: root && rootNoneRow(here) })))
+    const after = ruleWorld(rows(rulesOf(draftOf(here, root).draft, { root, rootNoneRow: root && rootNoneRow(here) })))
     for (const p of people) for (const path of ['', 'a', 'a/b', 'a/b/c']) {
       const segs = path === '' ? [] : path.split('/')
       expect(after.access(p, segs), `${world} ${JSON.stringify(here)} ${p.id} ${path}`).toBe(before.access(p, segs))

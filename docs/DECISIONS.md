@@ -21802,6 +21802,7 @@ engine names, model ids and an English " (job)". The owner approved the audit's 
 - Version impact: **patch** (new wording, one optional card field, no data change).
 
 ## 열 수 있는 사람, 드라이브 공유 창처럼 — Who can open it, like Drive's Share (feat/drive-like-access, 2026-11-11, product owner)
+- **Amended 2026-11-14 by "Folder access adds up like Google Drive (P2)"** (below): access adds up from the folders above; "only the people named" is Limit access, not an `everyone: none` rule.
 
 넣을 곳: Team AX core (`web/src/components/FolderAccess.tsx`, `web/src/pages/admin/FolderSharing.tsx`,
 `web/src/pages/admin/useRulesDraft.ts`, `web/src/lib/folder-sharing.ts`, `server/src/admin/access-edit.ts`), 이유:
@@ -26389,6 +26390,7 @@ too short? is it supposed to be like that?" #752 had given 트리나 기록 48 p
   and a member, with own, shared, pinned and scheduled rows.
 
 ## Leaving a project — 프로젝트 나가기 (feat/leave-project, 2026-11-13, the owner, QA TC-1020)
+- **Amended 2026-11-14 by "Folder access adds up like Google Drive (P2)"** (below): the person's own "no access" on `projects/<name>` is the project exception and depends on the rule alone; `project_leavers` is only what the members screen says (item 9-A kept).
 
 - **Who.** A member of a team project in `projects/<name>` (in place, not in the trash) may leave it: "Leave project"
   in the project's name menu and its card's "…" (`Project.leave`, `POST /api/projects/:id/leave`). Not a personal
@@ -26545,3 +26547,100 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   `project-trash-members.spec.ts` (`SHOTS_DIR`: 1440 and 390, light and dark, as admin, creator and member).
 - Version impact: **minor** (members see a trashed project's card; creators restore; API fields `trashed`,
   `wasMember`, `canRestore`, `TrashItem.project`).
+
+## Folder access adds up like Google Drive (P2) — 폴더 권한이 드라이브처럼 위에서 더해진다 (feat/folder-access-additive, 2026-11-14, owner decisions pending)
+
+**Not merged before the owner decides C1 and M6 and has seen the dry-run numbers.** Built with the defaults C1-A, M6-A,
+item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the repo).
+
+- **The permission function** (`server/src/policy/access.ts`): outside the fixed branches (users/, .system/, temp
+  names, the system principal, the owner and admins outside `projects/<name>`, the zone floor and the M2 check, all
+  unchanged), every rule that applies on the way up, up to and including the nearest **limited** folder
+  (`folders.limited`), adds up; the widest wins. "No access" rows add nothing. There are no tiers any more.
+- **The project exception** (C2, item 9-A): a person's own "no access" on `projects/<name>` keeps them out of that folder
+  and everything in it, whatever else applies. It depends on the rule row alone (not on `projects` or
+  `project_leavers`), so deleting the project with its folder kept, pointing the project elsewhere or a cascade delete
+  never lets them back in. `project_leavers` is only what the members screen says. Leave writes it
+  (`setProjectException`); adding the person back by name replaces it. This amends "Leaving a project" (item 9-A kept).
+- **Markers.** `everyone: none` stays on a limited folder without an everyone rule (the **legacy marker**: what an
+  older reader reads as the cut). `role: admin: write` is the **managed marker** (inert for access; keeps a folder
+  admin-only to move, rename or trash). Both are left out of `rulesAt`, the API rules and the hashes.
+- **Migration `121_a_folder_limited.sql`** (reader level 7, **M6-A: no automatic roll-back**): `folders.limited`,
+  `folder_rules.origin`, and triggers that refuse any other "no access" row (allowed: the legacy marker on a limited
+  folder, a person's own on a depth-2 `projects/*` path in any letter case, parked copies under `.system/`, rows under
+  `users/`) and any role row but the managed marker. They name only `folders` and `folder_rules` (a fresh database works).
+- **Post-migration steps** (`server/src/db-steps.ts`, hooked in `db.ts migrate()` after every pending file, inside the
+  same `BEGIN IMMEDIATE`): `folderAccessAdditive` (the conversion; gate: the columns exist and the marker
+  `settings.folder_access_model` is missing) and `safeOpsFolderLimited` (redefines `safe_ops_folders_update` with
+  `limited` and `safe_ops_folder_rules_update` with `origin`; gate: the triggers lack them **and** the columns exist,
+  review 3 S4). A throw rolls back the pending files too. A database with no pending file but an open gate (a restored
+  or copied one) gets the pre-migration copy first. *Foundation owners: please agree to the hook and reader level 7.*
+- **The conversion** (`server/src/policy/convert-additive.ts`, frozen old resolver `policy/legacy-deepest.ts`), per
+  folder top-down: tier-safe rules, the chain A above up to the nearest limit, S1/S2/S3. Safe: not limited, the rules
+  without "no access". Otherwise limited, with the tier-safe grants, the rules of A no rule of the folder lowers (none
+  for `projects/<name>`), and each existing person (active or switched off) who would get less named by a person rule
+  with their access before and an `origin` (`{v, by, groups:[{id, member}], base}`). Role member becomes everyone;
+  role admin/owner rows become one managed marker; a folder left without rules gets the managed marker (M2). Trashed
+  folders are converted at their old path (the in-place view) and written back in place. Inside a project's zone only
+  what rules at or below `projects/<name>` gave is named (access through `projects/` or the root is not: case 7.5-1,
+  or promoting that person to admin later would let them in by that name). Proof (also in the file header): for anyone
+  the conversion did not name, safe folders inherit as before (induction), a person's own rule at a safe folder was
+  their widest (S1) and at least everything above (S2), and every kept or copied rule at a limited folder is at most
+  what the person's top tier gave.
+- **The final assertion** runs inside the transaction on the converted database: every existing person (and as if
+  promoted to admin) at every boundary, live and parked; a fresh member in every combination of the groups named on the
+  chain (all subsets up to 8, else singles, pairs and 256 seeded); each person named there in every other combination,
+  **without the origin rows** (C1-A). A violation rewrites that folder the strictest way and checks again; a second one
+  throws and nothing changes. It writes the audit row `folders.additive_conversion` (paths and counts) and recomputes
+  the scheduled tasks' save fingerprints whose readers did not change (the others lapse with reason `rules`).
+- **Fail-closed cases** (narrower, never wider; listed in the audit row): 7.5-1 a project member who relied on a rule
+  above the project; 7.5-2 a person with a project exception who read a subfolder by a deeper rule; 7.5-3 future
+  members at folders frozen by name; a parked chain that cannot be built (strictest rewrite).
+- **C1-A (default; the one place "never more than today" is not strict):** a person named by the conversion keeps that
+  access when they later join or leave one of the recorded groups, as Drive keeps access given by name. It is said,
+  never silent: `POST /api/admin/groups/origin-check` (for the screens to warn before saving), `originKept` in the
+  `group.update`, `group.delete` and `user.update` audit rows, a "Kept by name" line in the connector's
+  `group_update`/`group_delete` results (review 3 S5), `Folder.rules[].byConversion`, and the restore result counts
+  origin rows whose recorded groups differ from the restored ones. An unrelated save keeps every origin of a person row
+  saved with the same access; changing its access clears it (review 3 S1).
+- **One loader** (`RuleSet.fromDb(db, { mapPath })`, private constructor, `fromWorld` for tests and the web mock):
+  the `folders` table (a limited folder with no rules counts), the rules with origin; `boundaryFolders()` (rules ∪
+  limited) replaced `ruleFolders()` everywhere; `replacing`, `relocated`, `parkedInPlace`, `excepting` derive sets.
+  Without the marker the loader fails closed (no rule applies). `tests/unit/rule-set-construction.test.ts` keeps it so.
+- **One writer** (`admin/folders.ts writeFolderAccess`): no "no access" or role rule (an Error); `limited` omitted
+  keeps the current value (H1); the markers follow; project exceptions stay unless named; origins kept on unchanged
+  rows. `hasAccessSettings` (rules or a limit) replaced every "has rules" check. Every project path limits the folder:
+  new project, sharing a personal project, repoint, adopt, the read-scope row (M1).
+- **API**: `Folder.limited`; `limited` on create, save, preview and edit-preview (missing = keep); 400
+  `no_deny_rules` / `no_role_rules`; 409 `client_outdated` for a limited folder saved without `limited` and with no hash
+  or a `rules-v1` hash; `rules-v2` hash includes the limit; `AccessReason` gains `no-rule.cutAt` and `left`. shared/ and
+  skills/ keep a rule or a limit (M3).
+- **Restore** (H4): the staged backup is migrated (converted once with its own people); an unconverted live database is
+  converted as a copy (`restore-live-converted.db`, removed after) and read from it, and a failure stops the restore;
+  `limited` and `origin` are copied; backup-only rows that are not parked get `limited = 0`.
+- **Fingerprints and caches**: schedule save fingerprint `levels-v2` (limit per level, `policy/fingerprint.ts`), the
+  remote-MCP policy hash reads every folder row with its limit, safe-ops generation (above).
+- **Item 12-A**: "everyone can view" under "everyone can edit" becomes limited + everyone view (no names needed).
+- **Deliberate differences from Drive**: only the owner and admins share and turn Limit access on or off; no Commenter,
+  no notify box, no links, folders only; people who reach a limited folder only from above do not see it greyed out;
+  the project exception is the one "deny" left.
+- **Rejected**: keeping deepest-wins (not Drive); encoding a limit as `everyone: none` only (a limited folder with no
+  rules was invisible to the loader); converting by current members only (B4); a leaver exception tied to
+  `project_leavers` (fails open on delete or repoint); `limited` defaulting to false when missing.
+- **Not built yet / TODO**:
+  - Web (after the P1 Share dialog is on dev): the Limit access switch (also on a limited top folder, M3), General
+    access apart from it, Access removed › Add from `cutAt`, the Manager row ("관리 권한"), the "Added when folders
+    changed" tag, the group-change warning before saving on Admin › Groups and the person's page (from origin-check),
+    the `client_outdated` reload prompt, the one-time Admin notice listing the folders frozen by name. Until then the
+    web saves Restricted as `limited: true` (`web/src/lib/access-edit.ts limitedOf`, `useRulesDraft`) and the old
+    panel's "No access" rows on a limited folder are dropped (the limit keeps them out).
+  - C1-B (only if picked): S3, the `group_members` revert must compare old and new member lists in code (both group
+    and person saves delete and re-insert every membership), and the explicit revert on deleteGroup.
+  - M6-B (only if picked): S2, the "written by an older build" dirty marks must skip this build's own writers (moves,
+    drops, deletes, setProjectException, keepFolderAccess, the conversion), e.g. an epoch column, or every P2 writer
+    clears its marks.
+  - C1-C is not built (the resolver has no legacy branch).
+- **Dry run** (`scripts/dry-run/folder-additive.ts <copy.db>`; in-memory, counts only on stdout): QA-Acme (live copy
+  and its newest backup) and the demo seed made on dev: **0 widened**, invariants ok, restore checks equal. QA-Acme:
+  13 folders limited, 1 person named by the conversion (C1-A: keeps more than today after a change of that group).
+  Demo: 2 limited, nobody named. potenlab and jdr not run (the owner decides).

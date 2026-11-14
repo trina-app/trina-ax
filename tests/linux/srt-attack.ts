@@ -13,6 +13,7 @@ import { RuleSet, type Access } from '../../server/src/policy/access'
 import { folderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
 const BASE = `/var/lib/${ID}`
@@ -56,7 +57,7 @@ w('groups/marketing/campaign/plan.md', 'campaign plan\n')
 w('users/bob/notes.md', `${CANARY}-bob`)
 w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
-const RULES = new RuleSet(([
+const RULES = ruleWorld(([
   ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
   ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
   ['groups/finance', 'group', 'finance', 'write'],

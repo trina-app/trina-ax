@@ -9,6 +9,7 @@ import { captureState, readLosses } from '../../server/src/admin/folders'
 import { uuidv7 } from '@mycel/shared/api'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { legacyProjectFolder } from '../lib/legacy-project'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 // ---------------- resolution table (pure) ----------------
 type R = [path: string, type: 'everyone' | 'role' | 'group' | 'user', subject: string | null, access: Access]
@@ -66,7 +67,7 @@ const TABLE: [string, string, Access][] = [
 ]
 
 describe('permission resolution table (tab 2)', () => {
-  const rules = new RuleSet(RULES.map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
+  const rules = ruleWorld(RULES.map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
   for (const [u, p, want] of TABLE) {
     test(`${u} ${p} -> ${want}`, () => { expect(rules.access(P[u]!, p.split('/'))).toBe(want) })
   }
@@ -83,7 +84,7 @@ describe('permission resolution table (tab 2)', () => {
   })
   test('readLosses reports the top-most folders where read access disappears', () => {
     const before = { principals: Object.values(P), rules }
-    const after = { principals: Object.values(P), rules: new RuleSet(RULES.filter(([p]) => p !== 'groups/sales/archive').map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })).concat([{ path: 'groups/sales', subject_type: 'group', subject_id: 'sales', access: 'none' }]).filter((r) => !(r.path === 'groups/sales' && r.access === 'write'))) }
+    const after = { principals: Object.values(P), rules: ruleWorld(RULES.filter(([p]) => p !== 'groups/sales/archive').map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })).concat([{ path: 'groups/sales', subject_type: 'group', subject_id: 'sales', access: 'none' }]).filter((r) => !(r.path === 'groups/sales' && r.access === 'write'))) }
     const lost = readLosses(before, after)
     expect(lost.get('leo')).toEqual(['groups/sales'])
     expect(lost.get('mia')).toEqual(['groups/sales'])
@@ -257,7 +258,7 @@ describe('folders API', () => {
     expect(h.ctx.files.rules().access(h.ctx.files.principal(bob.id), ['users', alice.id, 'x'])).toBe('none')
     expect(h.ctx.files.rules().access(h.ctx.files.principal('olga'), ['users', alice.id, 'x'])).toBe('none')
     const s = captureState(h.ctx.db)
-    expect(s.rules.ruleFolders()).toContain(`users/${alice.id}`)
+    expect(s.rules.boundaryFolders()).toContain(`users/${alice.id}`)
   })
 })
 
