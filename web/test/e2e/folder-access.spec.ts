@@ -246,7 +246,7 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   // general access: the team (Acme) as Viewer; asks first
   await page.getByTestId('sharing-general-select').selectOption('team')
   await expect(page.getByTestId('sharing-general-role')).toHaveValue('read')
-  await expect(page.getByTestId('sharing-general-hint')).toHaveText(en('folderAccess.teamHintView', { team: 'Acme' }))
+  await expect(page.getByTestId('sharing-general-hint')).toHaveText(en('folderAccess.teamHintViewElse', { team: 'Acme' }))
   await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
   await page.getByTestId('sharing-save').click()
   await confirm(page).click()

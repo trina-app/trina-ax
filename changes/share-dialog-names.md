@@ -1,0 +1,1 @@
+- The **Share** dialog names who and where more exactly: the link that keeps out people from above names their folder, the warning under General access names everyone it keeps out, and with people listed the team's line says "Everyone else at …".

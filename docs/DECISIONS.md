@@ -26572,10 +26572,15 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   `From "Company-wide" · Change there ›`. **Restricted is always stored** ("everyone: no access"): only the people
   listed here open it, and whoever the folders above let in is cut off, Drive's Limit access meaning (review H1: a
   Restricted folder above can still list Sales, so "Restricted = follow it" let Sales in). Where a folder follows a
-  Restricted folder that lists people, one link under General access, **Don't let people from "<parent>" in**, does
-  the same (re-review: "Only people listed here" read like the line above it). A Restricted that cuts off people the
-  folders above let in **asks first**, by name ("Take access away?", Save anyway), like taking the team's own files;
-  other narrowing still saves straight. Before the first answer General access shows no value and no line. A
+  Restricted folder that lists people, one link under General access, **Don't let people from "<folder>" in**, does
+  the same; it names the folder the greyed rows come from, or "the folders above" when they come from several
+  (re-review: "Only people listed here" read like the line above it). **Switching to Restricted** (from the team or from
+  no setting here) **asks first whenever anyone would lose access**, by name ("Take access away?", Save anyway): the
+  team losing it as well as people the folders above let in. Other narrowing (a row lowered or removed) still saves
+  straight, "What will happen" having named who. The line under a lower General access names everyone it keeps out
+  or lowers ("Erin and Frank can open "Company-wide", but not this folder."), and with people listed both the team's
+  line and the team's lower line say "everyone else" ("Everyone else at Acme can view it", "Everyone else at Acme can
+  edit "Company-wide" but can only view this folder."). Before the first answer General access shows no value and no line. A
   team role equal to what a folder with no setting already gets stores nothing; any other role is stored. Back to
   "no setting here" is one link, **Use the access of "<parent>"** (not at the team root, `shared/` or `skills/`, which
   keep a setting of their own; there a team pick is always stored, review H2). General access waits for the server's

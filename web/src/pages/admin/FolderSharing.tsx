@@ -19,7 +19,7 @@ import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@m
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, removeNamed, setNamed, type Draft } from '../../lib/access-edit'
 import { isPersonalPath, isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, peopleOf, audienceOf, generalLevel, generalLowerOf, hasPanel, inProjects, latentLines, lowerOf, outcomeLines, overridingGroup, overrideText, parentOf, pickBasic, sameOutcome, saveAsk, type AboveRow, type Lower } from '../../lib/folder-sharing'
+import { aboveRows, askTitle, namesText, peopleOf, audienceOf, generalLevel, generalLowerOf, hasPanel, inProjects, latentLines, lowerOf, outcomeLines, overridingGroup, overrideText, parentOf, pickBasic, sameOutcome, saveAsk, type AboveRow, type Lower } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, Skeleton, confirmDialog } from '../../components/ui'
@@ -213,7 +213,13 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   const pick = (to: Access) => setDraft((x) => ({ ...x, basic: pickBasic(to, { initial: d.initial.basic, above, canFollow }) }))
   // a connected folder offers the team no Editor, unless it has it now (shown as it is)
   const teamEdit = d.choices.includes('write') || level === 'write'
-  const hint = !data ? '' : level === 'none' ? t(anyone ? 'folderAccess.restrictedHint' : 'folderAccess.hintAdminsOnly') : t(level === 'read' ? 'folderAccess.teamHintView' : 'folderAccess.teamHintEdit', { team })
+  // people listed (here or from above) have their own role: the team's line says "everyone else" then
+  const listed = draft.named.some((n) => n.access !== 'none') || fromAbove.some((r) => r.access !== 'none')
+  const hint = !data ? '' : level === 'none' ? t(anyone ? 'folderAccess.restrictedHint' : 'folderAccess.hintAdminsOnly')
+    : t(level === 'read' ? (listed ? 'folderAccess.teamHintViewElse' : 'folderAccess.teamHintView') : listed ? 'folderAccess.teamHintEditElse' : 'folderAccess.teamHintEdit', { team })
+  /** the folder the greyed rows come from, or null when they come from several */
+  const aboveFolders = new Set(fromAbove.filter((r) => r.access !== 'none').map((r) => r.folder))
+  const aboveFolder = aboveFolders.size === 1 ? [...aboveFolders][0]! : null
   const folderWord = (f: string) => (f === '' ? team : nameOf(f))
   const lowerGeneral = data ? generalLowerOf(draft.basic, data.everyoneAbove, { above: data.above, named: new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`)) }) : null
   /** Remove access (the role menu), asked first: a native menu's arrow keys would otherwise remove a row on the way */
@@ -504,15 +510,18 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
         onAudience={(a) => pick(a === 'restricted' ? 'none' : above !== 'none' ? above : 'read')}
         from={draft.basic === 'follow' && parent !== null ? { text: fromText(parent), label: t('folderAccess.changeIn', { folder: parent === '' ? t('files.root') : nameOf(parent) }), open: () => openFrom(parent) } : null}
         lower={!lowerGeneral ? null
-          : lowerGeneral.who !== undefined ? t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWho' : 'folderAccess.generalLowerClosedWho', { who: lowerGeneral.who, folder: folderWord(lowerGeneral.folder) })
-            : t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerView' : 'folderAccess.generalLowerClosed', { team, folder: folderWord(lowerGeneral.folder) })}
+          : lowerGeneral.who !== undefined ? (lowerGeneral.folder === null
+            ? t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWhoAbove' : 'folderAccess.generalLowerClosedWhoAbove', { who: namesText(t, locale, lowerGeneral.who, lowerGeneral.who.length) })
+            : t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWho' : 'folderAccess.generalLowerClosedWho', { who: namesText(t, locale, lowerGeneral.who, lowerGeneral.who.length), folder: folderWord(lowerGeneral.folder) }))
+            // people listed have their own role: "everyone else", as the line above says it
+            : t(lowerGeneral.kind === 'view' ? (listed ? 'folderAccess.generalLowerViewElse' : 'folderAccess.generalLowerView') : listed ? 'folderAccess.generalLowerClosedElse' : 'folderAccess.generalLowerClosed', { team, folder: folderWord(lowerGeneral.folder ?? '') })}
         keepOne={d.keepsOne}
         // nothing to pick from before the first answer: what the folder above gives is not known yet (review M1)
         loading={!data}
         // "no setting here" again: its own control (a pick never goes back to it, review H1)
         useAbove={draft.basic !== 'follow' && canFollow && parent !== null ? { text: t('folderAccess.useAbove', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'follow' })) } : null}
         // following a Restricted folder above still lets in who it lists: "only people listed here" cuts them off
-        limit={draft.basic === 'follow' && parent !== null && level === 'none' && fromAbove.some((r) => r.access !== 'none') ? { text: t('folderAccess.limitHere', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'named' })) } : null}
+        limit={draft.basic === 'follow' && parent !== null && level === 'none' && fromAbove.some((r) => r.access !== 'none') ? { text: aboveFolder === null ? t('folderAccess.limitHereAbove') : t('folderAccess.limitHere', { folder: aboveFolder === '' ? t('files.root') : nameOf(aboveFolder) }), use: () => setDraft((x) => ({ ...x, basic: 'named' })) } : null}
       />
 
       {(below > 0 || !admin) && <div className="border-t border-line pt-3 text-xs text-muted">
