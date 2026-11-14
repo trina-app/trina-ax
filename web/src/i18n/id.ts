@@ -1911,6 +1911,7 @@ export const id: Record<MessageKey, string> = {
   "adminHome.update.rootFailed": "Versi {version} · pembaruan server gagal. Lihat Admin › Sistem",
   "adminHome.update.rootManual": "Versi {version} · jalankan `sudo mycel-ctl update` di server",
   "adminHome.update.paused": "Versi {version} · Pembaruan sedang dijeda oleh {product}. Server ini tetap memakai versinya sekarang.",
+  "adminHome.update.cannotRead": "Versi {version} belum bisa membuka data server ini. Menunggu versi yang lebih baru.",
   "adminHome.update.rollout": "Versi {version} · akan dipasang otomatis saat giliran server ini tiba",
   "adminHome.update.rolloutAt": "Versi {version} · akan dipasang otomatis {when}, saat giliran server ini tiba",
   "adminHome.update.rolloutNever": "Versi {version} · tidak terpasang otomatis di server ini; Anda bisa memasangnya sekarang",

@@ -1881,6 +1881,7 @@ export const ja: Record<MessageKey, string> = {
   "adminHome.update.rootFailed": "新バージョン {version} · サーバーの更新に失敗しました。管理者 › システムを確認してください",
   "adminHome.update.rootManual": "新バージョン {version} · サーバーで`sudo mycel-ctl update`を実行してください",
   "adminHome.update.paused": "バージョン {version} · {product}が更新を一時停止しています。このサーバーは現在のバージョンのままです。",
+  "adminHome.update.cannotRead": "バージョン {version} はこのサーバーのデータをまだ開けません。より新しいバージョンを待っています。",
   "adminHome.update.rollout": "新バージョン {version} · このサーバーの順番になると自動でインストールされます",
   "adminHome.update.rolloutAt": "新バージョン {version} · このサーバーの順番になる{when}自動でインストールされます",
   "adminHome.update.rolloutNever": "新バージョン {version} · このサーバーには自動でインストールされません。今すぐインストールできます",

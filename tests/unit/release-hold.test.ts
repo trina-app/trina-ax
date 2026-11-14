@@ -131,7 +131,7 @@ describe('what the updaters make of a held head', () => {
     let f = ReleaseFeed.parse(JSON.parse(text))
     const updates = {
       checkFeed: async () => f, needsRoot: () => false,
-      download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
+      releaseCanRead: () => true, canRead: () => true, download: async () => { did.push('download') }, switchTo: async (v: string) => { did.push(`switch ${v}`); return { from: '1.0.0', to: v } },
     } as unknown as UpdateManager
     const backups = { run: async () => { did.push('backup') } } as unknown as BackupManager
     const d = { updates, backups, running: () => 0, restart: () => did.push('restart'), locale: 'en' as const, sleep: async () => {} }

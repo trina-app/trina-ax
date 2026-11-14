@@ -70,8 +70,12 @@ async function updateSteps(d: RunUpdateDeps, target: string, o: { staged: boolea
     if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
     if (feed.rollout?.hold) throw new UpdateError(`the publisher paused version ${target}; it is not installed until the roll-out resumes`)
     if (d.updates.needsRoot(feed)) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
+    if (!d.updates.releaseCanRead(feed)) throw new UpdateError(cannotOpenData(target))
     await d.updates.download(feed, (f) => progress(0.3 + 0.5 * f, stepText(d.locale, 'download')))
   }
+  // the version brought in (or one staged before) must open the database as it is now: one that cannot exits 75 and
+  // the bootstrap rolls back (a roll-back's Go back is checked the same way, UpdateManager.rollBack)
+  if (!d.updates.canRead(target)) throw new UpdateError(cannotOpenData(target))
   // 4) switch and restart; the bootstrap health-checks and rolls back on failure
   progress(0.9, stepText(d.locale, 'switch'))
   const r = await d.updates.switchTo(target)
@@ -79,6 +83,8 @@ async function updateSteps(d: RunUpdateDeps, target: string, o: { staged: boolea
   d.restart(`update to ${target}`)
   return { fromVersion: r.from, toVersion: r.to, rolledBack: o.rollback }
 }
+
+const cannotOpenData = (v: string) => `version ${v} cannot open this server's data: a newer version has already updated the database. Waiting for a newer release`
 
 // ---------------- automatic updates (Linux self-host, update.auto) ----------------
 type History = z.infer<typeof UpdateHistoryEntry>[]
@@ -118,7 +124,7 @@ export function nextWindow(window: string | null, now: Date, tz: string): { at: 
   return null
 }
 
-export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'paused' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
+export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'cannot_read' | 'paused' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
 
 /** Should this install take the feed's release by itself now? (pure: the ops service gathers the facts) */
 export function autoUpdateDecision(o: {
@@ -132,12 +138,18 @@ export function autoUpdateDecision(o: {
   /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
    * the root update timer tries it again after its own back-off, so this updater leaves it (0.2.19 review S1) */
   rootHold?: string | null
+  /** the release can open the database as it is now (UpdateManager.releaseCanRead); false: it is never taken by itself,
+   * whatever the hold or the roll-out says, until a newer release can (absent: yes) */
+  canRead?: boolean
   /** decide as if the window were open and no answer ran (Admin Home asks what holds a release back, not when) */
   ignoreWindow?: boolean
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
+  // a release that cannot open this database (a dev build ran migrations of a higher reader level): installing it only
+  // ends in exit 75 and a roll-back, again after every hold. Not a failure: it waits for a newer release
+  if (o.canRead === false) return { go: false, why: 'cannot_read' }
   // the publisher paused this release's roll-out (system/rollout.ts hold): nobody takes it by itself until it resumes
   if (f.rollout?.hold) return { go: false, why: 'paused' }
   if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }

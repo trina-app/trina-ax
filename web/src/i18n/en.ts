@@ -1911,6 +1911,7 @@ export const en: Record<MessageKey, string> = {
   "adminHome.update.rootFailed": "Version {version} · the server's update failed. See Admin › System",
   "adminHome.update.rootManual": "Version {version} · run `sudo mycel-ctl update` on the server",
   "adminHome.update.paused": "Version {version} · Updates are paused by {product} for now. This server stays on its current version.",
+  "adminHome.update.cannotRead": "Version {version} can't open this server's data yet. Waiting for a newer version.",
   "adminHome.update.rollout": "Version {version} · installs automatically when it is this server's turn",
   "adminHome.update.rolloutAt": "Version {version} · installs automatically {when}, when it is this server's turn",
   "adminHome.update.rolloutNever": "Version {version} · it does not install by itself on this server; you can install it now",

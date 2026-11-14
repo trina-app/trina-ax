@@ -1910,6 +1910,7 @@ export const ko = {
   "adminHome.update.rootFailed": "새 버전 {version} · 서버의 업데이트가 실패했어요. 관리자 › 시스템에서 확인해 주세요",
   "adminHome.update.rootManual": "새 버전 {version} · 서버에서 `sudo mycel-ctl update`를 실행해 주세요",
   "adminHome.update.paused": "새 버전 {version} · {product}에서 업데이트를 잠시 멈췄어요. 이 서버는 지금 버전 그대로예요.",
+  "adminHome.update.cannotRead": "새 버전 {version}은(는) 이 서버의 데이터를 아직 열 수 없어요. 더 새로운 버전을 기다리는 중이에요.",
   "adminHome.update.rollout": "새 버전 {version} · 이 서버 차례가 되면 자동으로 설치돼요",
   "adminHome.update.rolloutAt": "새 버전 {version} · 이 서버 차례인 {when} 자동으로 설치돼요",
   "adminHome.update.rolloutNever": "새 버전 {version} · 이 서버에는 자동으로 설치되지 않아요. 지금 설치할 수 있어요",
