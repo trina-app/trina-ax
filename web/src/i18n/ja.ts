@@ -851,6 +851,7 @@ export const ja: Record<MessageKey, string> = {
   'folderAccess.settings': "設定",
   'folderAccess.limit': "アクセスを制限",
   'folderAccess.limitHint': "ここに追加したユーザーだけが開けます。「{parent}」を開けるユーザーも、追加しないとアクセスできなくなります。オーナーと管理者は引き続き開けます。",
+  'folderAccess.limitLocked': "オフにするには、先に一般的なアクセスでチームの役割を選んでください。",
   'folderAccess.lowerNeedsLimit': "変更するにはアクセスを制限",
   'folderAccess.teamEditsAbove': "{team} の全員が「{folder}」を編集できます",
   'folderAccess.teamViewsAbove': "{team} の全員が「{folder}」を閲覧できます",

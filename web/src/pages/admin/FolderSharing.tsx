@@ -542,6 +542,8 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
           on={limited}
           parent={parent === '' ? t('files.root') : nameOf(parent!)}
           onChange={setLimit}
+          // shared/ or skills/ with nobody added and nothing from the team root: off would leave no setting (refused)
+          locked={teamFolder && limited && draft.basic !== 'read' && draft.basic !== 'write' && above === 'none' && !draft.named.some((n) => n.access !== 'none')}
         />
       )}
 
@@ -707,7 +709,7 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
 }
 
 /** Drive's Share › Settings › Limit access: only people added here open it (and the owner and admins, the Managers). */
-function LimitAccess({ on, parent, onChange }: { on: boolean; parent: string; onChange: (on: boolean) => void }) {
+function LimitAccess({ on, parent, onChange, locked }: { on: boolean; parent: string; onChange: (on: boolean) => void; locked?: boolean }) {
   const t = useT()
   const id = useId()
   return (
@@ -717,8 +719,9 @@ function LimitAccess({ on, parent, onChange }: { on: boolean; parent: string; on
         <div className="min-w-0 flex-1">
           <p className="text-row font-medium text-ink">{t('folderAccess.limit')}</p>
           <p className="text-xs text-muted" id={`${id}-hint`}>{t('folderAccess.limitHint', { parent })}</p>
+          {locked && <p className="mt-0.5 text-xs text-muted" id={`${id}-locked`} data-testid="sharing-limit-locked">{t('folderAccess.limitLocked')}</p>}
         </div>
-        <Switch checked={on} onChange={onChange} label={t('folderAccess.limit')} hideLabel describedBy={`${id}-hint`} testId="sharing-limit" />
+        <Switch checked={on} onChange={onChange} disabled={locked} label={t('folderAccess.limit')} hideLabel describedBy={locked ? `${id}-hint ${id}-locked` : `${id}-hint`} testId="sharing-limit" />
       </div>
     </section>
   )

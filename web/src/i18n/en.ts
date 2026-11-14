@@ -875,6 +875,7 @@ export const en: Record<MessageKey, string> = {
   'folderAccess.settings': "Settings",
   'folderAccess.limit': "Limit access",
   'folderAccess.limitHint': "Only people added here can open it. People who can open \"{parent}\" lose access unless they're added. The owner and admins can still open it.",
+  'folderAccess.limitLocked': "To turn it off, pick a team role under General access first.",
   'folderAccess.lowerNeedsLimit': "Limit access to change this",
   'folderAccess.teamEditsAbove': "Anyone at {team} can edit \"{folder}\"",
   'folderAccess.teamViewsAbove': "Anyone at {team} can view \"{folder}\"",

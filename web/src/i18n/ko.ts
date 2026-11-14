@@ -874,6 +874,7 @@ export const ko = {
   'folderAccess.settings': "설정",
   'folderAccess.limit': "액세스 제한",
   'folderAccess.limitHint': "여기에 추가된 사용자만 열 수 있습니다. '{parent}'을(를) 열 수 있는 사용자도 추가되지 않으면 액세스 권한을 잃습니다. 팀장과 관리자는 계속 열 수 있습니다.",
+  'folderAccess.limitLocked': "끄려면 먼저 일반 액세스에서 팀 역할을 선택하세요.",
   'folderAccess.lowerNeedsLimit': "변경하려면 액세스 제한 켜기",
   'folderAccess.teamEditsAbove': "{team}의 모든 사용자가 '{folder}'을(를) 편집할 수 있음",
   'folderAccess.teamViewsAbove': "{team}의 모든 사용자가 '{folder}'을(를) 볼 수 있음",
