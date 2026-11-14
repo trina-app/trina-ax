@@ -826,6 +826,8 @@ export const id: Record<MessageKey, string> = {
   'files.chatWithFolder': "Mulai chat dengan folder ini",
   'files.openProject': "Buka proyek",
   'folderAccess.menu': "Bagikan",
+  'folderAccess.generalLowerViewElse': "Semua orang lain di {team} dapat mengedit \"{folder}\", tetapi hanya dapat melihat folder ini.",
+  'folderAccess.generalLowerClosedElse': "Semua orang lain di {team} dapat membuka \"{folder}\", tetapi tidak folder ini.",
   'folderAccess.limitHereAbove': "Jangan izinkan orang dari folder di atas masuk",
   'folderAccess.teamHintViewElse': "Semua orang lain di {team} dapat melihatnya",
   'folderAccess.teamHintEditElse': "Semua orang lain di {team} dapat mengeditnya",

@@ -826,6 +826,8 @@ export const en: Record<MessageKey, string> = {
   'files.chatWithFolder': "Start a chat with this folder",
   'files.openProject': "Open project",
   'folderAccess.menu': "Share",
+  'folderAccess.generalLowerViewElse': "Everyone else at {team} can edit \"{folder}\" but can only view this folder.",
+  'folderAccess.generalLowerClosedElse': "Everyone else at {team} can open \"{folder}\", but not this folder.",
   'folderAccess.limitHereAbove': "Don't let people from the folders above in",
   'folderAccess.teamHintViewElse': "Everyone else at {team} can view it",
   'folderAccess.teamHintEditElse': "Everyone else at {team} can edit it",

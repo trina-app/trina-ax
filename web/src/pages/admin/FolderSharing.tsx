@@ -513,7 +513,8 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
           : lowerGeneral.who !== undefined ? (lowerGeneral.folder === null
             ? t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWhoAbove' : 'folderAccess.generalLowerClosedWhoAbove', { who: namesText(t, locale, lowerGeneral.who, lowerGeneral.who.length) })
             : t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWho' : 'folderAccess.generalLowerClosedWho', { who: namesText(t, locale, lowerGeneral.who, lowerGeneral.who.length), folder: folderWord(lowerGeneral.folder) }))
-            : t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerView' : 'folderAccess.generalLowerClosed', { team, folder: folderWord(lowerGeneral.folder ?? '') })}
+            // people listed have their own role: "everyone else", as the line above says it
+            : t(lowerGeneral.kind === 'view' ? (listed ? 'folderAccess.generalLowerViewElse' : 'folderAccess.generalLowerView') : listed ? 'folderAccess.generalLowerClosedElse' : 'folderAccess.generalLowerClosed', { team, folder: folderWord(lowerGeneral.folder ?? '') })}
         keepOne={d.keepsOne}
         // nothing to pick from before the first answer: what the folder above gives is not known yet (review M1)
         loading={!data}

@@ -825,6 +825,8 @@ export const ko = {
   'files.chatWithFolder': "이 폴더로 채팅 시작",
   'files.openProject': "프로젝트 열기",
   'folderAccess.menu': "공유",
+  'folderAccess.generalLowerViewElse': "{team}의 다른 모든 사용자는 '{folder}'을(를) 편집할 수 있지만 이 폴더는 볼 수만 있어요.",
+  'folderAccess.generalLowerClosedElse': "{team}의 다른 모든 사용자는 '{folder}'은(는) 열 수 있지만 이 폴더는 열 수 없어요.",
   'folderAccess.limitHereAbove': "위 폴더들의 사용자는 들이지 않기",
   'folderAccess.teamHintViewElse': "{team}의 다른 모든 사용자가 볼 수 있음",
   'folderAccess.teamHintEditElse': "{team}의 다른 모든 사용자가 편집할 수 있음",

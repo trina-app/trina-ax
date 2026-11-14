@@ -802,6 +802,8 @@ export const ja: Record<MessageKey, string> = {
   'files.chatWithFolder': "このフォルダーでチャットを開始",
   'files.openProject': "プロジェクトを開く",
   'folderAccess.menu': "共有",
+  'folderAccess.generalLowerViewElse': "{team} のほかの全員が「{folder}」を編集できますが、このフォルダーは閲覧のみです。",
+  'folderAccess.generalLowerClosedElse': "{team} のほかの全員が「{folder}」を開けますが、このフォルダーは開けません。",
   'folderAccess.limitHereAbove': "上のフォルダーのユーザーを入れない",
   'folderAccess.teamHintViewElse': "{team} のほかの全員が閲覧できます",
   'folderAccess.teamHintEditElse': "{team} のほかの全員が編集できます",

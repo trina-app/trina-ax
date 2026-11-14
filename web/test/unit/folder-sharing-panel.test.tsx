@@ -216,6 +216,16 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     await m.unmount()
   })
 
+  test('nobody listed: the lower line says "anyone at", not "everyone else"', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
+    const m = await mountHost('shared/Sales/Quotes')
+    const line = await m.until(() => m.find('sharing-general-lower'), 'the lower line')
+    expect(line.textContent).toBe(en('folderAccess.generalLowerView', { team: 'Acme', folder: 'Sales' }))
+    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.teamHintView', { team: 'Acme' }))
+    await m.unmount()
+  })
+
   test('General access lower than the folder above: a lasting line, not only while something is changed', async () => {
     rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])
     rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
@@ -224,7 +234,8 @@ describe('Drive\'s role menu and Access removed (P1)', () => {
     expect(valueOf(m.get('sharing-general-role'))).toBe('read')
     // Erin is listed as Editor: the team's line says "everyone else" (review of #783)
     expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.teamHintViewElse', { team: 'Acme' }))
-    expect(m.get('sharing-general-lower').textContent).toBe(en('folderAccess.generalLowerView', { team: 'Acme', folder: 'Sales' }))
+    // Erin is listed as Editor: the lower line says "everyone else" too (review of #784)
+    expect(m.get('sharing-general-lower').textContent).toBe(en('folderAccess.generalLowerViewElse', { team: 'Acme', folder: 'Sales' }))
     // nothing changed: the line is there without a draft
     expect(m.find('sharing-save')).toBeNull()
     await m.unmount()

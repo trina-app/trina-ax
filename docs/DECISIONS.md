@@ -26578,8 +26578,9 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   no setting here) **asks first whenever anyone would lose access**, by name ("Take access away?", Save anyway): the
   team losing it as well as people the folders above let in. Other narrowing (a row lowered or removed) still saves
   straight, "What will happen" having named who. The line under a lower General access names everyone it keeps out
-  or lowers ("Erin and Frank can open "Company-wide", but not this folder."), and with people listed the team's line
-  says "Everyone else at Acme can view it". Before the first answer General access shows no value and no line. A
+  or lowers ("Erin and Frank can open "Company-wide", but not this folder."), and with people listed both the team's
+  line and the team's lower line say "everyone else" ("Everyone else at Acme can view it", "Everyone else at Acme can
+  edit "Company-wide" but can only view this folder."). Before the first answer General access shows no value and no line. A
   team role equal to what a folder with no setting already gets stores nothing; any other role is stored. Back to
   "no setting here" is one link, **Use the access of "<parent>"** (not at the team root, `shared/` or `skills/`, which
   keep a setting of their own; there a team pick is always stored, review H2). General access waits for the server's
