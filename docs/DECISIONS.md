@@ -27587,7 +27587,7 @@ guides, "Apps posting here") are phase 2.
 - **Signatures optional for both (owner decision 9).** "Make it safer": GitHub gets a secret Trina makes (`tax_whs_…`,
   shown on the address again); Sentry takes its Client Secret (64 hex). Once set, a request without the right
   signature over the raw bytes is refused. Without one, every actor name in a card is marked "(unverified)". A secret
-  Trina makes (GitHub, Typeform, Tally) waits for the service (migration 404 `room_apps.secret_pending`, QA
+  Trina makes (GitHub, Typeform, Tally) waits for the service (migration 405 `room_apps.secret_pending`, QA
   2026-11-15): until the first request signed with it, unsigned ones are still taken (Copy secret must not drop what
   the service sends before the person pastes it there; the safer of "after the first signed delivery" and "I've pasted
   it", which drops deliveries when pressed too early); the app's `signingPending` says so. Changing or removing the

@@ -56,7 +56,7 @@ export interface AppRow {
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
   rotated_at: string | null
-  /** migration 404: a secret Trina made, not yet seen on a request (older rows: 0) */
+  /** migration 405: a secret Trina made, not yet seen on a request (older rows: 0) */
   secret_pending?: number
 }
 
