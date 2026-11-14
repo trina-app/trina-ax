@@ -1,6 +1,10 @@
-// People who see a shared project chat later (docs/DECISIONS.md "People who see a shared chat later"): an answer stays
-// visible to its runner, to the people who saw the chat when it read what it used, and to anyone who may read those
-// places now; everyone else gets one line in its place and nothing of it anywhere. The project is on projects/falcon:
+// People who see a shared project chat later (docs/DECISIONS.md "People who see a shared chat later: nothing new is
+// hidden", QA TC-1404). From the cutover (migration 351) on no answer is hidden ("from the cutover on" below). An answer
+// from before it keeps the old rule where no card covered it (rule b): it stays visible to its runner, to the people who
+// saw the chat when it read what it used, to anyone who may read those places now, and for a group a card's yes covered
+// to everyone; everyone else gets one line in its place and nothing of it anywhere. Most tests here are about such older
+// answers: the cutover is set after them (9999), and an older answer whose card's yes left no mark (no y: an answer the
+// card asked about before migration 351 whose audit row did not say so) stands for one no card covered. The project is on projects/falcon:
 // alice writes it, the finance group (bob) reads it; carol (admin) and dana (owner) are not its members, so they do not
 // see its chats (docs/DECISIONS.md "Project contents only for members"; a test that needs carol in its audience makes her
 // a member). gina (finance, added here) joins later and cannot read groups/marketing; erin (marketing) gets the project
@@ -18,13 +22,15 @@ import { oldProject } from '../lib/legacy-project'
 import { addTestPerson } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { recordOlderAnswers, WITHHELD_ANSWER } from '../../server/src/chat/shared'
-import { answerRecord, withheldFrom } from '../../server/src/chat/shared-answers'
+import { answerRecord, setHiddenAnswersCutover, withheldFrom } from '../../server/src/chat/shared-answers'
 import { runExport } from '../../server/src/system/export'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 const BRIEF = 'groups/marketing/campaign-brief.md'
+/** a cutover after every answer of the test: they are all judged by the old rule (b) */
+const OLD_RULE = '9999-12-31T00:00:00.000Z'
 const CANARY = 'Autumn Upgrade'
 
 let h: Harness
@@ -37,6 +43,8 @@ beforeAll(async () => {
   for (const u of ['alice', 'bob', 'carol', 'erin', 'gina']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
+  // every answer here is older than the cutover, unless a test says otherwise
+  setHiddenAnswersCutover(h.ctx.db, OLD_RULE)
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
@@ -74,6 +82,9 @@ const erinLeaves = () => db().query("DELETE FROM folder_rules WHERE id = 'aud-er
 const carolJoins = () => db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('aud-carol', 'f_projects_falcon', 'user', 'carol', 'read')").run()
 const carolLeaves = () => db().query("DELETE FROM folder_rules WHERE id = 'aud-carol'").run()
 
+/** an older answer whose card's yes left no mark (no y): one no card covered (rule b keeps hiding it) */
+const noYes = (answerId: string) => db().query(`UPDATE shared_answer_reads SET reads = (SELECT json_group_array(json_remove(g.value, '$.y')) FROM json_each(shared_answer_reads.reads) g) WHERE message_id = ?`).run(answerId)
+
 /** what a hidden answer shows: its place, nothing of it */
 const shell = (m: Message) => ({ withheld: m.withheld, content: m.content, steps: m.steps, files: m.files, model: m.model, sourceCount: m.sourceCount, error: m.error })
 const HIDDEN = { withheld: true as const, content: '', steps: [], files: null, model: null, sourceCount: undefined, error: null }
@@ -85,13 +96,25 @@ describe('a read the card confirmed', () => {
     // two people see the chat (alice and bob: the owner and admins are not members); bob cannot read groups/marketing:
     // the card, and alice says yes
     const r = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'share')
-    expect(r.card.question).toContain('Of the 2 members who see this chat, 1 cannot see this place')
+    // the card's words: what it finds stays in the chat, also for people who get access later
+    expect(r.card.question).toContain("1 of the 2 people who see this chat can't open it")
+    expect(r.card.question).toContain('stays in this chat for everyone who sees the chat, including people who get access later')
     expect(r.done.content).toContain(CANARY)
     answerId = r.done.id
     questionId = r.started.userMessage!.id
     join()
   })
   afterAll(() => { leave(); erinLeaves() })
+
+  test("the card's yes covers its group (y): a later reader who cannot read the place sees the older answer too (rule b)", async () => {
+    expect(answerRecord(db(), answerId)!.reads.map((g) => g.y)).toEqual([1])
+    const forGina = await answerFor('gina', chatId, answerId)
+    expect(forGina.withheld).toBeUndefined()
+    expect(forGina.content).toContain(CANARY)
+    // the rest of this block: the same answer as one no card covered
+    noYes(answerId)
+    expect(answerRecord(db(), answerId)!.reads.map((g) => g.y)).toEqual([undefined])
+  })
 
   test('a later reader who cannot read the place gets one line in its place; the question stays', async () => {
     // alice, bob and gina
@@ -186,6 +209,7 @@ describe('around the transcript', () => {
     const chatId = (await newShared()).id
     const r = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', title: 'ART-TITLE', content: `# ${CANARY}` } }, { say: 'made' }), 'share')
     expect(r.done.content).toBe('made')
+    noYes(r.done.id)
     const art = (await h.api('bob').call(API.listChatArtifacts, { params: { id: chatId } })).items
     expect(art.map((a) => a.key)).toEqual(['brief'])
     const artId = art[0]!.versions[0]!.id
@@ -211,6 +235,7 @@ describe('around the transcript', () => {
   test('an artifact version built on a hidden one on another branch is hidden too (it may carry its content)', async () => {
     const chatId = (await newShared()).id
     const first = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', title: 'XB-TITLE', content: 'XB-BODY' } }, { say: 'made' }), 'share')
+    noYes(first.done.id)
     // alice edits her first question: a new branch, whose answer reads nothing and updates the key (v2 holds v1's text)
     const edited = await h.api('alice').call(API.editMessage, { params: { id: chatId, messageId: first.started.userMessage!.id }, body: { content: fake({ tool: 'artifact', args: { action: 'update', key: 'brief', type: 'markdown', edits: [{ old: 'XB-BODY', new: 'XB-BODY v2' }] } }, { say: 'updated' }), clientMessageId: cm(), attachmentIds: [] } })
     await ws.alice!.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 30_000)
@@ -324,12 +349,60 @@ describe("a group's skills in a shared chat are its members' only (as in a room)
     expect(sys.done.content).not.toContain('GROUP-BRIEF-SKILL')
     const r = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'skip')
     expect(r.card.question).toContain('The AI wants to use a skill in')
-    expect(r.card.question).toContain('Of the 4 members who see this chat, 2 cannot use this skill')
+    expect(r.card.question).toContain("2 of the 4 people who see this chat can't use it")
+    expect(r.card.question).toContain('including people who get access later')
     expect(r.done.content).not.toContain('GROUP-SKILL-BODY-55')
     const yes = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'GROUP-BRIEF-SKILL' }, sayResult: true }), 'share')
     expect(yes.done.content).toContain('GROUP-SKILL-BODY-55')
     // a "/name" run asks the same
     const cmd = await askWithCard('alice', chat.id, '/GROUP-BRIEF-SKILL\n' + fake({ echo: 'message' }), 'skip')
     expect(cmd.done.content).not.toContain('GROUP-SKILL-BODY-55')
+  })
+})
+
+describe('from the cutover on nothing is hidden (TC-1404)', () => {
+  // an answer from before the cutover, then the cutover, then new answers
+  let chatId: string, oldId: string
+  beforeAll(async () => {
+    chatId = (await newShared('bob')).id
+    await ask('bob', chatId, 'start\n' + fake({ say: 'CUT-START' }))
+    // bob is out of the project while alice reads marketing: no card (everyone then could read it): hidden from bob
+    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    try { oldId = (await ask('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))).done.id }
+    finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    setHiddenAnswersCutover(db(), new Date().toISOString())
+  })
+  afterAll(() => { setHiddenAnswersCutover(db(), OLD_RULE); leave() })
+
+  test('the older answer no card covered keeps the old hiding; a new one read the same way is visible to the later reader', async () => {
+    expect(shell(await answerFor('bob', chatId, oldId))).toEqual(HIDDEN)
+    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    let newId: string
+    try { newId = (await ask('alice', chatId, 'again\n' + fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))).done.id }
+    finally { db().query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    // still recorded (the widening warning reads it), hidden from nobody
+    expect(answerRecord(db(), newId)!.reads.length).toBe(1)
+    const forBob = await answerFor('bob', chatId, newId)
+    expect(forBob.withheld).toBeUndefined()
+    expect(forBob.content).toContain(CANARY)
+    expect(withheldFrom(db(), h.ctx.files.rules(), chatId, 'bob').has(newId)).toBe(false)
+    // search finds it by its words now; the older answer's words still do not count
+    expect(await found('bob', 'again Autumn')).toContain(chatId)
+  })
+
+  test('a new answer after a card is visible to someone who joins later; their own AI still gets the older hidden answer as the line', async () => {
+    const r = await askWithCard('alice', chatId, 'card\n' + fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }), 'share')
+    expect(r.card.question).toContain('including people who get access later')
+    join()
+    const forGina = await answerFor('gina', chatId, r.done.id)
+    expect(forGina.withheld).toBeUndefined()
+    expect(forGina.content).toContain(CANARY)
+    // the older answer stays hidden from her too, and out of her engine
+    expect(shell(await answerFor('gina', chatId, oldId))).toEqual(HIDDEN)
+    const g = await ask('gina', chatId, fake({ echo: 'system' }))
+    expect(g.done.content).toContain(WITHHELD_ANSWER)
+    leave()
+    // taken out of the project again: the chat is not found for her
+    expect((await errOf(messages('gina', chatId))).status).toBe(404)
   })
 })
