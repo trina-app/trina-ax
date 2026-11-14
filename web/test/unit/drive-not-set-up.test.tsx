@@ -5,10 +5,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import type { DriveAdminStatus, Me } from '@mycel/shared/api'
+import type { DriveAdminStatus, GoogleAppAdminStatus, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { DriveCard } from '../../src/components/integrations/DriveConnector'
-import { DriveAdminPage } from '../../src/components/integrations/GoogleAdminPage'
+import { DriveAdminPage, GOOGLE_APPS_GUIDE, GoogleAppAdminPage } from '../../src/components/integrations/GoogleAdminPage'
 import type { DriveConnectionState } from '../../src/components/settings/DriveConnection'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
@@ -21,7 +21,8 @@ const as = (role: 'owner' | 'admin' | 'member') => {
   useLocaleStore.setState({ locale: 'ko' })
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: role, username: role, name: role, role, prefs: {} }, team: { name: 'Acme', defaultLocale: 'ko' }, groups: [], session: { id: 's', client: 'web' }, server: { version: '0', dev: true } } as unknown as Me } })
 }
-const ko = (key: Parameters<typeof translate>[1]) => translate('ko', key)
+const ko = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('ko', key, params)
+const drive = { name: 'Google Drive' }
 const notSetUp = {
   connection: { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }, loadFailed: false, load: () => {}, revokeWarning: false, start: () => {}, disconnect: async () => {},
   d: { inProgress: false, flow: null, busy: false, error: false, authorizationUrl: null, cancel: () => {}, complete: async () => {}, setError: () => {} },
@@ -60,22 +61,54 @@ describe('관리자 › 연결한 서비스 › Google Drive without a public ad
     as('owner')
     const { text, html } = await page()
     expect(html).toContain('data-testid="drive-public-host"')
-    expect(text).toContain(ko('driveAdmin.publicHost.why'))
-    expect(text).toContain(ko('driveAdmin.publicHost.owner'))
+    expect(text).toContain(ko('googleAdmin.publicHost.why', drive))
+    expect(text).toContain(ko('googleAdmin.publicHost.owner', drive))
     expect(html).toContain('href="/admin/system/connection"')
+    expect(html).toContain(`href="${GOOGLE_APPS_GUIDE}"`)
   })
   test('an admin: the same reason, and to ask the owner (no link to a page they do not see)', async () => {
     as('admin')
     const { text, html } = await page()
-    expect(text).toContain(ko('driveAdmin.publicHost.why'))
-    expect(text).toContain(ko('driveAdmin.publicHost.admin'))
-    expect(text).not.toContain(ko('driveAdmin.publicHost.owner'))
+    expect(text).toContain(ko('googleAdmin.publicHost.why', drive))
+    expect(text).toContain(ko('googleAdmin.publicHost.admin', drive))
+    expect(text).not.toContain(ko('googleAdmin.publicHost.owner', drive))
     expect(html).not.toContain('href="/admin/system')
   })
   test('set up, or blocked for another reason: no such paragraph', async () => {
     as('owner')
     expect((await page({ ...admin, blocked: 'hosted' })).html).not.toContain('data-testid="drive-public-host"')
     expect((await page({ ...admin, configured: true, blocked: null, canSetUp: true, source: 'app' })).html).not.toContain('data-testid="drive-public-host"')
+  })
+})
+
+// QA TC-2314: the four Google apps said only "Needs this server's public address first." with no hint where it is set
+describe('관리자 › 연결한 서비스 › Gmail without a public address', () => {
+  const gmail: GoogleAppAdminStatus = { id: 'gmail', configured: false, source: 'none', canSetUp: false, blocked: 'public_host', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: false, connectedMembers: 0 }
+  const gpage = (s: GoogleAppAdminStatus = gmail) => shown(<GoogleAppAdminPage status={s} onSetUp={() => {}} onStatus={() => {}} />)
+  test('the owner: where it is set (the installer, System › Connection type) and the guide', async () => {
+    as('owner')
+    const { text, html } = await gpage()
+    expect(html).toContain('data-testid="gapp-public-host"')
+    expect(text).toContain(ko('appConnectors.blocked.publicHost'))
+    expect(text).toContain(ko('googleAdmin.publicHost.why', { name: 'Gmail' }))
+    expect(text).toContain(ko('googleAdmin.publicHost.owner', { name: 'Gmail' }))
+    expect(html).toContain('href="/admin/system/connection"')
+    expect(html).toContain(`href="${GOOGLE_APPS_GUIDE}"`)
+  })
+  test('an admin: ask the owner, with the guide and no link to System', async () => {
+    as('admin')
+    const { text, html } = await gpage()
+    expect(text).toContain(ko('googleAdmin.publicHost.admin', { name: 'Gmail' }))
+    expect(html).toContain(`href="${GOOGLE_APPS_GUIDE}"`)
+    expect(html).not.toContain('href="/admin/system')
+  })
+  test('blocked for another reason or set up: no such paragraph', async () => {
+    as('owner')
+    expect((await gpage({ ...gmail, blocked: 'hosted' })).html).not.toContain('data-testid="gapp-public-host"')
+    expect((await gpage({ ...gmail, configured: true, blocked: null, canSetUp: true, source: 'app' })).html).not.toContain('data-testid="gapp-public-host"')
+  })
+  test('the guide is the docs page for admins of a server they run', () => {
+    expect(GOOGLE_APPS_GUIDE).toBe('https://ax.trina.app/docs/use/google-apps/#set-up-the-google-apps-admins-of-a-server-you-run-yourself')
   })
 })
 
