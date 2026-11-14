@@ -13251,7 +13251,7 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
 - Every request that reaches the server is checked exactly as before (in the room, the message there and visible, the
   download-only list). Only Cache-Control changes, and only for a thumbnail (`thumb=1`) whose address carries the asking
   session's own media key (`?k=`, from `GET /api/me` `session.mediaKey`): then `private, max-age=…, immutable`, at most
-  a day and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
+  an hour and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
   file: `private, no-cache` as before.
 - Why the key: a browser keeps answers by address. With one address for everyone, the next person on a shared
   computer would be shown the last person's kept pictures without the server being asked. The key is an HMAC of the
@@ -13265,9 +13265,11 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
   server on the next load. Browsers honour it on https only (not a plain-http office address), Safari only in
   part, and a session that simply runs out sends nothing: it is extra care, the per-sign-in key is what keeps it safe.
 - What is looser than before, on purpose: within the same sign-in, a thumbnail already shown stays viewable from this
-  browser's cache for up to a day after the server would refuse it (the person left the room, the message was deleted,
+  browser's cache for up to an hour after the server would refuse it (the person left the room, the message was deleted,
   the file was put on the download-only list later). The app no longer shows it; the bytes were on that computer
   already (a `no-cache` answer is stored too).
+- An hour, not a day (2026-11-14): that window is the one place this is looser than before, so it is kept short. An
+  hour still covers scrolling back and forth through a chat without a round trip per picture.
 - Not changed: team file previews and HEIC previews (`/api/files/download`, `/api/files/preview`) and chat attachment
   thumbnails keep `private, no-cache` with an ETag (a 304 without the bytes): their address names a path whose file
   and folder access can change. Avatars were already versioned and immutable; they now load lazily, as do chip
@@ -26714,3 +26716,18 @@ connect_service are unchanged.
 - Tests: `b-chat-rooms-save.test.ts` (the combined card offers it; picking it keeps both kinds), `b-always-allow.test.ts`
   (a scheduled run: `on` only for its own person's kind, never offered), `b-chat-rooms-fewer-cards.test.ts`.
 - Version impact: **patch**.
+
+## Project members: one line per person (fix/thumb-1h-participants-row, 2026-11-14)
+
+- **Ask:** the member list of the project pickers (components/ProjectParticipants.tsx: 멤버 추가 on a personal project,
+  the Members dialog, the new-project form) built its own rows, the last "to fix" entry of the list-row guard
+  (web/test/unit/list-row-source.test.ts). Its controls could wrap under the name, a second line of buttons.
+- **Now:** each member is a shared `ListRow`, one line, as in a chat app's member list: the picture (or a group's mark)
+  as the icon; the name and 새로, then its title or the group's "부서 · N명" in small faint words on the same line,
+  cut at the end when long; the tags (나, 만든 사람, a folder rule) at the row's right as the row's tag; × or 되돌리기
+  in the row's `actions`, beside it. A group with a note (the Members dialog's "except Kim") keeps its words on a
+  second line, where the names have the row's width; on a phone the note wraps there, never cut (#788, TC-1402). A group in the Members dialog is a button row that opens its people under it (a
+  list item of its own after the row). Rows are the lists' heights: 36px with a 28px face on a computer, 48px on a
+  phone; names 15px and 16px.
+- `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
+  title as the second line, 추가 / 추가됨).
