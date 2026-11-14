@@ -145,14 +145,15 @@ test('every read is still checked: a member taken out, a deleted message, a file
   expect(down.headers.get('cache-control')).toBe('private, no-cache')
 })
 
-test('keptMediaCache: only the session\'s own key, never past the session\'s end, at most a day', async () => {
+test('keptMediaCache: only the session\'s own key, never past the session\'s end, at most an hour', async () => {
   const { nora } = await setup()
   const s = (await nora.client.call('GET', '/api/me')).session as { id: string; expiresAt: string; mediaKey: string }
   const k = mediaKeyOf(h.ctx.db, s.id)!
   expect(k).toBe(s.mediaKey)
   const now = Date.parse(s.expiresAt)
-  expect(keptMediaCache(h.ctx.db, s, k, now - 3 * 86_400_000)).toBe(`private, max-age=${KEPT_MEDIA_MAX_AGE_S}, immutable`)
-  expect(keptMediaCache(h.ctx.db, s, k, now - 3_600_000)).toBe('private, max-age=3600, immutable')
+  expect(KEPT_MEDIA_MAX_AGE_S).toBe(3600)
+  expect(keptMediaCache(h.ctx.db, s, k, now - 3 * 86_400_000)).toBe('private, max-age=3600, immutable')
+  expect(keptMediaCache(h.ctx.db, s, k, now - 1_800_000)).toBe('private, max-age=1800, immutable')
   // the last minute of a session (or after it): nothing kept
   expect(keptMediaCache(h.ctx.db, s, k, now - 30_000)).toBeNull()
   expect(keptMediaCache(h.ctx.db, s, k, now + 1000)).toBeNull()

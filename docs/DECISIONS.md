@@ -13251,7 +13251,7 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
 - Every request that reaches the server is checked exactly as before (in the room, the message there and visible, the
   download-only list). Only Cache-Control changes, and only for a thumbnail (`thumb=1`) whose address carries the asking
   session's own media key (`?k=`, from `GET /api/me` `session.mediaKey`): then `private, max-age=…, immutable`, at most
-  a day and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
+  an hour and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
   file: `private, no-cache` as before.
 - Why the key: a browser keeps answers by address. With one address for everyone, the next person on a shared
   computer would be shown the last person's kept pictures without the server being asked. The key is an HMAC of the
@@ -13265,9 +13265,11 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
   server on the next load. Browsers honour it on https only (not a plain-http office address), Safari only in
   part, and a session that simply runs out sends nothing: it is extra care, the per-sign-in key is what keeps it safe.
 - What is looser than before, on purpose: within the same sign-in, a thumbnail already shown stays viewable from this
-  browser's cache for up to a day after the server would refuse it (the person left the room, the message was deleted,
+  browser's cache for up to an hour after the server would refuse it (the person left the room, the message was deleted,
   the file was put on the download-only list later). The app no longer shows it; the bytes were on that computer
   already (a `no-cache` answer is stored too).
+- An hour, not a day (2026-11-14): that window is the one place this is looser than before, so it is kept short. An
+  hour still covers scrolling back and forth through a chat without a round trip per picture.
 - Not changed: team file previews and HEIC previews (`/api/files/download`, `/api/files/preview`) and chat attachment
   thumbnails keep `private, no-cache` with an ETag (a 304 without the bytes): their address names a path whose file
   and folder access can change. Avatars were already versioned and immutable; they now load lazily, as do chip
