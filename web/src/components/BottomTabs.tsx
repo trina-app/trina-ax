@@ -56,7 +56,7 @@ export function BottomTabs() {
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
-  // a guest: no 파일, and no 프로젝트 without one (components/GuestView.tsx)
+  // a guest: no 파일, no 프로젝트 without one, no 대화 for a guest in a project with none (components/GuestView.tsx)
   const guestHidden = useGuestHidden()
   // 트리나's mark counts the AI chats of the chat list: read it whichever tab opens first, as the rail does
   const chatsLoaded = useChats((s) => s.chatsLoaded)
@@ -89,6 +89,7 @@ export function BottomTabs() {
           ))}
       </TabLink>
       )}
+      {!guestHidden.has('chats') && (
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats" onClick={go('chats')}>
         {chats?.kind === 'count' ? (
           <Count n={chats.n} label={t('rail.unreadRooms', { n: chats.n })} testId="tab-chats-unread" />
@@ -100,6 +101,7 @@ export function BottomTabs() {
           )
         )}
       </TabLink>
+      )}
       {!guestHidden.has('projects') && <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<SquareKanban size={22} aria-hidden />} label={t('projects.title')} testId="tab-projects" onClick={go('projects')} />}
       {!guestHidden.has('files') && <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />}
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>

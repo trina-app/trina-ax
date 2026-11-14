@@ -64,7 +64,7 @@ import { PresenceDot, PresenceText } from '../components/Presence'
 import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
 import { IncludesGuests } from '../components/GuestTag'
-import { useGuestNoAi } from '../components/GuestView'
+import { useGuestAiOff } from '../components/GuestView'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
  * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
@@ -125,7 +125,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the timeline's own sends (a thread's are in its panel)
   const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
   const roomMembers = useRooms((s) => s.members[roomId]) as RoomMember[] | undefined
-  const guestNoAi = useGuestNoAi()
+  const guestNoAi = useGuestAiOff()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const [missing, setMissing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
@@ -450,7 +450,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
         )}
-        {/* ✦: not for a guest whose AI is off (components/GuestView.tsx) */}
+        {/* ✦: not for a guest whose invite gives them no AI (components/GuestView.tsx useGuestAiOff) */}
         {room && !guestNoAi && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
             onClick={() => { if (sideOpen) closeSide(); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">

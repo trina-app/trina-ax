@@ -83,7 +83,7 @@ import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
 import { usePeopleList } from '../store/people'
 import { guestProject, isGuestMe } from '../lib/guests'
-import { GuestProjectNote, useGuestNoAi } from '../components/GuestView'
+import { GuestProjectNote, useGuestAiOff } from '../components/GuestView'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { isTeamProject, noLongerMemberOf, privateInTeamProject, refusalKey } from '../lib/sharedChat'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
@@ -669,9 +669,10 @@ function ProjectPage() {
   // a guest: the project with nothing to change on it (lib/guests.ts guestProject)
   const guestHere = isGuestMe(useMe())
   const p = useMemo(() => (guestHere && rawP ? guestProject(rawP) : rawP), [guestHere, rawP])
-  // a guest whose AI is off: no box and no Trina history; the project's files and members are the page, under one quiet
-  // line (components/GuestView.tsx)
-  const aiOff = useGuestNoAi()
+  // a guest whose invite gives them no AI: no box and no Trina history; the project's files and members are the page,
+  // under one quiet line (components/GuestView.tsx useGuestAiOff; Team AI that cannot answer yet keeps the page, and its
+  // box says why)
+  const aiOff = useGuestAiOff()
   const [missing, setMissing] = useState(false)
   // not found because I was taken out of it (or left): its name (QA TC-1067)
   const [goneFrom, setGoneFrom] = useState<string | null>(null)
@@ -1117,7 +1118,8 @@ function ProjectPage() {
                       <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
                     </Button>
                   </EmptySideBox>
-                ) : !outside && (
+                ) : !outside && !aiOff && (
+                  // (a guest with no AI: the instructions are for the AI only, so none here; components/GuestView.tsx)
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}

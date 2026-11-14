@@ -5,12 +5,12 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { guestPlacePath, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { useMe, useSession } from '../store/session'
+import { removedFrom, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -300,6 +300,8 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
+  // a removed guest (store/session.ts): now, or on a later visit from this browser
+  const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
@@ -323,7 +325,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
+    <AuthFrame title={removedTeam ? t('auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed">{t('auth.guestRemoved')}</span> : reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -341,7 +343,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+        {!removedTeam && <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>}
       </form>
     </AuthFrame>
   )
@@ -708,7 +710,8 @@ export function AcceptInvite() {
     void run(async () => {
       const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
-      navigate('/', { replace: true })
+      // a guest opens straight into their one place (components/GuestView.tsx)
+      navigate(guestPlacePath(r.me) ?? '/', { replace: true })
     })
   if (info === null)
     return (

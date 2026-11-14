@@ -1,6 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { NotForGuests } from './components/GuestView'
+import { GuestLanding, NotForGuests, useGuestPlacePath } from './components/GuestView'
 import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
@@ -32,7 +32,8 @@ import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
 import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
-import { setBeforePersonSwitch, useSession } from './store/session'
+import { setBeforePersonSwitch, useMe, useSession } from './store/session'
+import { isGuestMe } from './lib/guests'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
@@ -91,8 +92,9 @@ function Splash() {
 const isSettings = (path: string) => path === '/settings' || path.startsWith('/settings/') || isOldConnectorsPath(path)
 
 /** Settings is a dialog over a page (components/settings/SettingsDialog.tsx): the page it was opened from, or Home when
- * its address was opened directly. `close` goes back to that page: back through the history entries Settings added on
- * top of it, or straight to it when there are none. */
+ * its address was opened directly (a guest: their one place, components/GuestView.tsx useGuestPlacePath). `close` goes
+ * back to that page: back through the history entries Settings added on top of it, or straight to it when there are
+ * none. */
 function useSettingsOverlay() {
   const location = useLocation()
   const navType = useNavigationType()
@@ -100,6 +102,7 @@ function useSettingsOverlay() {
   const page = useRef<Location | null>(null)
   const depth = useRef(0)
   const open = isSettings(location.pathname)
+  const guestHome = useGuestPlacePath()
   // the phone's back stack notes what is under each entry the first time it shows, before any page renders and reads
   // it (lib/backStack.ts: the list under a page opened from a link, and the ‹ button's label)
   noteLocation(location, navType)
@@ -111,12 +114,13 @@ function useSettingsOverlay() {
     else if (navType === 'POP') depth.current = Math.max(0, depth.current - 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key])
-  const under: Location = open ? (page.current ?? { pathname: '/', search: '', hash: '', state: null, key: 'settings-home' }) : location
+  const home = guestHome ?? '/'
+  const under: Location = open ? (page.current ?? { pathname: home, search: '', hash: '', state: null, key: 'settings-home' }) : location
   const close = useCallback(() => {
     const back = page.current
     if (depth.current > 0 && back) navigate(-depth.current)
-    else navigate(back ? `${back.pathname}${back.search}${back.hash}` : '/', { replace: true })
-  }, [navigate])
+    else navigate(back ? `${back.pathname}${back.search}${back.hash}` : home, { replace: true })
+  }, [navigate, home])
   const real = useMemo(() => ({ pathname: location.pathname, navigationType: navType }), [location.pathname, navType])
   return { open, under, close, real }
 }
@@ -455,10 +459,12 @@ function NotFound() {
 }
 
 /** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
- * Home, or on a phone the 대화 list (signedInHome). */
+ * Home, or on a phone the 대화 list (signedInHome); a guest, their one place (components/GuestView.tsx GuestLanding). */
 function AfterSignIn() {
   const next = safeNext(useLocation().search)
+  const guest = isGuestMe(useMe())
   // no ?next: a landing (lib/welcome.ts LANDING_STATE), where an owner with unfinished welcome steps goes to them
   if (next) return <Navigate to={next} replace />
+  if (guest) return <GuestLanding />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }
