@@ -170,6 +170,11 @@ export function useListUnderPage(listPath: string | readonly string[], phone: bo
   useEffect(() => {
     if (done.current === location.key || !final) return
     done.current = location.key
+    // this passive effect can run after the person has already left the entry (Back arrived between the render and the
+    // effect, on a slow device): the history then shows another entry, and putting a list under this page would push
+    // the page back on top of where Back went
+    const shown = (window.history?.state as { key?: unknown } | null | undefined)?.key
+    if (typeof shown === 'string' && shown !== location.key) return
     // under the Settings dialog this is the page behind it, not the address in the bar; a first entry opened from
     // outside gets its parents put under it by the phone's history once the app shows it (lib/screenHistory.ts)
     if (!firstPhone.current?.phone || realPath !== location.pathname || stackNow()?.open) return
