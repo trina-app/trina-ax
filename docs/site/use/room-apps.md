@@ -117,10 +117,11 @@ You need to be an owner or a manager in Sentry.
 - Who set it up, and **How to connect** (its steps again).
 - **A status line**: the last message, *Paused*, or *Waiting for the first message*.
 - **Warnings**, each with one action: why the last try wasn't shown (**Check the secret**), *Someone who left knows this
-  Webhook URL* (**Regenerate**), and for GitHub and Sentry without a secret *Not signed: anyone with the Webhook URL can
+  Webhook URL* (**Regenerate**), and, for a service that can sign but has no secret yet, *Not signed: anyone with the Webhook URL can
   post* (**Make it safer**).
 - **Name**: the name its messages show under.
-- **Show in this room**: the kinds of updates to post (for apps that send more than one kind).
+- **Show in this room**: the kinds of updates to post (for apps that send more than one kind). An optional event you
+  never set up in the service (for example Shopify's refunds) says *Not set up in Shopify*, with a link to that step.
 - **Post quietly**: a short line, with no unread mark or alert.
 - **How to send** (Other apps).
 - **Webhook URL**: **Copy** it again, or **Regenerate** it (the old one stops working at once; paste the new one into the

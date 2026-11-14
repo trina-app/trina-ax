@@ -13,7 +13,7 @@ import { teamDefaultLocale } from '../../server/src/admin/settings'
 import { roomAppsOf } from '../../server/src/rooms/apps/service'
 import { appText } from '../../server/src/rooms/apps/text'
 import { loggablePath } from '../../server/src/http/middleware'
-import { tolerantZendesk } from '../../server/src/rooms/apps/presets/zendesk'
+import { tolerantZendesk, zendeskDuplicateKey } from '../../server/src/rooms/apps/presets/zendesk'
 import { jotformPretty } from '../../server/src/rooms/apps/presets/forms'
 import { money } from '../../server/src/rooms/apps/presets/common'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -171,13 +171,13 @@ test('Typeform: answers matched by field id, a file\'s name only, a payment\'s a
   expect(ms[0].body).toContain('Card: 4.50')
   // a secret Trina makes (Typeform's secret field): then only signed requests
   const s = (await secret(app.id, { generate: true })).body.secret as string
-  const other = body.replace('01HXTESTEVENT000000000001', '01HXTESTEVENT000000000002')
+  const other = body.replace('01HXTESTEVENT000000000001', '01HXTESTEVENT000000000002').replace('2026-11-14T09:38:22Z', new Date().toISOString())
   expect((await post(token, other)).status).toBe(401)
   expect((await post(token, other, { 'typeform-signature': `sha256=${hmac('wrong-secret-0000', other).digest('base64')}` })).status).toBe(401)
   expect((await post(token, other, { 'typeform-signature': hmac(s, other).digest('base64') })).status).toBe(401) // no prefix
   expect((await post(token, other, { 'typeform-signature': `sha256=${hmac(s, other).digest('base64')}` })).status).toBe(200)
-  // a body without form_response: 400; another event type: skipped
-  expect((await post(token, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } }), { 'typeform-signature': `sha256=${hmac(s, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } })).digest('base64')}` })).status).toBe(400)
+  // signed without a submission time: refused (its signature has no time of its own); unsigned and unreadable: 400
+  expect((await post(token, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } }), { 'typeform-signature': `sha256=${hmac(s, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } })).digest('base64')}` })).status).toBe(401)
 })
 
 test('Tally: option ids as their text, ticked boxes once, files by name; signed over JSON.stringify(body), the card from that parse; createdAt older than 2 days refused; eventId dedupe', async () => {
@@ -412,4 +412,145 @@ test('a preset row\'s switches and name show in the list; the room\'s Other and 
   const rows = h.ctx.db.query('SELECT kind, preset FROM room_apps ORDER BY created_at').all()
   expect(rows).toEqual([{ kind: 'other', preset: 'tally' }, { kind: 'other', preset: null }])
   expect(roomAppsOf(h.ctx).presetOf({ kind: 'other', preset: 'future' })).toBeNull()
+})
+
+test('security review of #854, Zendesk: a comment that closes its quote and adds keys is refused; the Copy body escapes what outsiders write and the server decodes it; the link is this ticket on the pinned subdomain', async () => {
+  const { add, post, messages, L } = await setup()
+  const { token, app } = await add('zendesk')
+  // the injected comment: valid JSON whose later keys would win (ticket 123, solved, another tenant)
+  const inj = fixture('zendesk/quote-injection.json')
+  expect(JSON.parse(inj).id).toBe('123')
+  expect((await post(token, inj)).status).toBe(400)
+  // the tolerant reader refuses a duplicated key too
+  expect(tolerantZendesk(inj.replace('"update":"x"', '"update":"x"x"'))).toBeNull()
+  // the same keys written with \u escapes ("id" is "id"): JSON.parse reads them as the keys, so they are refused too
+  const esc = '{"trina":"zendesk","event":"updated","id":"777","title":"t","status":"Open","priority":"","requester":"","assignee":"","url":"acme.zendesk.com/agent/tickets/777","update":"x","\\u0069d":"123","\\u0073tatus":"solved"}'
+  expect(JSON.parse(esc).id).toBe('123')
+  expect(zendeskDuplicateKey(esc)).toBe(true)
+  expect((await post(token, esc)).status).toBe(400)
+  expect(await messages()).toHaveLength(0)
+  // every outsider-written placeholder is escaped in the Copy body; id, status, priority and url are Zendesk's own
+  for (const ph of ['ticket.title', 'ticket.requester.name', 'ticket.assignee.name', 'ticket.latest_public_comment']) expect(roomAppZendeskBody('created')).toContain(`{{${ph} | escape}}`)
+  // an escaped body: decoded for the card, still its own ticket
+  expect((await post(token, fixture('zendesk/escaped.json'))).status).toBe(200)
+  await settle()
+  let [m] = await messages()
+  expect(m.appCard).toMatchObject({ kind: `${appText('newTicket', L, { id: '778' })} · Normal`, title: 'Say "hi" & <bye>', details: [appText('fromName', L, { name: "O'Brien" })], status: appText('status', L, { status: 'Open' }),
+    link: { url: 'https://acme.zendesk.com/agent/tickets/778' } })
+  expect(m.body).toContain('"id":"123"')
+  // pinned to acme on first sight: another subdomain, or another ticket's path, gets no link
+  expect((h.ctx.db.query('SELECT preset_pin FROM room_apps WHERE id = ?').get(app.id) as { preset_pin: string }).preset_pin).toBe('acme')
+  const one = (id: string, url: string) => JSON.stringify({ trina: 'zendesk', event: 'created', id, title: `T${id}`, status: 'Open', priority: '', requester: '', assignee: '', url, update: '' })
+  for (const [id, url] of [['801', 'evil.zendesk.com/agent/tickets/801'], ['802', 'acme.zendesk.com/agent/tickets/1'], ['803', 'acme.zendesk.com/agent/tickets/803?x=1'], ['804', 'acme.zendesk.com.evil.example/agent/tickets/804']]) {
+    expect((await post(token, one(id!, url!))).status).toBe(200)
+  }
+  expect((await post(token, one('805', 'acme.zendesk.com/agent/tickets/805'))).status).toBe(200)
+  await settle()
+  const byTitle = new Map((await messages()).map((x) => [x.appCard.title, x.appCard.link?.url]))
+  expect([byTitle.get('T801'), byTitle.get('T802'), byTitle.get('T803'), byTitle.get('T804')]).toEqual([undefined, undefined, undefined, undefined])
+  expect(byTitle.get('T805')).toBe('https://acme.zendesk.com/agent/tickets/805')
+  // the dedupe key covers the assignee and priority: a reassignment is a new change
+  const upd = (assignee: string, priority: string) => JSON.stringify({ trina: 'zendesk', event: 'updated', id: '805', title: 'T805', status: 'Open', priority, requester: '', assignee, url: 'acme.zendesk.com/agent/tickets/805', update: '' })
+  expect((await post(token, upd('Sam', ''))).status).toBe(200)
+  expect((await post(token, upd('Sam', 'High'))).status).toBe(200)
+  await settle()
+  m = (await messages()).find((x) => x.appCard.title === 'T805')
+  expect(m.thread.replyCount).toBe(2)
+})
+
+test('security review of #854, Shopify and Typeform: the unsigned topic must agree with the body; a signed body replayed under a new event id posts nothing; the store is pinned; a signed Typeform response older than 2 days is refused', async () => {
+  const { add, post, messages, secret } = await setup()
+  const { token, app } = await add('shopify')
+  const key = 'shpss_' + crypto.randomBytes(16).toString('hex')
+  expect((await secret(app.id, { secret: key })).status).toBe(200)
+  const signed = (b: string, topic: string, id: string, shop = 'acme-shop.myshopify.com') => post(token, b, { 'x-shopify-topic': topic, 'x-shopify-shop-domain': shop, 'x-shopify-event-id': id, 'x-shopify-hmac-sha256': hmac(key, b).digest('base64') })
+  const order = fixture('shopify/orders-create.json')
+  expect((await signed(order, 'orders/create', 'a1')).status).toBe(200)
+  await settle()
+  expect(await messages()).toHaveLength(1)
+  // a pending order's signed body relabelled as paid / cancelled / fulfilled: nothing changes
+  for (const t of ['orders/paid', 'orders/cancelled', 'orders/fulfilled']) expect((await signed(order, t, `t-${t}`)).status).toBe(200)
+  await settle()
+  let ms = await messages()
+  expect(ms).toHaveLength(1)
+  expect(ms[0].thread?.replyCount ?? 0).toBe(0)
+  expect(ms[0].appCard.status).toBe(appText('status', 'ko', { status: appText('statusPending', 'ko') }))
+  // the same signed body under a new event id: once
+  const b2 = JSON.stringify({ ...JSON.parse(order), id: 2, admin_graphql_api_id: null, name: '#2' })
+  expect((await signed(b2, 'orders/create', 'b1')).status).toBe(200)
+  expect((await signed(b2, 'orders/create', 'b2')).status).toBe(200)
+  // another store's name: the store pinned first (acme-shop) keeps its link, another gets none
+  const b3 = JSON.stringify({ ...JSON.parse(order), id: 3, admin_graphql_api_id: null, name: '#3' })
+  expect((await signed(b3, 'orders/create', 'c1', 'evil-shop.myshopify.com')).status).toBe(200)
+  await settle()
+  ms = await messages()
+  expect(ms.filter((m) => m.appCard.kind.includes('#2'))).toHaveLength(1)
+  expect(ms.find((m) => m.appCard.kind.includes('#3')).appCard.link).toBeUndefined()
+  expect(ms.find((m) => m.appCard.kind.includes('#2')).appCard.link.url).toBe('https://admin.shopify.com/store/acme-shop/orders/2')
+
+  const tf = await add('typeform')
+  const s = (await secret(tf.app.id, { generate: true })).body.secret as string
+  const old = JSON.parse(fixture('typeform/response.json'))
+  old.event_id = 'old-tf'; old.form_response.submitted_at = new Date(Date.now() - 3 * 86_400_000).toISOString()
+  const ob = JSON.stringify(old)
+  expect((await post(tf.token, ob, { 'typeform-signature': `sha256=${hmac(s, ob).digest('base64')}` })).status).toBe(401)
+  old.event_id = 'new-tf'; old.form_response.submitted_at = new Date().toISOString()
+  const nb = JSON.stringify(old)
+  expect((await post(tf.token, nb, { 'typeform-signature': `sha256=${hmac(s, nb).digest('base64')}` })).status).toBe(200)
+})
+
+test('the pinned service account: Regenerate clears it; saving a secret clears it; with a secret only a signed request pins it (Zendesk and Shopify)', async () => {
+  const { owner, all, add, post, secret } = await setup()
+  const pinOf = (id: string) => (h.ctx.db.query('SELECT preset_pin FROM room_apps WHERE id = ?').get(id) as { preset_pin: string | null }).preset_pin
+  const ticket = (id: string, sub: string) => JSON.stringify({ trina: 'zendesk', event: 'created', id, title: `T${id}`, status: 'Open', priority: '', requester: '', assignee: '', url: `${sub}.zendesk.com/agent/tickets/${id}`, update: '' })
+  const z = await add('zendesk')
+  // an unsigned request pins first (someone who knows the URL)
+  expect((await post(z.token, ticket('1', 'evil'))).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('evil')
+  // Regenerate forgets it; the next request pins its own
+  const rotated = await owner.call('POST', `/api/rooms/${all}/apps/${z.app.id}/rotate`)
+  expect(pinOf(z.app.id)).toBeNull()
+  const token = rotated.address.split('/in/')[1] as string
+  expect((await post(token, ticket('2', 'evil'))).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('evil')
+  // saving a secret forgets it too; an unsigned request is then refused and pins nothing; a signed one pins
+  const key = crypto.randomBytes(24).toString('base64')
+  expect((await secret(z.app.id, { secret: key })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBeNull()
+  expect((await post(token, ticket('3', 'evil'))).status).toBe(401)
+  expect(pinOf(z.app.id)).toBeNull()
+  const b = ticket('4', 'acme'), ts = new Date().toISOString()
+  expect((await post(token, b, { 'x-zendesk-webhook-signature': hmac(key, ts, b).digest('base64'), 'x-zendesk-webhook-signature-timestamp': ts })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('acme')
+  // taking the secret away keeps the pin (nothing new to trust)
+  expect((await secret(z.app.id, { secret: null })).status).toBe(200)
+  expect(pinOf(z.app.id)).toBe('acme')
+
+  // Shopify: the same rules for the store handle
+  const s = await add('shopify')
+  const order = fixture('shopify/orders-create.json')
+  expect((await post(s.token, order, { 'x-shopify-topic': 'orders/create', 'x-shopify-shop-domain': 'evil-shop.myshopify.com', 'x-shopify-event-id': 'p1' })).status).toBe(200)
+  expect(pinOf(s.app.id)).toBe('evil-shop')
+  await owner.call('POST', `/api/rooms/${all}/apps/${s.app.id}/rotate`)
+  expect(pinOf(s.app.id)).toBeNull()
+})
+
+test('eventsSeen: the switch keys an event has arrived for, also with the switch off; keys only; nothing before the first event', async () => {
+  const { owner, all, add, post } = await setup()
+  const { token, app } = await add('shopify')
+  expect(app.eventsSeen).toEqual([])
+  const hdr = (topic: string, id: string) => ({ 'x-shopify-topic': topic, 'x-shopify-shop-domain': 'acme-shop.myshopify.com', 'x-shopify-event-id': id })
+  const order = fixture('shopify/orders-create.json')
+  expect((await post(token, order, hdr('orders/create', 's1'))).status).toBe(200)
+  // fulfilled is off by default: it still counts as arrived (the settings must not say "Not set up")
+  const fulfilled = JSON.stringify({ ...JSON.parse(order), fulfillment_status: 'fulfilled' })
+  expect((await post(token, fulfilled, hdr('orders/fulfilled', 's2'))).status).toBe(200)
+  // a skipped topic and an unreadable body add nothing
+  expect((await post(token, order, hdr('products/update', 's3'))).status).toBe(200)
+  expect((await post(token, '{', hdr('orders/paid', 's4'))).status).toBe(400)
+  const item = ((await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]).find((i) => i.id === app.id)
+  expect(item.eventsSeen).toEqual(['order', 'fulfilled'])
+  // only switch keys ever: a stored value that is not one is not shown
+  h.ctx.db.query(`UPDATE room_apps SET events_seen = '["order","jamie@example.com",7]' WHERE id = ?`).run(app.id)
+  expect(((await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]).find((i) => i.id === app.id).eventsSeen).toEqual(['order'])
 })

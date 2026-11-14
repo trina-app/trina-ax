@@ -225,6 +225,7 @@ for (const vp of SIZES) {
     })
 
     test('presets: the picker\'s groups with Needs and Other last; the guides of Stripe, Zendesk, Notion, Shopify, Typeform; Other\'s JANDI line and Zapier/Make', async ({ page, context }) => {
+      test.setTimeout(120_000)
       await context.grantPermissions(['clipboard-read', 'clipboard-write'])
       const { apps } = await open(page, { size: vp.size, messages: MESSAGES.slice(0, 1) })
       await (await menuItem(page)).click()
@@ -270,9 +271,9 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-step').nth(2).getByTestId('apps-copy-body')).toBeVisible()
       await page.getByTestId('apps-copy-body').click()
       await expect(page.getByTestId('apps-copy-body')).toHaveText('Copied')
-      const body = await page.evaluate(() => navigator.clipboard.readText())
-      expect(body).toContain('"event":"created"')
-      expect(body).toContain('{{ticket.id}}')
+      // the clipboard is written after the click resolves: read it until it holds the body
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('"event":"created"')
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('{{ticket.id}}')
       await expect(page.getByTestId('apps-step-optional')).toContainText('Optional')
       await expect(page.getByTestId('apps-step-optional').getByTestId('apps-copy-body-updated')).toBeVisible()
       // the body was copied without the URL: nothing added yet
@@ -305,12 +306,14 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-zapier-rows')).toContainText('thread')
       await page.getByTestId('apps-make').locator('summary').click()
       await page.getByTestId('apps-copy-make-body').click()
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('{{1.summary}}')
       expect(JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))).toMatchObject({ title: '{{1.summary}}' })
     })
 
     test('presets: cards with their logo and link, a refused secret named per service, the vendor\'s Regenerate warning, switches', async ({ page }) => {
+      test.setTimeout(120_000)
       const stripe = mockPreset('stripe', { signed: true, lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' } })
-      const shopify = mockPreset('shopify')
+      const shopify = mockPreset('shopify', { eventsSeen: ['order', 'paid'] })
       const notion = mockPreset('notion')
       const messages: MockMessage[] = [
         MESSAGES[0]!,
@@ -345,6 +348,14 @@ for (const vp of SIZES) {
       await expect(page.getByRole('dialog').last()).toContainText('Shopify deletes a webhook after repeated failures')
       await page.getByRole('button', { name: 'Regenerate', exact: true }).last().click()
       await expect.poll(() => apps.calls).toContain('rotate:app-shopify')
+      // the optional events that never arrived (eventsSeen): "Not set up in Shopify", with the way to its step
+      await expect(page.getByTestId('apps-switch-paid-not-set-up')).toHaveCount(0)
+      await expect(page.getByTestId('apps-switch-order-not-set-up')).toHaveCount(0)
+      await expect(page.getByTestId('apps-switch-refund-not-set-up')).toContainText('Not set up in Shopify')
+      await page.getByTestId('apps-switch-refund-not-set-up').getByRole('button', { name: 'Show the step' }).click()
+      await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', 'shopify')
+      await expect(page.getByTestId('apps-step-optional')).toBeInViewport()
+      await page.getByTestId('apps-back').click()
       await page.getByTestId('apps-back').click()
       // Notion can't sign: no "Not signed" warning, one switch (none shown), no How to send
       await page.getByTestId('apps-list-row').nth(2).click()

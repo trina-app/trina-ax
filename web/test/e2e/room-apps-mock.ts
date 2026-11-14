@@ -12,7 +12,7 @@ type Kind = 'sentry' | 'github' | 'google_forms' | 'other'
 export interface MockApp {
   id: string; roomId: string; kind: Kind; preset?: RoomAppPreset; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
-  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true
+  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },

@@ -51,7 +51,7 @@ const THREADS_KEPT_DAYS = 90
 const REFUSAL_EVERY_MS = 60_000
 
 export interface AppRow {
-  id: string; room_id: string; kind: RoomAppKind; preset: string | null; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
+  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; events_seen: string; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
 }
@@ -190,6 +190,19 @@ export class RoomApps {
     for (const k of Object.keys(out)) if (typeof saved[k] === 'boolean') out[k] = saved[k] as boolean
     return out
   }
+  /** The switch keys an event has arrived for (only keys of the app's switches). */
+  eventsSeen(row: Pick<AppRow, 'kind' | 'preset' | 'events' | 'events_seen'>): string[] {
+    let v: unknown = []
+    try { v = JSON.parse(row.events_seen ?? '[]') } catch { v = [] }
+    const known = Object.keys(this.switches(row))
+    return Array.isArray(v) ? known.filter((k) => v.includes(k)) : []
+  }
+  /** An event for `key` arrived (inbound.ts, after it was read): remembered once. */
+  sawEvent(row: AppRow, key: string) {
+    if (this.eventsSeen(row).includes(key) || !(key in this.switches(row))) return
+    const next = [...this.eventsSeen(row), key]
+    this.db.query('UPDATE room_apps SET events_seen = ? WHERE id = ?').run(JSON.stringify(next), row.id)
+  }
   private shownToday(appId: string, day: string): number {
     return (this.db.query('SELECT shown FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { shown: number } | null)?.shown ?? 0
   }
@@ -215,6 +228,7 @@ export class RoomApps {
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
       pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
     }
@@ -332,6 +346,9 @@ export class RoomApps {
     const s = this.seal(row.id, token, secret)
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
+      // signed request pins it again
+      if (secret) this.db.query('UPDATE room_apps SET preset_pin = NULL WHERE id = ?').run(row.id)
       audit(this.db, { actor: userId, action: 'room_app.secret', target: row.id, detail: { ...roomAuditRef(room), set: !!secret } })
     })()
     if (secret?.made) this.saw(row.id, userId)
@@ -346,7 +363,9 @@ export class RoomApps {
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
     const s = this.seal(row.id, newToken(), prev)
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
+      // may have pinned it
+      this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)
@@ -505,6 +524,8 @@ export class RoomApps {
         if (prior && Date.parse(prior.at) > window) return
       }
       for (const h of [dh, dh2]) if (h) db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, h, at)
+      // the service account this app posts from, pinned on first sight (presets/zendesk.ts, shopify.ts)
+      if (ev.pin) db.query('UPDATE room_apps SET preset_pin = ? WHERE id = ? AND preset_pin IS NULL').run(ev.pin, row.id)
       let root: MessageRow | null = null
       let thread: { root_id: string; state: string | null; last_at: string } | null = null
       if (keyHash) {

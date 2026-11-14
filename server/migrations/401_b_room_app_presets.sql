@@ -9,3 +9,9 @@
 --   know is refused at /in/ (401 with a secret, 400 without), never read as plain Other.
 -- Additive only (reader 1). Rolling back past this build: see DECISIONS ("Rollback").
 ALTER TABLE room_apps ADD COLUMN preset TEXT;
+--   preset_pin: the service account the app first posted from (a Zendesk subdomain, a Shopify store handle), pinned
+--   on first sight; a later body naming another gets no link (its card can't point at another tenant). NULL: none yet.
+ALTER TABLE room_apps ADD COLUMN preset_pin TEXT;
+--   events_seen: the app's switch keys an event has arrived for at least once (JSON array of keys, never any content):
+--   the settings say "Not set up in <service>" under a switch whose event never came.
+ALTER TABLE room_apps ADD COLUMN events_seen TEXT NOT NULL DEFAULT '[]';
