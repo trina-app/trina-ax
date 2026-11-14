@@ -4,6 +4,12 @@ Team servers call this service to send a native push to the iOS/Android app. Onl
 and Google (FCM) credentials. It talks to APNs (over HTTP/2) and FCM HTTP v1 directly; it does not use the Expo push
 service. It runs on Bun with its state in one SQLite file, behind a TLS terminator.
 
+- Who uses it: Trina team servers send through `https://push.trina.app` by default (installed servers and office
+  Macs; the edition's `pushGatewayUrl` in `editions/trina/branding/service.json`), so self-hosted teams with the store
+  app get phone pushes without a setting. An operator opts out with `MYCEL_PUSH_GATEWAY=off` (or `''`), or with
+  `push.gatewayUrl` `null` / `"off"` in server.json; another `https://<host>` sends through a gateway of their own. The
+  neutral core has no default. Decision: docs/DECISIONS.md "Trina team servers use push.trina.app by default".
+
 - Contract: [`shared/src/cloud-protocol/push-gateway.ts`](../shared/src/cloud-protocol/push-gateway.ts) (MIT, no
   imports). `POST /v1/send` takes a JSON body signed with the team's Ed25519 key (`Authorization: MycelPush …`).
   `GET /health` answers `{"ok":true}`. Every other path answers 404.
