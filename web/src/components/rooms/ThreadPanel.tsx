@@ -42,6 +42,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const locale = useLocale()
   // a DM whose other person left the team: the thread reads, nobody writes in it (pages/Room.tsx says so under the room)
   const gone = useRooms((s) => !!s.rooms.find((r) => r.id === roomId)?.gone)
+  const goneName = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.peers[0]?.name ?? null)
   const key = placeKey(roomId, rootId)
   const threaded = useRooms((s) => (alone ? null : s.threadViews[key] ?? null))
   // alone: the message as this window has it (the timeline), never asked for as a thread (the server has none for it)
@@ -172,6 +173,11 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
       </div>
       {!notFound && root && !root.deletedAt && !alone && !gone && (
         <RoomComposer roomId={roomId} threadRootId={rootId} members={members} meId={meId} autoFocus={focusBox} onSent={() => { stick.current = true }} />
+      )}
+      {/* where the message box would be, the reason there is none (the room's own foot says the same, pages/Room.tsx); on
+          a phone the thread covers the room, so without it nothing says why */}
+      {!notFound && root && !alone && gone && (
+        <p role="status" className="shrink-0 border-t border-line px-4 py-3 text-center text-sm text-muted" data-testid="thread-peer-gone">{t('rooms.peerGone', { name: goneName ?? t('rooms.goneUser') })}</p>
       )}
     </FileDropZone>
   )
