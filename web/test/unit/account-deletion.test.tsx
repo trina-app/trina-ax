@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDeletionRequest, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
-import { AccountDeletion, deletionDueText, deletionNoticeText } from '../../src/components/settings/AccountDeletion'
+import { AccountDeletion, deletionDueText, deletionNoticeText, deletionRowText } from '../../src/components/settings/AccountDeletion'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -131,5 +131,25 @@ describe('texts', () => {
   test('the person\'s own date notice: the date while it is open, closed after', () => {
     expect(deletionDueText(en, { deletionDue: { dueAt: DUE } }, 'en')).toContain('your account is deleted on Nov 21, 2026.')
     expect(deletionDueText(en, { deletionDue: { dueAt: null } }, 'en')).toBe('Your account deletion request is closed.')
+  })
+})
+
+// TC-1976: Settings › Profile's row says the date while a deletion is pending and offers "Keep my account" there, not
+// "Delete my account" again
+describe('the profile row', () => {
+  test('pending: the date and Keep my account; none, the owner, or not read yet: the link with the usual hint', () => {
+    const pending = deletionRowText(en, { state: 'pending', requestedAt: '2026-11-14T12:00:00.000Z', dueAt: DUE }, 'en')
+    expect(pending.keep).toBe(true)
+    expect(pending.hint).toContain('Your account will be deleted on')
+    expect(pending.hint).toContain('2026')
+    expect(en('accountDeletion.cancel')).toBe('Keep my account')
+    // a request from before automatic deletion (no date yet) says when it was asked
+    expect(deletionRowText(en, { state: 'pending', requestedAt: '2026-11-14T12:00:00.000Z', dueAt: null }, 'en')).toMatchObject({ keep: true, hint: expect.stringContaining('You asked on') })
+    const plain = en('accountDeletion.rowHint', { days: 7 })
+    for (const v of [null, { state: 'none' as const, requestedAt: null, dueAt: null }, { state: 'owner' as const, requestedAt: null, dueAt: null }]) {
+      expect(deletionRowText(en, v, 'en')).toEqual({ keep: false, hint: plain })
+    }
+    // the team's language too
+    expect(deletionRowText(ko, { state: 'pending', requestedAt: null, dueAt: DUE }, 'ko').hint).not.toBe(ko('accountDeletion.rowHint', { days: 7 }))
   })
 })
