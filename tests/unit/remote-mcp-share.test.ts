@@ -13,6 +13,13 @@ import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { linkUpload } from '../../server/src/connectors/remote-mcp/upload-link'
 import { skillWriteTarget } from '../../server/src/connectors/remote-mcp/upload'
 import { stageDir } from '../../server/src/skills/share-stage'
+import { SUGGEST_PATH } from '../../server/src/connectors/remote-mcp/share'
+import { en } from '../../web/src/i18n/en'
+import { ko } from '../../web/src/i18n/ko'
+import { id } from '../../web/src/i18n/id'
+import { ja } from '../../web/src/i18n/ja'
+import { es } from '../../web/src/i18n/es'
+import { zh } from '../../web/src/i18n/zh'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 const live: Harness[] = []
 afterEach(async () => { for (const h of live.splice(0)) await h.close() })
@@ -111,12 +118,23 @@ test('an owner\'s proposal: pending with its link, nothing in the team, a notice
   expect(a.detail).not.toContain(SLACK)
 })
 
+test('the in-app way in the refusal is the app\'s own page title and button, in every language', () => {
+  const app = { en, ko, id, ja, es, zh } as Record<string, Record<string, string>>
+  expect(Object.keys(SUGGEST_PATH).sort()).toEqual(Object.keys(app).sort())
+  for (const [locale, path] of Object.entries(SUGGEST_PATH)) expect(path, locale).toBe(`${app[locale]!['skills.title']} › ${app[locale]!['suggest.button']}`)
+})
+
 test('a member is refused with the in-app way; nothing is made', async () => {
   const f = await setup('member', undefined, 'member')
   const r = await f.tools.call(f.token, 'share_skills', proposal)
   expect(r.isError).toBe(true)
   expect(r.content[0]!.text).toContain('Only the team\'s owner or an admin can share skills')
-  expect(r.content[0]!.text).toContain('스킬로 제안')
+  // the way in the app, in the member's language with the app's own words, and in English for the agent
+  for (const [locale, path] of Object.entries(SUGGEST_PATH)) {
+    f.h.ctx.db.query('UPDATE users SET locale = ? WHERE id = ?').run(locale, f.me)
+    const text = (await f.tools.call(f.token, 'share_skills', proposal)).content[0]!.text
+    expect(text, locale).toContain(locale === 'en' ? ': Team skills › Suggest as skill. Nothing was sent.' : `: ${path} (Team skills › Suggest as skill). Nothing was sent.`)
+  }
   expect(f.h.ctx.db.query('SELECT COUNT(*) n FROM skill_shares').get()).toEqual({ n: 0 })
   expect(f.h.hub.events.some((e) => (e.data as { data?: { code?: string } }).data?.code === 'skill_share')).toBe(false)
 })

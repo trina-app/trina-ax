@@ -9,6 +9,11 @@
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
+/* Simplified Chinese pages: Chinese system fonts first, so Han characters do not fall back to Korean or Japanese forms */
+:root:lang(zh-CN) {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", Roboto, sans-serif;
+  --serif: ui-serif, "New York", "Songti SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141210; --surface: #1b1816; --subtle: #211d1a; --hover: #2a2522; --line: #2e2925; --line-strong: #6f665d;
@@ -226,6 +231,21 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
 .docs-row { display: none; }
 @media (max-width: 1280px) { .sitenav .docs-tools .search { width: 190px; } }
 
+/* the link to the same page in the other language (only on pages that have one) */
+.lang-switch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 14px; }
+.lang-switch:hover { color: var(--ink); }
+.lang-switch svg { width: 15px; height: 15px; }
+.bar-links .lang-switch, .sitenav .lang-switch { padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+.bar-links .lang-switch:hover, .sitenav .lang-switch:hover { background: var(--hover); }
+.drawer-links .lang-switch { gap: 4px; text-decoration: underline; }
+/* in a website's bar the switch takes room from the search, so the bar's own buttons keep theirs */
+.sitenav .lang-switch { padding: 6px 8px; }
+.sitenav:has(.lang-switch) .docs-tools .search { width: 170px; }
+@media (max-width: 1280px) {
+  .sitenav:has(.lang-switch) .docs-tools .search { width: 150px; }
+  .sitenav .lang-switch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
 /* ---------- smaller screens ---------- */
 @media (max-width: 1280px) {
   .shell { grid-template-columns: 250px minmax(0, 1fr); gap: 0 40px; }
@@ -248,6 +268,7 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
   .drawer-tabs a[aria-current="true"] { color: var(--accent-text); font-weight: 600; }
   .drawer-links { display: flex; gap: 14px; padding: 12px 14px 0; font-size: 14px; }
   .drawer-links a { color: var(--muted); }
+  .bar-links .lang-switch, .sitenav .lang-switch { display: none; }
   .scrim { position: fixed; inset: var(--bar) 0 0 0; z-index: 40; background: rgb(0 0 0 / 0.35); }
   .content { padding: 24px 0 56px; }
   h1 { font-size: 31px; }
