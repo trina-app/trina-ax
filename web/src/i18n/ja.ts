@@ -2926,6 +2926,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.claude.failed': "Claudeログインを完了できませんでした。やり直すか、ターミナルでトークンを作成してください。",
   'credentials.claude.tokenUnreadable': "Claudeが表示した結果をTrinaが読み取れませんでした（新しいトークンが作成された可能性があります）。最初からやり直すか、ターミナルでトークンを作成してください。",
   'settings.credentials.desc': "自分の質問には自分のアカウントを先に使い、ない場合はチームのアカウントを使います。",
+  'settings.credentials.descGuest': "自分の質問には自分のアカウントだけを使います。ここでClaudeかChatGPTのアカウントをつなげてください。",
   'usage.by.credential': "AI接続",
   'usage.deletedCredential': "削除済みの接続",
   'usage.deletedCredentialN': "削除済みの接続 {n}",

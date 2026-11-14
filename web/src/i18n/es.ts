@@ -2926,6 +2926,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.claude.failed': "El inicio de sesión de Claude no terminó. Empiece de nuevo o cree el token en una terminal.",
   'credentials.claude.tokenUnreadable': "Trina no pudo leer lo que mostró Claude (puede que se haya creado un token nuevo). Empiece de nuevo o cree el token en una terminal.",
   'settings.credentials.desc': "Sus preguntas usan primero su propia cuenta y, si no tiene, la del equipo.",
+  'settings.credentials.descGuest': "Sus preguntas usan solo su propia cuenta. Conecte aquí su cuenta de Claude o ChatGPT.",
   'usage.by.credential': "Conexión de IA",
   'usage.deletedCredential': "Conexión eliminada",
   'usage.deletedCredentialN': "Conexión eliminada {n}",

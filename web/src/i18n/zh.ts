@@ -2920,6 +2920,7 @@ export const zh: Record<MessageKey, string> = {
   "credentials.claude.failed": "Claude登录未完成。请重新开始，或在终端中生成token。",
   "credentials.claude.tokenUnreadable": "Trina无法读取Claude显示的内容（可能已生成了新token）。请重新开始，或在终端中生成token。",
   "settings.credentials.desc": "你的提问会先使用你自己的账号，然后使用团队的账号。",
+  "settings.credentials.descGuest": "你的提问只使用你自己的账号。请在这里连接你的 Claude 或 ChatGPT 账号。",
   "usage.by.credential": "AI连接",
   "usage.deletedCredential": "已移除的连接",
   "usage.deletedCredentialN": "已移除的连接{n}",

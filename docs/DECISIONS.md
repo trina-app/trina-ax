@@ -27851,3 +27851,31 @@ shared with people and groups, and files attached before the share stayed visibl
 - The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
   `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
 
+
+## A guest with their own sign-in connects it themselves — 게스트 본인 로그인 (fix/guest-own-ai, 2026-11-14, QA)
+
+넣을 곳: Team AX core (`server/src/credentials/policy.ts`, `server/src/credentials/access.ts`,
+`server/src/routes/credentials.ts`, `web/src/components/rooms/SideChatPanel.tsx`), 이유: AI connections and guests are core.
+Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
+
+- **The bug.** A guest whose AI is `own` ("Their own sign-in") and who had not connected yet read "AI isn't on for you.
+  Ask the person who invited you." `aiAccessFor` answered `ask_owner` to every guest, and the personal-connection routes
+  followed the members' switch (`credentials.memberOwn`), so with it off the guest could not connect at all.
+- **One rule for "may keep a connection of one's own":** `personalConnectionsAllowed(db, userId)` (credentials/policy.ts).
+  A guest: only with AI `own`, whatever the members' switch says (the team chose it for this guest, as resolve.ts already
+  read it); `none` and `team`: never. Anyone else: the members' switch, as before. Used by every path that adds, signs in
+  or keeps a personal connection: `GET /api/me/credentials` (`allowed`), `POST /api/me/credentials`, `POST
+  /api/me/credential-logins` and the sign-in's store step (ChatGPT and Claude; a choice changed while it ran ends it
+  `policy_changed`), `createCredential`'s policy check, the ChatGPT token refresh (idle refresh and the proxy's 401). The
+  guest endpoint allow-list already had these routes; the team ones (`/api/admin/credential*`) stay closed.
+- **What a guest is told:** `aiAccessFor` answers `connect_own` to an `own` guest on a server that answers with AI
+  connections; anyone else of the guests, and an `own` guest on a server on the host's own sign-in (where a guest is
+  never answered), still `ask_owner`. Still never the trial credit, a team or group connection, or the API engine
+  (credentials/resolve.ts unchanged).
+- **Screens:** the line above the box ("You have no AI to use. Connect your own…" with **Connect my AI**) on Ask
+  Trina, their project and, for a guest, the room's ✦ side chat; a failed answer for want of AI says the same with the
+  button (not "ask the person who invited you"); Settings › AI accounts says "Your questions use only your own account"
+  for a guest (no team accounts behind theirs).
+- **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
+  is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
+- Version impact: **patch** (no API shape change).

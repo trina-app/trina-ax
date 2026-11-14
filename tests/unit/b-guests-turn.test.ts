@@ -7,6 +7,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { credentialsOf } from '../../server/src/credentials/store'
+import { addCred } from '../lib/credentials'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -50,4 +52,19 @@ test('AI team: the guest runs on the named team connection, with the guest tools
   const m = await newChat('alice')
   const mine = String((await ask(h, alice, 'alice', m.id, fake({ echo: 'tools' }))).done.content).trim().split(',')
   expect(mine).toContain('find_skills')
+})
+
+test('AI own: never the team-wide connection; once the guest connects their own, their turn is answered on it', async () => {
+  const db = h.ctx.db
+  db.query("UPDATE guests SET ai = 'own', team_credential_id = NULL WHERE user_id = 'erin'").run()
+  const before = await newChat('erin')
+  const r = await ask(h, erin, 'erin', before.id, fake({ say: 'hello' }))
+  expect(r.done.error).toMatchObject({ params: { reason: 'no_credential' } })
+  const own = addCred(credentialsOf(h.ctx), 'anthropic-api-key', 'sk-ant-api03-ERIN-OWN' + 'e'.repeat(40), { owner: 'erin', label: 'Erin own' })
+  const g = await newChat('erin')
+  const ok = await ask(h, erin, 'erin', g.id, fake({ say: 'hello from mine' }))
+  expect(ok.done.error ?? null).toBeNull()
+  expect(ok.done.content).toContain('hello from mine')
+  const turn = db.query('SELECT credential_id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(g.id) as { credential_id: string | null } | null
+  expect(turn?.credential_id).toBe(own)
 })

@@ -6,7 +6,7 @@
 // gets a 502 and the engine tries again. Codex itself never refreshes: its auth.json holds placeholders and its
 // refresh address points at the proxy, which refuses (proxy/codex-path.ts).
 import { audit } from '../admin/audit'
-import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
+import { personalConnectionsAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, CODEX_CLIENT_ID, idClaims, REFRESH_BEFORE_EXP_MS, REFRESH_EVERY_MS, REFRESH_PATH } from './openai-oauth'
 import { getRow, markNeedsReconnect, metaOf, secretOf, teamDay, writeSecret, type CredCtx, type CredRow, type Secrets } from './store'
 
@@ -118,7 +118,7 @@ export async function refreshIdle(cc: CredCtx): Promise<number> {
   const rows = cc.db.query("SELECT id FROM engine_credentials WHERE kind = 'chatgpt' AND status = 'ok' AND disabled = 0").all() as { id: string }[]
   for (const { id } of rows) {
     const row = getRow(cc.db, id)
-    if (!row || !cc.allowedKinds.has(row.kind) || !(row.owner_user_id ? memberOwnAllowed(cc.db) : sharedSubscriptionsAllowed(cc.db))) continue
+    if (!row || !cc.allowedKinds.has(row.kind) || !(row.owner_user_id ? personalConnectionsAllowed(cc.db, row.owner_user_id) : sharedSubscriptionsAllowed(cc.db))) continue
     const s = secretOf(cc, row as CredRow & { kind: 'chatgpt' })
     if (!s) continue
     const last = s.lastRefresh ? Date.parse(s.lastRefresh) : 0

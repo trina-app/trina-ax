@@ -2967,6 +2967,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.claude.failed': 'Login Claude tidak selesai. Mulai lagi, atau buat token lewat terminal.',
   'credentials.claude.tokenUnreadable': 'Trina tidak bisa membaca hasil yang ditampilkan Claude (token baru mungkin sudah dibuat). Mulai lagi, atau buat token lewat terminal.',
   'settings.credentials.desc': "Pertanyaan Anda memakai akun Anda sendiri lebih dulu, lalu akun tim.",
+  'settings.credentials.descGuest': "Pertanyaan Anda hanya memakai akun Anda sendiri. Hubungkan akun Claude atau ChatGPT Anda di sini.",
   'usage.by.credential': 'Koneksi AI',
   'usage.deletedCredential': 'Koneksi yang dihapus',
   'usage.deletedCredentialN': 'Koneksi yang dihapus {n}',

@@ -2967,6 +2967,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.claude.failed': 'The Claude sign-in did not finish. Start again, or make the token in a terminal.',
   'credentials.claude.tokenUnreadable': 'Trina could not read what Claude showed (a new token may have been made). Start again, or make the token in a terminal.',
   'settings.credentials.desc': "Your questions use your own account first, then the team's.",
+  'settings.credentials.descGuest': "Your questions use only your own account. Connect your Claude or ChatGPT account here.",
   'usage.by.credential': 'AI connection',
   'usage.deletedCredential': 'Removed connection',
   'usage.deletedCredentialN': 'Removed connection {n}',

@@ -2966,6 +2966,7 @@ export const ko = {
   'credentials.claude.failed': 'Claude 로그인을 마치지 못했어요. 다시 시작하거나 터미널로 직접 만들어 주세요.',
   'credentials.claude.tokenUnreadable': 'Claude가 보여 준 결과를 트리나가 읽지 못했어요(새 토큰이 만들어졌을 수 있어요). 다시 시작하거나 터미널로 직접 만들어 주세요.',
   'settings.credentials.desc': "내 질문에는 내 계정을 먼저 쓰고, 없으면 팀 계정을 써요.",
+  'settings.credentials.descGuest': "내 질문에는 내 계정만 써요. 여기서 Claude나 ChatGPT 계정을 연결해 주세요.",
   'usage.by.credential': 'AI 연결',
   'usage.deletedCredential': '지운 연결',
   'usage.deletedCredentialN': '지운 연결 {n}',

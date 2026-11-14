@@ -13,7 +13,7 @@ import type { RouteKit } from '../http/route'
 import { credentialLogins, serverLoginDeps } from '../credentials/login'
 import { PRICES_AS_OF } from '../credentials/prices'
 import { memberOwnAllowed } from '../credentials/resolve'
-import { sharedSubscriptionsAllowed } from '../credentials/policy'
+import { personalConnectionsAllowed, sharedSubscriptionsAllowed } from '../credentials/policy'
 import {
   checkCredential, createCredential, deleteCredential, listCredentials, myCredentials, replaceSecret, setCredentialSettings, unsealOrFail, updateCredential,
 } from '../credentials/service'
@@ -90,8 +90,9 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), false))
 
   // ---------------- one's own connections ----------------
-  const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
-  kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
+  // a member: the team's member-own switch; a guest: only their AI choice 'own' (credentials/policy.ts)
+  const ownAllowed = (userId: string, locale: Locale) => { if (!personalConnectionsAllowed(ctx.db, userId)) fail('forbidden', ct('memberOwnOff', locale)) }
+  kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: personalConnectionsAllowed(ctx.db, auth.user.id), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
   // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s) and admins
   const accessOf = (auth: { user: { id: string; role: string } }) => {
     const person = { id: auth.user.id, role: auth.user.role }
@@ -118,7 +119,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return { told: true as const, already: !notificationsOf(ctx).aiNotReady(auth.user.id) }
   })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
-    ownAllowed(loc(c))
+    ownAllowed(auth.user.id, loc(c))
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))
     const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: [], priority: 100, ownerUserId: auth.user.id, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice }, loc(c))
     changed()
@@ -126,7 +127,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.deleteMyCredential, ({ params, auth }) => { deleteCredential(cc(), params.id, auth.user.id, auth.user.id); changed() })
   kit.handle(API.startMyCredentialLogin, ({ c, body, auth }) => {
-    ownAllowed(loc(c))
+    ownAllowed(auth.user.id, loc(c))
     return logins().start({ userId: auth.user.id, locale: loc(c), personal: true, kind: body.kind, label: body.label, assignments: [], priority: 100, reconnectId: body.reconnectId })
   })
   kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, true))

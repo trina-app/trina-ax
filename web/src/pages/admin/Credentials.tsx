@@ -14,7 +14,8 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isAdmin, isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMe, useMeStrict } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
@@ -720,11 +721,13 @@ export function MyCredentials() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const state = useLoad(() => api.call(API.myCredentials))
   const [adding, setAdding] = useState<Family | null>(null)
+  // a guest with their own sign-in: only their own account answers them, never the team's (lib/guests.ts)
+  const guest = isGuestMe(useMe())
   return (
     <Loadable state={state}>
       {(d) => (
         // a phone: Settings' bar says "Providers", so the card has no frame and its title is for screen readers
-        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t('settings.credentials.desc')}>
+        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t(guest ? 'settings.credentials.descGuest' : 'settings.credentials.desc')}>
           <div className="space-y-5" data-testid="my-providers">
             {(['claude', 'codex'] as const).map((fam) => {
               const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
