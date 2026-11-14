@@ -25,7 +25,6 @@ import { connectorsPlace } from '../../pages/settingsTabs'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { Button } from '../ui'
-import { useMe } from '../../store/session'
 import { useDriveConnection } from '../settings/DriveConnection'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { IntegrationDialog } from '../integrations/IntegrationDialog'
@@ -91,7 +90,6 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
  * "{account} 계정이 맞나요? [맞아요] [다른 계정]" → "연결됨 · {account}". */
 function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
   const t = useT()
-  const hosted = useMe()?.server.deployment === 'hosted'
   const s = useDriveConnection((c) => { keep(null); onConnected(c.status === 'connected') })
   const { d } = s
   const c: DriveConnection | null = s.connection
@@ -115,17 +113,9 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
     setNote(d.reason?.includes('broker_unavailable') ? 'unavailable' : 'not')
   }, [d.error, d.reason, d.inProgress])
   if (!c) return null
-  // this server has no Google Drive yet: the card says so (set up in Admin › 커넥터), never a hidden row
-  if (!c.configured) return (
-    <li className={cardCls} data-testid="welcome-tools-drive" data-state="not-set-up">
-      <LogoTile src={builtInLogo('google-drive')} className={logoCls} />
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium text-ink">{DRIVE.name}</p>
-        <p className="text-sm text-muted" data-testid="welcome-tools-drive-line">{t(hosted ? 'drive.notReadyHosted' : 'drive.setUpFirst')}</p>
-      </div>
-      <span className="max-w-28 shrink-0 pt-0.5 text-right text-xs text-faint" data-testid="welcome-tools-drive-off">{t('gapps.off.notSetUp')}</span>
-    </li>
-  )
+  // Drive not ready on this server (hosted: the hosting service has not said yes; self-installed: no Google client):
+  // no row in the setup, where nothing can be done about it (amends TC-145; Connectors and Admin still say why)
+  if (!c.configured) return null
   const flow = d.inProgress ? d.flow : null
   const start = () => { setNote(null); s.start() }
   const cancel = () => { keep(null); setNote('not'); void d.cancel() }

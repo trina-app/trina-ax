@@ -1240,7 +1240,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136): no Drive on this server: its card says so, the listed services are cards, the address form last; its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('도구 연결 (docs/DECISIONS.md "W6", QA TC-136): no Drive on this server: no Drive row, the listed services are cards, the address form last; its dialog opens and closes with nothing changed; 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: false, teamShares: [] })
@@ -1253,17 +1253,15 @@ describe('the later steps and the end', () => {
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('자주 쓰는 도구를 연결해 둘까요?')
       expect(m.get('welcome-tools').textContent).toContain('나중에 설정 › 커넥터에서')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
-      // Drive is not on this server: its card says so, never a hidden row (TC sheet TC-145)
-      const drive = await m.until(() => m.find('welcome-tools-drive'), 'the Drive card')
-      expect(drive.getAttribute('data-state')).toBe('not-set-up')
-      expect(m.get('welcome-tools-drive-off').textContent).toBe('아직 설정 안 됨')
-      expect(m.find('welcome-tools-drive-connect')).toBeNull()
       // the listed services as Discover's cards: logo, name, one line, 연결
       const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the service cards')
       expect([...services].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'linear', 'atlassian', 'canva', 'figma'])
       expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(translate('ko', 'integrations.catalog.notion'))
       expect(services[0]!.querySelector('[data-testid="connector-logo"]')!.getAttribute('src')).toBe('/icons/connectors/notion.svg')
       expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 연결하기')
+      // Drive is not on this server: no row in the setup, where nothing can be done about it (amends TC-145)
+      expect(m.find('welcome-tools-drive')).toBeNull()
+      expect(m.find('welcome-tools-drive-connect')).toBeNull()
       // no primary until something is connected: 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
       expect(primaries(m)).toBe(0)

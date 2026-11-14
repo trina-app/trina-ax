@@ -27502,7 +27502,11 @@ guides, "Apps posting here") are phase 2.
   unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
 - **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
   guard as the other loops); the unit tests pass their own env to check the default.
-- **Text.** If a hosted team still has no Drive (the hosting service says no), the card and onboarding say
-  "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting support." and
-  an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+- **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact hosting
+  support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+- **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
+  up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup). The step's other rows are unchanged here;
+  cutting them waits for the owner (onboarding plan, lane B).
 - Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts, tests/unit/c-slack-broker.test.ts.
