@@ -18,6 +18,7 @@ import { formatMonthDay } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { Avatar } from './Avatar'
 import { Button, ErrorNote, Skeleton } from './ui'
+import { pageRowBox } from './list/List'
 
 /** Where an item opens: the chat at that answer (pages/Chat.tsx `?answer=`). */
 export const answerHref = (a: Pick<WideningAnswer, 'chatId' | 'messageId'>) => `/c/${a.chatId}?answer=${encodeURIComponent(a.messageId)}`
@@ -142,7 +143,7 @@ function Item({ a, oneChat, phone, onOpen }: { a: WideningAnswer; oneChat: boole
     </>
   )
   // the whole row is the link (44 px and more to tap on a phone)
-  const cls = 'flex min-h-row-page w-full flex-col gap-1 px-3 py-2.5 text-left hover:bg-hover focus-visible:-outline-offset-2'
+  const cls = clsx(pageRowBox, 'flex w-full flex-col gap-1 px-3 py-2.5 text-left hover:bg-hover focus-visible:-outline-offset-2')
   return (
     <li data-testid={`widening-item-${a.messageId}`}>
       {phone && onOpen ? (
