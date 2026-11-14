@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
-import { appIdOfToken, normEmail, slackOf } from '../../server/src/integrations/slack/service'
+import { appIdOfToken, linkWaitOf, linkWaitText, normEmail, slackOf } from '../../server/src/integrations/slack/service'
 import { questionText, refusal, say as sayText } from '../../server/src/integrations/slack/text'
 import { isWebAddress, plainOf, richBlocks, richText, slackAnswer } from '../../server/src/integrations/slack/rich-text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
@@ -1430,6 +1430,32 @@ describe('text', () => {
     expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
     for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
     expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
+  })
+})
+
+describe('no new connect link now: why, in words', () => {
+  test('the hourly cap says when a link can be had again; a link sent within the minute says "use it" (QA chatB)', () => {
+    const now = Date.parse('2026-11-15T14:00:30Z')
+    const at = (ms: number) => new Date(now - ms).toISOString()
+    // nothing held back: a link may be made
+    expect(linkWaitOf({ n: 3, first: at(50 * 60_000), last: at(5 * 60_000) }, now)).toBeNull()
+    expect(linkWaitOf({ n: 0, first: null, last: null }, now)).toBeNull()
+    // a link still to be used, sent seconds ago: the short wait
+    expect(linkWaitOf({ n: 2, first: at(30 * 60_000), last: at(10_000) }, now)).toEqual({ key: 'linkWait' })
+    // the 11th link of the hour: the cap, with the minute the oldest of the hour leaves it (even with one sent just now)
+    const first = '2026-11-15T13:05:20Z'
+    const w = linkWaitOf({ n: 10, first, last: at(10_000) }, now)
+    expect(w).toEqual({ key: 'linkHourly', again: Date.parse('2026-11-15T14:06:00Z') })
+    const en = linkWaitText(w!, 'en')
+    expect(en).toBe('You got 10 connect links in the last hour. Use the newest one, or ask again after <!date^1794751560^{time}|14:06 UTC>.')
+    expect(en).not.toContain('few minutes')
+    expect(linkWaitText({ key: 'linkWait' }, 'en')).toContain('a few minutes')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const s = linkWaitText(w!, l)
+      expect(s).toContain('<!date^1794751560^{time}|14:06 UTC>')
+      expect(s).toContain('10')
+      expect(s).not.toMatch(/\{(n|at)\}/)
+    }
   })
 })
 
