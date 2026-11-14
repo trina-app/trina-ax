@@ -1559,6 +1559,8 @@ export const en: Record<MessageKey, string> = {
   'connectors.allow': 'Allow and continue',
   'connectors.deny': 'Deny',
   'connectors.expired': 'This request expired or was opened in another login session. Connect again from the app.',
+  'connectors.guestTitle': "Guests can't connect apps to Trina",
+  'connectors.guestBody': "This account is a guest in one place, so Claude and other apps can't be connected to it. Nothing was allowed. You can close this window.",
   'connectors.currentSession': 'Allowed in the current login',
   'connectors.expires': 'Expires: {date}',
   'push.title': 'Device push notifications',

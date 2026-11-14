@@ -4,6 +4,8 @@ import { REMOTE_MCP, type RemoteConsentInfo } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Skeleton } from '../components/ui'
+import { isGuestMe } from '../lib/guests'
+import { useMe } from '../store/session'
 
 /** The connector scopes the person chooses here (server policy.ts OPTIONAL_SCOPES), whatever the app asked for. Group
  * management (mcp:admin) is no choice: an owner's or admin's connection gets it (`request.admin`). Reading the
@@ -23,6 +25,21 @@ function Choice({ testId, checked, disabled, onChange, title, hint }: { testId: 
 
 /** A redirect is returned only after authenticated, CSRF-protected explicit consent. */
 export default function ConnectorConsent() {
+  // a guest is in one place only: no app may be connected to their account (the server refuses too), so they read why
+  // here instead of being sent Home without a word
+  if (isGuestMe(useMe())) return <GuestNotice />
+  return <ConnectorConsentForm />
+}
+
+function GuestNotice() {
+  const t = useT()
+  return <section className="mx-auto w-full max-w-2xl space-y-3 p-6" data-testid="connector-guest-notice">
+    <h1 className="text-title font-semibold">{t('connectors.guestTitle')}</h1>
+    <p className="text-sm text-muted">{t('connectors.guestBody')}</p>
+  </section>
+}
+
+function ConnectorConsentForm() {
   const [params] = useSearchParams(), id = params.get('id') ?? '', t = useT(), locale = useLocale()
   const [request, setRequest] = useState<RemoteConsentInfo | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false)
   // Reading files is always granted. Writing starts ticked only when the app asked for it; reading conversations

@@ -1371,6 +1371,8 @@ export const zh: Record<MessageKey, string> = {
   "feed.chatsEmpty": "还没有提及或话题回复。",
   "feed.notInRecent": "最近{n}条中没有内容。",
   "connectors.discover": "发现",
+  "connectors.guestTitle": "访客不能把应用连接到 Trina",
+  "connectors.guestBody": "这个账号是只受邀进入一个地方的访客，所以不能连接 Claude 等应用。没有授予任何权限。您可以关闭此窗口。",
   "connectors.connected": "已连接",
   "connectors.yours": "你的连接器",
   "connectors.team": "团队",

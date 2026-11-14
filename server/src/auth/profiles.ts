@@ -1,7 +1,7 @@
 // Profiles and the people directory (docs/DECISIONS.md "프로필과 사람 목록"): the one-line title and status and the
 // photo of each person, in user_profiles (migration 115). A row exists only for people who set something.
 import type { Database } from 'bun:sqlite'
-import { guestDetail, reachFilter } from './guests'
+import { guestDetail, reachFilter, sharesPlace } from './guests'
 import { AVATAR_MAX_BYTES, AVATAR_MAX_PX, AVATAR_MIN_PX } from '@mycel/shared'
 import type { Locale, Person } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
@@ -33,8 +33,14 @@ const refuse = (problem: AvatarProblem, locale: Locale): never =>
 export const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_changed', message: '' } } as const
 /** The same to the person who changed it: their windows also read their own account again (GET /api/me). */
 export const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
-/** publishEach builder: MY_PROFILE_CHANGED to `userId`, PROFILE_CHANGED to everyone else. */
-export const profileChangedFor = (userId: string) => (to: string) => (to === userId ? MY_PROFILE_CHANGED : PROFILE_CHANGED)
+/** publishEach builder: MY_PROFILE_CHANGED to `who` (one person, or the people whose profile or status changed),
+ * PROFILE_CHANGED to everyone else who may see at least one of them. A guest and the people outside their one place
+ * never reach each other (auth/guests.ts), so neither gets even this empty "someone changed" notice about the other
+ * (it would show, by its time, that the guest is there). */
+export const profileChangedFor = (db: Database, who: string | Iterable<string>) => {
+  const own = new Set(typeof who === 'string' ? [who] : who)
+  return (to: string) => (own.has(to) ? MY_PROFILE_CHANGED : [...own].some((id) => sharesPlace(db, to, id)) ? PROFILE_CHANGED : null)
+}
 
 interface ProfileRow { title: string; status_text: string; avatar_version: number | null }
 const person = (id: string, name: string, p: ProfileRow | null): Person => ({

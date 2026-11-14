@@ -30,6 +30,7 @@ import { isOverlayEntry } from '../../lib/backCloses'
 import { isTeamProject, keepFaces, type ShareKind } from '../../lib/sharedChat'
 import { useProjects } from '../../store/projects'
 import { useChats } from '../../store/chats'
+import { usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { freshDraft, useWideningDraft, type WideningDraft } from '../../store/wideningDraft'
@@ -102,8 +103,10 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
     ...(audience?.subjects ?? []).map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId, name: s.name, ...(s.title ? { title: s.title } : {}), ...(s.avatarVersion ? { avatarVersion: s.avatarVersion } : {}), ...(s.mine ? { mine: true } : {}) })),
   ], [audience, creator])
   const options = useParticipantOptions(extra)
-  // not offered: me and the creator (always in it); their row is found by key
-  const exclude = useMemo(() => new Set([me ? `user:${me.user.id}` : '', creator ? `user:${creator.id}` : ''].filter(Boolean)), [me, creator])
+  // not offered: me and the creator (always in it); their row is found by key. And never a guest: a chat shared with
+  // people is no place of theirs (the server refuses them too), so they are not listed to be refused
+  const people = usePeopleList()
+  const exclude = useMemo(() => new Set([me ? `user:${me.user.id}` : '', creator ? `user:${creator.id}` : '', ...(people ?? []).filter((p) => p.guest).map((p) => `user:${p.id}`)].filter(Boolean)), [me, creator, people])
   const fixed = useMemo(() => new Map(creator ? [[`user:${creator.id}`, t('chat.share.started')]] : []), [creator, t])
   // a phone: my own row says "You" (the whole tag in its tooltip and name), someone else's "Started this chat"
   const phoneTags = useMemo(() => new Map(creator && creator.id === me?.user.id ? [[`user:${creator.id}`, t('projects.youTag')]] : []), [creator, me, t])

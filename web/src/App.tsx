@@ -348,7 +348,7 @@ function Gate() {
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
-          <Route path="connectors/authorize" element={<NotForGuests><ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
+          <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
           <Route path="slack/link" element={<NotForGuests><SlackLink key={`${status.me.user.id}:${status.me.session.id}`} /></NotForGuests>} />
           {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}

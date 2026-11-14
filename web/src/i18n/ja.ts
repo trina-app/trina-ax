@@ -1531,6 +1531,8 @@ export const ja: Record<MessageKey, string> = {
   'connectors.allow': "許可して続ける",
   'connectors.deny': "拒否",
   'connectors.expired': "このリクエストは期限切れか、別のログインセッションで開かれました。アプリから再度接続してください。",
+  'connectors.guestTitle': "ゲストはアプリをTrinaに接続できません",
+  'connectors.guestBody': "このアカウントは1か所だけに招待されたゲストのため、Claudeなどのアプリは接続できません。何も許可されていません。このウィンドウは閉じて大丈夫です。",
   'connectors.currentSession': "現在のログインで許可済み",
   'connectors.expires': "有効期限：{date}",
   'push.title': "端末へのプッシュ通知",
