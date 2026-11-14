@@ -45,7 +45,7 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .site-header { position: sticky; top: 0; z-index: 30; background: var(--bg); border-bottom: 1px solid var(--line); }
 .bar, .section-tabs { max-width: 1440px; margin: 0 auto; padding: 0 32px; }
 .bar { height: var(--bar); display: flex; align-items: center; gap: 16px; }
-.brand { display: flex; align-items: center; gap: 9px; text-decoration: none; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 9px; text-decoration: none; white-space: nowrap; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; }
 .brand span { font: 400 26px/1 var(--serif); letter-spacing: -0.01em; }
 .menu-button { display: none; }
 .search { position: relative; display: flex; align-items: center; gap: 8px; margin: 0 auto; width: min(520px, 40vw); height: 38px; padding: 0 10px 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); }
