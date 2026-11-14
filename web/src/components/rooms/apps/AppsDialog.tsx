@@ -10,16 +10,19 @@
 // (store/roomApps.ts mayManageApps); the server checks again.
 // Nothing is made by picking: the app is added on the guide's first Copy (address, code or secret), so closing the guide
 // before that leaves nothing behind. The address is in the page only after the person copied it in the guide; settings
-// copy it without showing it. Trina's own words never say "webhook"; the services' screen labels are quoted
-// (roomApps.vendorLabel.*, to be checked against the live tools in QA TC-1546).
+// copy it without showing it. The address is the "Webhook URL" (Slack's word, owner 2026-11-14); the services' screen
+// labels are quoted (roomApps.vendorLabel.*, checked against the live tools in QA TC-1546 and TC-1634).
+// Presets (plan docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md, P1): Notion, Typeform, Tally, Jotform,
+// Stripe, Shopify and Zendesk are Other apps with a preset; the screens show them as their service (lib/roomApps.ts
+// serviceOf): the picker's groups with "Needs: …", their guides (PresetSteps), switches, signing and warnings.
 import clsx from 'clsx'
-import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, PauseCircle, Plus } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, Info, PauseCircle, Plus } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ROOM_APP_NAME_MAX, ROOM_APP_SWITCHES, roomAppFormsScript, type Locale, type RoomApp, type RoomAppCard, type RoomAppKind, type RoomAppList } from '@mycel/shared/api'
+import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
 import { dateBucket, formatShortDateTime, intlTag } from '../../../lib/format'
-import { appStatus, NOTHING_YET_MS, waitsForEvent } from '../../../lib/roomApps'
+import { appStatus, FORM_SERVICES, isPreset, kindOf, needsOf, notSetUp, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, waitsForEvent, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
 import { useRoomApps, type AppsStart } from '../../../store/roomApps'
@@ -30,23 +33,15 @@ import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch } 
 import { AppCardText } from '../AppCard'
 import { useRoomTitle } from '../RoomIcon'
 import { AppTile, SenderTag } from './AppParts'
+import { CopyButton, copyFrom, Fold, Step, useFlash, useVendor } from './GuideParts'
+import { DontSeeYourApp, PresetSteps } from './PresetSteps'
 
-/** The picker's order: what an office team uses most first (forms, any other app), then the developers' tools. */
-const KINDS: RoomAppKind[] = ['google_forms', 'other', 'github', 'sentry']
 /** the user guide's page about apps in rooms (docs/site/use/room-apps.md) */
 export const ROOM_APPS_GUIDE = 'https://ax.trina.app/docs/use/room-apps/'
 /** how often an open guide or settings page reads the app again while it waits for its first message (or a refusal) */
 const POLL_MS = 4000
-
-/** A service's own screen label, quoted the way the language quotes ("Webhook URL", 「Webhook URL」). */
-function quote(locale: Locale, s: string): string {
-  return locale === 'ja' || locale === 'zh' ? `「${s}」` : `“${s}”`
-}
-function useVendor() {
-  const t = useT()
-  const locale = useLocale()
-  return (k: string) => quote(locale, t(`roomApps.vendorLabel.${k}` as never))
-}
+/** An app's service: a kind, or the preset of an Other app (lib/roomApps.ts serviceOf). */
+const svc = (a: RoomApp): AppService => serviceOf(a)
 
 /** "today 10:58", "yesterday 18:02", else a short date and time. */
 function useWhen() {
@@ -64,42 +59,7 @@ export function middleCut(s: string, head = 34, tail = 6): string {
   return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`
 }
 
-/** Copy what `make` gives, in the same click: the text may come from the server (the first Copy adds the app), and
- * Safari only lets a page write the clipboard in the click itself (a ClipboardItem with a promise). Throws with the
- * text when no copy was possible, so the screen can show it to copy by hand. */
-async function copyFrom(make: Promise<string>): Promise<string> {
-  try {
-    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': make.then((s) => new Blob([s], { type: 'text/plain' })) })])
-      return await make
-    }
-  } catch {
-    // fall through: the text is written the plain way once it is here
-  }
-  const s = await make
-  await navigator.clipboard.writeText(s)
-  return s
-}
-
-/** The one copy button of these screens (the address, Forms' code, a secret, an example): one size; "✓ Copied" once
- * copied. `primary` while copying is the screen's next step; after that it is an outline button and the next step
- * (Done) is the primary one. */
-function CopyButton({ label, copied, primary = false, busy, disabled, onClick, className, testId }: { label: string; copied: boolean; primary?: boolean; busy?: boolean; disabled?: boolean; onClick: () => void; className?: string; testId: string }) {
-  const t = useT()
-  return (
-    <Button variant={primary && !copied ? 'primary' : 'secondary'} onClick={onClick} busy={busy} disabled={disabled} className={clsx('shrink-0', className)} data-testid={testId}>
-      {copied ? <><Check size={14} aria-hidden />{t('roomApps.copied')}</> : label}
-    </Button>
-  )
-}
-
-/** a copy button's "Copied" for a moment */
-function useFlash(): [string | null, (what: string) => void] {
-  const [copied, setCopied] = useState<string | null>(null)
-  return [copied, (w) => { setCopied(w); setTimeout(() => setCopied((c) => (c === w ? null : c)), 1500) }]
-}
-
-type View = { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; kind: RoomAppKind; appId?: string }
+type View = { view: 'pick' } | { view: 'list' } | { view: 'settings'; appId: string } | { view: 'guide'; service: AppService; appId?: string; step?: 'optional' }
 
 export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart }) {
   const t = useT()
@@ -118,11 +78,11 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const back = stack.length > 1 ? () => setStack((s) => s.slice(0, -1)) : view?.view !== 'list' && view?.view !== 'pick' && list?.items.length ? () => setStack([{ view: 'list' }]) : null
   const name = room ? roomTitle(room) : ''
   const app = view && 'appId' in view && view.appId ? list?.items.find((a) => a.id === view.appId) ?? null : null
-  const kindLabel = (k: RoomAppKind) => t(`roomApps.kind.${k}`)
+  const kindLabel = (s: AppService) => t(`roomApps.kind.${s}`)
   const title: ReactNode = !view ? t('roomApps.listTitle')
     : view.view === 'pick' ? t('roomApps.pickTitle')
     : view.view === 'list' ? t('roomApps.listTitle')
-    : view.view === 'guide' ? (app ? t('roomApps.guideTitle', { app: app.name }) : view.kind === 'other' ? t('roomApps.guideTitleOther') : t('roomApps.guideTitle', { app: kindLabel(view.kind) }))
+    : view.view === 'guide' ? (app ? t('roomApps.guideTitle', { app: app.name }) : view.service === 'other' ? t('roomApps.guideTitleOther') : t('roomApps.guideTitle', { app: kindLabel(view.service) }))
     : app?.name ?? ''
   // a new app needs the internet address; the list and settings of existing ones say it is gone
   const blocked = !!list && !list.available && (view?.view === 'pick' || (view?.view === 'guide' && !view.appId))
@@ -139,10 +99,10 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
             </IconButton>
           )}
           {/* one app's settings: its mark, the name it was given and, small, which kind it is */}
-          {view?.view === 'settings' && app && <AppTile kind={app.kind} size="title" />}
+          {view?.view === 'settings' && app && <AppTile service={svc(app)} size="title" />}
           <span className="truncate" data-testid="apps-title">{title}</span>
-          {view?.view === 'settings' && app && app.name !== kindLabel(app.kind) && (
-            <span className="shrink-0 text-xs font-normal text-muted" data-testid="apps-title-kind">{kindLabel(app.kind)}</span>
+          {view?.view === 'settings' && app && app.name !== kindLabel(svc(app)) && (
+            <span className="shrink-0 text-xs font-normal text-muted" data-testid="apps-title-kind">{kindLabel(svc(app))}</span>
           )}
         </span>
       }
@@ -151,10 +111,10 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
         {error && !list ? <p className="text-sm text-danger" role="alert">{error}</p>
           : !list || !view ? <Skeleton lines={4} />
           : blocked ? <NoAddress />
-          : view.view === 'pick' ? <Picker list={list} roomName={name} onPick={(kind) => go({ view: 'guide', kind })} />
+          : view.view === 'pick' ? <Picker list={list} roomName={name} onPick={(service) => go({ view: 'guide', service })} />
           : view.view === 'list' ? <AppList list={list} onOpen={(id) => go({ view: 'settings', appId: id })} onAdd={() => go({ view: 'pick' })} />
-          : view.view === 'guide' ? <Guide roomId={roomId} kind={view.kind} app={app} onAdded={(a) => setStack((s) => [...s.slice(0, -1), { view: 'guide', kind: a.kind, appId: a.id }])} onDone={close} />
-          : app ? <Settings roomId={roomId} roomName={name} app={app} available={list.available} onGuide={() => go({ view: 'guide', kind: app.kind, appId: app.id })} onRemoved={() => setStack([{ view: list.items.length > 1 ? 'list' : 'pick' }])} />
+          : view.view === 'guide' ? <Guide roomId={roomId} service={view.service} app={app} step={view.step} onAdded={(a) => setStack((s) => [...s.slice(0, -1), { view: 'guide', service: view.service, appId: a.id }])} onDone={close} />
+          : app ? <Settings roomId={roomId} roomName={name} app={app} available={list.available} onGuide={(step) => go({ view: 'guide', service: svc(app), appId: app.id, ...(step ? { step } : {}) })} onRemoved={() => setStack([{ view: list.items.length > 1 ? 'list' : 'pick' }])} />
           : <p className="text-sm text-muted">{t('rooms.notFound')}</p>}
       </div>
     </Modal>
@@ -187,18 +147,50 @@ function NoAddress() {
 }
 
 // ---------------- 1. the picker ----------------
-function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: string; onPick: (k: RoomAppKind) => void }) {
+/** A group's heading in the picker's one list (no tabs, no search). */
+function GroupHeading({ id, children }: { id: string; children: ReactNode }) {
+  return <h3 id={id} className="px-3 pt-3 pb-1 text-xs font-medium tracking-wide text-muted uppercase max-sm:px-3" data-testid="apps-pick-group">{children}</h3>
+}
+
+function Picker({ list, roomName, onPick }: { list: RoomAppList; roomName: string; onPick: (s: AppService) => void }) {
   const t = useT()
+  const gid = useId()
   const left = list.max - list.items.length
   const full = left <= 0
+  // the second line: what the service posts, then what it needs ("Needs: …") so nobody finds out after setup
+  const row = (s: AppService) => {
+    const needs = needsOf(s)
+    return (
+      <ListRow
+        key={s}
+        onClick={() => onPick(s)}
+        disabled={full}
+        lead={<AppTile service={s} size="row" />}
+        strong
+        name={t(`roomApps.kind.${s}`)}
+        // the Needs line wraps (the row's second line is cut at one line); on a phone too
+        meta={needs ? <>{t(`roomApps.hint.${s}`)}<span className="block whitespace-normal" data-testid={`apps-pick-needs-${s}`}>{t(`roomApps.needs.${needs}`)}</span></> : t(`roomApps.hint.${s}`)}
+        end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />}
+        testId={`apps-pick-${s}`}
+      />
+    )
+  }
   return (
     <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-picker">
-      <p className="px-5 pt-4 pb-2 text-sm text-muted max-sm:px-4">{t('roomApps.pickLead', { room: roomName })}</p>
-      <ul className="px-2 pb-2 max-sm:px-1">
-        {KINDS.map((k) => (
-          <ListRow key={k} onClick={() => onPick(k)} disabled={full} lead={<AppTile kind={k} size="row" />} strong name={t(`roomApps.kind.${k}`)} meta={t(`roomApps.hint.${k}`)} end={<ChevronRight size={16} className="shrink-0 self-center text-faint" aria-hidden />} testId={`apps-pick-${k}`} />
+      <p className="px-5 pt-4 pb-1 text-sm text-muted max-sm:px-4">{t('roomApps.pickLead', { room: roomName })}</p>
+      <div className="px-2 pb-1 max-sm:px-1">
+        {PICKER_GROUPS.map((g) => (
+          <Fragment key={g.key}>
+            <GroupHeading id={`${gid}-${g.key}`}>{t(`roomApps.group.${g.key}`)}</GroupHeading>
+            <ul aria-labelledby={`${gid}-${g.key}`}>{g.items.map(row)}</ul>
+          </Fragment>
         ))}
-      </ul>
+      </div>
+      {/* a divider, then the catch-all, last (owner decision 5) */}
+      <div className="border-t border-line px-2 pb-2 max-sm:px-1">
+        <GroupHeading id={`${gid}-other`}>{t('roomApps.group.other')}</GroupHeading>
+        <ul aria-labelledby={`${gid}-other`}>{row('other')}</ul>
+      </div>
       {(full || left <= 2) && <p className="border-t border-line px-5 py-3 text-xs text-muted max-sm:px-4" data-testid="apps-left">{full ? t('roomApps.pickFull', { max: list.max }) : t('roomApps.pickLeft', { left })}</p>}
     </div>
   )
@@ -214,13 +206,13 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
       <h3 className="px-5 pt-4 pb-1 text-xs font-medium text-muted max-sm:px-4">{t('roomApps.listSection')}</h3>
       <ul className="px-2 pb-2 max-sm:px-1">
         {list.items.map((a) => {
-          const kind = t(`roomApps.kind.${a.kind}`)
+          const kind = t(`roomApps.kind.${svc(a)}`)
           const by = a.createdBy ? t('roomApps.setUpBy', { name: a.createdBy.name }) : t('roomApps.setUpByGone')
           return (
             <ListRow
               key={a.id}
               onClick={() => onOpen(a.id)}
-              lead={<AppTile kind={a.kind} size="row" />}
+              lead={<AppTile service={svc(a)} size="row" />}
               strong
               name={a.name}
               meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span> : a.pausedUntil ? `${t('roomApps.paused')} · ${t('roomApps.startsTomorrow')}` : a.name !== kind ? `${kind} · ${by}` : by}
@@ -273,6 +265,17 @@ function WaitingDot() {
   )
 }
 
+/** Why the last try was not shown. A preset whose secret was saved but didn't match names the service and where its
+ * secret is ("Stripe sent a message … Copy it again from Reveal secret."); else the reason. */
+function useRefusedText() {
+  const t = useT()
+  const when = useWhen()
+  return (s: AppService, r: { at: string; reason: NonNullable<RoomApp['lastRefusal']>['reason'] }) =>
+    r.reason === 'signature' && isPreset(s) && signingOf(s) !== 'none'
+      ? t(`roomApps.refusedSecret.${s as 'stripe'}`, { time: when(r.at) })
+      : t('roomApps.statusRefused', { time: when(r.at), reason: t(`roomApps.reason.${r.reason}`) })
+}
+
 /** The one status line: last message, a refusal with its reason (the guide; settings list it with the warnings), paused,
  * or waiting for the first message (one way for every kind). */
 function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; place: 'guide' | 'settings'; onAgain?: () => void; onResume?: () => void }) {
@@ -281,8 +284,9 @@ function StatusLine({ app, place, onAgain, onResume }: { app: RoomApp | null; pl
   const raw = app ? appStatus(app) : { kind: 'none' as const }
   // settings put a refusal among the warnings; the line then says the last message shown, or that it waits
   const s = place === 'settings' && raw.kind === 'refused' ? (app?.firstOkAt && app.lastOkAt ? { kind: 'ok' as const, first: app.firstOkAt, last: app.lastOkAt } : { kind: 'none' as const }) : raw
-  const forms = app?.kind === 'google_forms'
-  const [icon, text, tone] = s.kind === 'refused' ? [<AlertCircle key="i" size={15} aria-hidden />, t('roomApps.statusRefused', { time: when(s.at), reason: t(`roomApps.reason.${s.reason}`) }), 'text-danger']
+  const forms = !!app && FORM_SERVICES.includes(svc(app))
+  const refused = useRefusedText()
+  const [icon, text, tone] = s.kind === 'refused' ? [<AlertCircle key="i" size={15} aria-hidden />, refused(app ? svc(app) : 'other', s), 'text-danger']
     : s.kind === 'paused' ? [<PauseCircle key="i" size={15} aria-hidden />, t(forms ? 'roomApps.statusPausedForms' : 'roomApps.statusPaused', { cap: 500 }), 'text-warn']
     : s.kind === 'ok' ? [<Check key="i" size={15} aria-hidden />, place === 'guide' ? t('roomApps.connected', { time: when(s.first) }) : t('roomApps.statusOk', { when: when(s.last) }), 'text-ok']
     : [<WaitingDot key="i" />, t('roomApps.waiting'), '']
@@ -394,24 +398,25 @@ function HowToSend({ getAddress, className }: { getAddress: () => Promise<string
 }
 
 // ---------------- a preview of the app's messages (no message is posted) ----------------
-function ExamplePreview({ kind, name }: { kind: RoomAppKind; name: string }) {
+function ExamplePreview({ service, name }: { service: AppService; name: string }) {
   const t = useT()
   // Other's card is its text (a title and a line); the services' have a kind line and a status line too
-  const head = kind !== 'other'
+  const head = service !== 'other'
   const card: RoomAppCard = {
-    ...(head ? { kind: t(`roomApps.preview.${kind}.kind` as never) } : {}),
-    title: t(`roomApps.preview.${kind}.title` as never),
-    details: [t(`roomApps.preview.${kind}.detail` as never)],
-    ...(head ? { status: t(`roomApps.preview.${kind}.status` as never) } : {}),
+    ...(head ? { kind: t(`roomApps.preview.${service}.kind` as never) } : {}),
+    title: t(`roomApps.preview.${service}.title` as never),
+    details: [t(`roomApps.preview.${service}.detail` as never)],
+    ...(head ? { status: t(`roomApps.preview.${service}.status` as never) } : {}),
   }
+  const ref = { id: null, name, kind: kindOf(service), ...(isPreset(service) ? { preset: service } : {}) }
   return (
     <div className="space-y-2 rounded-lg border border-line p-3" data-testid="apps-preview">
       <p className="text-xs text-muted">{t('roomApps.previewLead')}</p>
       <div className="flex gap-2.5">
-        <AppTile kind={kind} size="face" className="mt-0.5" />
+        <AppTile service={service} size="face" className="mt-0.5" />
         <div className="min-w-0 flex-1">
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm"><span className="truncate font-medium text-ink">{name}</span><SenderTag /></p>
-          <AppCardText m={{ app: { id: null, name, kind }, appCard: card, body: '' }} />
+          <AppCardText m={{ app: ref, appCard: card, body: '' }} />
         </div>
       </div>
     </div>
@@ -419,28 +424,7 @@ function ExamplePreview({ kind, name }: { kind: RoomAppKind; name: string }) {
 }
 
 // ---------------- 2. the guide ----------------
-function Step({ n, children }: { n: number; children: ReactNode }) {
-  return (
-    <li className="flex gap-3 text-sm text-ink" data-testid="apps-step">
-      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-semibold text-muted">{n}</span>
-      <div className="min-w-0 flex-1 space-y-2 pt-0.5">{children}</div>
-    </li>
-  )
-}
-
-function Fold({ summary, children, testId, className }: { summary: string; children: ReactNode; testId: string; className?: string }) {
-  return (
-    <details className={clsx('group rounded-lg border border-line', className)} data-testid={testId}>
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-medium text-ink md:min-h-9 [&::-webkit-details-marker]:hidden">
-        <ChevronRight size={14} aria-hidden className="shrink-0 text-faint transition group-open:rotate-90" />
-        {summary}
-      </summary>
-      <div className="space-y-2 px-3 pb-3 text-sm text-ink">{children}</div>
-    </details>
-  )
-}
-
-function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: RoomAppKind; app: RoomApp | null; onAdded: (a: RoomApp) => void; onDone: () => void }) {
+function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string; service: AppService; app: RoomApp | null; step?: 'optional'; onAdded: (a: RoomApp) => void; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
   const v = useVendor()
@@ -452,7 +436,9 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
   const [used, setUsed] = useState(false)
   const [manual, setManual] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
-  const [name, setName] = useState(app && kind === 'other' ? app.name : '')
+  const kind = kindOf(service)
+  const preset = isPreset(service) ? service : null
+  const [name, setName] = useState(app && service === 'other' ? app.name : '')
   const rename = useRename(roomId, app)
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   useLive(roomId, app)
@@ -462,7 +448,13 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
     api.call(API.getRoomAppAddress, { params: { id: roomId, appId: app.id } }).then((a) => { setAddress(a.address); if (a.secret) setSecret(a.secret) }, () => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app?.id])
-  /** the address, adding the app on the first Copy (with the name typed for an Other app) */
+  // "Not set up in Shopify › Show the step": the optional step in view
+  useEffect(() => {
+    if (step !== 'optional') return
+    const id = requestAnimationFrame(() => document.querySelector('[data-testid="apps-step-optional"]')?.scrollIntoView({ block: 'center' }))
+    return () => cancelAnimationFrame(id)
+  }, [step])
+  /** the address, adding the app on the first Copy (with the name typed for an Other app; a preset's own) */
   const ensure = async (): Promise<{ app: RoomApp; address: string }> => {
     if (app && address) return { app, address }
     if (app) {
@@ -470,8 +462,10 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
       setAddress(a.address)
       return { app, address: a.address }
     }
-    const typed = kind === 'other' ? name.trim() : ''
-    const r = await api.call(API.createRoomApp, { params: { id: roomId }, body: { kind, ...(typed ? { name: typed } : {}) } })
+    const typed = service === 'other' ? name.trim() : ''
+    // a preset is an Other app with its preset (fixed at create); the server names it
+    const body = { kind, ...(preset ? { preset } : {}), ...(typed ? { name: typed } : {}) }
+    const r = await api.call(API.createRoomApp, { params: { id: roomId }, body })
     setAddress(r.address)
     useRoomApps.getState().put(r.app)
     onAdded(r.app)
@@ -516,20 +510,29 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
     }
   }
   const forms = kind === 'google_forms'
+  const signing = signingOf(service)
+  const needs = needsOf(service)
   const s = app ? appStatus(app).kind : 'none'
   // GitHub and Other can send a test at once: after two minutes without one, a short checklist
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (waitsForEvent(kind) || !app || s !== 'none') return
+    if (waitsForEvent(service) || !app || s !== 'none') return
     const id = setInterval(() => setNow(Date.now()), 10_000)
     return () => clearInterval(id)
-  }, [kind, app, s])
-  const nothingYet = !waitsForEvent(kind) && !!app && s === 'none' && now - Date.parse(app.createdAt) >= NOTHING_YET_MS
+  }, [service, app, s])
+  const nothingYet = !waitsForEvent(service) && !!app && s === 'none' && now - Date.parse(app.createdAt) >= NOTHING_YET_MS
   const curl = useMemo(() => `curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hi"}' ${address ?? '<address>'}`, [address])
   return (
-    <div className="space-y-4" data-testid="apps-guide" data-kind={kind}>
+    <div className="space-y-4" data-testid="apps-guide" data-kind={service}>
+      {/* what it needs, before anything is set up (the picker's row said it too) */}
+      {needs && (
+        <p className="flex items-start gap-1.5 text-sm text-ink" data-testid="apps-needs">
+          <Info size={15} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+          <span>{t(`roomApps.needs.${needs}`)}</span>
+        </p>
+      )}
       {/* Other: the name it posts under, first (the others carry their service's name) */}
-      {kind === 'other' && (
+      {service === 'other' && (
         <NameField value={name} onChange={(x) => { setName(x); rename.setError(null) }} onCommit={app ? () => void rename.save(name) : undefined} error={rename.error} testId="apps-guide-name" />
       )}
       {/* the address: read-only, cut in its middle, the whole one copied; Forms: only the code to paste */}
@@ -544,6 +547,7 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
           <CopyButton label={forms ? t('roomApps.copyCode') : t('roomApps.copyAddress')} copied={copied === 'address' || used} primary busy={busy && copied === null} onClick={() => void copyAddress()} className="max-sm:w-full" testId="apps-copy-address" />
         </div>
         <p className="text-xs text-muted">{t(forms ? 'roomApps.addressPrivateForms' : 'roomApps.addressPrivate')}</p>
+        {service === 'other' && <p className="text-xs text-ink" data-testid="apps-other-where">{t('roomApps.otherWhere')}</p>}
         {manual && (
           <div className="space-y-1">
             <p className="text-xs text-danger" role="alert">{t('roomApps.copyFailed')}</p>
@@ -581,7 +585,8 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
             <p className="text-xs text-muted" data-testid="apps-forms-email">{t('roomApps.formsEmail')}</p>
           </Step>
         </>}
-        {kind === 'other' && <>
+        {preset && <PresetSteps preset={preset} app={app} />}
+        {service === 'other' && <>
           <Step n={1}><p>{t('roomApps.other1', { term: v('otherTerm') })}</p></Step>
           <Step n={2}><p>{t('roomApps.other2')}</p></Step>
           <Step n={3}>
@@ -590,20 +595,27 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
           </Step>
         </>}
       </ol>
+      {service === 'other' && <DontSeeYourApp />}
 
-      {/* optional: signatures (owner decision 9), Sentry's alert rules */}
-      {(kind === 'github' || kind === 'sentry') && (
+      {/* optional: signatures (owner decision 4), where the service can sign; Sentry's alert rules */}
+      {signing !== 'none' && (
         <Fold summary={t('roomApps.safer')} testId="apps-safer">
-          {kind === 'github' ? <p>{t('roomApps.saferGithub', { secret: v('githubSecret') })}</p> : <p>{t('roomApps.saferSentry', { secret: v('sentrySecret') })}</p>}
+          <p data-testid="apps-safer-how">{service === 'github' ? t('roomApps.saferGithub', { secret: v('githubSecret') })
+            : service === 'sentry' ? t('roomApps.saferSentry', { secret: v('sentrySecret') })
+            : service === 'typeform' ? t('roomApps.saferPreset.typeform', { edit: v('typeformEdit'), secret: v('typeformSecret') })
+            : service === 'tally' ? t('roomApps.saferPreset.tally', { secret: v('tallySecret') })
+            : service === 'stripe' ? t('roomApps.saferPreset.stripe', { reveal: v('stripeReveal') })
+            : service === 'shopify' ? t('roomApps.saferPreset.shopify', { signed: v('shopifySigned') })
+            : t('roomApps.saferPreset.zendesk', { reveal: v('zendeskReveal') })}</p>
           {app?.signed && !secret ? (
             <SignedLine roomId={roomId} app={app} />
-          ) : kind === 'github' ? (
+          ) : signing === 'trina_makes' ? (
             <div className="flex flex-wrap items-center gap-2">
               <CopyButton label={t('roomApps.copySecret')} copied={copied === 'secret'} disabled={busy} onClick={() => void copySecret()} testId="apps-copy-secret" />
               {app?.signed && <SignedLine roomId={roomId} app={app} />}
             </div>
           ) : (
-            <SentrySecret roomId={roomId} app={app} ensure={ensure} />
+            <PasteSecret roomId={roomId} app={app} ensure={ensure} placeholder={service === 'sentry' ? t('roomApps.secretPlaceholder') : t(`roomApps.secretName.${service as 'stripe'}`)} />
           )}
           {!app?.signed && <p className="text-xs text-muted" data-testid="apps-unsigned">{t('roomApps.unsigned')}</p>}
         </Fold>
@@ -639,7 +651,7 @@ function Guide({ roomId, kind, app, onAdded, onDone }: { roomId: string; kind: R
           </Fold>
         )}
       </div>
-      {preview && <ExamplePreview kind={kind} name={app?.name ?? (kind === 'other' && name.trim() ? name.trim() : t(`roomApps.kind.${kind}`))} />}
+      {preview && <ExamplePreview service={service} name={app?.name ?? (service === 'other' && name.trim() ? name.trim() : t(`roomApps.kind.${service}`))} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" onClick={() => setPreview((p) => !p)} aria-expanded={preview} data-testid="apps-example">{preview ? t('roomApps.hideExample') : t('roomApps.showExample')}</Button>
         <Button variant={used ? 'primary' : 'secondary'} onClick={onDone} data-testid="apps-done">{t('roomApps.done')}</Button>
@@ -667,8 +679,10 @@ function SignedLine({ roomId, app }: { roomId: string; app: RoomApp }) {
   )
 }
 
-/** Sentry's Client Secret, pasted and saved. Saving before the address was copied adds the app first. */
-function SentrySecret({ roomId, app, ensure }: { roomId: string; app: RoomApp | null; ensure: () => Promise<{ app: RoomApp }> }) {
+/** The service's own secret (Sentry's Client Secret, Stripe's signing secret, Shopify's key, Zendesk's secret), pasted
+ * and saved; the server checks its shape for the service and says why it refuses one. Saving before the address was
+ * copied adds the app first. */
+function PasteSecret({ roomId, app, ensure, placeholder }: { roomId: string; app: RoomApp | null; ensure: () => Promise<{ app: RoomApp }>; placeholder: string }) {
   const t = useT()
   const locale = useLocale()
   const id = useId()
@@ -688,8 +702,8 @@ function SentrySecret({ roomId, app, ensure }: { roomId: string; app: RoomApp | 
   return (
     <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void save() }}>
       <div className="flex gap-2">
-        <label htmlFor={id} className="sr-only">{t('roomApps.secretPlaceholder')}</label>
-        <input id={id} value={value} onChange={(e) => setValue(e.target.value)} placeholder={t('roomApps.secretPlaceholder')} autoComplete="off" spellCheck={false} className={clsx(inputCls, 'min-w-0 flex-1 font-mono text-code-sm')} aria-invalid={!!err} data-testid="apps-sentry-secret" />
+        <label htmlFor={id} className="sr-only">{placeholder}</label>
+        <input id={id} value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} autoComplete="off" spellCheck={false} className={clsx(inputCls, 'min-w-0 flex-1 font-mono text-code-sm')} aria-invalid={!!err} data-testid="apps-sentry-secret" />
         <Button type="submit" disabled={!value.trim() || busy} busy={busy} data-testid="apps-sentry-secret-save">{t('roomApps.save')}</Button>
       </div>
       {err && <p className="text-xs text-danger" role="alert" data-testid="apps-secret-error">{err}</p>}
@@ -698,11 +712,12 @@ function SentrySecret({ roomId, app, ensure }: { roomId: string; app: RoomApp | 
 }
 
 // ---------------- 5. one app's settings ----------------
-function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { roomId: string; roomName: string; app: RoomApp; available: boolean; onGuide: () => void; onRemoved: () => void }) {
+function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { roomId: string; roomName: string; app: RoomApp; available: boolean; onGuide: (step?: 'optional') => void; onRemoved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   useLive(roomId, app)
+  const service = svc(app)
   const [error, setError] = useState(false)
   const set = async (body: { events?: Record<string, boolean>; quiet?: boolean }) => {
     setError(false)
@@ -723,7 +738,11 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
     } catch (e) { fail(e) }
   }
   const rotate = async () => {
-    const ok = await confirmDialog({ title: t('roomApps.newAddressTitle'), body: app.kind === 'google_forms' ? t('roomApps.newAddressBodyForms') : t('roomApps.newAddressBody', { app: app.name }), confirm: t('roomApps.newAddressConfirm') })
+    // what the service does with the old URL, where it does something (plan "States")
+    const body = service === 'google_forms' ? t('roomApps.newAddressBodyForms')
+      : service === 'typeform' || service === 'shopify' || service === 'notion' ? t(`roomApps.newAddressBodyPreset.${service}`)
+      : t('roomApps.newAddressBody', { app: app.name })
+    const ok = await confirmDialog({ title: t('roomApps.newAddressTitle'), body, confirm: t('roomApps.newAddressConfirm') })
     if (!ok) return
     try {
       const r = await api.call(API.rotateRoomApp, { params: { id: roomId, appId: app.id } })
@@ -748,31 +767,33 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
     } catch (e) { fail(e) }
   }
   const quietId = useId()
-  const when = useWhen()
   const status = appStatus(app)
-  const switches = ROOM_APP_SWITCHES[app.kind]
+  const switches = switchesOf(service)
+  // optional events set up in the service that never arrived: "Not set up in Shopify"
+  const missing = notSetUp(service, app)
+  const refusedText = useRefusedText()
   // what needs someone, one block, one action each
   const leaver = !!app.leaverKnows && !fresh
   const warnings: Warning[] = [
     ...(!available ? [{ key: 'no-address', text: t('roomApps.statusNoAddress') }] : []),
     ...(status.kind === 'refused' ? [{
-      key: 'refused', text: t('roomApps.statusRefused', { time: when(status.at), reason: t(`roomApps.reason.${status.reason}`) }),
-      ...(status.reason === 'signature' ? { action: { label: t('roomApps.checkSecretAction'), onClick: onGuide, testId: 'apps-set-up-again' } } : {}),
+      key: 'refused', text: refusedText(service, status),
+      ...(status.reason === 'signature' ? { action: { label: t('roomApps.checkSecretAction'), onClick: () => onGuide(), testId: 'apps-set-up-again' } } : {}),
     }] : []),
     ...(leaver ? [{ key: 'leaver', text: t('roomApps.leaverKnows'), action: { label: t('roomApps.newAddress'), onClick: () => void rotate(), disabled: !available, testId: 'apps-leaver-new-address' } }] : []),
-    ...((app.kind === 'github' || app.kind === 'sentry') && !app.signed ? [{ key: 'unsigned', text: t('roomApps.unsigned'), action: { label: t('roomApps.makeSafer'), onClick: onGuide, testId: 'apps-make-safer' } }] : []),
+    ...(signingOf(service) !== 'none' && !app.signed ? [{ key: 'unsigned', text: t('roomApps.unsigned'), action: { label: t('roomApps.makeSafer'), onClick: () => onGuide(), testId: 'apps-make-safer' } }] : []),
   ]
   return (
-    <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-settings" data-kind={app.kind}>
+    <div className="-mx-5 -my-5 max-sm:-mx-4" data-testid="apps-settings" data-kind={service}>
       <div className="space-y-3 px-5 pt-4 pb-3 max-sm:px-4">
         {/* who set it up, and the way back to its steps */}
         <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted" data-testid="apps-set-up-by">
           <span>{app.createdBy ? t('roomApps.setUpBy', { name: app.createdBy.name }) : t('roomApps.setUpByGone')}</span>
           <span aria-hidden className="text-faint">·</span>
-          <button type="button" onClick={onGuide} className="touch-hit font-medium text-accent-text hover:underline" data-testid="apps-how-to-connect">{t('roomApps.howToConnect')}</button>
+          <button type="button" onClick={() => onGuide()} className="touch-hit font-medium text-accent-text hover:underline" data-testid="apps-how-to-connect">{t('roomApps.howToConnect')}</button>
         </p>
         <StatusLine app={app} place="settings" onResume={() => void resume()} />
-        {status.kind === 'none' && app.kind === 'other' && <p className="-mt-1 pl-4 text-xs text-muted" data-testid="apps-waiting-hint">{t('roomApps.waitingOther')}</p>}
+        {status.kind === 'none' && service === 'other' &&<p className="-mt-1 pl-4 text-xs text-muted" data-testid="apps-waiting-hint">{t('roomApps.waitingOther')}</p>}
         <Warnings items={warnings} />
         {error && <p className="text-xs text-danger" role="alert" data-testid="apps-save-failed">{t('roomApps.saveFailed')}</p>}
       </div>
@@ -785,7 +806,11 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
           <h3 id={`${quietId}-show`} className="py-2 text-xs font-medium text-muted">{t('roomApps.showHere')}</h3>
           <ul>
             {switches.map((sw) => (
-              <SwitchRow key={sw.key} id={`${quietId}-${sw.key}`} label={t(`roomApps.switch.${app.kind}.${sw.key}` as never)} checked={app.events[sw.key] ?? sw.on} onChange={(v) => void set({ events: { [sw.key]: v } })} testId={`apps-switch-${sw.key}`} />
+              <SwitchRow
+                key={sw.key} id={`${quietId}-${sw.key}`} label={t(`roomApps.switch.${service}.${sw.key}` as never)} checked={app.events[sw.key] ?? sw.on}
+                onChange={(v) => void set({ events: { [sw.key]: v } })} testId={`apps-switch-${sw.key}`}
+                note={missing.has(sw.key) ? { text: t('roomApps.notSetUp', { app: t(`roomApps.kind.${service}`) }), action: t('roomApps.notSetUpShow'), onClick: () => onGuide('optional') } : undefined}
+              />
             ))}
           </ul>
         </section>
@@ -795,7 +820,7 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
           <SwitchRow id={`${quietId}-quiet`} label={t('roomApps.quiet')} hint={t('roomApps.quietHint')} checked={app.quiet} onChange={(v) => void set({ quiet: v })} testId="apps-quiet" />
         </ul>
       </section>
-      {app.kind === 'other' && (
+      {service === 'other' && (
         <section className="border-t border-line px-5 py-3 max-sm:px-4" aria-labelledby={`${quietId}-send`}>
           <h3 id={`${quietId}-send`} className="pb-2 text-xs font-medium text-muted">{t('roomApps.howToSend')}</h3>
           <HowToSend getAddress={address} />
@@ -817,14 +842,24 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
   )
 }
 
-/** A switch row: the words on the left, the switch on the right; 44 px tall on a phone. */
-function SwitchRow({ id, label, hint, checked, onChange, testId }: { id: string; label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; testId: string }) {
+/** A switch row: the words on the left, the switch on the right; 44 px tall on a phone. `note`: an optional event that
+ * never arrived says so under its words, with the way back to its step ("Not set up in Shopify · Show the step"). */
+function SwitchRow({ id, label, hint, note, checked, onChange, testId }: { id: string; label: string; hint?: string; note?: { text: string; action: string; onClick: () => void }; checked: boolean; onChange: (v: boolean) => void; testId: string }) {
   return (
     <li className="flex min-h-11 items-center gap-3 py-1 md:min-h-9">
-      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-sm text-ink">
-        {label}
-        {hint && <span className="block text-xs text-muted">{hint}</span>}
-      </label>
+      <div className="min-w-0 flex-1">
+        <label htmlFor={id} className="block cursor-pointer text-sm text-ink">
+          {label}
+          {hint && <span className="block text-xs text-muted">{hint}</span>}
+        </label>
+        {note && (
+          <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted" data-testid={`${testId}-not-set-up`}>
+            <span>{note.text}</span>
+            <span aria-hidden className="text-faint">·</span>
+            <button type="button" onClick={note.onClick} className="touch-hit font-medium text-accent-text hover:underline">{note.action}</button>
+          </p>
+        )}
+      </div>
       <Switch id={id} external checked={checked} onChange={onChange} label={label} testId={testId} />
     </li>
   )
