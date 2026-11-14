@@ -8,7 +8,7 @@ import { describe, expect, test } from 'bun:test'
 import { ROOT, loadPages, navSlugs, readNav, siteMarkdownFiles } from '../../scripts/docs/site'
 
 // the Simplified Chinese pages (docs/site/zh/): the user guide; the other tabs link to the English pages
-const ZH_SLUGS = ['index', 'get-started/quickstart', 'get-started/team-setup', 'get-started/key-concepts', 'use/chats-and-projects', 'use/team-skills', 'use/mcp', 'use/google-own-app', 'use/slack', 'use/room-apps', 'use/scheduled-tasks', 'use/files-and-permissions', 'use/usage-and-limits', 'use/admin', 'use/settings-and-search']
+const ZH_SLUGS = ['index', 'get-started/quickstart', 'get-started/team-setup', 'get-started/key-concepts', 'use/chats-and-projects', 'use/team-skills', 'use/mcp', 'use/google-own-app', 'use/slack', 'use/room-apps', 'use/scheduled-tasks', 'use/files-and-permissions', 'use/usage-and-limits', 'use/admin', 'use/guests', 'use/settings-and-search']
 import { API_REFERENCE_FILE, apiReferenceMarkdown } from '../../scripts/docs/api-reference'
 import { localLinkProblems } from '../../scripts/check-onboarding-docs'
 
