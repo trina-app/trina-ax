@@ -6,7 +6,7 @@
 - Slack: after 10 connect links in an hour, the refusal says at what time you can ask again instead of "in a few minutes".
 - A member removed from the team is told on the sign-in page that they are no longer a member, not that they signed out elsewhere or changed their password.
 - Settings › Profile: while your account deletion is pending, the row shows the date and offers **Keep my account**.
-- Adding a sleeping trial team in the desktop or phone app now wakes it and says "Starting your team" instead of "can't reach", and continues by itself when the team answers.
+- Adding a sleeping trial team in the desktop or phone app now wakes it and says "Starting your team" instead of "can't reach", and continues by itself when the team answers. **Cancel** stops the wait.
 - If a team has not started after 3 minutes of "Starting your team", the web app says so and offers **Try again**.
 - The Delete account page lists the chats you shared with people or groups under what is deleted; only chats shared in projects stay with the team.
 - Phone: a time zone search that finds nothing says "No time zone matches that." inside the sheet, where you can see it.
