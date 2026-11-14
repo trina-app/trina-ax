@@ -1488,7 +1488,7 @@ export const es: Record<MessageKey, string> = {
   "pushGateway.problem.address": "Escriba una dirección https:// sin nada después del nombre, por ejemplo https://push.example.com.",
   "pushGateway.problem.private": "Esta dirección apunta a una red privada o local. Use una dirección https pública.",
   "pushGateway.problem.unreachable": "No se pudo conectar con esta dirección. Revísela e inténtelo de nuevo.",
-  "pushGateway.problem.not_gateway": "Esta dirección respondió, pero no como un servicio push. Su página /health debe responder {\"ok\":true}.",
+  "pushGateway.problem.not_gateway": "Esta dirección no es un servicio push para la app del teléfono. Confirme la dirección con quien lo administra.",
   "pushGateway.problem.locked": "Está definido en la configuración del servidor, así que no se puede cambiar aquí.",
   "audit.act.push.gateway": "Cambió adónde van las notificaciones del teléfono",
   'push.ask': "¿Quiere recibir avisos de mensajes nuevos y de las respuestas de @Trina?",

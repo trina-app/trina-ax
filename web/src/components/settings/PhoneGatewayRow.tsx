@@ -65,7 +65,8 @@ export function PhoneGatewayRow() {
   if (!setting || !choice) return error ? <PrefRow id="np-phone-gateway" title={title} below={<div className="mt-2"><ErrorNote>{error}</ErrorNote></div>} testId="phone-gateway" /> : null
   const label = (c: PushGatewayChoice) => c === 'default' ? t('pushGateway.choice.default') : c === 'off' ? t('pushGateway.choice.off') : t('pushGateway.choice.custom')
   const options = (['default', 'off', 'custom'] as const).filter((c) => c !== 'default' || setting.defaultHost || setting.choice === 'default')
-  const desc = t(`pushGateway.desc.${choice}`)
+  // what is in use now: a Custom not yet saved (or refused) is not, so the line keeps the saved choice's words
+  const desc = t(`pushGateway.desc.${setting.choice}`)
 
   // set in the server's own settings: the value and where, nothing to pick
   if (setting.lockedBy) {

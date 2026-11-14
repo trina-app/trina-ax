@@ -1516,7 +1516,7 @@ export const id: Record<MessageKey, string> = {
   "pushGateway.problem.address": "Masukkan alamat https:// tanpa apa pun setelah namanya, misalnya https://push.example.com.",
   "pushGateway.problem.private": "Alamat ini mengarah ke jaringan privat atau lokal. Gunakan alamat https publik.",
   "pushGateway.problem.unreachable": "Tidak bisa menghubungi alamat ini. Periksa lalu coba lagi.",
-  "pushGateway.problem.not_gateway": "Alamat ini menjawab, tetapi bukan sebagai layanan push. Halaman /health-nya harus menjawab {\"ok\":true}.",
+  "pushGateway.problem.not_gateway": "Alamat ini bukan layanan push untuk aplikasi ponsel. Periksa alamatnya dengan pengelolanya.",
   "pushGateway.problem.locked": "Ini diatur di pengaturan server, jadi tidak bisa diubah di sini.",
   "audit.act.push.gateway": "Mengubah jalur notifikasi ponsel",
   'push.ask': "Terima notifikasi untuk pesan baru dan jawaban @Trina?",

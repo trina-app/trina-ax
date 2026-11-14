@@ -1485,7 +1485,7 @@ export const zh: Record<MessageKey, string> = {
   "pushGateway.problem.address": "请输入名称后面不带任何内容的 https:// 地址，例如 https://push.example.com。",
   "pushGateway.problem.private": "此地址指向私有或本地网络。请使用公开的 https 地址。",
   "pushGateway.problem.unreachable": "无法连接到此地址。请检查后重试。",
-  "pushGateway.problem.not_gateway": "此地址有响应，但不是推送服务。它的 /health 页面必须返回 {\"ok\":true}。",
+  "pushGateway.problem.not_gateway": "此地址不是手机应用的推送服务。请向负责运行它的人确认地址。",
   "pushGateway.problem.locked": "已在服务器设置中指定，无法在此更改。",
   "audit.act.push.gateway": "更改了手机通知的发送途径",
   "push.ask": "有新消息和 @Trina 回答时通知你？",

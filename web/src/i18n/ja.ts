@@ -1488,7 +1488,7 @@ export const ja: Record<MessageKey, string> = {
   "pushGateway.problem.address": "名前の後に何も付けない https:// のアドレスを入力してください。例: https://push.example.com",
   "pushGateway.problem.private": "このアドレスはプライベートまたはローカルのネットワークを指しています。公開されている https アドレスを使ってください。",
   "pushGateway.problem.unreachable": "このアドレスに接続できませんでした。確認してもう一度お試しください。",
-  "pushGateway.problem.not_gateway": "このアドレスは応答しましたが、プッシュサービスではありません。/health ページが {\"ok\":true} を返す必要があります。",
+  "pushGateway.problem.not_gateway": "このアドレスはスマホアプリ用のプッシュサービスではありません。運用している方にアドレスを確認してください。",
   "pushGateway.problem.locked": "サーバーの設定で決められているため、ここでは変更できません。",
   "audit.act.push.gateway": "スマホ通知の送り先を変更",
   'push.ask': "新しいメッセージと@トリナの回答を通知で受け取りますか？",

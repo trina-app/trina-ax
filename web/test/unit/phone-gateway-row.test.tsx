@@ -6,6 +6,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { Me, PushGatewaySetting } from '@mycel/shared/api'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { PhoneGatewayRow } from '../../src/components/settings/PhoneGatewayRow'
 import { Notifications } from '../../src/components/settings/Notifications'
@@ -74,11 +75,14 @@ describe('an owner or admin', () => {
     expect(calls.some((c) => c.method === 'PUT')).toBe(false)
     expect(page.get('phone-gateway-custom').textContent).toContain(en('pushGateway.customNote'))
     expect(page.get('phone-gateway-save').hasAttribute('disabled')).toBe(true)
+    useUi.setState({ toasts: [] })
     await page.type('phone-gateway-address', 'https://push.example.com')
     refuse = 'not_gateway'
     await page.click('phone-gateway-save')
     const error = await page.until(() => page.find('phone-gateway-error'), 'the reason')
     expect(error.textContent).toContain(en('pushGateway.problem.not_gateway'))
+    // a refusal saves nothing and says nothing was saved
+    expect(useUi.getState().toasts).toEqual([])
     expect(server.choice).toBe('default')
     // still Custom with what was typed, to fix it
     expect((page.get('phone-gateway-address') as unknown as { value: string }).value).toBe('https://push.example.com')

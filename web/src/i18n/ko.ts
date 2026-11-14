@@ -1515,7 +1515,7 @@ export const ko = {
   "pushGateway.problem.address": "이름 뒤에 아무것도 없는 https:// 주소를 넣어 주세요. 예: https://push.example.com",
   "pushGateway.problem.private": "이 주소는 사설망이나 로컬 네트워크를 가리켜요. 공개된 https 주소를 써 주세요.",
   "pushGateway.problem.unreachable": "이 주소에 연결할 수 없어요. 주소를 확인하고 다시 시도해 주세요.",
-  "pushGateway.problem.not_gateway": "이 주소는 응답했지만 푸시 서비스가 아니에요. /health 페이지가 {\"ok\":true}로 응답해야 해요.",
+  "pushGateway.problem.not_gateway": "이 주소는 휴대폰 앱용 푸시 서비스가 아니에요. 운영하는 분께 주소를 확인해 주세요.",
   "pushGateway.problem.locked": "서버 설정에서 정해져 있어 여기서는 바꿀 수 없어요.",
   "audit.act.push.gateway": "휴대폰 알림 경로 변경",
   'push.ask': "새 메시지와 @트리나 답을 알림으로 받을까요?",
