@@ -324,8 +324,9 @@ jobs:
           bun run test:web
           bun run build:web
           # the hands-on demo (web/demo/): its demo-only source transforms stop the build when the app's code they
-          # match has moved
+          # match has moved; English at /demo/, Korean at /demo/ko/
           DEMO_BASE=/demo/ bun run --cwd web build:demo
+          DEMO_LOCALE=ko DEMO_BASE=/demo/ko/ DEMO_OUT=dist-demo-ko bun run --cwd web build:demo
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)

@@ -278,7 +278,13 @@ test('the other language\'s demo next to this one: its own worker, its link in t
   await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
   const mine = new URL(page.url()).pathname
   const own = (p: Page, base: string) => expect.poll(() => p.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''), { timeout: 10_000 }).toBe(new URL(`${base}sw.js`, p.url()).href)
-  const pictures = (p: Page) => expect.poll(() => p.evaluate(() => [...document.images].filter((i) => i.src.includes('/api/') && i.complete && i.naturalWidth > 0).length), { timeout: 10_000 }).toBeGreaterThan(0)
+  // a picture through the page's worker: the visitor's photo, as an <img> asks for it
+  const pictures = (p: Page) => expect.poll(() => p.evaluate((id) => new Promise<number>((done) => {
+    const img = new Image()
+    img.onload = () => done(img.naturalWidth)
+    img.onerror = () => done(0)
+    img.src = `/api/people/${id}/avatar?t=${Date.now()}`
+  }), script.visitor), { timeout: 10_000 }).toBeGreaterThan(0)
   await own(page, mine)
   // the other demo in a second tab of the same browser: held by its own worker (the narrower scope wins), pictures on both
   const second = await context.newPage()
