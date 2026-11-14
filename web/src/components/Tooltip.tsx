@@ -57,6 +57,9 @@ let watched: Document | null = null
 const watchInput = () => {
   if (typeof document === 'undefined' || watched === document) return
   watched = document
+  // a new page knows nothing of what was pressed on another
+  lastInput.key = 0
+  lastInput.pointer = 0
   document.addEventListener('keydown', () => { lastInput.key = Date.now() }, true)
   document.addEventListener('pointerdown', () => { lastInput.pointer = Date.now() }, true)
 }
