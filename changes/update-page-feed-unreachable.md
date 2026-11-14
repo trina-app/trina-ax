@@ -1,0 +1,1 @@
+- Admin › System › Updates: when the last look at the update server failed, the page says it could not reach it, instead of "You are on the latest version."

@@ -757,7 +757,7 @@ function Update() {
               ) : (
                 <Row label={t('system.row.status')} long>
                   {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
-                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted">{t('system.upToDate')}</span>}
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : undefined}>{t(u.checkFailed ? 'system.checkFailed' : 'system.upToDate')}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (

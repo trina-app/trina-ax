@@ -213,6 +213,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   const head = e.signal === 'timeout' ? `Stopped: the time limit (${timeoutMs / 1000} s) was reached.`
     : e.signal === 'oom' ? 'Stopped: the command ran out of memory (the team limit).'
     : e.signal === 'stopped' ? 'Stopped.'
+    : e.signal === 'setting' ? 'Stopped: the dev environment setting or your access to this folder changed. Check the access, then try again.'
     : `Exit code ${e.code}.`
   if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what })

@@ -2615,6 +2615,7 @@ export const ko = {
   'system.available': '새 버전 {version}',
   'system.oneWay': '이 업데이트 뒤에는 백업 복원으로만 이전 버전으로 돌아갈 수 있어요.',
   'system.installUpdate': '업데이트 설치',
+  'system.checkFailed': '업데이트 서버에 연결하지 못했어요. 나중에 다시 확인해요.',
   'system.upToDate': '최신 버전이에요.',
   'system.noFeed': '이 서버는 새 버전을 온라인에서 찾지 않아요. 업데이트하려면 서버 맥에서 새 릴리스로 설치 프로그램을 다시 실행하세요. 새 버전으로 바뀌고 지금 버전은 되돌리기용으로 남아요.',
   'system.rollback': '이전 버전({version})으로 되돌리기',
