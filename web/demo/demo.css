@@ -62,6 +62,11 @@
   background: transparent;
   color: var(--c-muted, #8a8178);
 }
+/* the language links, next to Start over */
+.demo-langs { flex: 0 0 auto; font-size: 12px; color: var(--c-muted, #8a8178); white-space: nowrap; }
+.demo-langs a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.demo-langs a:hover { color: var(--c-ink, inherit); }
+.demo-langs [aria-current] { color: var(--c-ink, inherit); font-weight: 600; }
 .demo-restart:hover { background: var(--c-hover, rgb(0 0 0 / 0.05)); color: inherit; }
 /* the step's prompts, in the guide line */
 .demo-choices { display: flex; flex-direction: column; gap: 6px; }
