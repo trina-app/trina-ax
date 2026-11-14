@@ -579,21 +579,21 @@ export function membersOut(db: Database, roomId: string): RoomMember[] {
     .all(roomId) as { id: string; name: string; joined_at: string }[]).map((r) => ({ user: { id: r.id, name: r.name }, joinedAt: r.joined_at }))
 }
 
-/** The apps of these messages (rooms/apps), as a message shows its sender: the app as it is now (renamed: the new name),
- * or as its card kept it once the app was removed (id null). Messages that no app posted are not in it. */
+/** The apps of these messages (rooms/apps), as a message shows its sender: the name and kind the app had when it posted
+ * (a rename never changes what was said before), and its id while the app is there (null once removed). Messages that
+ * no app posted are not in it. */
 export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | 'app_id' | 'app_card' | 'app_quiet'>[]): Map<string, RoomAppRef> {
   const out = new Map<string, RoomAppRef>()
   const mine = rows.filter((r) => r.app_card)
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
-  const live = new Map(ids.length ? (db.query(`SELECT id, name, kind FROM room_apps WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; kind: RoomAppKind }[]).map((a) => [a.id, a]) : [])
+  const live = new Set(ids.length ? (db.query(`SELECT id FROM room_apps WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string }[]).map((a) => a.id) : [])
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
-    const now = r.app_id ? live.get(r.app_id) : undefined
-    const kind = (now?.kind ?? stored.app.kind) as RoomAppKind
+    const kind = stored.app.kind as RoomAppKind
     out.set(r.id, {
-      id: now ? now.id : null, name: now?.name ?? stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })
   }

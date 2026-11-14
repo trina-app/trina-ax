@@ -133,6 +133,9 @@ export const RoomApp = z.object({
   canResume: z.boolean(),
   /** messages shown today (the team's day) */
   today: z.number().int().nonnegative(),
+  /** someone who was shown the address (or a secret Trina made) can no longer manage the app (left the room or the
+   * team, or is no longer an admin in a team room): "Someone who left knows this address · Get a new address" */
+  leaverKnows: z.literal(true).optional(),
 })
 export type RoomApp = z.infer<typeof RoomApp>
 

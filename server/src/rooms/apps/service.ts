@@ -13,11 +13,12 @@
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
-  DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP,
+  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP,
   ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE,
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
   type RoomAppSecretResult, type SetRoomAppSecretBody, type UpdateRoomAppBody,
 } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared/product'
 import type { AppContext } from '../../context'
 import { newId, nowIso } from '../../db'
 import { fail } from '../../http/errors'
@@ -57,8 +58,22 @@ export interface AppRow {
 export const sha256 = (s: string | Uint8Array) => crypto.createHash('sha256').update(s).digest('hex')
 const newToken = () => `tax_in_${crypto.randomBytes(32).toString('base64url')}`
 const newSecret = () => `tax_whs_${crypto.randomBytes(32).toString('base64url')}`
-/** a name compared with people's: case, spaces and Unicode form do not count */
-const nameKey = (s: string) => s.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, '')
+/** Latin lookalikes of Cyrillic and Greek letters (the common confusables), for comparing names */
+const LOOKALIKE: Record<string, string> = {
+  а: 'a', в: 'b', е: 'e', ё: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', і: 'i', ј: 'j', ѕ: 's', ԁ: 'd', ӏ: 'l', г: 'r',
+  α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', μ: 'u', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ω: 'w', ζ: 'z',
+}
+/** a name as compared with people's: Unicode compatibility form, case, spaces, invisible marks and lookalike letters
+ * (also 0/1 for o/l) do not count */
+export const skeleton = (s: string) => [...s.normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{Cf}\p{M}._\-·]+/gu, '')]
+  .map((c) => LOOKALIKE[c] ?? (c === '0' ? 'o' : c === '1' ? 'l' : c)).join('')
+/** Latin mixed with Cyrillic or Greek in one name: a lookalike, refused */
+const mixedScripts = (s: string) => {
+  const latin = /\p{Script=Latin}/u.test(s), cyr = /\p{Script=Cyrillic}/u.test(s), greek = /\p{Script=Greek}/u.test(s)
+  return [latin, cyr, greek].filter(Boolean).length > 1
+}
+/** the AI's own names and the product's, as skeletons */
+const aiNames = () => [...AI_OWN_NAMES, PRODUCT.displayName, PRODUCT.shortName].map(skeleton).filter((x) => x.length >= 2)
 
 /** The team's day now, and the instant its next day starts (midnight in the team's time zone). */
 export function teamDay(db: Database, now: number): { day: string; next: string } {
@@ -93,10 +108,25 @@ export class RoomApps {
     if (!a) return null
     try { const u = new URL(a); return u.protocol === 'https:' ? u.origin : null } catch { return null }
   }
-  addressOf(row: AppRow): string {
+  /** The address, for `viewer` (who is recorded as someone who knows it: room_app_viewers). */
+  addressOf(row: AppRow, viewer: string): string {
     const base = this.base()
     if (!base) return fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
-    return `${base}/in/${this.tokenOf(row)}`
+    const address = `${base}/in/${this.tokenOf(row)}`
+    this.saw(row.id, viewer)
+    return address
+  }
+  private saw(appId: string, userId: string) {
+    this.db.query('INSERT INTO room_app_viewers (app_id, user_id, at) VALUES (?, ?, ?) ON CONFLICT(app_id, user_id) DO UPDATE SET at = excluded.at').run(appId, userId, nowIso())
+  }
+  /** Someone who was shown the address (or a secret Trina made) can no longer manage the app: they left the room or the
+   * team, or an admin of a team room became a member. The status line says so until "Get a new address". */
+  leaverKnows(row: Pick<AppRow, 'id' | 'room_id'>): boolean {
+    const room = this.db.query('SELECT kind FROM rooms WHERE id = ?').get(row.room_id) as Pick<RoomRow, 'kind'> | null
+    if (!room) return true
+    const viewers = this.db.query(`SELECT v.user_id, EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = v.user_id) inroom,
+      EXISTS (SELECT 1 FROM users u WHERE u.id = v.user_id AND u.status = 'active' AND u.deleted_at IS NULL) active FROM room_app_viewers v WHERE v.app_id = ?`).all(row.room_id, row.id) as { user_id: string; inroom: number; active: number }[]
+    return viewers.some((v) => !v.inroom || !v.active || !mayManageApps(this.db, room, v.user_id))
   }
   tokenOf(row: AppRow): string {
     try { return (this.vault.decrypt(row.id, TOKEN_KIND, row.token_enc, row.key_version) as { token: string }).token } catch {
@@ -130,6 +160,13 @@ export class RoomApps {
   private shownToday(appId: string, day: string): number {
     return (this.db.query('SELECT shown FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { shown: number } | null)?.shown ?? 0
   }
+  /** The day as the app's cap counts it: its own row and those of removed apps of the same kind in the same room (a
+   * removed and added again app keeps its day), and whether "Resume now" was used on any of them that day. */
+  private capDay(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, day: string): { shown: number; resumed: boolean } {
+    const r = this.db.query(`SELECT COALESCE(SUM(shown), 0) shown, COALESCE(MAX(resumed), 0) resumed FROM room_app_days d WHERE d.day = ?
+      AND (d.app_id = ? OR (d.room_id = ? AND d.kind = ? AND NOT EXISTS (SELECT 1 FROM room_apps a WHERE a.id = d.app_id)))`).get(day, row.id, row.room_id, row.kind) as { shown: number; resumed: number }
+    return { shown: r.shown, resumed: !!r.resumed }
+  }
   teamShownToday(day: string): number {
     return (this.db.query('SELECT COALESCE(SUM(shown), 0) n FROM room_app_days WHERE day = ?').get(day) as { n: number }).n
   }
@@ -143,7 +180,8 @@ export class RoomApps {
       id: row.id, roomId: row.room_id, kind: row.kind, name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
-      pausedUntil: paused, canResume: !!paused && row.resumed_on !== day && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
     }
   }
@@ -170,11 +208,13 @@ export class RoomApps {
     return { items: rows.map((r) => this.out(r)), available: this.base() !== null, max: ROOM_APPS_MAX }
   }
 
-  /** A name an app may take: not a person's in this team (a card must never pass for a teammate). */
+  /** A name an app may take: not a person's in this team, nor one that looks like it (lookalike letters, mixed
+   * scripts), nor the AI's or the product's (a card must never pass for a teammate or for Trina). */
   private checkName(name: string, locale: Locale) {
-    const k = nameKey(name)
+    const k = skeleton(name)
     const people = this.db.query('SELECT name, username FROM users').all() as { name: string; username: string }[]
-    if (people.some((p) => nameKey(p.name) === k || nameKey(p.username) === k)) fail('validation', appText('nameIsPerson', locale), { fields: { 'body.name': 'the name of a person in this team' } })
+    const bad = mixedScripts(name) || people.some((p) => skeleton(p.name) === k || skeleton(p.username) === k) || aiNames().some((a) => k.includes(a))
+    if (bad) fail('validation', appText('nameIsPerson', locale), { fields: { 'body.name': 'the name of a person in this team, the AI\'s, or one that looks like it' } })
   }
 
   create(userId: string, roomId: string, b: CreateRoomAppBody, locale: Locale): RoomAppCreated {
@@ -193,13 +233,13 @@ export class RoomApps {
       audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind } })
     })()
     const row = this.row(id)!
-    return { app: this.out(row), address: this.addressOf(row) }
+    return { app: this.out(row), address: this.addressOf(row, userId) }
   }
 
   address(userId: string, roomId: string, appId: string): RoomAppAddress {
     const { row } = this.mine(userId, roomId, appId)
     const s = this.secretOf(row)
-    return { address: this.addressOf(row), ...(s && s !== 'broken' && s.made ? { secret: s.secret } : {}) }
+    return { address: this.addressOf(row, userId), ...(s && s !== 'broken' && s.made ? { secret: s.secret } : {}) }
   }
 
   update(userId: string, roomId: string, appId: string, b: UpdateRoomAppBody, locale: Locale): RoomApp {
@@ -242,6 +282,7 @@ export class RoomApps {
       this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
       audit(this.db, { actor: userId, action: 'room_app.secret', target: row.id, detail: { ...roomAuditRef(room), set: !!secret } })
     })()
+    if (secret?.made) this.saw(row.id, userId)
     return { app: this.out(this.row(row.id)!), ...(secret?.made ? { secret: secret.secret } : {}) }
   }
 
@@ -257,8 +298,11 @@ export class RoomApps {
       audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
     })()
     this.limits.forget(row.id)
+    // a new address: only the person who got it knows it now
+    this.db.query('DELETE FROM room_app_viewers WHERE app_id = ?').run(row.id)
     const now = this.row(row.id)!
-    return { app: this.out(now), address: this.addressOf(now) }
+    const address = this.addressOf(now, userId)
+    return { app: this.out(now), address }
   }
 
   remove(userId: string, roomId: string, appId: string): void {
@@ -277,10 +321,11 @@ export class RoomApps {
     const now = this.clock()
     const { day } = teamDay(this.db, now)
     if (!row.paused_until || Date.parse(row.paused_until) <= now) fail('conflict', appText('notPaused', locale), { params: { reason: 'not_paused' } })
-    if (row.resumed_on === day) fail('conflict', appText('alreadyResumed', locale), { params: { reason: 'already_resumed' } })
+    if (row.resumed_on === day || this.capDay(row, day).resumed) fail('conflict', appText('alreadyResumed', locale), { params: { reason: 'already_resumed' } })
     if (this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP) fail('conflict', appText('teamCap', locale, { cap: ROOM_APP_TEAM_DAILY_CAP }), { params: { reason: 'team_cap' } })
     this.db.transaction(() => {
       this.db.query('UPDATE room_apps SET paused_until = NULL, resumed_on = ?, updated_at = ? WHERE id = ?').run(day, nowIso(), row.id)
+      this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, resumed) VALUES (?, ?, ?, ?, 1) ON CONFLICT(app_id, day) DO UPDATE SET resumed = 1`).run(row.id, day, row.room_id, row.kind)
       audit(this.db, { actor: userId, action: 'room_app.resume', target: row.id, detail: roomAuditRef(room) })
     })()
     // the room is told who turned it back on (a quiet line from the app); the paused notices are settled
@@ -315,9 +360,27 @@ export class RoomApps {
   mayDeleteMessage(room: RoomRow, userId: string): boolean { return mayManageApps(this.db, room, userId) }
 
   // ---------------- counters and status ----------------
-  count(appId: string, field: 'received' | 'shown' | 'skipped' | 'dropped', day: string): number {
-    return (this.db.query(`INSERT INTO room_app_days (app_id, day, ${field}) VALUES (?, ?, 1) ON CONFLICT(app_id, day) DO UPDATE SET ${field} = ${field} + 1 RETURNING ${field} AS n`).get(appId, day) as { n: number }).n
+  count(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, field: 'received' | 'shown' | 'skipped' | 'dropped', day: string, by = 1): number {
+    return (this.db.query(`INSERT INTO room_app_days (app_id, day, room_id, kind, ${field}) VALUES (?, ?, ?, ?, ?) ON CONFLICT(app_id, day) DO UPDATE SET ${field} = ${field} + excluded.${field} RETURNING ${field} AS n`).get(row.id, day, row.room_id, row.kind, by) as { n: number }).n
   }
+  /** A request the limits turned away: counted in memory and written at most once a minute per app (a flood must not
+   * write a row per request). */
+  private drops = new Map<string, { row: Pick<AppRow, 'id' | 'room_id' | 'kind'>; day: string; n: number; at: number }>()
+  dropped(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, day: string) {
+    const now = this.clock()
+    const d = this.drops.get(row.id)
+    if (d && d.day === day) d.n++
+    else { if (d) this.flushOne(d); this.drops.set(row.id, { row, day, n: 1, at: d?.at ?? 0 }) }
+    const cur = this.drops.get(row.id)!
+    if (now - cur.at >= 60_000) { this.flushOne(cur); cur.at = now }
+  }
+  private flushOne(d: { row: Pick<AppRow, 'id' | 'room_id' | 'kind'>; day: string; n: number }) {
+    if (d.n <= 0) return
+    try { this.count(d.row, 'dropped', d.day, d.n) } catch (e) { this.ctx.log.warn('room app drop count failed', { err: e }) }
+    d.n = 0
+  }
+  /** Writes what the drop counters hold (the hourly tick, tests). */
+  flushDrops() { for (const d of this.drops.values()) this.flushOne(d); this.drops.clear() }
   refused(appId: string, reason: RoomAppRefusal) {
     const now = this.clock()
     this.db.query('UPDATE room_apps SET last_refusal = ?, last_refusal_at = ? WHERE id = ? AND (last_refusal_at IS NULL OR last_refusal_at < ?)').run(reason, new Date(now).toISOString(), appId, new Date(now - REFUSAL_EVERY_MS).toISOString())
@@ -341,7 +404,8 @@ export class RoomApps {
     const now = this.clock()
     if (row.paused_until && Date.parse(row.paused_until) > now) return row.paused_until
     const { day, next } = teamDay(this.db, now)
-    const own = this.shownToday(row.id, day) >= ROOM_APP_DAILY_CAP * (row.resumed_on === day ? 2 : 1)
+    const c = this.capDay(row, day)
+    const own = c.shown >= ROOM_APP_DAILY_CAP * (c.resumed || row.resumed_on === day ? 2 : 1)
     const team = this.teamShownToday(day) >= ROOM_APP_TEAM_DAILY_CAP
     if (!own && !team) return null
     const paused = this.db.query('UPDATE room_apps SET paused_until = ? WHERE id = ? AND (paused_until IS NULL OR paused_until <= ?)').run(next, row.id, new Date(now).toISOString()).changes > 0
@@ -373,12 +437,17 @@ export class RoomApps {
   post(row: AppRow, ev: AppEvent, day: string): boolean {
     const db = this.db, now = this.clock(), at = new Date(now).toISOString()
     const dh = sha256(ev.delivery)
+    const dh2 = ev.alsoDelivery ? sha256(ev.alsoDelivery) : null
     const keyHash = ev.key ? sha256(ev.key) : null
     let out: { id: string; root: MessageRow | null; rootChanged: boolean } | null = null
     db.transaction(() => {
-      const prior = db.query('SELECT at FROM room_app_deliveries WHERE app_id = ? AND delivery_hash = ?').get(row.id, dh) as { at: string } | null
-      if (prior && Date.parse(prior.at) > now - (ev.deliveryMinutes ? ev.deliveryMinutes * 60_000 : DELIVERY_DAYS * DAY)) return
-      db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, dh, at)
+      const window = now - (ev.deliveryMinutes ? ev.deliveryMinutes * 60_000 : DELIVERY_DAYS * DAY)
+      for (const h of [dh, dh2]) {
+        if (!h) continue
+        const prior = db.query('SELECT at FROM room_app_deliveries WHERE app_id = ? AND delivery_hash = ?').get(row.id, h) as { at: string } | null
+        if (prior && Date.parse(prior.at) > window) return
+      }
+      for (const h of [dh, dh2]) if (h) db.query('INSERT OR REPLACE INTO room_app_deliveries (app_id, delivery_hash, at) VALUES (?, ?, ?)').run(row.id, h, at)
       let root: MessageRow | null = null
       let thread: { root_id: string; state: string | null; last_at: string } | null = null
       if (keyHash) {
@@ -410,7 +479,7 @@ export class RoomApps {
         id = this.insert(row, { card: cleanCard(ev.card), quiet: !!row.quiet, at, extra: ev.extra })
         if (keyHash) db.query('INSERT OR REPLACE INTO room_app_threads (app_id, key_hash, root_id, state, last_at) VALUES (?, ?, ?, ?, ?)').run(row.id, keyHash, id, ev.state ?? null, at)
       }
-      this.count(row.id, 'shown', day)
+      this.count(row, 'shown', day)
       db.query('UPDATE room_apps SET last_ok_at = ?, first_ok_at = COALESCE(first_ok_at, ?) WHERE id = ?').run(at, at, row.id)
       out = { id, root, rootChanged }
     })()
@@ -459,6 +528,7 @@ export class RoomApps {
   // ---------------- upkeep ----------------
   /** Old deliveries, day counters and threads go (the hourly tick; the paused notices age out with the Inbox). */
   prune(now = this.clock()) {
+    this.flushDrops()
     const iso = (ms: number) => new Date(now - ms).toISOString()
     const day = (n: number) => new Date(now - n * DAY).toISOString().slice(0, 10)
     this.db.query('DELETE FROM room_app_deliveries WHERE at < ?').run(iso(DELIVERY_DAYS * DAY))

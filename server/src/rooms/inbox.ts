@@ -113,10 +113,9 @@ const roomName = (db: Database, room: Pick<RoomInfo, 'kind' | 'name' | 'group_id
   const name = room.name || groupName(db, room)
   return name ? plainLabel(name, NAME_MAX) : null
 }
-/** An app's name now (renamed: the new one), or as its card kept it once removed. */
-function appName(db: Database, m: Pick<Msg, 'app_id' | 'app_card'>): string {
-  const now = m.app_id ? (db.query('SELECT name FROM room_apps WHERE id = ?').get(m.app_id) as { name: string } | null)?.name : null
-  return now ?? parseStored(m.app_card)?.app.name ?? 'App'
+/** The app's name as it was when it posted (a rename never changes what was said before). */
+function appName(_db: Database, m: Pick<Msg, 'app_id' | 'app_card'>): string {
+  return parseStored(m.app_card)?.app.name ?? 'App'
 }
 /** Who wrote a message, as the row says it: an app's message (rooms/apps) by the app's name and "App" (never a person) */
 const writer = (db: Database, m: Pick<Msg, 'author_kind' | 'author_id' | 'app_id' | 'app_card'>) => m.app_card ? { from: plainLabel(`${appName(db, m)} · App`, NAME_MAX), fromId: null } : ({

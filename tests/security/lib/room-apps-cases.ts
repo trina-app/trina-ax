@@ -23,6 +23,21 @@ export const ROOM_APP_SPECS: Record<string, Spec> = {
       const inDm = who === 'memberIn' || who === 'other'
       if (who !== 'pwchange' && who !== 'anon' && dm.status !== (inDm ? 200 : 404)) throw new Error(`${who} listed the DM's apps: ${dm.status}`)
       if (dm.status === 200) noToken(dm)
+      // the group chat of alice, erin and frank: its members alice and erin (frank still has to change his password)
+      const g = await w.as[who].req('GET', `/api/rooms/${w.ids.groupRoom}/apps`)
+      if (who !== 'pwchange' && who !== 'anon' && g.status !== (inDm ? 200 : 404)) throw new Error(`${who} listed the group chat's apps: ${g.status}`)
+      // someone taken out of a group chat: nothing of its apps any more, and the others are told the address is known
+      if (who === 'memberIn') {
+        const room = (await w.as.memberIn.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'bob'] })).id
+        const app = (await w.as.memberOut.ok('POST', `/api/rooms/${room}/apps`, { kind: 'other', name: `Leaver ${crypto.randomUUID().slice(0, 8)}` })).app.id
+        await w.as.memberIn.ok('DELETE', `/api/rooms/${room}/members/bob`)
+        for (const p of [`/api/rooms/${room}/apps`, `/api/rooms/${room}/apps/${app}/address`]) {
+          const r2 = await w.as.memberOut.req('GET', p)
+          if (r2.status !== 404) throw new Error(`a removed member reached ${p}: ${r2.status}`)
+        }
+        const after = await w.as.memberIn.ok('GET', `/api/rooms/${room}/apps`)
+        if (!after.items[0]?.leaverKnows) throw new Error('the address a removed member knows is not marked')
+      }
     },
   },
   createRoomApp: {

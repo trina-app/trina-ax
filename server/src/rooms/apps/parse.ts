@@ -21,6 +21,8 @@ import { appText } from './text'
 export interface AppEvent {
   switch: string
   delivery: string
+  /** a second delivery key (GitHub: the body itself, so a replay under a new X-GitHub-Delivery posts nothing) */
+  alsoDelivery?: string
   deliveryMinutes?: number
   key?: string
   keyMinutes?: number
@@ -153,6 +155,7 @@ function github(a: Arrival): Parsed {
   if (!body) return { refuse: 'format' }
   const L = a.locale
   const delivery = line(a.headers.get('x-github-delivery') ?? '', 100) || sha(a.raw)
+  const alsoDelivery = `body:${sha(a.raw)}`
   if (event === 'ping') return { skip: true, connected: true }
   const repoId = str(body, 'repository', 'id')
   const repo = line(str(body, 'repository', 'full_name'), 140)
@@ -172,7 +175,7 @@ function github(a: Arrival): Parsed {
     const unverified = !a.signed
     const mk = (k: string, status: 'statusOpen' | 'statusMerged' | 'statusClosed', who: string, state: string, back = false): Parsed => ({
       event: {
-        switch: pr ? 'pull_request' : 'issue', delivery, key, state, status: statusOf(status), back,
+        switch: pr ? 'pull_request' : 'issue', delivery, alsoDelivery, key, state, status: statusOf(status), back,
         card: { kind: `${k} · ${where}`, title, details: who ? [by(who)] : [], status: statusOf(status), link, unverified: unverified && !!who },
         reply: { title: [k, by(who)].filter(Boolean).join(' · '), unverified: unverified && !!who },
       },
@@ -203,7 +206,7 @@ function github(a: Arrival): Parsed {
     const k = appText('checksFailed', L, { workflow: name })
     const title = firstLine(str(run, 'display_title') || str(run, 'head_commit', 'message')) || name
     return { event: {
-      switch: 'checks_failed', delivery, ...(repoId ? { key: `${repoId}:wf:${str(run, 'workflow_id')}:${branch}` } : {}),
+      switch: 'checks_failed', delivery, alsoDelivery, ...(repoId ? { key: `${repoId}:wf:${str(run, 'workflow_id')}:${branch}` } : {}),
       card: { kind: k, title, details: [[repo, branch].filter(Boolean).join(' · ')].filter(Boolean), status: statusOf('statusFailed'), link: str(run, 'html_url') },
       reply: { title: k, details: [title] },
     } }
@@ -211,7 +214,7 @@ function github(a: Arrival): Parsed {
   if (event === 'release') {
     if (action !== 'published') return { skip: true }
     const tag = line(str(body, 'release', 'tag_name'), 80) || '…'
-    return { event: { switch: 'release', delivery, card: { kind: appText('release', L, { tag }), title: str(body, 'release', 'name') || tag, details: repo ? [repo] : [], link: str(body, 'release', 'html_url') } } }
+    return { event: { switch: 'release', delivery, alsoDelivery, card: { kind: appText('release', L, { tag }), title: str(body, 'release', 'name') || tag, details: repo ? [repo] : [], link: str(body, 'release', 'html_url') } } }
   }
   if (event === 'push') {
     const commits = Array.isArray(body.commits) ? body.commits.length : 0
@@ -219,7 +222,7 @@ function github(a: Arrival): Parsed {
     if (!commits || !ref.startsWith('refs/heads/')) return { skip: true }
     const branch = line(ref.slice('refs/heads/'.length), 120)
     const k = commits === 1 ? appText('pushedOne', L, { branch }) : appText('pushedMany', L, { n: commits, branch })
-    return { event: { switch: 'push', delivery, card: { kind: k, title: firstLine(str(body, 'head_commit', 'message')) || branch, details: [[repo, by(sender)].filter(Boolean).join(' · ')], link: str(body, 'compare'), unverified: !a.signed && !!sender } } }
+    return { event: { switch: 'push', delivery, alsoDelivery, card: { kind: k, title: firstLine(str(body, 'head_commit', 'message')) || branch, details: [[repo, by(sender)].filter(Boolean).join(' · ')], link: str(body, 'compare'), unverified: !a.signed && !!sender } } }
   }
   return { skip: true }
 }

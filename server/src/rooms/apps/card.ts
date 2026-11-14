@@ -46,7 +46,7 @@ export const escapeMarkdown = (s: string) => s
   .replace(/^(\s*)([-+=])/gm, '$1\\$2')
   .replace(/^(\s*\d+)([.)])/gm, '$1\\$2')
 /** The other way (a push's line, the rooms list's excerpt, search): the plain text again. */
-export const unescapeMarkdown = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/])/g, '$1')
+export const unescapeMarkdown = (s: string) => s.replace(/^<(https:\/\/[^\s<>]+)>$/gm, '$1').replace(/\\([\\`*_[\]<>#|~@&\-+=.)/])/g, '$1')
 /** Addresses in text from outside are never links (only the card's one checked link is): "://" and "www." escaped, so
  * no renderer's autolinking takes them. */
 const unlink = (escaped: string) => escaped.replace(/:\/\//g, ':\\/\\/').replace(/\bwww\./gi, (w) => `${w.slice(0, 3)}\\.`)
@@ -81,10 +81,11 @@ function textPart(app: string, card: RoomAppCard, extra?: string): string {
 }
 
 /** The stored body: the plain text with Markdown marks escaped and its addresses unlinked; the card's one checked https
- * link (a URL as parsed: no spaces or brackets) on the last line as it is. */
+ * link on the last line as an autolink `<url>` (a parsed URL has no spaces, "<" or ">"; its "[", "]", "(" and ")" can
+ * then make no second link). */
 export const bodyOf = (app: string, card: RoomAppCard, extra?: string) => {
   const words = unlink(escapeMarkdown(textPart(app, card, extra)))
-  return card.link ? `${words}\n${card.link.url}` : words
+  return card.link ? `${words}\n<${card.link.url}>` : words
 }
 
 /** A stored card, or null when it is not one this build reads. */

@@ -51,7 +51,7 @@ export const ROOM_QUOTE_EXCERPT_MAX = 200
 /** an AI answer in a room is cut here (the rest is said to be cut) */
 export const ROOM_AI_ANSWER_MAX = 60_000
 
-const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
+export const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
 /** The product is named after its AI (the Trina edition): the app calls the AI by its short name there (the web app's
  * rooms.aiName, "트리나"); the core edition calls it by the product's name. */
 export const PRODUCT_NAMED_AFTER_AI = AI_OWN_NAMES.some((n) => PRODUCT.displayName.includes(n))

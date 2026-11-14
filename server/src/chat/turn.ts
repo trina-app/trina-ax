@@ -35,7 +35,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
-import { readRooms } from './read-rooms'
+import { quotesAppOnBranch, readRooms } from './read-rooms'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
@@ -728,6 +728,8 @@ export class TurnExec {
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
+    // "Ask Trina about this" on an app's message (rooms/apps): words from outside services, as a web page's
+    if (spec.assistantId && quotesAppOnBranch(rt.db, spec.assistantId)) this.markOutside()
     // what the chat has seen so far goes on this turn before it writes anything (turns.outside_content)
     this.syncOutsideMark()
     // nor attachments (the send refuses them in a draft chat; an older message that has some is sent without them)

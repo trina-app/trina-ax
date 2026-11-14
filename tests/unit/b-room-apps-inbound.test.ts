@@ -229,6 +229,7 @@ test('a switch that is off skips; Quiet makes short lines with no unread and no 
   await settle()
   expect((await messages()).filter((m) => m.appCard?.kind === appText('release', 'ko', { tag: 'v1.2.0' }))).toHaveLength(1)
   // the day's counters
+  apps.flushDrops()
   const day = teamDay(h.ctx.db, t).day
   const c = h.ctx.db.query('SELECT received, shown, skipped, dropped FROM room_app_days WHERE app_id = ? AND day = ?').get(g.app.id, day) as any
   expect(c.dropped).toBeGreaterThanOrEqual(2)
@@ -269,7 +270,7 @@ test('the day\'s cap pauses the app until the team\'s midnight: a quiet line, a 
   const apps = roomAppsOf(h.ctx)
   const o = await add('other')
   const { day, next } = teamDay(h.ctx.db, Date.now())
-  h.ctx.db.query('INSERT INTO room_app_days (app_id, day, shown) VALUES (?, ?, ?)').run(o.app.id, day, ROOM_APP_DAILY_CAP)
+  h.ctx.db.query("INSERT INTO room_app_days (app_id, day, room_id, kind, shown) VALUES (?, ?, ?, 'other', ?) ON CONFLICT(app_id, day) DO UPDATE SET shown = excluded.shown").run(o.app.id, day, all, ROOM_APP_DAILY_CAP)
   const r = await post(o.token, JSON.stringify({ text: 'one too many' }))
   expect(r.status).toBe(429)
   expect(Number(r.headers.get('retry-after'))).toBeGreaterThan(0)
@@ -297,7 +298,7 @@ test('the day\'s cap pauses the app until the team\'s midnight: a quiet line, a 
   // the team's cap: every app pauses
   const nd = teamDay(h.ctx.db, Date.parse(next) + 1000).day
   const other = await add('other', all, owner, 'Other two')
-  h.ctx.db.query('INSERT INTO room_app_days (app_id, day, shown) VALUES (?, ?, ?) ON CONFLICT(app_id, day) DO UPDATE SET shown = excluded.shown').run(o.app.id, nd, ROOM_APP_TEAM_DAILY_CAP)
+  h.ctx.db.query("INSERT INTO room_app_days (app_id, day, room_id, kind, shown) VALUES (?, ?, ?, 'other', ?) ON CONFLICT(app_id, day) DO UPDATE SET shown = excluded.shown").run(o.app.id, nd, all, ROOM_APP_TEAM_DAILY_CAP)
   expect((await post(other.token, JSON.stringify({ text: 'team full' }))).status).toBe(429)
   expect((await owner.call('GET', `/api/rooms/${all}/apps`)).items.find((a: any) => a.id === other.app.id).canResume).toBe(false)
 })
