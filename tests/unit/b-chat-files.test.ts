@@ -165,6 +165,30 @@ describe('a file from the computer in a chat shared with people', () => {
     expect(fs.existsSync(path.join(h.team, ...own.body.path.split('/')))).toBe(true)
   })
 
+  test('a chat made private and then given another audience: its files stay with the people-shared rule (creator alone)', async () => {
+    const id = await sharedChat('later')
+    const f = (await upload('bob', id, 'bob-only.txt', 'bob file')).body.id
+    await ask('bob', id, `b\n${fake({ say: 'ok' })}`, [f])
+    expect((await put('alice', id, [])).status).toBe('saved')
+    // as if it were moved into a project and shared there (any audience other than its people)
+    db().query("UPDATE chats SET shared_at = ? WHERE id = ?").run(new Date().toISOString(), id)
+    const m = db().query("SELECT chat_id, attachments, author_id FROM messages WHERE chat_id = ? AND role = 'user' AND instr(attachments, ?) > 0").get(id, f) as { chat_id: string; attachments: string; author_id: string }
+    expect(h.rt().store.attachmentsOf(m, 'erin')[0]).toMatchObject({ unavailable: true, name: '' })
+    expect(h.rt().store.attachmentsOf(m, 'alice')[0]).toMatchObject({ id: f, name: 'bob-only.txt' })
+    db().query('UPDATE chats SET shared_at = NULL WHERE id = ?').run(id)
+  })
+
+  test('an earlier upload edited since it was attached is not copied (it stays its sender\'s)', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const own = await upload('alice', c, 'edited.txt', 'as attached')
+    await ask('alice', c, `before\n${fake({ say: 'ok' })}`, [own.body.id])
+    fs.writeFileSync(path.join(h.team, ...own.body.path.split('/')), 'changed later')
+    await share('alice', c, [bob])
+    expect((await lastMessage('alice', c)).attachments[0]).toMatchObject({ id: own.body.id })
+    expect((await lastMessage('alice', c)).attachments[0]!.source).toBeUndefined()
+    expect(db().query('SELECT COUNT(*) AS n FROM chat_files WHERE chat_id = ?').get(c)).toEqual({ n: 0 })
+  })
+
   test('✕ before sending, the sweep and deleting the chat for good remove the files', async () => {
     const id = await sharedChat('cleanup')
     const a = (await upload('alice', id, 'drop.txt', 'drop me')).body.id

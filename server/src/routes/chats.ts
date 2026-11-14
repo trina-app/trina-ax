@@ -670,6 +670,9 @@ export const chatsRoutes: RouteModule = {
     // download, never a thumbnail, an inline read or a page's picture, frame, player or script (Fetch Metadata)
     kit.handle(API.chatFile, ({ c, params, query, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      // the chat's own files follow the people-shared rule, never another audience the chat got later (a chat made
+      // private again and then shared with a project: its creator alone)
+      if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
       const f = chatFilesOf(ctx).open(auth.user.id, a.row.id, params.fileId, !!query.thumb)
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })

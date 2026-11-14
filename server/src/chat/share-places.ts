@@ -8,7 +8,7 @@ import { getRow } from '../integrations/connections/store'
 import { shareRow } from '../integrations/google-drive/shares'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { groupName, roomRow } from '../rooms/store'
-import { seesChatFiles } from './chat-files'
+import { seesChatFiles } from './chat-files-access'
 import { slackPlaceName, sourceOf, type ReadSource } from './read-scope'
 
 /** The place of one source as `userId` (`me`, their principal now) may be told it, or null: not named. */

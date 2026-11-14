@@ -1,4 +1,5 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
+import { seesChatFiles } from './chat-files-access'
 import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
@@ -129,11 +130,14 @@ export class ChatStore {
   /** A message's attachments for the chat's owner (the only person who sees its messages), team references re-checked. */
   attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'> & { author_id?: string | null }, viewer?: string): Attachment[] {
     const atts = json<Attachment[]>(r.attachments, [])
-    // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them
+    // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them. A file kept with a chat shared
+    // with people (chat/chat-files.ts) only for whoever sees it by that rule (not a project's people the chat got later)
     if (viewer !== undefined) {
       const blank = (a: Attachment) => (a.source === 'team' ? blankTeamAttachment(a) : { ...blankTeamAttachment(a), source: a.source })
-      if (!this.viewAttachmentsAs) return atts.map((a) => (a.source === 'chat' || (a.source !== 'team' && r.author_id === viewer) ? a : blank(a)))
-      try { return this.viewAttachmentsAs(viewer, r.author_id ?? null, atts) } catch { return atts.map(blank) }
+      const kept = atts.some((a) => a.source === 'chat') && seesChatFiles(this.db, viewer, r.chat_id)
+      const chatRule = (out: Attachment[]) => out.map((a) => (a.source === 'chat' && !kept ? blank(a) : a))
+      if (!this.viewAttachmentsAs) return chatRule(atts.map((a) => (a.source === 'chat' || (a.source !== 'team' && r.author_id === viewer) ? a : blank(a))))
+      try { return chatRule(this.viewAttachmentsAs(viewer, r.author_id ?? null, atts)) } catch { return atts.map(blank) }
     }
     if (!atts.some((a) => a.source === 'team')) return atts
     const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id

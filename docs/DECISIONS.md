@@ -27361,7 +27361,9 @@ shared with people and groups, and files attached before the share stayed visibl
   the file's chat. A file not sent in a message yet is its sender's alone. A file on the download-only list goes only as
   a download, as a room file. Removing someone, a group they leave, a disabled account or making the chat private again
   takes the files away with the chat (the same check, nothing to revoke). In the message the attachment has
-  `source: 'chat'` and no team path; everyone who sees the chat sees it (`viewAs`).
+  `source: 'chat'` and no team path; everyone who sees the chat sees it (`viewAs`). The files keep the people-shared
+  rule even if the chat later gets another audience (made private, then moved into a project and shared there): then
+  only its creator opens them and the others see the chip blanked (`seesChatFiles`, from the independent review).
 - **The AI.** Whoever runs a turn reads such a file with the new `chat_file` tool (offered where the chat is shared with
   people or holds such files; in `SHARED_TOOLS`; not for sub-agents): as that person, while they see the chat, checked
   again before the result goes out; text through the room-file extractors (a PDF's text layer, no OCR), a picture as an
@@ -27371,8 +27373,9 @@ shared with people and groups, and files attached before the share stayed visibl
   chat", never the chat's title or people.
 - **Earlier uploads.** At the first share of a private chat (and again after it was made private and shared again) the
   creator's computer uploads in its messages are copied into the chat's files and the messages point to the copies
-  (`ChatFiles.copyEarlier`, audited `chat.files_copied` with a count). An upload whose file is gone or unreadable stays
-  its sender's alone; the originals stay in their folder.
+  (`ChatFiles.copyEarlier`, audited `chat.files_copied` with a count), read through one descriptor that follows no
+  link. An upload whose file is gone, unreadable, or edited or replaced since it was attached (another sha256) stays its
+  sender's alone; the originals stay in their folder.
 - **Limits and storage.** The chat attachments' limits (50 MB a file, the storage check, the chunked upload path); the
   bytes count in the team's storage (no per-person ledger exists; Admin › System counts them with the team folder, as
   room files). Pictures keep their metadata, like every other chat attachment (rooms strip it; not changed here).

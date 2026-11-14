@@ -1,5 +1,5 @@
 import { confidentialChat } from "../safe-ops/confidential"
-import { seesChatFiles } from './chat-files'
+import { seesChatFiles } from './chat-files-access'
 import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { safeOpsEnabled } from "../safe-ops/runner"

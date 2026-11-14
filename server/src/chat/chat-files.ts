@@ -16,7 +16,6 @@
 // the messages point to the copies, so everyone in the chat sees them; the originals stay in the creator's folder.
 // Limits are the chat attachments' (≤ 50 MB a file, the storage check, the download-only list); the bytes are counted in
 // the team's storage (system/storage.ts counts .system/chat-files with the team folder).
-import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
@@ -29,11 +28,11 @@ import { audit } from '../admin/audit'
 import { authorize } from '../policy/authorize'
 import { loadPrincipal } from '../policy/access'
 import { badSegment } from '../policy/names'
-import { checkRegular, hashFile } from '../team-files/place'
+import { checkRegular, hashFile, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
-import { inPeopleAudience, isPeopleRow } from './chat-audience'
+import { seesChatFiles } from './chat-files-access'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -51,16 +50,6 @@ export const chatFileAttachment = (r: ChatFileRow): Attachment => ({
   id: r.id, name: r.name, path: '', size: r.size, mime: r.mime, kind: r.kind, source: 'chat',
   ...(r.width ? { width: r.width } : {}), ...(r.height ? { height: r.height } : {}),
 })
-
-type ChatGate = { id: string; user_id: string; people_shared_at: string | null; project_id: string | null; deleted_at: string | null; room_id: string | null }
-
-/** ChatFiles.seesChat for callers without the service (one read of the chat). */
-export function seesChatFiles(db: Database, userId: string, chatId: string): boolean {
-  const c = db.query('SELECT id, user_id, people_shared_at, project_id, deleted_at, room_id FROM chats WHERE id = ?').get(chatId) as ChatGate | null
-  if (!c || c.room_id) return false
-  if (isPeopleRow(c)) return inPeopleAudience(db, c, userId) && (!c.deleted_at || c.user_id === userId)
-  return c.user_id === userId && !!loadPrincipal(db, userId)
-}
 
 const services = new WeakMap<AppContext, ChatFiles>()
 
@@ -209,16 +198,28 @@ export class ChatFiles {
       try {
         // the file as its sender may read it now (moved or deleted on the Files screen: left as it was)
         const src = authorize(this.ctx.files.fx, rules, who, att.path, 'read')
-        const st = checkRegular(src.abs)
         fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
         const dst = this.abs({ chat_id: chatId, id })
-        fs.copyFileSync(src.abs, dst)
-        fs.chmodSync(dst, 0o600)
+        // read through one descriptor opened without following links (a link put in its place is refused), never by
+        // path again
+        const { fd, st } = openChecked(src.abs)
+        try {
+          const out = fs.openSync(dst, 'wx', 0o600)
+          try {
+            const buf = Buffer.allocUnsafe(1024 * 1024)
+            for (let pos = 0; ;) {
+              const n = fs.readSync(fd, buf, 0, buf.length, pos)
+              if (!n) break
+              fs.writeSync(out, buf, 0, n)
+              pos += n
+            }
+          } finally { fs.closeSync(out) }
+        } finally { fs.closeSync(fd) }
         if (fs.statSync(dst).size !== st.size) throw new Error('changed while copied')
-        // the copy's own bytes (the file may have been edited on the Files screen since it was attached): its hash, and
-        // the old thumbnail only while the bytes are the ones attached
+        // only the bytes that were attached: a file edited or replaced on the Files screen since stays its sender's
         const sha = await hashFile(dst)
-        const thumbFrom = att.thumb_path && sha === att.sha256 ? path.join(this.ctx.config.dataDir, ...att.thumb_path.split('/')) : null
+        if (att.sha256 && sha !== att.sha256) throw new Error('changed since it was attached')
+        const thumbFrom = att.thumb_path ? path.join(this.ctx.config.dataDir, ...att.thumb_path.split('/')) : null
         return chatFileAttachment(await this.record(att.user_id, chatId, id, att.name, dst, sha, att.id, thumbFrom))
       } catch (e) {
         this.removeFiles({ chat_id: chatId, id })
@@ -287,3 +288,5 @@ export function chatFilesOf(ctx: AppContext): ChatFiles {
   if (!s) { s = new ChatFiles(ctx); services.set(ctx, s) }
   return s
 }
+
+export { seesChatFiles }
