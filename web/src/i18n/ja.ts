@@ -3697,6 +3697,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.progress.profile": "会社紹介",
   "welcome.progress.skipped": "あとで行う",
   "welcome.back": "戻る",
+  "welcome.returnBack": "はじめの設定に戻る",
   "welcome.later": "あとで行う",
   "welcome.leave": "あとで",
   "welcome.leaveLabel": "あとで続ける",

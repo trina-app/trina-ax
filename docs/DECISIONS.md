@@ -27432,3 +27432,23 @@ guides, "Apps posting here") are phase 2.
     naming its thread) marks the chat as having used something from outside (`quotesAppOnBranch`, `markOutside`).
 - Tests: tests/unit/b-room-apps-inbound.test.ts, b-room-apps-perms.test.ts, b-room-apps-review.test.ts;
   tests/security/lib/room-apps-cases.ts.
+
+## W6 follow-up: every way out of the welcome steps has a way back (fix/onboarding-exit-ai-accounts, 2026-11-14)
+
+- **Problem.** The AI step's "Other AI services such as OpenRouter: Admin › AI accounts" opened Admin with no way back:
+  Admin has no setup row, and without AI the row opens the connect dialog, not the steps; a phone's ‹ said "Admin".
+- **Audit of the exits from /welcome.** Leaving to another app page in the same tab: the AI step's engines line and 팀
+  파일's **Open** of the project it made (both fixed here). Meant to leave: 나중에 (Home; the setup row, Home's row and the
+  no-AI card lead back), the end screen's Home and skill (the steps are finished or put off; the end screen lists what
+  was put off). New browser tabs (the company website, Google and MCP sign-ins) leave the steps where they are. The
+  invite step's "add skills · add files" switch steps inside /welcome.
+- **Decision.** A link out of the steps carries the step in the history entry's state (`lib/welcome.ts
+  setupReturnState`, like `INVITE_STEP_STATE`). The page it opens shows one small control at its top
+  (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
+  again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
+  open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
+  steps, it goes back in the history instead. Owner only; nothing once the steps are finished. The engines line goes
+  straight to /admin/providers (the /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Not done.** The state lives in that one history entry: moving to another page drops the control (the setup row is
+  the way back from there).
+- Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.

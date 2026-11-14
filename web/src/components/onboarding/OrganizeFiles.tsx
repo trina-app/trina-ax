@@ -14,13 +14,14 @@
 import clsx from 'clsx'
 import { Check, ChevronRight, FolderPlus, Loader2, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { ORGANIZE_LIMITS, SHARED_HOME, cleanFolderName, formSkillPaths, type OrganizeApplied, type OrganizePlan } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { onFolderUploadsForgotten, type Run } from '../../lib/folderRuns'
 import { useFolderWords } from '../../lib/folderLabels'
 import { choicesOf, editFromPlan, folderCount, groupsOf, kept, movesOf, newFolderFor, projectBody, projectPaths, removeRow, renameFolder, setFolder, type OrgEdit, type OrgRow } from '../../lib/organize'
+import { setupReturnState } from '../../lib/welcome'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { Button, ErrorNote } from '../ui'
@@ -276,6 +277,8 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
   const me = useMeStrict()
   const words = useFolderWords()
   const shared = words.name(SHARED_HOME, SHARED_HOME)
+  // on the welcome steps the project's page shows the way back to 팀 파일 (SetupReturn.tsx)
+  const inSteps = useLocation().pathname === '/welcome'
   const { plan, applied } = org
   // where each sorted file is now: a project may have taken some out of 전사 공유
   const now = applied.moved.map((m) => org.where?.[m.to] ?? m.to)
@@ -332,7 +335,7 @@ function Result({ org, uploaded, teamGroupId, nextLabel, busy, phone, onDone }: 
             <p className="flex flex-wrap items-center gap-2 text-sm text-ink" role="status" data-testid="organize-project-done">
               <FolderPlus size={16} className="shrink-0 text-ok" aria-hidden /> {t('welcome.organize.projectDone', { name: project.name })}
               {!!org.projectFailed && <span className="basis-full text-label text-warn" data-testid="organize-project-failed">{t('welcome.organize.projectFailed', { n: org.projectFailed })}</span>}
-              {org.projectId && <Link to={`/projects/${org.projectId}`} className={clsx(quietLink, 'text-sm')} data-testid="organize-project-open">{t('welcome.organize.projectOpen')}</Link>}
+              {org.projectId && <Link to={`/projects/${org.projectId}`} state={inSteps ? setupReturnState('files') : undefined} className={clsx(quietLink, 'text-sm')} data-testid="organize-project-open">{t('welcome.organize.projectOpen')}</Link>}
             </p>
           ) : (
             <>

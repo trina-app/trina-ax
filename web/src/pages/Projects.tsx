@@ -89,6 +89,7 @@ import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeade
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
+import { SetupReturn } from '../components/onboarding/SetupReturn'
 import { useFocusAfterRemove } from './admin/common'
 
 const PHONE = '(max-width: 767.98px)'
@@ -1010,6 +1011,8 @@ function ProjectPage() {
       </StickyHeader>
       )}
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 max-md:pt-4 sm:px-6 sm:pt-10">
+        {/* opened from the welcome steps (팀 파일's "Open"): the way back to them (components/onboarding/SetupReturn.tsx) */}
+        <SetupReturn className="mb-3" />
         {/* phones: the name is the bar's; here for screen readers only */}
         <h1 className="text-display font-semibold tracking-tight break-words max-md:sr-only">{p.name}</h1>
         {/* who is in it, by face (a shared project only): clicking them opens the members dialog; a phone shows them

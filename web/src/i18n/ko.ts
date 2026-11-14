@@ -3740,6 +3740,7 @@ export const ko = {
   "welcome.progress.profile": "회사 소개",
   "welcome.progress.skipped": "나중에 하기로 했어요",
   "welcome.back": "이전",
+  "welcome.returnBack": "시작 설정으로 돌아가기",
   "welcome.later": "나중에 하기",
   "welcome.leave": "나중에",
   "welcome.leaveLabel": "나중에 이어서 하기",
