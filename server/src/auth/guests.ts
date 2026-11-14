@@ -135,6 +135,8 @@ export function assertGuestFree(db: Database, locale: Locale, adding = 1): void 
 // ---------------- one place ----------------
 /** guest_one_place, from the language table (auth/messages.ts guestOnePlace). */
 export const GUEST_ONE_PLACE_MSG: Record<Locale, string> = AUTH_MESSAGES.guestOnePlace
+/** guest_role: an admin sets a guest's role (auth/messages.ts guestRole); only "convert to member" changes it */
+export const GUEST_ROLE_MSG: Record<Locale, string> = AUTH_MESSAGES.guestRole
 /** 409 conflict, reason guest_one_place: a guest is never put into a second room or project. */
 export function failOnePlace(locale: Locale): never {
   return fail('conflict', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })

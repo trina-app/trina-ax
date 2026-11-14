@@ -29,8 +29,8 @@ test('a guest is never put in a group; members are, as before', async () => {
   expect(reason(await owner.try('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id, g.id] }))).toBe('409 guest_one_place')
   // the members screen: groups (and a role) for the guest
   expect(reason(await owner.try('PATCH', `/api/admin/users/${g.id}`, { groupIds: [group.id] }))).toBe('403 guest_one_place')
-  expect(reason(await owner.try('PATCH', `/api/admin/users/${g.id}`, { role: 'member' }))).toBe('403 guest_one_place')
-  expect(reason(await owner.try('PATCH', `/api/admin/users/${g.id}`, { role: 'admin' }))).toBe('403 guest_one_place')
+  expect(reason(await owner.try('PATCH', `/api/admin/users/${g.id}`, { role: 'member' }))).toBe('403 guest_role')
+  expect(reason(await owner.try('PATCH', `/api/admin/users/${g.id}`, { role: 'admin' }))).toBe('403 guest_role')
   expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM group_members WHERE user_id = ?').get(g.id) as { n: number }).n).toBe(0)
   // their name can still be changed by an admin
   expect((await owner.call('PATCH', `/api/admin/users/${g.id}`, { name: 'Gus Client' })).name).toBe('Gus Client')

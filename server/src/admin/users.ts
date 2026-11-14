@@ -40,7 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, assertGuestFree, inPlace } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, inPlace } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -138,7 +138,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   guard(c, target, { self: !changesAccount, newRole: b.role })
   // a guest: no role and no groups (only "convert to member" makes them a member, POST .../convert-guest); switched on
   // again only while they are still in their one place, and within the plan's guests, not its seats
-  if (target.role === 'guest' && (b.role !== undefined || b.groupIds !== undefined)) fail('forbidden', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
+  if (target.role === 'guest' && b.role !== undefined) fail('forbidden', GUEST_ROLE_MSG[locale] ?? GUEST_ROLE_MSG.en, { params: { reason: 'guest_role' } })
+  if (target.role === 'guest' && b.groupIds !== undefined) fail('forbidden', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
   const groups = b.groupIds ? checkGroups(ctx, b.groupIds, locale) : undefined
   // a disabled account that stays off joins no new group (admin/groups.ts checkMembers: its access is not counted while
   // it is off); one enabled in the same change may
