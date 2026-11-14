@@ -3,12 +3,12 @@
 // per place ("new", "project:<id>"), so a project's page and "/?project=<id>" share one.
 // In a team project (docs/DECISIONS.md "Team project chats shared by default") the new chat is shared with the project's
 // members, and a file from this computer is saved in the project folder (a line under the chips says so), unless the
-// person turns on "Only me" before the first message (TeamChatLine, under the box on every screen size): then the chat
+// person turns on "Only me" before the first message (ChatVisibilityChip, in the box's row after +): then the chat
 // is theirs alone, with their memories and apps, until they share it; the next new chat starts shared again. While safe
-// operations are on, the line says new chats are only theirs for now, with no switch. Any other project's box says who
+// operations are on, the chip says new chats are only theirs for now, with no switch. Any other project's box says who
 // will see the new chat as before (components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always").
 import { Lock, Users } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -23,6 +23,7 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine, whoSeesText } from './WhoSees'
+import { Tooltip } from '../Tooltip'
 
 export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, startPrivate = false, resetKey = 0, autoFocus, focusKey, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
   projectId: string | null
@@ -169,64 +170,78 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       projectId={projectId}
       waitsFor={waitsFor}
       card={card}
+      tools={team ? (
+        <ChatVisibilityChip
+          project={project}
+          // the project shares its new chats (a team project on this server; not one an older build left off)
+          shares={sharesNewChats(project, false)}
+          safeOps={safeOps}
+          onlyMe={privateNow}
+          // a chat made already (for attachments) keeps how it was made
+          locked={drafted !== null}
+          onToggle={() => setOnlyMe((v) => !v)}
+          t={t}
+        />
+      ) : undefined}
     />
-    {team && (
-      <TeamChatLine
-        project={project}
-        // the project shares its new chats (a team project on this server; not one an older build left off)
-        shares={sharesNewChats(project, false)}
-        safeOps={safeOps}
-        onlyMe={privateNow}
-        // a chat made already (for attachments) keeps how it was made
-        locked={drafted !== null}
-        onToggle={() => setOnlyMe((v) => !v)}
-        onMembers={project.membersEditable ? onMembers : undefined}
-        t={t}
-      />
-    )}
     </>
   )
 }
 
-/** Under a team project's box, on every screen size: who will see the new chat, and the "Only me" switch (44 px on a
- * phone). Shared: "New chats are seen and continued by the project's N members." (the members dialog for whoever may
- * change them); Only me: "Only you see this chat · your apps and memories work here"; safe operations: why new chats
- * are only mine for now, with no switch. */
-function TeamChatLine({ project, shares, safeOps, onlyMe, locked, onToggle, onMembers, t }: { project: Project; shares: boolean; safeOps: boolean; onlyMe: boolean; locked: boolean; onToggle: () => void; onMembers?: () => void; t: ReturnType<typeof useT> }) {
+/** In a team project's box, right after + in its bottom row (QA TC-1401): who will see the chat being started, as one
+ * quiet chip that is also the "Only me" switch. Shared: "👥 5 people" (on a phone "👥 5"); pressed: "🔒 Only me". The
+ * whole sentence ("The chat you're starting will be seen and continued by 5 people in this project." / "Only you will
+ * see the chat you're starting …") is its tooltip and its description for screen readers (the name stays the words in
+ * sight). Safe operations, or a project an older build left unshared: a fixed "🔒 Only me" saying why, with no switch.
+ * A chat made already for attachments keeps how it was made (disabled). */
+function ChatVisibilityChip({ project, shares, safeOps, onlyMe, locked, onToggle, t }: { project: Project; shares: boolean; safeOps: boolean; onlyMe: boolean; locked: boolean; onToggle: () => void; t: ReturnType<typeof useT> }) {
+  const whyId = useId()
   const mine = safeOps || onlyMe || !shares
   // shared: how many members (alone, or with only the owner and admins: the box's words as before, WhoSees.tsx)
   const who = whoSees(project)
+  const sentence = safeOps ? t('projects.newChatSafeOps') : !shares ? t('projects.newChatMe') : onlyMe ? t('projects.onlyMeOn') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, project, 'new')
   const Icon = mine || who.kind === 'me' ? Lock : Users
-  const text = safeOps ? t('projects.newChatSafeOps') : onlyMe ? t('projects.onlyMeOn') : !shares ? t('projects.newChatMe') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, project, 'new')
-  const words = (
+  const label = mine ? (
+    t('projects.onlyMe')
+  ) : who.kind === 'people' ? (
+    // a phone: the icon and the number only, so the row keeps room for the picker, the mic and send
     <>
-      <Icon size={12} className="mr-1 inline-block align-[-1px]" aria-hidden />
-      {text}
+      <span className="sm:hidden">{who.n}</span>
+      <span className="max-sm:hidden">{t('projects.visibilityPeople', { n: who.n })}</span>
     </>
-  )
+  ) : who.kind === 'admins' ? t('chat.whoMeAdmins') : t('chat.whoMe')
+  const look = 'touch-hit inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs whitespace-nowrap'
+  const why = <span id={whyId} className="sr-only" data-testid="chat-visibility-why">{sentence}</span>
+  if (safeOps || !shares)
+    return (
+      <>
+        <Tooltip label={sentence} description>
+          <span role="note" tabIndex={0} aria-describedby={whyId} className={`${look} text-muted`} data-testid="chat-visibility" data-who="me">
+            <Lock size={13} aria-hidden />
+            {label}
+          </span>
+        </Tooltip>
+        {why}
+      </>
+    )
   return (
-    <div className="flex min-h-7 items-center gap-3 px-1 pt-1.5 text-micro text-faint" data-testid="team-chat-line" data-who={mine ? 'me' : who.kind}>
-      {!mine && onMembers ? (
-        <button type="button" onClick={onMembers} aria-haspopup="dialog" title={t('chat.whoOpens')} className="touch-hit min-w-0 rounded-sm text-left break-keep underline decoration-dotted underline-offset-2 hover:text-ink hover:decoration-solid" data-testid="who-sees">
-          {words}
-        </button>
-      ) : (
-        <p className="min-w-0 break-keep" data-testid="who-sees" role="status">{words}</p>
-      )}
-      {!safeOps && shares && (
+    <>
+      <Tooltip label={sentence} description>
         <button
           type="button"
           aria-pressed={onlyMe}
+          aria-describedby={whyId}
           disabled={locked}
           onClick={onToggle}
-          title={t('projects.onlyMeHint')}
-          className={`touch-hit ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${onlyMe ? 'border-ink bg-ink text-canvas' : 'border-line text-muted hover:bg-hover hover:text-ink'}`}
+          className={`${look} transition disabled:opacity-50 ${onlyMe ? 'bg-subtle text-ink' : 'text-muted hover:bg-hover hover:text-ink'}`}
           data-testid="only-me-toggle"
+          data-who={mine ? 'me' : who.kind}
         >
-          <Lock size={12} aria-hidden />
-          {t('projects.onlyMe')}
+          <Icon size={13} aria-hidden />
+          {label}
         </button>
-      )}
-    </div>
+      </Tooltip>
+      {why}
+    </>
   )
 }

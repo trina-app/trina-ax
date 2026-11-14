@@ -455,7 +455,7 @@ describe('review fixes (security review of 1af88ea6)', () => {
     // erin may read the folder and no longer the room: the first file takes the wider-audience card (yes); the second, which
     // the grant covered before this fix, takes the room card: the grant is not used and no "always" is offered
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), (c) => (values(c)?.includes('save') ? 'save' : 'allow'))
-    expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', '__always', 'skip']])
+    expect(r.cards.map(values)).toEqual([['save', '__always', 'skip'], ['allow', '__always', 'skip']])
     expect(labels(r.done, 'write').some((l) => l.endsWith(ALWAYS) || l.endsWith(ONCE))).toBe(false)
     expect(audits('room.ai_grant_use').some((a) => a.detail.turnId === r.turnId)).toBe(false)
     expect(exists(`${dir}/2.md`)).toBe(true)
@@ -705,5 +705,18 @@ describe('"이 방에서는 항상 허용" in the side chat', () => {
     expect(read(own)).toBe('daily summary\n')
     expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
     fs.rmSync(at(own), { force: true })
+  })
+})
+
+// TC-1295: in the Everyone room's side chat, the AI once said the chat is open next to the room "for everyone"
+describe('the side chat is private to the asker (TC-1295)', () => {
+  test('in a side chat of the room everyone is in, the instructions the AI gets say only the asker sees it', async () => {
+    const everyone = (h.ctx.db.query("SELECT id FROM rooms WHERE kind = 'all'").get() as { id: string }).id
+    const r = await run('alice', await sideChat('alice', everyone), fake({ echo: 'system' }))
+    const section = r.done.content.slice(r.done.content.indexOf('## Room side panel'))
+    expect(section).toContain('"Everyone" room')
+    expect(section).toContain('This chat is private to the user: nobody else sees it')
+    expect(section).toContain('say that only they can; never say it is visible to the room or to everyone')
+    expect(section).not.toContain('room for everyone')
   })
 })

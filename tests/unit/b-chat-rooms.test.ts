@@ -334,7 +334,7 @@ describe('in a chat', () => {
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     // the room is in the chat's read scope and shared/ is wider: one card, the wider-audience card, which also asks for
     // the change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call), with what it writes
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: W(target) }], text: 'after the room\n' }] })
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: '__always' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: W(target) }], text: 'after the room\n' }] })
     expect((card.data.request as { question: string }).question).toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).toContain(W(target))
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })

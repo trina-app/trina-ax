@@ -36,28 +36,30 @@ const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주�
 // an open chat only I see: the full sentence (QA TC-1068)
 const ONLY_ME = '이 채팅은 나만 볼 수 있어요.'
 
-/** The box holds the text, the mic and the send key (the mic right before send, as in ChatGPT); attach and the engine
- * are in the row under it. */
+/** The box is one frame (QA TC-1400): the text on top, and one row under it inside the frame with + on the left and the
+ * engine, the mic and the send key on the right (the mic right before send, as in ChatGPT). Nothing but the note sits
+ * under the frame. */
 async function expectBoxLikeClaude(page: Page) {
   const box = page.getByTestId('composer')
-  const row = page.getByTestId('composer-controls')
+  const tools = box.getByTestId('composer-tools')
   await expect(box.getByTestId('composer-input')).toBeVisible()
-  await expect(box.getByTestId('send')).toBeVisible()
-  await expect(box.getByTestId('attach-button')).toHaveCount(0)
-  await expect(row.getByTestId('attach-button')).toBeVisible()
-  const mic = box.getByRole('button', { name: '음성 입력 (Space 길게)' })
+  for (const id of ['attach-button', 'engine-picker', 'send']) await expect(tools.getByTestId(id)).toBeVisible()
+  const mic = tools.getByRole('button', { name: '음성 입력 (Space 길게)' })
   await expect(mic).toBeVisible()
-  await expect(row.getByTestId('voice-button')).toHaveCount(0)
-  // right of the text, right before send
-  const [m, s, t] = [(await mic.boundingBox())!, (await box.getByTestId('send').boundingBox())!, (await box.getByTestId('composer-input').boundingBox())!]
-  expect(m.x).toBeGreaterThan(t.x + t.width - 1)
+  // nothing of the box's under it
+  for (const id of ['attach-button', 'engine-picker', 'voice-button']) await expect(page.getByTestId(id)).toHaveCount(1)
+  // + on the left; the engine, the mic and send on the right, in that order
+  const [a, e, m, s, t] = [(await tools.getByTestId('attach-button').boundingBox())!, (await tools.getByTestId('engine-picker').boundingBox())!, (await mic.boundingBox())!, (await tools.getByTestId('send').boundingBox())!, (await box.getByTestId('composer-input').boundingBox())!]
+  expect(a.x).toBeLessThan(t.x + 40)
+  expect(a.x + a.width).toBeLessThan(e.x)
+  expect(e.x + e.width).toBeLessThanOrEqual(m.x + 1)
   expect(m.x + m.width).toBeLessThanOrEqual(s.x + 1)
-  await expect(row.getByTestId('engine-picker')).toBeVisible()
+  // the row under the text, inside the frame
+  for (const c of [a, e, m, s]) expect(c.y).toBeGreaterThanOrEqual(t.y + t.height - 1)
+  const frame = (await box.boundingBox())!
+  expect(s.y + s.height).toBeLessThanOrEqual(frame.y + frame.height)
   // one line until there is more to say
-  expect((await box.getByTestId('composer-input').boundingBox())!.height).toBeLessThanOrEqual(50)
-  const rowTop = (await row.boundingBox())!.y
-  const boxBottom = (await box.boundingBox())!.y + (await box.boundingBox())!.height
-  expect(rowTop).toBeGreaterThanOrEqual(boxBottom - 1)
+  expect(t.height).toBeLessThanOrEqual(50)
 }
 
 async function audit(page: Page, where: string) {
@@ -143,7 +145,7 @@ test("the chat's name opens its link, rename and delete, after the project it is
   await expect(page.getByText('기록을 삭제했어요.')).toBeVisible()
 })
 
-test('the message box is one line with a quiet send key, and the controls sit under it, on every page with the box', async ({ page }) => {
+test('the message box is one frame: the text on top, +, the engine, the mic and a quiet send key in a row under it, on every page with the box', async ({ page }) => {
   await reset(page)
   await signIn(page)
   // the new-chat page and a project's page use the same box
@@ -160,7 +162,7 @@ test('the message box is one line with a quiet send key, and the controls sit un
   await page.getByTestId('composer-input').fill('one more thing')
   await expect(send).toBeEnabled()
   await expect(send).toHaveClass(/text-ink/)
-  // the note is in the row, between the controls, and says who sees the chat after it
+  // the note is the one thing under the box, and says who sees the chat after it
   await expect(page.getByTestId('composer-controls').getByTestId('composer-footer')).toHaveText(`${NOTE} ${ONLY_ME}`)
   await expect(page.getByText(NOTE)).toHaveCount(1)
   // while an answer runs, Stop takes the send key's place in the box

@@ -74,6 +74,11 @@ test('the instructions name the room and its id, say the chat is private and tha
   expect(ko).not.toContain('Send to thread')
   expect(text).not.toContain('<x>')
   expect(sideRoomSection({ id: 'r', kind: 'dm', name: null })).toContain('a direct message room')
+  // TC-1295: in the room everyone is in, the AI once said the side chat is "open next to the room for everyone"
+  const all = sideRoomSection({ id: 'r', kind: 'all', name: null })
+  expect(all).toContain('This chat is private to the user: nobody else sees it')
+  expect(all).toContain('only they can; never say it is visible to the room or to everyone')
+  expect(all).not.toContain('room for everyone')
   // never in a shared project chat's instructions
   expect(SHARED_PROMPT_SECTIONS.sideRoom).toBe(false)
   expect(allowedSections([{ id: 'sideRoom', text }], 'shared')).toEqual([])

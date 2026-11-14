@@ -9,7 +9,7 @@
 // The count is the server's (POST /api/projects/access-preview), so it matches who really sees it: its members ("멤버
 // 3명"), the owner and admins only when they are members (docs/DECISIONS.md "Project contents only for members": no part
 // for the owner and admins by role any more).
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Search, Users, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { Group, ProjectAccessPreview, ProjectParticipant, ProjectPerson, SubjectType } from '@mycel/shared/api'
@@ -20,7 +20,7 @@ import { isAdmin, useMe } from '../store/session'
 import { IconButton } from './ui'
 import { Avatar, type AvatarUser } from './Avatar'
 import { FaceStack } from './FaceStack'
-import { ListIcon, ListRow, rowName } from './list/List'
+import { ListRow } from './list/List'
 
 export const participantKey = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
 export const sameParticipants = (a: readonly ProjectParticipant[], b: readonly ProjectParticipant[]) => {
@@ -168,9 +168,10 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
     const you = x.subjectType === 'user' && x.subjectId === meId && tag !== t('projects.youTag') && t('projects.youTag')
     return [you, tag].filter(Boolean).join(' · ')
   }
-  /** the second line: a person's title, a group's kind (with how many people when that may be read; `n`: how many of
-   * them are in the project, the members dialog's), then the tags unless the row puts them on the name's line
-   * (`inline`: a person's row in the list, so my row is as tall as the others) */
+  /** the words after the name: a person's title, a group's kind (with how many people when that may be read; `n`: how
+   * many of them are in the project, the members dialog's), then the tags unless the row shows them on its own
+   * (`inline`: the members list, which puts the tags at the row's right; `withNote`: false where the row draws the note
+   * itself, noteOf) */
   const sub = (x: ParticipantOption, n?: number, inline = false, withNote = true) => {
     const count = n ?? x.members?.length
     const kind = x.subjectType !== 'group' ? x.title : count !== undefined ? t('projects.groupCount', { n: count }) : x.mine ? t('projects.groupMine') : t('projects.groupTag')
@@ -246,62 +247,64 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
             const out = !!before && before.has(k) && !picked.has(k)
             const fresh = !!before && !before.has(k) && picked.has(k)
             const inside = x.subjectType === 'group' ? groupPeople?.get(x.subjectId) : undefined
-            const s = sub(x, inside?.length, !inside, false)
-            const nameTags = inside ? '' : tags(x)
+            // one line per person (as a chat app's member list): the name and 새로, then its title or group kind in
+            // small faint words on the same line (cut first when long), the tags at the row's right, × or 되돌리기 beside it. A group with a
+            // note (the members dialog's "except Kim": people in it who left the project) keeps those words on a second
+            // line, where the names have the row's width (QA TC-1402)
+            const s = sub(x, inside?.length, true, false)
+            const role = tags(x)
             const open = opened.has(x.subjectId)
+            const below = !!notes?.get(k)
             return (
-              <li key={k} className="flex min-h-row-min flex-wrap items-center gap-x-2.5 rounded-lg px-3 py-1.5 pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]" data-testid={`participant-${x.subjectType}-${x.subjectId}`} data-state={tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member'}>
-                <ListIcon face><Face x={x} /></ListIcon>
-                {/* the name on one line; the title, the group tag and the tag under it (a group's: how many people, and
-                    the name opens to list them) */}
-                {inside ? (
-                  <button type="button" aria-expanded={open} aria-controls={`${testId}-group-${x.subjectId}`} onClick={() => toggle(x.subjectId)} className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left" data-testid={`participant-group-toggle-${x.subjectId}`}>
-                    <span className="min-w-0">
-                      <span className={clsx('block truncate group-hover:underline', rowName(), out && 'text-faint line-through')}>{x.name}</span>
-                      <span className="block truncate text-meta text-faint">
-                        {s}
-                        {noteOf(x, s)}
-                        {fresh && <> · <span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
-                      </span>
-                    </span>
-                    <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform motion-reduce:transition-none', open && 'rotate-180')} aria-hidden />
-                  </button>
-                ) : (
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 items-baseline gap-1.5">
-                    <span className={clsx('truncate', rowName(), out && 'text-faint line-through')}>{x.name}</span>
-                    {nameTags && <span className="shrink-0 text-meta text-faint" data-testid={`participant-tags-${x.subjectType}-${x.subjectId}`}>{nameTags}</span>}
-                  </span>
-                  {(s || fresh || notes?.has(k)) && (
-                    <span className="block truncate text-meta text-faint">
-                      {s}
-                      {noteOf(x, s)}
-                      {fresh && <>{s && ' · '}<span className="font-medium text-accent-text">{t('projects.newTag')}</span></>}
-                    </span>
-                  )}
-                </span>
-                )}
-                {tag === undefined && (out ? (
-                  <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
-                    {t('projects.undoRemove')}
-                  </button>
-                ) : (
-                  <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
-                    <X size={14} aria-hidden />
-                  </IconButton>
-                ))}
+              <Fragment key={k}>
+                <ListRow
+                  face
+                  icon={<Face x={x} />}
+                  name={
+                    <>
+                      <span className={clsx(out && 'text-faint line-through')}>{x.name}</span>
+                      {fresh && <span className="ml-1.5 text-meta font-medium text-accent-text">{t('projects.newTag')}</span>}
+                      {s && !below && <span className="ml-1.5 text-meta font-normal text-faint">{s}</span>}
+                    </>
+                  }
+                  // the note wraps on its own line on a phone, never cut (noteOf, QA TC-1402)
+                  meta={below ? <>{s}{noteOf(x, s)}</> : undefined}
+                  nameTitle={[x.name, s].filter(Boolean).join(' · ')}
+                  tag={role || undefined}
+                  tagTestId={`participant-tags-${x.subjectType}-${x.subjectId}`}
+                  // a group with its people known (the members dialog): the row opens to list them
+                  {...(inside ? {
+                    onClick: () => toggle(x.subjectId),
+                    expanded: open,
+                    end: <ChevronDown size={14} className={clsx('shrink-0 self-center text-faint transition-transform motion-reduce:transition-none', open && 'rotate-180')} aria-hidden />,
+                    testId: `participant-group-toggle-${x.subjectId}`,
+                    link: { 'aria-controls': `${testId}-group-${x.subjectId}` },
+                  } : {})}
+                  li={{ 'data-testid': `participant-${x.subjectType}-${x.subjectId}`, 'data-state': tag !== undefined ? 'fixed' : out ? 'removed' : fresh ? 'new' : 'member' }}
+                  actions={tag === undefined ? (out ? (
+                    <button type="button" className="touch-hit shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-hover" onClick={() => undo(x)} aria-label={t('projects.undoRemoveLabel', { name: x.name })} data-testid={`participant-undo-${x.subjectType}-${x.subjectId}`}>
+                      {t('projects.undoRemove')}
+                    </button>
+                  ) : (
+                    <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
+                      <X size={14} aria-hidden />
+                    </IconButton>
+                  )) : undefined}
+                />
                 {inside && (
-                  <ul id={`${testId}-group-${x.subjectId}`} hidden={!open} className="basis-full pt-1 pb-0.5 pl-6" aria-label={x.name} data-testid={`participant-group-people-${x.subjectId}`}>
-                    {open && inside.map((u) => (
-                      <li key={u.id} className="flex min-h-7 items-center gap-2 text-xs text-muted">
-                        <Avatar user={u} size={18} />
-                        <span className="min-w-0 truncate">{u.name}</span>
-                      </li>
-                    ))}
-                    {open && !inside.length && <li className="text-xs text-faint">{t('projects.groupNobody')}</li>}
-                  </ul>
+                  <li hidden={!open}>
+                    <ul id={`${testId}-group-${x.subjectId}`} className="pt-1 pb-1 pl-[calc(1.375rem+var(--spacing-list-face))]" aria-label={x.name} data-testid={`participant-group-people-${x.subjectId}`}>
+                      {open && inside.map((u) => (
+                        <li key={u.id} className="flex min-h-7 items-center gap-2 text-xs text-muted">
+                          <Avatar user={u} size={18} />
+                          <span className="min-w-0 truncate">{u.name}</span>
+                        </li>
+                      ))}
+                      {open && !inside.length && <li className="text-xs text-faint">{t('projects.groupNobody')}</li>}
+                    </ul>
+                  </li>
                 )}
-              </li>
+              </Fragment>
             )
           })}
           {!rows.length && <li className="px-3 py-2 text-sm text-faint">{t('projects.membersNone')}</li>}

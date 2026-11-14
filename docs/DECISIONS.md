@@ -13251,7 +13251,7 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
 - Every request that reaches the server is checked exactly as before (in the room, the message there and visible, the
   download-only list). Only Cache-Control changes, and only for a thumbnail (`thumb=1`) whose address carries the asking
   session's own media key (`?k=`, from `GET /api/me` `session.mediaKey`): then `private, max-age=…, immutable`, at most
-  a day and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
+  an hour and never past the session's end. No key, another session's key, an inline read, a download, a quarantined
   file: `private, no-cache` as before.
 - Why the key: a browser keeps answers by address. With one address for everyone, the next person on a shared
   computer would be shown the last person's kept pictures without the server being asked. The key is an HMAC of the
@@ -13265,9 +13265,11 @@ its thumbnail may be kept by the browser. The rule that keeps this as strict as 
   server on the next load. Browsers honour it on https only (not a plain-http office address), Safari only in
   part, and a session that simply runs out sends nothing: it is extra care, the per-sign-in key is what keeps it safe.
 - What is looser than before, on purpose: within the same sign-in, a thumbnail already shown stays viewable from this
-  browser's cache for up to a day after the server would refuse it (the person left the room, the message was deleted,
+  browser's cache for up to an hour after the server would refuse it (the person left the room, the message was deleted,
   the file was put on the download-only list later). The app no longer shows it; the bytes were on that computer
   already (a `no-cache` answer is stored too).
+- An hour, not a day (2026-11-14): that window is the one place this is looser than before, so it is kept short. An
+  hour still covers scrolling back and forth through a chat without a round trip per picture.
 - Not changed: team file previews and HEIC previews (`/api/files/download`, `/api/files/preview`) and chat attachment
   thumbnails keep `private, no-cache` with an ETag (a 304 without the bytes): their address names a path whose file
   and folder access can change. Avatars were already versioned and immutable; they now load lazily, as do chip
@@ -15138,8 +15140,9 @@ be asked again):
   (team), `shareProject` (personal → team) and a leftover folder adopted as a project set it too. `PATCH
   /api/projects/:id {shareChats: false}` is 409 `share_chats_always` (the field stays so older apps parse; `true` is
   accepted and changes nothing).
-- **"Only me" per new chat.** Next to a team project's box (the project page, Home's `?project=`), before the first
-  message: `POST /api/chats {private: true}` makes the chat its creator's alone (`shared = sharesNewChats(p) &&
+- **"Only me" per new chat.** In a team project's box (the project page, Home's `?project=`), as one quiet chip right
+  after + in the box's row ("👥 5 people", pressed "🔒 Only me"; its tooltip says who sees the chat being started; QA
+  TC-1401, it was a line and a pill under the box), before the first message: `POST /api/chats {private: true}` makes the chat its creator's alone (`shared = sharesNewChats(p) &&
   !private`). The whole chat keeps that; the next new chat starts shared again (the switch does not stick). A private
   chat keeps every tool of a chat of one's own (memories, personal connections, browser, schedules); a shared chat keeps
   `SHARED_TOOLS`. A private chat becomes shared only through `POST /api/chats/:id/share` (its check and confirm, "An
@@ -26793,3 +26796,49 @@ item 9-A, item 12-A. Spec v3 and three reviews are with the owner (not in the re
   and its newest backup) and the demo seed made on dev: **0 widened**, invariants ok, restore checks equal. QA-Acme:
   13 folders limited, 1 person named by the conversion (C1-A: keeps more than today after a change of that group).
   Demo: 2 limited, nobody named. potenlab and jdr not run (the owner decides).
+
+## Always allow also in side chats, rooms and scheduled runs (fix/rec4, 2026-11-14, owner, QA TC-1292, TC-320)
+
+Owner, 2026-11-14: "거기서도 그냥 항상 허용 넣자" — Always allow goes into rooms, ✦ side chats and scheduled runs too, not
+only a personal chat. This supersedes the places that still said "never": TC-320 / "Always allow never applies in a
+room, a ✦ side chat or a scheduled run", the "Review of #678" line that the combined room + wider-save card never
+offers it, "a scheduled run still sends only what its task's card allowed" and the "Where it never applies" entry for a
+scheduled run. A Slack question, a company profile draft, a confidential chat, an address that may carry data out and
+connect_service are unchanged.
+
+- **Side chats and rooms.** The ✦ side chat and any chat that read a room already offered it (11-13, `room_change`). The
+  one card that asks for a room change and a wider save together (`askWidening` with `room`) now offers "Always allow"
+  too: picking it keeps both kinds for the person (`room_change` and `save_wider`), and it is offered while the room kind is off
+  (with both on there is no card). There is no room session that answers for the room (since 11-09 the AI is the ✦
+  side chat, a personal chat), so nothing else is room-wide.
+- **Scheduled runs.** Nobody is there to answer a card, so Always allow is never offered in a run; a choice the
+  task's own person already made holds (`alwaysHere` answers `on` for `clientKind: 'schedule'`, `null` otherwise): the
+  generic cards, delete_files, post_to_room, skill_files and move_skill no longer refuse the run when their kind is on, and
+  a connection send goes without the card when the person has their own Always allow for it (their own connection set to
+  allow, or `integration_user_allow`, only while the team's switch is on). A task that pinned recipients is still held to
+  them (`pinnedRefusal`); a team connection set to send without asking still needs the task's own card (`scheduleMayWrite`).
+  The accepted cost, as since 11-13: an instruction planted in a mail or a room message can make a run that has the
+  person's Always allow send or change what the choice covers.
+- **Scoped to the person who chose it.** `alwaysOn` reads only the turn's own person (`AlwaysPlace.userId`), so one member's
+  choice never applies to another member's side chat, to a room-wide action or to a run of someone else's task; the
+  team's switch (`roomAlwaysAllow`) off still ignores every row; the wording of the card (what it covers, "will not ask
+  again, even after reading web pages or files") is unchanged and still honest.
+- **Why:** the owner's 11-11 rule ("always allow means done"): one rule for every place, not a list of exceptions.
+- Tests: `b-chat-rooms-save.test.ts` (the combined card offers it; picking it keeps both kinds), `b-always-allow.test.ts`
+  (a scheduled run: `on` only for its own person's kind, never offered), `b-chat-rooms-fewer-cards.test.ts`.
+- Version impact: **patch**.
+
+## Project members: one line per person (fix/thumb-1h-participants-row, 2026-11-14)
+
+- **Ask:** the member list of the project pickers (components/ProjectParticipants.tsx: 멤버 추가 on a personal project,
+  the Members dialog, the new-project form) built its own rows, the last "to fix" entry of the list-row guard
+  (web/test/unit/list-row-source.test.ts). Its controls could wrap under the name, a second line of buttons.
+- **Now:** each member is a shared `ListRow`, one line, as in a chat app's member list: the picture (or a group's mark)
+  as the icon; the name and 새로, then its title or the group's "부서 · N명" in small faint words on the same line,
+  cut at the end when long; the tags (나, 만든 사람, a folder rule) at the row's right as the row's tag; × or 되돌리기
+  in the row's `actions`, beside it. A group with a note (the Members dialog's "except Kim") keeps its words on a
+  second line, where the names have the row's width; on a phone the note wraps there, never cut (#788, TC-1402). A group in the Members dialog is a button row that opens its people under it (a
+  list item of its own after the row). Rows are the lists' heights: 36px with a 28px face on a computer, 48px on a
+  phone; names 15px and 16px.
+- `ListRow`'s `link` takes `aria-*` too (the group row's `aria-controls`). The search results are unchanged (faces,
+  title as the second line, 추가 / 추가됨).

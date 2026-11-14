@@ -539,6 +539,32 @@ describe('in the app: the Skills page and the AI', () => {
     expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true)
   })
 
+  test('a scheduled run is no longer refused up front when its own person chose Always allow for skill changes; another member\'s choice does not count (owner 2026-11-14, TC-1296)', async () => {
+    const { keepAlways } = await import('../../server/src/chat/always-allow')
+    const mine = path.join(h.team, 'users/carol/skills')
+    const before = new Set(fs.existsSync(mine) ? fs.readdirSync(mine) : [])
+    const runOf = async (who: string) => {
+      const rt = h.rt()
+      const now = new Date()
+      const made = rt.schedules.create('carol', { title: `Copy ${who}`, prompt: moveCall({ skill: 'quote', to: 'personal', keep: true }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
+      expect(rt.schedules.runDue(now)).toContain(made.id)
+      const chatId = rt.schedules.get('carol', made.id)!.last_chat_id!
+      await waitFor(() => (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+      return (h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { content: string }).content
+    }
+    const REFUSED = 'Not copied: a scheduled run has nobody to confirm the card'
+    keepAlways(h.ctx.db, 'dana', 'skill_files', null)
+    try {
+      expect(await runOf('dana-only')).toContain(REFUSED) // carol's task: dana's choice is not carol's
+      keepAlways(h.ctx.db, 'carol', 'skill_files', null)
+      expect(await runOf('carol')).not.toContain(REFUSED) // her own: past the up-front refusal
+      expect(fs.existsSync(path.join(h.team, 'skills/quote/SKILL.md'))).toBe(true) // a copy: the original stays
+    } finally {
+      h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id IN ('carol', 'dana')").run()
+      if (fs.existsSync(mine)) for (const d of fs.readdirSync(mine)) if (!before.has(d)) fs.rmSync(path.join(mine, d), { recursive: true, force: true })
+    }
+  })
+
   test('the file tools refuse skill folders and point at move_skill for a move or a copy', async () => {
     const r = await turn('carol', fake({ tool: 'move_files', args: { paths: ['skills/quote'], to_folder: 'projects/falcon/skills' }, sayResult: true }))
     expect(r.content).toContain('do not move or copy with the file tools')

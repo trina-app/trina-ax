@@ -20,8 +20,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 
-/** How long a kept picture is used without asking at most (and never past the session's end): a day. */
-export const KEPT_MEDIA_MAX_AGE_S = 86_400
+/** How long a kept picture is used without asking at most (and never past the session's end): an hour.
+ * Short on purpose: a kept picture stays viewable from this browser without asking, even after the person lost access
+ * (left the room, the message was deleted), so the hour bounds that window. It is still long enough for scrolling back
+ * through a chat to feel instant. */
+export const KEPT_MEDIA_MAX_AGE_S = 3_600
 /** Below this many seconds of the session left, nothing is kept: the browser asks again. */
 const MIN_AGE_S = 60
 
@@ -35,7 +38,7 @@ export function mediaKeyOf(db: Database, sessionId: string): string | null {
 
 /**
  * The Cache-Control for a picture that never changes, read by `session` with the key `k` from its address: kept (private,
- * immutable, at most a day and never past the session's end) when `k` is that session's own media key; null otherwise
+ * immutable, at most an hour and never past the session's end) when `k` is that session's own media key; null otherwise
  * (the caller keeps `private, no-cache`).
  */
 export function keptMediaCache(db: Database, session: { id: string; expiresAt?: string }, k: string | undefined, now = Date.now()): `private, ${string}` | null {

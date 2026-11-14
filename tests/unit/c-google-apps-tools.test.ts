@@ -127,7 +127,7 @@ describe('calls', () => {
   })
 
   // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13): Always allow holds after a room read too
-  test('Always allow holds after a room read; never sends in a scheduled run', async () => {
+  test('Always allow holds after a room read; in a scheduled run only the task person\'s own choice sends (owner 2026-11-14)', async () => {
     setPolicy('allow')
     const seen = person('no')
     lib.calls = []
@@ -135,10 +135,16 @@ describe('calls', () => {
     expect(r.isError).toBe(false)
     expect(seen.asked).toEqual([])
     lib.calls = []
+    // her own Always allow (the connection's rule is allow) holds in her own scheduled run: nobody is asked
     const run = await turn('alice', { person: person('yes'), scheduled: true }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
-    expect(run.isError).toBe(true)
-    expect(lib.calls).toEqual([])
+    expect(run.isError).toBe(false)
+    expect(lib.calls.filter((c) => c.name === 'send_gmail_message')).toHaveLength(1)
+    // without it (the rule is ask) the run sends nothing
     setPolicy('ask')
+    lib.calls = []
+    const quiet = await turn('alice', { person: person('yes'), scheduled: true }).call('my_gmail__send_gmail_message', { to: 'x@acme.example', subject: 's', body: 'b' })
+    expect(quiet.isError).toBe(true)
+    expect(lib.calls).toEqual([])
   })
 
   test('Always allow holds after the chat read something from outside, such as a mail (since 2026-11-13; QA TC-576)', async () => {

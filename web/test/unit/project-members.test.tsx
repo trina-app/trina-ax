@@ -126,7 +126,8 @@ describe('the members now', () => {
     await m.click('participant-add-user-bob')
     await m.until(() => m.find('participant-user-bob'), 'Bob in the list', 2000)
     expect(state(m, 'participant-user-bob')).toBe('new')
-    expect(m.get('participant-user-bob').textContent).toContain(`Sales lead · ${en('projects.newTag')}`)
+    // 새로 right after the name, the title after it (cut first on a narrow row)
+    expect(m.get('participant-user-bob').textContent).toContain(`Bob${en('projects.newTag')}Sales lead`)
     await m.unmount()
   })
 

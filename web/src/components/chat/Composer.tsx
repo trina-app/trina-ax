@@ -12,11 +12,12 @@
 // Files from this computer dropped anywhere on the chat's page, Home or a project's page go into the box (components/FileDropZone.tsx).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
-// Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
-// on the right; the row under it keeps only the engine picker, for people who may choose one, and only when two or more
-// engines are switched on (EngineMenu showsEnginePicker). Home's new chat (`card`, QA TC-391) is one card instead, as AI
-// apps have it: the text on top and one row under it inside the box (+ · the engine picker · mic · send), nothing under
-// the box.
+// The box is one frame, as AI apps have it (QA TC-1400): the text on top and one row under it inside the frame
+// (ComposerToolbar: + · the box's choices … the engine picker · mic · send). Nothing of it sits under the frame but the
+// computer's note. The engine picker is for people who may choose one, and only when two or more engines are switched on
+// (EngineMenu showsEnginePicker). Below 768px a box with nothing more than + and send (no picker, no choices, not Home's
+// `card`, QA TC-391) is a room's box in one line (rooms/RoomComposer.tsx): + on the left, the mic and a round send on the
+// right.
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
 // box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
 // sent by themselves.
@@ -63,6 +64,7 @@ import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
+import { ComposerToolbar } from './ComposerToolbar'
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
@@ -94,6 +96,7 @@ export default function Composer({
   projectId,
   waitsFor,
   card,
+  tools,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -146,6 +149,8 @@ export default function Composer({
   /** phones: one card (Home's new chat, QA TC-391), the text on top and a row under it inside the box with + · the
    * engine picker · mic · send; no row under the box. Computers and the other boxes keep their layout */
   card?: boolean
+  /** quiet choices of this box in its bottom row right after +: who sees a team project's new chat (NewChatComposer) */
+  tools?: ReactNode
 }) {
   const t = useT()
   const locale = useLocale()
@@ -164,6 +169,8 @@ export default function Composer({
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // the text box's last height: the text held on top while recording keeps it, so the box does not move
+  const heldHeight = useRef<string | undefined>(undefined)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)
   const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
@@ -262,6 +269,7 @@ export default function Composer({
     const was = ta.style.height
     ta.style.height = 'auto'
     ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
+    heldHeight.current = ta.style.height || undefined
     // (and again when the box comes back after a recording: the bar stood in its place)
   }, [text, hint, textSize, voice.recording, behindPanel])
 
@@ -320,8 +328,6 @@ export default function Composer({
   }
   // phones and tablets: "from this device", else "from this computer"
   const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
-  // a phone's card: the text on top, the tools in one row under it, inside the box
-  const stacked = phone && !!card
 
   // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
   // whose upload failed, which is not sent)
@@ -391,6 +397,11 @@ export default function Composer({
   // the picker: for people who may choose, and only with two or more engines (one engine: none, whatever its models)
   const pick = onEngine && showsEnginePicker(engines ?? []) ? onEngine : undefined
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
+  // the text on top and one row under it inside the box (ComposerToolbar: + and the box's choices on the left, the
+  // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
+  // than + and send (Home's card, the engine picker, a team project's who-sees chip). A phone's plain chat box keeps
+  // one line (+ · text · mic · send), with nothing under or beside it either
+  const stacked = !phone || !!card || !!pick || !!tools
 
   // attach: under the box with its small menu on a computer; inside the box on a phone, as the attach sheet every
   // message box has there (AttachSheet: 사진 보관함, 사진 찍기, 파일, 팀 파일; one picker each)
@@ -516,7 +527,7 @@ export default function Composer({
   // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
   // tools under it; elsewhere the buttons share the line
   // (the card's text starts where its + does: 12 px in)
-  const fieldPad = clsx(stacked ? 'px-3 pb-1' : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  const fieldPad = clsx(stacked ? ['pb-1', phone ? 'px-3' : 'px-4.5'] : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
   // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
   // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
   // own padding and the edge: 3.25rem), at least one line
@@ -573,6 +584,31 @@ export default function Composer({
     </>
   )
 
+  // the engine picker in the box's row: on a phone the choices as a sheet (a tap outside, Escape or Back closes it),
+  // named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"); on a computer the small list
+  const enginePicker = pick && (phone ? (
+    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />
+  ) : (
+    <div className="relative">
+      <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
+        {engineLabel} <ChevronDown size={13} aria-hidden />
+      </button>
+      {engineMenu && (
+        <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
+          <EngineOptions
+            engines={engines ?? []}
+            models={models}
+            current={engine}
+            onPick={(p) => {
+              setEngineMenu(false)
+              pick(p)
+            }}
+          />
+        </ul>
+      )}
+    </div>
+  ))
+
   return (
     // a phone with the keyboard up (lib/viewport.ts .keyboard-open): the row under the box (the engine picker) goes, so
     // the box and send keep the room above the keyboard; it comes back with the keyboard down
@@ -602,7 +638,7 @@ export default function Composer({
             // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
             // bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <p aria-hidden className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
+              <p aria-hidden style={{ height: heldHeight.current }} className={clsx('overflow-hidden text-reading leading-reading break-words whitespace-pre-wrap', fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} data-testid="composer-text-held">
                 {text || hint}
               </p>
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
@@ -684,14 +720,13 @@ export default function Composer({
                 />
               </div>
               {stacked ? (
-                // the card's row: + and the engine picker on the left, the mic and send on the right, each taking taps
-                // from 44 px (touch-hit)
-                <div className="flex items-center gap-1.5 px-3 pt-1 pb-2.5" data-testid="composer-tools">
-                  {attachControls}
-                  {/* named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"): the pill alone says only the choice */}
-                  {pick && <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />}
-                  <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
-                </div>
+                // the box's row: + and its choices on the left, the engine picker, the mic and send on the right, each
+                // taking taps from 44 px (touch-hit)
+                <ComposerToolbar
+                  testId="composer-tools"
+                  start={<>{attachControls}{tools}</>}
+                  end={<>{enginePicker}{actions}</>}
+                />
               ) : (
                 <div className="flex h-composer-line shrink-0 items-center gap-1">{actions}</div>
               )}
@@ -699,51 +734,19 @@ export default function Composer({
           </>
         )}
       </div>
-      {/* under the box, like Claude's: attach on the left, the engine on the right, the note between (the mic is in the
-          box, before send). Phones: attach sits inside the box, as in a room's box, and this row is only there for the
-          engine; a phone's card (`card`) has the engine in its own row inside the box, and no row here. */}
-      {(!phone || (pick && !stacked)) && (
-      <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
-        <div className="flex flex-1 basis-0 items-center gap-0.5">
-          {!phone && attachControls}
-        </div>
-        {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
+      {/* under the box, on a computer only: the note (the chat's "AI can make mistakes", who sees it, what a request
+          still waits for), as under Claude's box. Attach and the engine are inside the box (ComposerToolbar). */}
+      {!phone && (waiting || footer || who) && (
+      <div className="flex items-center justify-center px-1 pt-1.5" data-testid="composer-controls">
         {waiting ? (
-          <p role="status" className="hidden min-w-0 text-center text-micro break-keep text-muted md:block" data-testid="composer-waits">{waitsFor?.hint}</p>
-        ) : (footer || who) && (
-          <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">
+          <p role="status" className="min-w-0 text-center text-micro break-keep text-muted" data-testid="composer-waits">{waitsFor?.hint}</p>
+        ) : (
+          <p className="min-w-0 text-center text-micro break-keep text-faint" data-testid="composer-footer">
             {footer}
             {footer && who ? ' ' : null}
             {who}
           </p>
         )}
-        <div className="flex flex-1 basis-0 items-center justify-end">
-          {pick && (
-            <div className="relative">
-              {/* a phone: the choices as a sheet (a tap outside, Escape or Back closes it); a computer: the small list */}
-              {phone ? (
-                <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} title={t('composer.engine')} testId="engine-picker" />
-              ) : (<>
-              <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
-                {engineLabel} <ChevronDown size={13} aria-hidden />
-              </button>
-              {engineMenu && (
-                <ul ref={engineListRef} role="listbox" aria-label={t('composer.engine')} className="absolute right-0 bottom-full z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
-                  <EngineOptions
-                    engines={engines ?? []}
-                    models={models}
-                    current={engine}
-                    onPick={(p) => {
-                      setEngineMenu(false)
-                      pick(p)
-                    }}
-                  />
-                </ul>
-              )}
-              </>)}
-            </div>
-          )}
-        </div>
       </div>
       )}
       {/* phones: of the note a computer has in the row above, who sees the chat (one line; the bottom is for the box) */}

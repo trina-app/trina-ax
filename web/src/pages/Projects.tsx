@@ -565,7 +565,7 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
     <ListRow
       scale="page"
       to={`/c/${c.id}`}
-      state={{ [RAIL_STATE_KEY]: 'projects' }}
+      state={{ [RAIL_STATE_KEY]: 'projects', chat: c }}
       rowRef={row}
       name={projectRowName(
         name,

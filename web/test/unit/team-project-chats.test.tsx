@@ -55,27 +55,35 @@ afterAll(() => {
 })
 
 describe('the box of a team project', () => {
-  test('shared by default; "Only me" says so; the switch is a real button; personal projects have none', async () => {
+  test('shared by default: one chip in the box\'s row after +, named by the whole sentence; "Only me" says so; personal projects have none (QA TC-1401)', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs() } } as never)
     const m = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project()} aiLine={false} /></MemoryRouter>)
     try {
-      expect(m.get('who-sees').textContent).toBe(en('projects.newChatShared', { n: 3 }))
       const toggle = m.get('only-me-toggle')
-      expect([toggle.tagName, toggle.getAttribute('aria-pressed'), toggle.textContent]).toEqual(['BUTTON', 'false', en('projects.onlyMe')])
-      // 44 px on a phone (touch-hit), on every screen size (not the computer-only row of the box)
+      expect([toggle.tagName, toggle.getAttribute('aria-pressed'), m.get('chat-visibility-why').textContent, toggle.getAttribute('data-who')]).toEqual(['BUTTON', 'false', en('projects.newChatShared', { n: 3 }), 'people'])
+      // the chip says how many (a phone: the number alone)
+      expect(toggle.textContent).toContain(en('projects.visibilityPeople', { n: 3 }))
+      // 44 px taps on a phone (touch-hit); inside the box's row, right after +; no line under the box any more
       expect(toggle.getAttribute('class')).toContain('touch-hit')
-      expect(m.find('composer-footer')?.querySelector('[data-testid="who-sees"]') ?? null).toBeNull()
+      const tools = m.get('composer-tools')
+      expect(tools.contains(toggle)).toBe(true)
+      const order = [...tools.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid'))
+      expect(order.indexOf('attach-button')).toBeGreaterThan(-1)
+      expect(order.indexOf('attach-button')).toBeLessThan(order.indexOf('only-me-toggle'))
+      expect(m.find('team-chat-line')).toBeNull()
+      expect(m.find('who-sees')).toBeNull()
       await m.click(toggle)
       expect(m.get('only-me-toggle').getAttribute('aria-pressed')).toBe('true')
-      expect(m.get('who-sees').textContent).toBe(en('projects.onlyMeOn'))
-      expect(m.get('team-chat-line').getAttribute('data-who')).toBe('me')
+      expect(m.get('chat-visibility-why').textContent).toBe(en('projects.onlyMeOn'))
+      expect(m.get('only-me-toggle').textContent).toBe(en('projects.onlyMe'))
+      expect(m.get('only-me-toggle').getAttribute('data-who')).toBe('me')
       await m.click('only-me-toggle')
-      expect(m.get('who-sees').textContent).toBe(en('projects.newChatShared', { n: 3 }))
+      expect(m.get('chat-visibility-why').textContent).toBe(en('projects.newChatShared', { n: 3 }))
     } finally { await m.unmount() }
     const personal = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project({ folderPath: 'users/alice/projects/notes', audience: 1, shareChats: false })} aiLine={false} /></MemoryRouter>)
     try {
       expect(personal.find('only-me-toggle')).toBeNull()
-      expect(personal.find('team-chat-line')).toBeNull()
+      expect(personal.find('chat-visibility')).toBeNull()
     } finally { await personal.unmount() }
   })
 
@@ -163,7 +171,8 @@ describe('the box of a team project', () => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs(true) } } as never)
     const m = await mount(<MemoryRouter><NewChatComposer projectId={P1} project={project()} aiLine={false} /></MemoryRouter>)
     try {
-      expect(m.get('who-sees').textContent).toBe(en('projects.newChatSafeOps'))
+      expect(m.get('chat-visibility-why').textContent).toBe(en('projects.newChatSafeOps'))
+      expect(m.get('chat-visibility').textContent).toBe(en('projects.onlyMe'))
       expect(m.find('only-me-toggle')).toBeNull()
     } finally { await m.unmount() }
   })

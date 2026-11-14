@@ -27,7 +27,6 @@ const ALLOW = new Map<string, string>([
   ['components/phone/PhoneList.tsx', "a phone's info list (its own single source)"],
   ['pages/Activity.tsx', "the notification feed: three-line rows with a face, a different kind from a panel's list"],
   ['pages/Settings.tsx', "a form field's label in a row's look (rowName), not a list row"],
-  ['components/ProjectParticipants.tsx', 'to fix: the participant rows wrap their controls under the name (a row with a second line of buttons)'],
 ])
 
 /** the other single-source rows, for a kind of row ListRow is not (they keep their own box, the list tokens' type): every
