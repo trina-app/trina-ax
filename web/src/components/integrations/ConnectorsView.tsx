@@ -2,7 +2,7 @@
 // title row of Admin's page (the title, the search and Add with its ⌄ menu), which stays at the top while the page
 // scrolls; one line of the connected ones (ConnectorRow); and one row of Discover (DiscoverCard). A listed service's or a
 // connection's page is ConnectionPage.tsx.
-import { Check, Plus, Search } from 'lucide-react'
+import { Check, Loader2, Plus, Search } from 'lucide-react'
 import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
@@ -149,7 +149,10 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
         ) : status === 'off' ? (
           <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
         ) : status === 'connecting' ? (
-          <span className="text-xs text-warn" data-testid="connector-row-status">{t('slack.state.connecting')}</span>
+          // a spinner: it is under way (QA TC-2132); its page says how long it can take
+          <span className="flex items-center gap-1 text-xs text-warn" role="status" data-testid="connector-row-status">
+            <Loader2 size={12} className="animate-spin" aria-hidden /> {t('slack.state.connecting')}
+          </span>
         ) : status === 'signin' ? (
           <button type="button" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-warn hover:bg-hover max-md:min-h-11" onClick={onOpen} aria-label={`${t('integrations.status.needs_auth')}: ${name}`} data-testid="connector-row-status">{t('integrations.status.needs_auth')}</button>
         ) : status === 'reconnect' ? (

@@ -214,7 +214,8 @@ test("the AI chat's box on a phone: three pasted pictures fit one row, each ✕ 
   await expect(file.getByTestId('chip-thumb')).toHaveCount(0)
   const pic = (await chips.first().getByTestId('chip-thumb').boundingBox())!
   const chip = (await file.boundingBox())!
-  expect(chip.height).toBeLessThan(40)
+  // as tall as its ✕'s 44 px phone target (ChipRemove) plus its border, still inside the picture's 64 px
+  expect(chip.height).toBeLessThanOrEqual(46)
   expect(chip.y).toBeGreaterThan(pic.y)
   expect(chip.y + chip.height).toBeLessThan(pic.y + pic.height)
 })
