@@ -91,6 +91,11 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
       } else toast({ level: 'error', text: guestErrorText(e, locale, t) })
     }
   }
+  // their project back from the trash (POST /api/projects/:id/restore, the owner or an admin): the server switches
+  // the guest on with it (admin/guests.ts returnGuestsWithPlace), within the plan's guests
+  const restore = async (projectId: string, place: string) => {
+    if (await act(() => api.call(API.restoreProject, { params: { id: projectId } }), t('guest.admin.projectRestored', { place }))) await onChanged()
+  }
   const remove = async (u: User) => {
     if (!(await confirmDialog({ title: t('guest.admin.removeTitle', { name: u.name }), body: t('guest.admin.removeBody'), confirm: t('guest.admin.remove'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: 'disabled' } }), t('guest.admin.removed', { name: u.name }))) await onChanged()
@@ -138,7 +143,14 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
           {sorted.map((u) => {
             const g = userGuest(u)
             const where = placeWords(t, g?.place ?? null, g?.out ?? null)
-            const meta = [where, aiWords(t, g?.ai ?? null, connections, g?.aiGone), u.status === 'disabled' ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
+            // a removed guest: where they are (or why not) and that they are off, no AI (they cannot use it); the line may
+            // take two lines on a phone so the status is never cut
+            const removed = u.status === 'disabled'
+            // their project is in the trash: put it back from here, which brings them back with it
+            const restoreBtn = g?.out === 'trashed' && g.place?.id
+              ? (suffix: string) => <Button size="sm" variant="secondary" onClick={() => void restore(g.place!.id!, g.place!.name ?? '')} data-testid={`guest-restore-${u.username}${suffix}`}>{t('guest.admin.restoreProject')}</Button>
+              : null
+            const meta = [where, removed ? null : aiWords(t, g?.ai ?? null, connections, g?.aiGone), removed ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
             return (
               <ListRow
                 key={u.id}
@@ -146,10 +158,22 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
                 scale="page"
                 icon={<Avatar user={u} size="fill" />}
                 name={u.name}
-                meta={meta || u.username}
+                meta={
+                  // two lines at most and never cut sideways (a phone's narrow row), and on a phone Restore project
+                  // under it: beside the words it left them no room
+                  <>
+                    <span className="line-clamp-2 whitespace-normal break-words">{meta || u.username}</span>
+                    {restoreBtn && <span className="mt-1 block md:hidden">{restoreBtn('-mobile')}</span>}
+                  </>
+                }
                 testId={`guest-row-${u.username}`}
                 li={{ ref: u.id === focusId ? focusRow : undefined, className: clsx(u.status === 'disabled' && REMOVED_ROW, u.id === focusId && 'rounded-lg bg-accent-soft') }}
-                end={<MemberMenu name={u.name} items={items(u)} />}
+                end={
+                  <span className="flex shrink-0 items-center gap-1 self-center">
+                    {restoreBtn && <span className="max-md:hidden">{restoreBtn('')}</span>}
+                    <MemberMenu name={u.name} items={items(u)} />
+                  </span>
+                }
               />
             )
           })}

@@ -28297,3 +28297,12 @@ Builds on "First run, phase 2". Plan: `docs/AGENTS/plan/20261115-0016-qa-1115-de
 - **A guest's project folder on a computer** (`/projects/<id>/files?dir=…`, ProjectFiles from #878) had its back link, title and rows 16px from the sidebar: it now has the project page's column (24px, at most 1080px, the name as large as the page's).
 - **Removed rows' menus** sat under the next row (a dimmed row is a stacking context): the dimmed row is undimmed and raised while focus is inside it.
 - Version impact: **minor** (new optional API fields `InviteInfo.reason`, `GuestInviteLimit.used`, `GuestDetail.placeOut`/`teamAiGone`, error `params.resetsAt` / `params.placeOut`; migration 123).
+
+## Guest states, round 2: a calm limit notice, whole status lines, Restore project on the row — 게스트 상태 2차 (fix/guest-states-2, 2026-11-15, the coordinator after #889; QA TC-2491..2493)
+
+넣을 곳: Team AX core (`web/src/components/chat/Messages.tsx`, `web/src/pages/admin/Guests.tsx`), 이유: follow-ups of "Guest states" above; the owner's rule "never an error's look for a known state".
+
+- **The AI limit used up** (code `budget_exceeded`) is a known state, not a failure: a neutral notice (the paused answer's look: a line border, a pause icon, `role="status"`, `answer-limit`) with the words as before (a guest's "…It resets on Dec 1…", a member's server message with its date), and no **Try again** in it nor the regenerate icon under it: both would be refused until the reset. Members and guests alike.
+- **Admin › Guests at 390:** a row's second line wraps to two lines and is never cut sideways; a removed guest's line drops the AI part (they cannot use it) so "Disabled" and why stay readable.
+- **Restore project** on the row of a guest whose project is in the trash (Admin is the owner's and admins'; `POST /api/projects/:id/restore`, which switches the guest back on within the plan's guests: "Guest states" above). Beside the "…" on a computer, under the words on a phone.
+- Version impact: **patch** (no API change).

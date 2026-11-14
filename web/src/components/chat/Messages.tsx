@@ -694,7 +694,10 @@ export function AssistantMessage({
   const press = usePhonePress(pressMenu && !streaming)
   const { copy } = useCopy()
   const answeredBy = useAnsweredBy(m)
-  const canRetry = !(m.status === 'error' && isLast) && canRegenerate
+  // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
+  // again (it would be refused until then; owner rule: never an error's look for a known state)
+  const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
+  const canRetry = !(m.status === 'error' && isLast) && !atLimit && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
@@ -764,7 +767,13 @@ export function AssistantMessage({
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
-        {m.status === 'error' && (
+        {atLimit && (
+          <div role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-limit">
+            <CirclePause size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-1 py-1 leading-6 break-keep text-ink">{errText}</span>
+          </div>
+        )}
+        {m.status === 'error' && !atLimit && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one

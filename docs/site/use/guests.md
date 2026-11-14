@@ -133,4 +133,4 @@ The **⋯** menu of a guest has:
 
 The **⋯** menu of a removed guest has **Switch back on** while their chat or project is still there for them, then
 **Make team member** and **Delete**. When there is nothing to bring them back to, their row says why (they left, their
-project is in the trash, or the chat or project is gone): invite them again or make them a team member.
+project is in the trash, or the chat or project is gone): invite them again or make them a team member. When their project is in the trash, **Restore project** on their row puts it back, and them with it.

@@ -175,6 +175,8 @@ export const id: Record<MessageKey, string> = {
   "guest.admin.project": "Proyek · {place}",
   "guest.admin.outLeft": "Sudah tidak di '{place}'",
   "guest.admin.outTrashed": "Proyek · {place} · di tempat sampah",
+  "guest.admin.restoreProject": "Pulihkan proyek",
+  "guest.admin.projectRestored": "'{place}' sudah dipulihkan.",
   "guest.admin.outGone": "Ruang atau proyeknya sudah tidak ada",
   "guest.admin.aiGone": "AI tim · akun dihapus",
   "guest.admin.changeAi": "Ubah AI",

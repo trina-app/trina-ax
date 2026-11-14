@@ -172,6 +172,8 @@ export const es: Record<MessageKey, string> = {
   "guest.admin.project": "Proyecto · {place}",
   "guest.admin.outLeft": "Ya no está en '{place}'",
   "guest.admin.outTrashed": "Proyecto · {place} · en la papelera",
+  "guest.admin.restoreProject": "Restaurar proyecto",
+  "guest.admin.projectRestored": "Se restauró '{place}'.",
   "guest.admin.outGone": "Su sala o proyecto ya no existe",
   "guest.admin.aiGone": "IA del equipo · cuenta eliminada",
   "guest.admin.changeAi": "Cambiar IA",

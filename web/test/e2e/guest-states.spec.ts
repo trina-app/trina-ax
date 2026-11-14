@@ -207,6 +207,41 @@ test.describe('trash', () => {
   })
 })
 
+test.describe('admin rows', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test("a removed guest's status is never cut on a phone; a guest whose project is in the trash gets Restore project", async ({ page }) => {
+    await start(page)
+    const proj = (await (await page.request.post('/__test/project', { data: { name: 'Launch plan for the spring catalogue', by: 'olga' } })).json()) as { id: string }
+    await guest(page, { id: 'tara', name: 'Tara', status: 'disabled', out: 'trashed', place: { kind: 'project', id: proj.id } })
+    await guest(page, { id: 'gwen', name: 'Gwen', status: 'disabled', out: 'gone' })
+    await guest(page, { id: 'abel', name: 'Abel', ai: { mode: 'team', credentialId: 'c1', limitUsd: 20 }, teamAiGone: true })
+    await signIn(page)
+    expect((await page.request.delete(`/api/projects/${proj.id}`, { headers: { [CSRF_HEADER]: '1' } })).ok()).toBeTruthy()
+    const open = async () => {
+      await page.goto('/admin/members')
+      await page.getByTestId('guests-show-removed').click()
+      await expect(page.getByTestId('guest-row-tara')).toBeVisible()
+    }
+    await open()
+    // every second line whole: nothing cut sideways or below
+    for (const who of ['tara', 'gwen', 'abel']) {
+      const cut = await page.getByTestId(`guest-row-${who}`).evaluate((row) => [...row.querySelectorAll('span')].filter((x) => x.className.includes('text-meta')).some((x) => x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1))
+      expect(cut, who).toBe(false)
+    }
+    await expect(page.getByTestId('guest-row-tara')).toContainText('Disabled')
+    await expect(page.getByTestId('guest-row-tara')).not.toContainText('No AI')
+    await shoot(page, 'admin-guests-rows', open)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await open()
+    // one step: the project back, and the guest with it
+    await page.getByTestId('guest-restore-tara-mobile').click()
+    await expect(page.getByText("'Launch plan for the spring catalogue' was restored.")).toBeVisible()
+    await expect(page.getByTestId('guest-row-tara')).not.toContainText('in the trash')
+    await expect(page.getByTestId('guest-restore-tara-mobile')).toHaveCount(0)
+  })
+})
+
 test.describe('guest', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
@@ -227,8 +262,25 @@ test.describe('guest', () => {
     await page.getByTestId('composer-input').press('Enter')
     const line = page.getByText("You've used this month's AI limit. It resets on Dec 1. Ask the person who invited you if you need more.")
     await expect(line).toBeVisible()
+    // a known state, not a failure: a calm notice, no red box and nothing to try again (it would be refused)
+    await expect(page.getByTestId('answer-limit')).toContainText('It resets on Dec 1')
+    await expect(page.getByTestId('answer-error')).toHaveCount(0)
+    await expect(page.getByTestId('retry')).toHaveCount(0)
+    await expect(page.getByTestId('regenerate')).toHaveCount(0)
     const url = page.url()
     await shoot(page, 'guest-ai-limit', async () => { await page.goto(url); await expect(line).toBeVisible() })
+  })
+
+  test('a member at the limit gets the same calm notice with the member words, and no Try again', async ({ page }) => {
+    await start(page)
+    await signIn(page)
+    await page.getByTestId('composer-input').fill('error:budget\nhello')
+    await page.getByTestId('composer-input').press('Enter')
+    await expect(page.getByTestId('answer-limit')).toContainText('12월 1일')
+    await expect(page.getByTestId('answer-error')).toHaveCount(0)
+    await expect(page.getByTestId('retry')).toHaveCount(0)
+    const url = page.url()
+    await shoot(page, 'member-ai-limit', async () => { await page.goto(url); await expect(page.getByTestId('answer-limit')).toBeVisible() })
   })
 
   test("a Team AI guest whose team AI account was deleted keeps Trina and reads that AI can't answer", async ({ page }) => {

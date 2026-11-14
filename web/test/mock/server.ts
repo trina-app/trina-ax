@@ -2881,6 +2881,13 @@ export class MockServer {
       for (const [k, n] of kept!) this.files.set(k, n)
       this.trashedProjects.delete(p.id)
       p.inTrash = false
+      // like admin/guests.ts returnGuestsWithPlace: its guests the trash switched off come back with it
+      for (const [id, g] of this.guests) {
+        if (g.place.kind !== 'project' || g.place.id !== p.id || g.out !== 'trashed') continue
+        const u = this.users.find((x) => x.id === id)
+        if (u) u.status = 'active'
+        delete g.out
+      }
       return this.sharedProjectOut(p, c.user)
     },
     getProjectAccess: (c) => this.projectAccessOf(this.projectToEdit(c), c.user),
