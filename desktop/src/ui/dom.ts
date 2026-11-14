@@ -18,6 +18,8 @@ export interface WelcomeState {
   link?: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team */
   linkError?: string | null
+  /** the team being added is starting after a pause (about a minute); the add goes on by itself */
+  waking?: boolean
 }
 export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string; next?: string }
 export interface PanePrompt {

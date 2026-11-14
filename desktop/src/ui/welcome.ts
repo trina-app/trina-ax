@@ -105,6 +105,19 @@ async function submit(confirmed = false) {
   }
 }
 
+/** A sleeping free trial team that is starting (QA wake gap 1): a calm wait with a spinner, not an error. The add
+ * goes on by itself when the team answers (main/app-window.ts addTeam). */
+function waking() {
+  return busy && state.waking
+    ? h(
+        'div',
+        { class: 'waking', role: 'status', 'data-testid': 'team-waking' },
+        h('p', { class: 'waking-title' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), tr('welcome.waking')),
+        h('p', { class: 'waking-detail' }, tr('welcome.wakingDetail')),
+      )
+    : null
+}
+
 function welcome() {
   const input = h('input', {
     id: 'address',
@@ -137,6 +150,7 @@ function welcome() {
     },
     h('label', { for: 'address', class: 'sr-only' }, tr('welcome.label')),
     h('div', { class: 'field' }, input, h('button', { class: 'primary', type: 'submit', disabled: busy }, busy ? tr('welcome.checking') : tr('welcome.connect'))),
+    waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
   )
   return h(
@@ -205,6 +219,7 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
     h('h1', { id: 'link-title', class: 'host-title' }, tr('link.title', { host: link.host })),
     h('p', { class: 'sub', id: 'link-body' }, tr('link.body')),
     link.hosted ? null : h('div', { class: 'confirm', 'data-testid': 'link-outside' }, h('p', {}, tr('outside.body'))),
+    waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
     h(
       'div',

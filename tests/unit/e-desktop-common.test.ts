@@ -116,7 +116,8 @@ describe('first run: what the team address answered, the help screens, the host 
       expect(health(302, null, false, away)).toEqual({ ok: false, error: 'notTeamServer' })
     expect(healthVerdict('http://acme.localhost:19883', { status: 308, location: 'http://acme-co.localhost:19883/api/health', relayError: null, bodyOk: false })).toEqual({ ok: false, rename: 'http://acme-co.localhost:19883' })
     // a rename is asked before the new address is remembered, and followed once only
-    expect(win).toMatch(/if \(!v\.ok && 'rename' in v\) return fail\('notTeamServer'\)/)
+    const check = readFileSync(join(import.meta.dir, '../../desktop/src/common/address.ts'), 'utf8')
+    expect(check).toMatch(/if \(!v\.ok && 'rename' in v\) return \{ ok: false, error: 'notTeamServer' \}/)
     expect(win).toMatch(/if \(origin !== p\.origin && !known\) return \{ ok: false, error: 'renamed'/)
     expect(t('ko', 'err.renamed', { host: 'acme-corp.trina.app' })).toBe('팀 주소가 acme-corp.trina.app(으)로 바뀌었어요. 새 주소로 연결할까요?')
   })
