@@ -17,7 +17,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, SignInLinks, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
 import { LogoTile } from '../../components/integrations/ConnectorsView'
@@ -609,22 +609,21 @@ function CommandLine({ text }: { text: string }) {
 
 /** Claude: open the authorize page (a new tab, or copy its link to another browser), paste the code it shows; then
  * the check, then the result */
-function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
+export function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
   const t = useT()
+  const [opened, setOpened] = useState(false)
+  const codeRef = useRef<HTMLInputElement>(null)
   if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
   if ((l.state === 'code' || l.state === 'checking') && l.url) {
     const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
     return (
       <div className="space-y-4" data-testid="claude-code">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
-            {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
-          </a>
-          {/* the same link for another browser (the one signed in to Claude) or another device */}
-          <CopyButton text={l.url} label={t('credentials.claude.copyLink')} showLabel />
-        </div>
+        {/* Open is the main action until it is used (or a code is in), then Connect is: one primary at a time. Copy
+            link: the same link for another browser (the one signed in to Claude) or another device. */}
+        <SignInLinks url={l.url} label={t('credentials.claude.open')} copyLabel={t('credentials.claude.copyLink')} primary={!opened && code.trim() === ''}
+          testId="claude-open" onOpen={() => { setOpened(true); setTimeout(() => codeRef.current?.focus(), 0) }} />
         <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
-          <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
+          <input ref={codeRef} className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
             onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
         </Field>
         {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
@@ -646,10 +645,7 @@ function ChatgptProgress({ l, personal }: { l: CredentialLogin; personal?: boole
   if (l.state === 'code' && l.url && l.code) return (
     <ol className="list-decimal space-y-3 pl-5 text-sm" data-testid="chatgpt-code">
       <li>{t('credentials.chatgpt.step1')}
-        <span className="mt-1 flex items-center gap-2">
-          <a className="break-all text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener">{l.url}</a>
-          <CopyButton text={l.url} />
-        </span>
+        <div className="mt-2"><SignInLinks url={l.url} label={t('credentials.chatgpt.open')} copyLabel={t('credentials.claude.copyLink')} testId="chatgpt-open" /></div>
       </li>
       <li>{t('credentials.chatgpt.step2')}
         <span className="mt-1 flex items-center gap-2"><code className="text-xl font-semibold tracking-widest" data-testid="chatgpt-user-code">{l.code}</code><CopyButton text={l.code} /></span>

@@ -119,10 +119,15 @@ someone out again, with Undo until you save.
 - The people you add find it in their Trina history and in **Activity**, can continue it, or **Hide from my list**. A
   notification on their phone or browser says who shared it with them (**Settings › Notifications › Chats shared with
   me** turns it off).
+- A file you attached from your computer is kept with the chat: everyone who can see the chat can open it and ask
+  Trina about it, and nobody else can. Taking someone out, or making the chat private again, takes the files away from
+  them; deleting the chat deletes them.
 - Only the person who started the chat changes who sees it. **Continue in a chat only you see** in the title menu starts
   a private copy for you.
 - A chat in a team project is shared with the project's members instead (see [Projects](#projects)); a chat in a
   personal project cannot be shared until you move it.
+
+A direct chat with someone who left the team says "<name> left the team" and has no message box. The history stays readable.
 
 ## Team chat
 
