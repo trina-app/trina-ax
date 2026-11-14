@@ -4524,6 +4524,12 @@ export class MockServer {
       this.integrationFlows.set(flow.flowId, { flow, integrationId: x.id, userId: c.user.id, polls: 0 })
       return { flowId: flow.flowId, authorizationUrl: `https://auth.example.test/authorize?client_id=mock&state=${flow.flowId}`, expiresAt: flow.expiresAt }
     },
+    cancelIntegrationFlow: (c) => {
+      const f = this.integrationFlows.get(c.params.id)
+      if (!f || f.userId !== c.user.id) return fail('not_found', 404)
+      if (f.flow.state === 'pending') Object.assign(f.flow, { state: 'failed', reason: 'cancelled' })
+      return undefined
+    },
     integrationFlow: (c) => {
       const f = this.integrationFlows.get(c.params.id)
       if (!f || f.userId !== c.user.id) return fail('not_found', 404)
