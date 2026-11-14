@@ -1,6 +1,6 @@
 // Apps posting in rooms, the parts the app's screens share (docs/DECISIONS.md "Apps posting in rooms";
 // components/rooms/apps/*): an app message's plain words, the guide's status line, the side chat's chips.
-import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, ROOM_APP_SWITCHES, RoomAppPreset, type RoomApp, type RoomAppKind, type RoomMessage } from '@mycel/shared/api'
+import { ROOM_APP_DAILY_CAP, ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, RoomAppPreset, type RoomApp, type RoomAppKind, type RoomMessage } from '@mycel/shared/api'
 
 /** The server's body escapes Markdown marks (and "@", and "://") so older apps show it as text; the other way. */
 export const unescapeAppBody = (s: string) => s.replace(/\\([\\`*_[\]<>#|~@&\-+=.)/:])/g, '$1').replace(/<(https:\/\/[^>\s]+)>/g, '$1')
@@ -13,13 +13,23 @@ export function appPlainText(m: Pick<RoomMessage, 'app' | 'appCard' | 'body'>): 
   return [head, ...c.details, ...(c.status ? [c.status] : []), ...(c.link ? [c.link.url] : [])].join('\n')
 }
 
-/** What the guide's (and the settings') status line says about an app, newest first: a refusal newer than the last
- * message shown, else connected (the first message shown), else nothing yet. */
-export type AppStatus = { kind: 'refused'; at: string; reason: NonNullable<RoomApp['lastRefusal']>['reason'] } | { kind: 'paused'; until: string } | { kind: 'ok'; first: string; last: string } | { kind: 'none' }
-export function appStatus(a: Pick<RoomApp, 'lastRefusal' | 'firstOkAt' | 'lastOkAt' | 'pausedUntil'>): AppStatus {
-  if (a.pausedUntil) return { kind: 'paused', until: a.pausedUntil }
+/** What the guide's (and the settings') status line says about an app, newest first: paused (by its own cap or the
+ * team's), a refusal newer than the last message shown, waiting for the service to use a regenerated Webhook URL (no
+ * message since: a service still sending to the old one gets 404, so "Last message …" would hide it; QA TC-2086), else
+ * connected (the first message shown), else nothing yet. */
+export type AppStatus = { kind: 'refused'; at: string; reason: NonNullable<RoomApp['lastRefusal']>['reason'] }
+  | { kind: 'paused'; until: string; by: 'app' | 'team'; cap: number; timeZone?: string }
+  | { kind: 'moved'; at: string } | { kind: 'ok'; first: string; last: string } | { kind: 'none' }
+export function appStatus(a: Pick<RoomApp, 'lastRefusal' | 'firstOkAt' | 'lastOkAt' | 'pausedUntil' | 'pausedBy' | 'pausedCap' | 'timeZone' | 'rotatedAt'>): AppStatus {
+  if (a.pausedUntil) {
+    const by = a.pausedBy ?? 'app'
+    return { kind: 'paused', until: a.pausedUntil, by, cap: a.pausedCap ?? (by === 'team' ? ROOM_APP_TEAM_DAILY_CAP : ROOM_APP_DAILY_CAP), ...(a.timeZone ? { timeZone: a.timeZone } : {}) }
+  }
   const r = a.lastRefusal
-  if (r && (!a.lastOkAt || Date.parse(r.at) > Date.parse(a.lastOkAt))) return { kind: 'refused', at: r.at, reason: r.reason }
+  const moved = a.rotatedAt && (!a.lastOkAt || Date.parse(a.lastOkAt) < Date.parse(a.rotatedAt)) ? a.rotatedAt : null
+  // after Regenerate only what came to the new URL counts: an older refusal was the old URL's
+  if (r && (!a.lastOkAt || Date.parse(r.at) > Date.parse(a.lastOkAt)) && (!moved || Date.parse(r.at) >= Date.parse(moved))) return { kind: 'refused', at: r.at, reason: r.reason }
+  if (moved) return { kind: 'moved', at: moved }
   if (a.firstOkAt && a.lastOkAt) return { kind: 'ok', first: a.firstOkAt, last: a.lastOkAt }
   return { kind: 'none' }
 }

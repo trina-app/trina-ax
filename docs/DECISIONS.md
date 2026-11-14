@@ -27593,7 +27593,10 @@ guides, "Apps posting here") are phase 2.
 - **Caps (owner decision 3).** 500 shown per app and team day; past it the app pauses until the team's midnight: a quiet
   line from the app in the room, a `room_app.paused` notice (table `room_app_notices`, Activity only in phase 1) to the
   people who manage it and the person who added it, an audit row; 429 meanwhile. "Resume now" once a day allows as many
-  again. 5,000 per team a day pauses every app the same way (no resume). 10 apps a room, 10 added per person an hour,
+  again. 5,000 per team a day pauses every app the same way (no resume); its line, status and notice say the team's
+  number and when it ends in the team's time zone (QA TC-2067; migration 403 `room_app_days.paused_by`). After
+  Regenerate the status waits for the service to use the new Webhook URL until a message arrives after
+  `room_apps.rotated_at` (QA TC-2086). 10 apps a room, 10 added per person an hour,
   5 examples an app an hour.
 - **Quiet.** Short lines that count nowhere: no unread, no notice, not the rooms list's line, no activity bump
   (`app_quiet`; unreadCount, threadsUnread, lastMessage, recordNotices, unhideFor). Otherwise an app's message counts

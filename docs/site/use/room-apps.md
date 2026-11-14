@@ -155,7 +155,9 @@ You need to be an owner or a manager in Sentry.
 **⋯ › Integrations** lists the room's apps under **Apps**, with **Add an App**. One app's page has:
 
 - Who set it up, and **How to connect** (its steps again).
-- **A status line**: the last message, *Paused*, or *Waiting for the first message*.
+- **A status line**: the last message, *Paused*, *Waiting for the first message*, or, after **Regenerate** and until
+  the first message arrives on the new URL, *Waiting for GitHub to use the new Webhook URL* (the row in the list says it
+  too).
 - **Warnings**, each with one action: why the last try wasn't shown (**Check the secret**), *Someone who left knows this
   Webhook URL* (**Regenerate**), and, for a service that can sign but has no secret yet, *Not signed: anyone with the Webhook URL can
   post* (**Make it safer**).
@@ -174,7 +176,8 @@ You need to be an owner or a manager in Sentry.
 
 An app posts at most 500 messages a day (Google Forms: 500 responses). Past that it pauses until midnight (your team's
 time zone): the room gets one line, and the people who manage it get a notice in **Activity** (and on their phone and in their browser) with **Resume now**
-(once a day). Form
+(once a day). All of a team's apps together post at most 5,000 messages a day: past that every app pauses until
+midnight, and the line and notice say *Your team's apps reached 5,000 messages today*, with no **Resume now**. Form
 responses it skipped are still in the form's Responses tab. Cards are plain text: nothing in them can mention anyone,
 run anything or hide a link.
 

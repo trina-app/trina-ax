@@ -1,9 +1,10 @@
 // The "paused" notice of an app in a room (notifications 'room_app.paused', table room_app_notices, migration 299): what
 // it says is read when the notice is read. The room is named and linked only while the person is still in it.
-import { plainLabel, ROOM_APP_DAILY_CAP, type InboxNotification } from '@mycel/shared/api'
+import { plainLabel, ROOM_APP_DAILY_CAP, ROOM_APP_TEAM_DAILY_CAP, type InboxNotification } from '@mycel/shared/api'
+import { teamTimeZone } from '../../admin/settings'
 import type { AppContext } from '../../context'
 import { groupName, mayManageApps, memberRow, roomRow, type RoomRow } from '../store'
-import { leaverSource, roomAppsOf, type AppRow } from './service'
+import { leaverSource, roomAppsOf, teamDay, type AppRow } from './service'
 
 export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomApp']> | null {
   const m = /^(.+)\.(\d{4}-\d{2}-\d{2})$/.exec(sourceId)
@@ -16,10 +17,17 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
   const inRoom = !!room && !room.archived_at && !!memberRow(ctx.db, room.id, userId)
   const name = inRoom && room.kind !== 'dm' ? room.name || groupName(ctx.db, room) : null
   const out = apps.out(row)
-  const skipped = (ctx.db.query('SELECT skipped FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { skipped: number } | null)?.skipped ?? 0
+  const d = ctx.db.query('SELECT skipped, paused_by FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { skipped: number; paused_by: string | null } | null
+  const skipped = d?.skipped ?? 0
+  // the team's cap: said as the team's, with its number and no Resume now. Today's notice while paused: what holds it
+  // now; an earlier day's (or one whose pause ended): what paused it that day
+  const live = !!out.pausedUntil && day === teamDay(ctx.db, apps.clock()).day
+  const team = live ? out.pausedBy === 'team' : d?.paused_by === 'team'
+  const ownCap = live ? out.pausedCap ?? ROOM_APP_DAILY_CAP : ROOM_APP_DAILY_CAP
   return {
     appId, name: plainLabel(row.name, 40), kind: row.kind, ...(apps.presetOf(row) ? { preset: apps.presetOf(row)! } : {}), roomId: inRoom ? room.id : null, roomKind: inRoom ? room.kind : null, roomName: name ? plainLabel(name, 80) : null,
-    day, cap: ROOM_APP_DAILY_CAP, skipped, pausedUntil: out.pausedUntil, canResume: inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
+    day, cap: team ? ROOM_APP_TEAM_DAILY_CAP : ownCap, skipped, pausedUntil: out.pausedUntil, canResume: live && !team && inRoom && mayManageApps(ctx.db, room, userId) && out.canResume,
+    ...(team ? { team: true as const, timeZone: teamTimeZone(ctx.db) } : {}),
   }
 }
 
