@@ -1,13 +1,36 @@
 // The parts the apps dialog's guides share (AppsDialog, PresetSteps): a service's screen label quoted, Copy in the
-// click itself, the one copy button, numbered steps, a fold, the event chips and a body to paste with its Copy.
+// click itself, the one copy button, numbered steps, a fold, the event chips, a body to paste with its Copy, and when
+// "Nothing yet?" is due.
 import clsx from 'clsx'
 import { Check, ChevronRight } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Locale } from '@mycel/shared/api'
 import { errorText } from '../../../lib/api'
 import { useLocale, useT } from '../../../i18n'
+import { NOTHING_YET_MS } from '../../../lib/roomApps'
 import { toast } from '../../../store/ui'
 import { Button } from '../../ui'
+
+/** The clock and timers useNothingYet reads (a unit test passes fake ones). */
+export interface NothingYetClock { now: () => number; set: (fn: () => void, ms: number) => unknown; clear: (id: unknown) => void }
+const REAL_CLOCK: NothingYetClock = { now: () => Date.now(), set: (fn, ms) => setTimeout(fn, ms), clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) }
+
+/** Whether a guide waiting for an app's first message shows "Nothing yet?": NOTHING_YET_MS after the app was added.
+ * Keyed on the app's `createdAt` and whether it still waits, never on the app object: while it waits the screen reads
+ * the app again every few seconds (useLive), and a timer tied to that object was torn down before it could fire, so the
+ * line never came (QA TC-2389 re-test). One timer, set for the moment it is due. */
+export function useNothingYet(createdAt: string | null, waiting: boolean, clock: NothingYetClock = REAL_CLOCK): boolean {
+  const due = createdAt ? Date.parse(createdAt) + NOTHING_YET_MS : null
+  const [reached, setReached] = useState(() => due !== null && clock.now() >= due)
+  useEffect(() => {
+    if (!waiting || due === null) return
+    const left = due - clock.now()
+    if (left <= 0) { setReached(true); return }
+    const id = clock.set(() => setReached(true), left)
+    return () => clock.clear(id)
+  }, [due, waiting, clock])
+  return waiting && due !== null && (reached || clock.now() >= due)
+}
 
 /** A service's own screen label, quoted the way the language quotes ("Webhook URL", 「Webhook URL」). */
 function quote(locale: Locale, s: string): string {

@@ -23,7 +23,7 @@ import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
 import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
-import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, NOTHING_YET_MS, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
+import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
 import { useRooms } from '../../../store/rooms'
 import { useRoomApps, type AppsStart } from '../../../store/roomApps'
@@ -34,7 +34,7 @@ import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, T
 import { AppCardText } from '../AppCard'
 import { useRoomTitle } from '../RoomIcon'
 import { AppTile, SenderTag } from './AppParts'
-import { CopyButton, copyFrom, Fold, Step, useFlash, useVendor } from './GuideParts'
+import { CopyButton, copyFrom, Fold, Step, useFlash, useNothingYet, useVendor } from './GuideParts'
 import { DontSeeYourApp, PresetSteps } from './PresetSteps'
 
 /** the user guide's page about apps in rooms (docs/site/use/room-apps.md) */
@@ -598,14 +598,9 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
   const signing = signingOf(service)
   const needs = needsOf(service)
   const s = app ? appStatus(app).kind : 'none'
-  // after two minutes without a first message, a short checklist of that service's likely mistakes (every service)
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!app || s !== 'none') return
-    const id = setInterval(() => setNow(Date.now()), 10_000)
-    return () => clearInterval(id)
-  }, [app, s])
-  const nothingYet = !!app && s === 'none' && now - Date.parse(app.createdAt) >= NOTHING_YET_MS
+  // after two minutes without a first message, a short checklist of that service's likely mistakes (every service);
+  // timed from when the app was added, so the app read again while it waits does not start it over
+  const nothingYet = useNothingYet(app?.createdAt ?? null, !!app && s === 'none')
   const curl = useMemo(() => `curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hi"}' ${address ?? '<address>'}`, [address])
   return (
     <div className="space-y-4" data-testid="apps-guide" data-kind={service}>
