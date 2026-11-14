@@ -18,6 +18,10 @@ import { SealedSecret } from './credentials'
 /** off: not turned on (or no tokens) · connecting · connected · error: lastError says why */
 export const SlackState = z.enum(['off', 'connecting', 'connected', 'error'])
 export type SlackState = z.infer<typeof SlackState>
+/** Connecting for longer than this (seconds) is a problem, not a wait: a Socket Mode hello comes within seconds and
+ * the hosting service answers its first poll at once, so two minutes means something is in the way. */
+export const SLACK_CONNECTING_SLOW_S = 120
+
 /** reason codes only (never Slack's own text): the screen puts them in the reader's words. The official app's own:
  * broker_unreachable (the hosting service does not answer now), not_served (it does not serve this server now),
  * removed (the app was removed from the workspace: "Add to Slack" again) */
@@ -44,6 +48,10 @@ export const SlackAdmin = z.object({
   /** the Slack app's id (A…), for links to its settings pages in Slack; null until known */
   appId: z.string().nullable(),
   state: SlackState,
+  /** while `state` is connecting: how many seconds it has been (the server's clock); null otherwise. Over
+   * SLACK_CONNECTING_SLOW_S the screens say Slack is not answering, with what to do (docs/DECISIONS.md "Slack: one
+   * state for the list and the page"). Optional: an older server does not send it. */
+  connectingFor: z.number().int().nonnegative().nullable().optional(),
   lastError: SlackErrorCode.nullable(),
   /** where the links in Slack open (the address the owner saved the tokens from) */
   linkOrigin: z.string().nullable(),

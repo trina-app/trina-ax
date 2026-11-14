@@ -164,7 +164,11 @@ describe('setup (the owner)', () => {
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)
     await fake.connected()
+    // how long it has been connecting (QA TC-1415: the screens turn a long wait into a problem): a number while
+    // connecting, null once connected
+    expect(on.json.state === 'connecting' ? typeof on.json.connectingFor : null).toBe(on.json.state === 'connecting' ? 'number' : null)
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json.connectingFor).toBeNull()
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.botName === 'acme-helper')).toBe(true)
     expect(fake.sockets()).toBe(1)
     const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
@@ -1171,6 +1175,35 @@ describe('secrets and accounts', () => {
 })
 
 describe('text', () => {
+  test('what the app says in Slack follows the person\'s Trina language, not the language their answers are in; else the team\'s, then English (QA TC-1418)', () => {
+    const db = h.ctx.db
+    const before = db.query("SELECT locale, locale_follows_team, prefs FROM users WHERE id = 'bob'").get() as { locale: string; locale_follows_team: number; prefs: string | null }
+    const team = db.query("SELECT value FROM settings WHERE key = 'defaultLocale'").get() as { value: string } | null
+    try {
+      // Korean screens, answers in English: the status lines ("Working on it…", "Answering as …", "Open in …") in Korean
+      db.query("UPDATE users SET locale = 'ko', locale_follows_team = 0, prefs = ? WHERE id = 'bob'").run(JSON.stringify({ answerLocale: 'en' }))
+      const c = slackOf(h.ctx)
+      expect(c.localeOf('bob')).toBe('ko')
+      expect(sayText('working', c.localeOf('bob'))).toBe('답을 만들고 있어요…')
+      // "Posted to the thread." and "Asked by …" read the same language (the asker's)
+      expect(sayText('posted', c.localeOf('bob'))).toBe('스레드에 올렸어요.')
+      expect(sayText('askedBy', c.localeOf('bob'), { name: 'Bob' })).toContain('Bob님의 질문')
+      db.query("UPDATE users SET locale = 'ja' WHERE id = 'bob'").run()
+      expect(c.localeOf('bob')).toBe('ja')
+      // nobody known (a person not linked): the team's default
+      db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify('es'))
+      expect(c.localeOf(null)).toBe('es')
+      expect(c.localeOf('nobody-here')).toBe('es')
+      // no team default either: English
+      db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+      expect(c.localeOf(null)).toBe('en')
+    } finally {
+      db.query("UPDATE users SET locale = ?, locale_follows_team = ?, prefs = ? WHERE id = 'bob'").run(before.locale, before.locale_follows_team, before.prefs)
+      if (team) db.query("INSERT INTO settings (key, value) VALUES ('defaultLocale', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(team.value)
+      else db.query("DELETE FROM settings WHERE key = 'defaultLocale'").run()
+    }
+  })
+
   test('e-mails compare in NFC, trimmed, in lower case; a full-width look-alike is another address', () => {
     expect(normEmail(' Jose\u0301@Acme.Example ')).toBe(normEmail('jos\u00e9@acme.example'))
     expect(normEmail('ａｌｉｃｅ@acme.example')).not.toBe(normEmail('alice@acme.example'))

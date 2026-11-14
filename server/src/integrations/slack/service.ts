@@ -28,7 +28,7 @@
 // last listed for the bot token). Nothing of Slack's messages is stored here: read in real time for one turn.
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, Locale as LocaleSchema, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
@@ -185,6 +185,9 @@ export class SlackConnector {
   readonly shared = new Map<string, { ids: Set<string>; at: number }>()
   /** the bot's scopes were asked of Slack (checkBotScopes): at most every 10 minutes from refresh */
   private scopesCheckedAt = 0
+  /** the live connection's state and when it began (this server's clock): how long "connecting" has lasted
+   * (adminView connectingFor). Memory only: a restart starts connecting again. */
+  private liveSince: { state: SlackState; at: number } | null = null
 
   constructor(readonly ctx: AppContext, readonly deps: SlackConnectorDeps = {}) {
     this.api = new SlackApi(deps)
@@ -274,6 +277,7 @@ export class SlackConnector {
       // the variable was taken away: nothing comes in (the status line says not served)
       if (!this.broker) { this.noteState('error', 'not_served'); this.stopPoller(); return }
       if (!this.feed) {
+        this.liveSince = { state: 'connecting', at: this.now() }
         this.feed = new SlackBrokerFeed({
           client: this.broker, log: this.log, retryMs: this.deps.retryMs, ...(this.deps.pollWaitMs !== undefined ? { waitMs: this.deps.pollWaitMs } : {}),
           onEvent: (e) => this.onBrokerEvent(e),
@@ -286,6 +290,7 @@ export class SlackConnector {
       return
     }
     if (!this.socket) {
+      this.liveSince = { state: 'connecting', at: this.now() }
       this.socket = new SlackSocket({
         api: this.api, log: this.log, retryMs: this.deps.retryMs, expectedAppId: cfg!.app_id,
         appToken: () => this.tokens()?.app ?? null,
@@ -298,6 +303,7 @@ export class SlackConnector {
   }
 
   private noteState(s: SlackState, err: SlackErrorCode | null) {
+    if (this.liveSince?.state !== s) this.liveSince = { state: s, at: this.now() }
     // the official app removed from the workspace: that stays the reason until it is added again
     const now = this.config()
     if (now?.last_error === 'removed' && !now.secret_enc) return
@@ -348,7 +354,10 @@ export class SlackConnector {
       mode: official ? 'official' : 'own', official: !!this.broker && this.brokerOk,
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
-      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
+      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state,
+      // how long it has been connecting: the screens turn a long wait into a problem with a next step
+      connectingFor: state === 'connecting' ? Math.max(0, Math.floor((this.now() - (this.liveSince?.state === 'connecting' ? this.liveSince.at : this.now())) / 1000)) : null,
+      lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
       signIn: official ? !!cfg?.secret_enc && !!this.broker : !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
       // reading needs the bot's two history scopes: missing (an app from before them: "Update Slack permissions"), ok,
@@ -1082,8 +1091,16 @@ export class SlackConnector {
     if (e instanceof SlackApiError && TOKEN_GONE.has(e.code) && this.config()?.mode === 'official') this.removedInSlack('tokens_revoked')
   }
 
-  private localeOf(userId: string | null): Locale {
-    if (userId) try { return getChatRuntime(this.ctx).userLocale(userId) } catch {}
+  /** The language of what the app says in Slack for a person (working…, "Answering as", Open in, links, notices): their
+   * Trina language, which users.locale keeps (the team's default for someone who follows it); else the team's default,
+   * then English. Not the language they asked the AI to answer in (prefs.answerLocale): that is for the answer itself,
+   * and with it a Korean person who has answers in English got English status lines in a Korean Slack (QA TC-1418). */
+  localeOf(userId: string | null): Locale {
+    if (userId) {
+      const r = this.db.query('SELECT locale FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as { locale: string | null } | null
+      const l = LocaleSchema.safeParse(r?.locale)
+      if (l.success) return l.data
+    }
     try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE }
   }
 

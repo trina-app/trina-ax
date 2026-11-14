@@ -77,8 +77,9 @@ test('back on the page with the sign-in not finished: "not finished yet", 다시
   } finally { await m.unmount() }
 })
 
-test('while still in the sign-in window (no return yet): the waiting line, no 다시 시도', async () => {
+test('while still in the sign-in window (no return yet): the waiting line, with 다시 시도 and 취소 from the start (QA TC-1417: a window closed in the desktop app sent no focus)', async () => {
   const html = await panel({ id: ID, flowId: 'flow-1', url: 'https://mcp.notion.com/authorize', state: 'pending', reason: null })
   expect(html).toContain(translate('ko', 'integrations.signIn.waiting'))
-  expect(html).not.toContain('integration-signin-retry')
+  expect(html).toContain('integration-signin-retry')
+  expect(html).toContain('integration-signin-cancel')
 })

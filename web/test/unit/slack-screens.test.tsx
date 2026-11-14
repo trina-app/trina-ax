@@ -11,6 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
 import AdminIntegrations, { slackAdded, slackRowStatus } from '../../src/pages/admin/Integrations'
+import { slackView } from '../../src/lib/slackState'
 import { redirectOf } from '../../src/pages/admin/AdminLayout'
 import { useSession } from '../../src/store/session'
 import { SlackAccount } from '../../src/components/settings/SlackAccount'
@@ -109,6 +110,32 @@ describe('Admin › Connected apps › Slack: the official app (the hosting serv
     await m.until(() => assigned.length > 0, 'went to Slack')
     expect(calls).toContain('POST /api/admin/slack/official/install')
     expect(assigned).toEqual(['https://slack.com/oauth/v2/authorize?client_id=1111111111.2222222222&state=s'])
+    await m.unmount()
+  })
+
+  test('the page stays (the desktop app opens Slack in the system browser): it waits with Try again and Cancel, never for ever (QA TC-1417)', async () => {
+    admin = base({ official: true })
+    const m = await page()
+    await m.until(() => m.find('slack-official'), 'Add to Slack')
+    await m.click('slack-add')
+    // this location only records where it was sent: the page stays, as in the desktop app
+    await m.until(() => m.find('slack-add-waiting'), 'the wait')
+    expect(m.get('slack-add-waiting').textContent).toContain('Finish adding the app in the Slack window')
+    expect(m.find('slack-add')).toBeNull()
+    // Try again: Slack's page again (the server replaces the earlier install flow)
+    await m.click('slack-add-waiting-retry')
+    await m.until(() => assigned.length === 2, 'went to Slack again')
+    // Cancel: Add to Slack is back
+    await m.click('slack-add-waiting-cancel')
+    await m.until(() => m.find('slack-add'), 'Add to Slack again')
+    expect(m.find('slack-add-waiting')).toBeNull()
+    // added in the other browser meanwhile: the page reads it when the window is used again
+    await m.click('slack-add')
+    await m.until(() => m.find('slack-add-waiting'), 'the wait')
+    admin = on({ mode: 'official', official: true })
+    window.dispatchEvent(new Event('focus'))
+    await m.until(() => m.find('slack-status')?.textContent?.includes('Connected'), 'added')
+    expect(m.find('slack-add-waiting')).toBeNull()
     await m.unmount()
   })
 
@@ -315,6 +342,23 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
     await m.unmount()
   })
 
+  test('connecting: the page reads again until it is connected; minutes of it are a problem line with what to do (QA TC-1415)', async () => {
+    admin = on({ state: 'connecting', connectingFor: 3 })
+    const m = await page()
+    await m.until(() => m.find('slack-status'), 'the status line')
+    expect(m.get('slack-status').textContent).toContain('Connecting')
+    expect(m.find('slack-slow')).toBeNull()
+    admin = on()
+    await m.until(() => m.get('slack-status').textContent?.includes('Connected'), 'read again by itself', 8000)
+    await m.unmount()
+    admin = on({ state: 'connecting', connectingFor: 300 })
+    const slow = await page()
+    await slow.until(() => slow.find('slack-slow'), 'the problem line')
+    expect(slow.get('slack-status').textContent).toContain('Not answering')
+    expect(slow.get('slack-slow').textContent).toContain("Slack hasn't answered for 5 minutes")
+    await slow.unmount()
+  })
+
   test('the old address: the owner and admins get Slack\'s page with the query Add to Slack came back with', () => {
     expect(redirectOf('slack', undefined, '?slack=installed', false)).toBe('/admin/connectors/slack?slack=installed')
     expect(redirectOf('slack', undefined, '', true)).toBe('/admin/connectors/slack')
@@ -324,7 +368,15 @@ describe('Admin › Connected apps › Slack: one service of the list, no menu i
 
   test('its state on the row: on, off, a problem, Reconnect after it was removed in Slack; not added: Discover', () => {
     expect(slackRowStatus(on())).toBe('on')
-    expect(slackRowStatus(on({ state: 'connecting' }))).toBe('on')
+    // connecting is said as connecting, as Slack's page says it (QA TC-1415: the row said On); a wait of minutes is a
+    // problem on both
+    expect(slackRowStatus(on({ state: 'connecting', connectingFor: 5 }))).toBe('connecting')
+    expect(slackView(on({ state: 'connecting', connectingFor: 5 }))).toEqual({ row: 'connecting', badge: { key: 'slack.state.connecting', tone: 'warn' }, slowMinutes: null })
+    expect(slackRowStatus(on({ state: 'connecting', connectingFor: 600 }))).toBe('attention')
+    expect(slackView(on({ state: 'connecting', connectingFor: 600 }))).toEqual({ row: 'attention', badge: { key: 'slack.state.slow', tone: 'danger' }, slowMinutes: 10 })
+    // an older server without the field: a wait, never a problem
+    expect(slackRowStatus(on({ state: 'connecting' }))).toBe('connecting')
+    expect(slackView(on())).toMatchObject({ row: 'on', badge: { key: 'slack.state.connected', tone: 'ok' } })
     expect(slackRowStatus(on({ enabled: false, state: 'off' }))).toBe('off')
     expect(slackRowStatus(on({ state: 'error', lastError: 'unreachable' }))).toBe('attention')
     const removed = base({ mode: 'official', official: true, enabled: true, lastError: 'removed' })
