@@ -394,15 +394,15 @@ function FileChip({ path }: { path: string }) {
 
 /** before/after: the after picture over the before one, cut where the handle is */
 function Compare({ before, after, beforeLabel, afterLabel }: { before: string; after: string; beforeLabel?: string; afterLabel?: string }) {
-  // starts on the before (Leo's draft), then the new one sweeps in once to 40%: both read
+  // starts on the before (Leo's draft), then the new one sweeps in once, stopping with most of the draft still in view
   const [at, setAt] = useState(92)
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setAt(55); return }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setAt(62); return }
     const t0 = performance.now()
     let id = 0
     const step = (t: number) => {
       const k = Math.min(1, (t - t0) / 1400)
-      setAt(92 - (92 - 55) * (1 - Math.pow(1 - k, 3)))
+      setAt(92 - (92 - 62) * (1 - Math.pow(1 - k, 3)))
       if (k < 1) id = requestAnimationFrame(step)
     }
     const start = setTimeout(() => { id = requestAnimationFrame(step) }, 400)

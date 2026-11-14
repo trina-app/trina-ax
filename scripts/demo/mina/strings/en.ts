@@ -220,7 +220,7 @@ export const en = {
       emails: 'Email sent',
     },
     /** one line under the numbers: what this usually takes */
-    usually: 'Usually: 2 days',
+    usually: 'Without Trina: about 2 days',
     signup: 'Start your team\'s free trial',
     explore: 'Look around',
   },
