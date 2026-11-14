@@ -82,49 +82,42 @@ test('TC-267 step 1: Plugins › a plugin is a page of its own under "‹ Plugin
   await expect(page.getByTestId('plugins-catalog')).toBeVisible()
 })
 
-test('TC-267 step 2: Folder permissions › a folder › edit a rule; Back twice goes editor → folder → list; Back goes editor → folder → tree', async ({ page }) => {
+test('TC-267 step 2: Folder permissions › a folder\'s [Share]: the Share sheet over the list; Back closes it, then leaves the list', async ({ page }) => {
   await openAdminPage(page, 'folders', /\/admin\/folders$/)
-  const tree = page.getByTestId('folder-tree')
+  const list = page.getByTestId('folders-list')
+  const finance = list.locator('[data-testid="folders-row"][data-path="finance"]')
+  await expect(finance).toBeVisible()
   const length = await historyLength(page)
-  await tree.locator('[role="treeitem"][data-path="marketing"]').click()
-  await expect(page).toHaveURL(/folder=marketing/)
+  // Share: the same dialog as the Files page, the app's bottom sheet over the list (docs/DECISIONS.md "드라이브처럼 공유
+  // P1.5": no folder page any more); its address can be shared, and the swipe (Back) closes it
+  await finance.getByTestId('folders-share').click()
+  await expect(page).toHaveURL(/edit=finance/)
   expect(await historyLength(page)).toBe(length + 1)
-  await expect(page.getByTestId('folder-detail')).toBeVisible()
-  await expect(bar(page)).toHaveText('marketing')
-  await expect(backLabel(page)).toHaveText(t['admin.folders'])
-  // no second way back under the bar, no page header (its line, Add folder, the two views) on the folder's page
-  await expect(page.getByTestId('folder-detail-back')).toBeHidden()
-  await expect(page.getByTestId('folder-rule-new')).toHaveCount(0)
-  // Share: the same dialog as the Files page, the app's bottom sheet over the folder's page (docs/DECISIONS.md "Share
-  // like Google Drive (P1)"); the swipe (Back) closes it, the folder is there; once more: the tree
-  await page.getByTestId('folder-detail-edit').click()
   const panel = page.getByTestId('folder-access-panel')
   await expect(panel).toBeVisible()
-  await expect(page.getByRole('dialog', { name: t['folderAccess.title'].replace('{name}', 'marketing') })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: t['folderAccess.title'].replace('{name}', 'finance') })).toBeVisible()
   await page.goBack()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail')).toBeVisible()
-  await expect(page).toHaveURL(/folder=marketing/)
-  await page.goBack()
   await expect(page).toHaveURL(/\/admin\/folders$/)
-  await expect(tree).toBeVisible()
-  // Done closes it too, back to the folder
-  await tree.locator('[role="treeitem"][data-path="marketing"]').click()
-  await page.getByTestId('folder-detail-edit').click()
+  await expect(list).toBeVisible()
+  // Done closes it too, back to the list
+  await finance.getByTestId('folders-share').click()
   await expect(panel).toBeVisible()
   await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail')).toBeVisible()
+  await expect(list).toBeVisible()
+  await expect(page).not.toHaveURL(/edit=/)
+  // once more Back: Admin's list
   await page.getByTestId('admin-back').click()
-  await expect(page).toHaveURL(/\/admin\/folders$/)
+  await expect(page).toHaveURL(/\/admin$/)
 })
 
 test('TC-267: closing the Share sheet with changes asks first', async ({ page }) => {
+  // an old link to a folder (?folder=) opens its Share dialog
   await page.goto('/admin/folders?folder=marketing')
-  await expect(page.getByTestId('folder-detail')).toBeVisible()
-  await page.getByTestId('folder-detail-edit').click()
   const panel = page.getByTestId('folder-access-panel')
   await expect(panel).toBeVisible()
+  await expect(panel).toHaveAttribute('data-path', 'marketing')
   await panel.getByTestId('sharing-general-select').selectOption('team')
   await expect(page.getByTestId('sharing-save')).toBeVisible()
   const close = page.getByRole('dialog', { name: t['folderAccess.title'].replace('{name}', 'marketing') }).getByRole('button', { name: t['common.close'] })
@@ -136,7 +129,8 @@ test('TC-267: closing the Share sheet with changes asks first', async ({ page })
   await close.click()
   await ask.getByRole('button', { name: t['accessEdit.discard'] }).click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('folder-detail')).toBeVisible()
+  await expect(page.getByTestId('folders-list')).toBeVisible()
+  await expect(page).not.toHaveURL(/folder=/)
 })
 
 test('TC-268 step 4: Folder permissions › 사람별: the list alone, a person a page of their own', async ({ page }) => {
@@ -277,7 +271,7 @@ test('TC-268 steps 2–4: Groups › ⋯ is a bottom sheet, delete last; Usage l
   expect(Math.round((await sheet.boundingBox())!.x)).toBe(0)
   await expect(sheet.getByTestId('usage-csv')).toBeVisible()
   await page.keyboard.press('Escape')
-  // Folder permissions: By folder / By person, each 44 px tall
+  // Folder permissions: Folders / What a person can open, each 44 px tall
   await page.goto('/admin/folders')
   for (const tab of await page.getByRole('tab').all()) expect(Math.round((await tab.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
 })
