@@ -2,7 +2,7 @@
 // adds up like Google Drive (P2)"): what the
 // panel shows and when it asks before saving. Words and comparisons only: who can open what is the server's answer for
 // the draft on screen (POST /api/admin/access/edit-preview, the permission function itself); nothing here decides access.
-import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning, Group } from '@mycel/shared/api'
+import type { Access, AccessTreeWho, FolderEditChange, FolderEditPreview, FolderEditWarning } from '@mycel/shared/api'
 import type { Basic } from './access-edit'
 import type { MessageKey } from '../i18n'
 
@@ -52,15 +52,18 @@ export const pickable = (level: Access, o: { limited: boolean; above: Access }):
 /**
  * What a person or group row gets from the folders above (on a folder that is not limited), from the server's rows of
  * who decides with no rules here (`above`): the widest rule that applies to them, and its folder. A role below it cannot
- * be chosen here ("Editor from 'Company-wide'"). null: nothing from above.
+ * be chosen here ("Editor from 'Company-wide'"). A person counts only their own rules above and the team's, never their
+ * groups. null: nothing from above.
  */
-export function inheritedOf(above: readonly AccessTreeWho[] | null | undefined, n: { subjectType: 'user' | 'group'; subjectId: string }, groups: ReadonlyMap<string, Group>): { access: Access; folder: string } | null {
+export function inheritedOf(above: readonly AccessTreeWho[] | null | undefined, n: { subjectType: 'user' | 'group'; subjectId: string }): { access: Access; folder: string } | null {
   let best: { access: Access; folder: string } | null = null
   for (const w of above ?? []) {
     if (w.reason !== 'rule' || w.folder === null || !w.subject || w.access === 'none' || w.count <= 0) continue
     const s = w.subject
     const applies = s.type === 'everyone'
-      || (n.subjectType === 'user' && ((s.type === 'user' && s.id === n.subjectId) || (s.type === 'group' && !!s.id && !!groups.get(s.id)?.memberIds.includes(n.subjectId))))
+      // a person: their own rules above and the team's, never their groups (a group they leave later must not leave
+      // them a raised row by name; re-review of #787, as the server's raiseToAbove)
+      || (n.subjectType === 'user' && s.type === 'user' && s.id === n.subjectId)
       || (n.subjectType === 'group' && s.type === 'group' && s.id === n.subjectId)
     if (applies && (!best || RANK[w.access] > RANK[best.access])) best = { access: w.access, folder: w.folder }
   }

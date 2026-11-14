@@ -372,6 +372,30 @@ describe('review of #787: Limit access off, and shared/', () => {
     await m.unmount()
   })
 
+  test('Limit access off never raises a person through their group (re-review of #787)', async () => {
+    // Sales can edit Sales; Quotes (limited) lists Alice, who is in Sales, as Viewer
+    rows.set('shared/Sales', [{ subjectType: 'group', subjectId: SALES, access: 'write' }])
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
+    limitedPaths.add('shared/Sales/Quotes')
+    const m = await open()
+    await tick(m, m.get('sharing-limit'))
+    await ready(m)
+    expect(rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:alice')!.getAttribute('data-access')).toBe('read')
+    await m.unmount()
+  })
+
+  test('shared/ limited with nobody added and nothing from the team root: the limit cannot be turned off into a refused save', async () => {
+    rows.set('shared', [])
+    limitedPaths.add('shared')
+    const m = await mountHost('shared')
+    await m.until(() => m.find('sharing-limit'), 'the switch')
+    await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'the first answer')
+    await tick(m, m.get('sharing-limit'))
+    expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
+    expect(m.find('sharing-save')).toBeNull()
+    await m.unmount()
+  })
+
   test('shared/: Restricted is Limit access (shared/ keeps a setting of its own); Save is not stopped', async () => {
     const m = await mountHost('shared')
     await m.until(() => m.find('sharing-general-select') && !m.find('sharing-general-select')!.hasAttribute('disabled'), 'General access')

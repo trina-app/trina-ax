@@ -36,7 +36,6 @@ const WORLD = [
   row('shared/sales/quotes', 'group', 'sales', 'write'), row('shared/sales/quotes', 'user', 'alice', 'read'),
 ]
 const QUOTES = ruleWorld(WORLD).rulesAt('shared/sales/quotes')
-const groups = new Map([['sales', { id: 'sales', name: 'Sales', description: null, memberIds: ['alice', 'bob'] }], ['leads', { id: 'leads', name: 'Leads', description: null, memberIds: ['bob', 'carol'] }]])
 
 describe('which folders have a panel, and which ones it changes', () => {
   test('the top of the team folder and the containers have none; projects/ and anything inside it is a project\'s', () => {
@@ -263,16 +262,17 @@ describe('a person or group row and what it gets from the folders above (P2: "Ed
   test('the widest rule above that applies, with its folder; a role below it cannot be picked', () => {
     const rows = [row('shared', 'everyone', null, 'read'), row('shared/Sales', 'group', 'sales', 'write')]
     const data = answer(rows, 'shared/Sales/Q', [{ subjectType: 'user', subjectId: 'alice', access: 'read' }])
-    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'alice' }, groups)).toEqual({ access: 'write', folder: 'shared/Sales' })
-    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'sales' }, groups)).toEqual({ access: 'write', folder: 'shared/Sales' })
-    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' }, groups)).toEqual({ access: 'read', folder: 'shared' })
-    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'leads' }, groups)).toEqual({ access: 'read', folder: 'shared' })
+    // Alice is in Sales, but a person counts only their own rules and the team's (re-review of #787): Viewer from shared
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'alice' })).toEqual({ access: 'read', folder: 'shared' })
+    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'sales' })).toEqual({ access: 'write', folder: 'shared/Sales' })
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' })).toEqual({ access: 'read', folder: 'shared' })
+    expect(inheritedOf(data.above, { subjectType: 'group', subjectId: 'leads' })).toEqual({ access: 'read', folder: 'shared' })
     expect(en('folderAccess.fromAbove', { role: en('access.write'), folder: 'Sales' })).toContain('Sales')
   })
   test('nothing from above: null', () => {
     const data = answer([row('shared', 'everyone', null, 'none')], 'shared/Q', [])
-    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' }, groups)).toBeNull()
-    expect(inheritedOf(null, { subjectType: 'user', subjectId: 'erin' }, groups)).toBeNull()
+    expect(inheritedOf(data.above, { subjectType: 'user', subjectId: 'erin' })).toBeNull()
+    expect(inheritedOf(null, { subjectType: 'user', subjectId: 'erin' })).toBeNull()
   })
   test('and the permission function: a Viewer row under an Editor folder lowers nobody (access adds up)', () => {
     const rows = [row('shared', 'everyone', null, 'write')]

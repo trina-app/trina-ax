@@ -224,10 +224,13 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   const setLimit = (on: boolean) => setDraft((x) => {
     if (on) return { ...x, limited: true, basic: x.basic === 'follow' ? 'named' : x.basic }
     const own: Access = x.basic === 'read' || x.basic === 'write' ? x.basic : 'none'
+    // shared/ or skills/ with nobody added and nothing from the team root: off would leave it with no setting at all,
+    // which the server refuses (they keep a rule or a limit): the limit stays, pick a team role first
+    if (teamFolder && own === 'none' && above === 'none' && !x.named.some((n) => n.access !== 'none')) return x
     const basic = RANK_OF[own] >= RANK_OF[above] ? (x.basic === 'named' && !teamFolder ? 'follow' : x.basic) : teamFolder ? (above as 'read' | 'write') : 'follow'
     const named = x.named.map((n) => {
       if (n.access === 'none') return n
-      const from = data ? inheritedOf(data.above, n, groupById) : null
+      const from = data ? inheritedOf(data.above, n) : null
       return from && RANK_OF[from.access] > RANK_OF[n.access] ? { ...n, access: from.access } : n
     })
     return { ...x, limited: false, basic, named }
@@ -361,7 +364,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
 
   const taken = new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`))
   const startAccess = (o: { kind: 'user' | 'group'; id: string }): Access =>
-    data && !limited && inheritedOf(data.above, { subjectType: o.kind, subjectId: o.id }, groupById)?.access === 'write' ? 'write' : 'read'
+    data && !limited && inheritedOf(data.above, { subjectType: o.kind, subjectId: o.id })?.access === 'write' ? 'write' : 'read'
   // the owner and admins can always open it: a setting would change nothing for them
   const addable = users.filter((u) => u.role === 'member')
   const nothing = !draft.named.length && !fromAbove.length && !staff
@@ -434,7 +437,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
             const always = isStaff(u)
             // what the folders above give them (access adds up): a lower role cannot be chosen here, and the row says
             // where the wider one comes from ("Editor from 'Company-wide'")
-            const from = data && !limited && !always ? inheritedOf(data.above, n, groupById) : null
+            const from = data && !limited && !always ? inheritedOf(data.above, n) : null
             const lower = from && from.access === 'write' ? from : null
             const tag = byConversion.has(`${k}:${n.access}`)
             const second = [

@@ -103,6 +103,30 @@ describe('limited through the API', () => {
     expect(folderAccessProblems(h.ctx.db)).toEqual([])
   })
 
+  test('12-A never raises a person through their group: after leaving the group they keep only their own row (re-review of #787)', async () => {
+    // Company (limited) gives Sales Editor; Contracts below it is not limited and lists Bob as Viewer
+    fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'co', 'contracts'), { recursive: true })
+    await owner.call('PATCH', `/api/admin/groups/${sales}`, { memberIds: [bob] })
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/co', create: false, rules: [{ subjectType: 'group', subjectId: sales, access: 'write' }], limited: true })
+    let f = await owner.call('POST', '/api/admin/folders', { path: 'shared/co/contracts', create: false, rules: [{ subjectType: 'user', subjectId: bob, access: 'read' }] }) as Folder
+    // an unrelated save (Kim added): Bob's own row stays Viewer
+    f = await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'user', subjectId: bob, access: 'read' }, { subjectType: 'user', subjectId: kim, access: 'read' }], expectedHash: f.rulesHash })
+    expect(f.rules.find((r) => r.subjectId === bob)?.access).toBe('read')
+    expect(access(bob, 'shared/co/contracts')).toBe('write')
+    // Bob leaves Sales: only his own Viewer row is left
+    await owner.call('PATCH', `/api/admin/groups/${sales}`, { memberIds: [] })
+    expect(access(bob, 'shared/co/contracts')).toBe('read')
+  })
+
+  test('12-A never raises a person through their role: an admin demoted keeps only their own row (re-review of #787)', async () => {
+    const ada = (await addMember(h, owner, { username: 'ada', role: 'admin' })).id
+    let f = await folder('shared/co/contracts')
+    f = await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'user', subjectId: ada, access: 'read' }], expectedHash: f.rulesHash })
+    expect(f.rules.find((r) => r.subjectId === ada)?.access).toBe('read')
+    await owner.call('PATCH', `/api/admin/users/${ada}`, { role: 'member' })
+    expect(access(ada, 'shared/co/contracts')).toBe('read')
+  })
+
   test('shared/ may be limited with no rules (M3): the team folder keeps a rule or a limit', async () => {
     const f = await folder('shared')
     const empty = await owner.try('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [], expectedHash: f.rulesHash })

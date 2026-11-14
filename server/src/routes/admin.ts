@@ -20,7 +20,6 @@ import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { raiseToAbove } from '../admin/access-edit'
-import { loadPrincipal } from '../policy/access'
 import { oftenAskedSwitched } from '../chat/often-asked'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings, WEB_ACCESS_CHANGED } from '../admin/settings'
 import { teamPolicyOff } from '../tools/web-allow-all'
@@ -126,7 +125,6 @@ export const adminRoutes: RouteModule = {
     // admins); a group's folder row stays while the group does (removing it cuts the group's link and the folder's
     // protection for good); a row parked with a trashed folder is not there (404). Which row is which: folder-keep.ts,
     // also sent as Folder.keep.
-    const principalOrNull = (id: string) => loadPrincipal(ctx.db, id)
     const editableRow = (id: string): FolderRow => {
       const f = getFolder(ctx.db, id)
       if (!f || isParkedRow(f.path)) return fail('not_found')
@@ -172,7 +170,7 @@ export const adminRoutes: RouteModule = {
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
         const row = ensureFolderRow(ctx.db, p)
-        if (!(body.limited ?? row.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), p, body.rules, principalOrNull)
+        if (!(body.limited ?? row.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), p, body.rules)
         writeFolderAccess(ctx.db, row.id, { rules: body.rules, limited: body.limited }, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules, ...(body.limited !== undefined ? { limited: body.limited } : {}) } })
         return row
@@ -238,7 +236,7 @@ export const adminRoutes: RouteModule = {
           fail('conflict', msg('clientOutdated', c.get('locale')), { params: { reason: 'client_outdated' } })
         sameRules(rulesHashAt(ctx.db, f.path), body.expectedHash, c.get('locale'))
         // not limited: a rule lower than the folders above give is stored at that level (12-A at save time)
-        if (!(body.limited ?? now.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), f.path, body.rules, principalOrNull)
+        if (!(body.limited ?? now.limited === 1)) body.rules = raiseToAbove(ctx.files.rules(), f.path, body.rules)
         writeFolderAccess(ctx.db, f.id, { rules: body.rules, limited: body.limited }, auth.user.id)
         const limitedNow = isLimited(ctx.db, f.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules, ...(limitedNow !== wasLimited ? { limited: { before: wasLimited, after: limitedNow } } : { limited: limitedNow }) } })

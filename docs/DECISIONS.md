@@ -26697,7 +26697,12 @@ save time too. Spec v3 and the reviews are with the owner (not in the repo).
 - **12-A at save time** (owner, review of #787): on a folder that is not limited a rule lower than what the folders
   above give its subject restricts nobody, so it is never stored: turning Limit access off in the dialog raises General
   access and every person or group row to the level from above, and the server stores such a rule at that level on any
-  save or create (`raiseToAbove`, `server/src/admin/access-edit.ts`), so it does not rely on the web.
+  save or create (`raiseToAbove`, `server/src/admin/access-edit.ts`), so it does not rely on the web. A person row is
+  measured by their own rules above and the team's only, never through their groups or role (re-review of #787):
+  otherwise Bob, raised to Editor because his group edits above, would keep Editor by name after leaving the group, and
+  an admin stored as Editor would keep it after a demotion (C1 outside C1-A). On shared/ and skills/ with nobody added
+  and nothing from the team root, Limit access cannot be switched off into a folder with no setting (the server refuses
+  it); pick a team role first.
 - **Review of #787 (FIX FIRST), fixed:** an unconverted live database whose copy (VACUUM INTO) cannot be made stops the
   restore, never the backup's rules; the group warning offers no Remove on a folder inside a team project (its members
   manage it) and a folder gone meanwhile is an error, never "Removed"; Remove says it acts at once ("Remove now");
