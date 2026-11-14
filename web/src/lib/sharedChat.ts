@@ -38,10 +38,10 @@ export const mayHideChat = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>> | 
   !!chat && isPeopleShared(chat) && chat.shared!.by.id !== me && !chat.deletedAt
 
 /**
- * What "Share…" opens for a chat (docs/DECISIONS.md "Chats shared with people and groups"; plan
+ * What "Share" opens for a chat (docs/DECISIONS.md "Chats shared with people and groups"; plan
  * 20261114-shared-chats-everywhere UX 1):
  * - 'people': a chat outside projects that is mine (private, or already shared with people): the Share dialog;
- * - 'personal': a private chat of mine in a personal project: the dialog explains it and offers Move…;
+ * - 'personal': a private chat of mine in a personal project: the dialog explains it and offers Move;
  * - 'project': my private chat in a team project: the check, then shared with the project's members (ShareChat.tsx);
  * - null: no item (a shared project chat, someone else's chat, a room's side chat, a confidential or scheduled task's
  *   chat, one in the trash, or any chat while safe operations are on). The server checks all of it again.

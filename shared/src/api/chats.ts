@@ -294,7 +294,7 @@ export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
 /** Who works in a team project (each gets read and write; nobody else but the creator, the owner and admins). */
 export const ProjectParticipant = z.object({ subjectType: z.enum(['group', 'user']), subjectId: z.string().min(1).max(64) })
 export type ProjectParticipant = z.infer<typeof ProjectParticipant>
-// ---------------- a chat outside projects shared with chosen people and groups (Share…) ----------------
+// ---------------- a chat outside projects shared with chosen people and groups (Share) ----------------
 /** At most this many people and groups in one chat's audience (a group is one entry). */
 export const CHAT_AUDIENCE_MAX = 100
 /** One row of GET /api/chats/:id/audience. A group's `members` only for the chat's creator and admins (others learn

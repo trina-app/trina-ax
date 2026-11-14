@@ -1,6 +1,6 @@
 // Fills a running Acme demo (`bun run demo:company`, scripts/demo/acme) with what the docs screenshots show: room
 // messages, a thread and a DM, a team project, a few chats with real answers (one pinned), a project chat two people
-// asked in, a chat shared with Priya (Share…), an AI answer sent to a room from its side chat, and a scheduled task. Everything is fictional, like Acme itself. Run it once after the demo
+// asked in, a chat shared with Priya (Share), an AI answer sent to a room from its side chat, and a scheduled task. Everything is fictional, like Acme itself. Run it once after the demo
 // starts; a second run adds the same lines again, so start from a fresh data folder instead.
 //
 //   bun run demo:company --local --data <new folder>       (in another terminal)
@@ -74,7 +74,7 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
   await runPrompt(p.sam!, 'Which of these channels gets the biggest budget? One line.', { log, chatId: together.chatId })
   log('project: a shared chat with Jordan and Sam')
 
-  // The brand-voice chat (outside projects) shared with Priya by name (Share…); the share's check may ask once first
+  // The brand-voice chat (outside projects) shared with Priya by name (Share); the share's check may ask once first
   let shareKey: string | undefined
   for (let i = 0; i < 3; i++) {
     const r = await p.jordan!.call(API.putChatAudience, { params: { id: voice.chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'priya' }], ...(shareKey ? { confirmKey: shareKey } : {}) } }) as { status: string; confirmKey?: string }
@@ -115,7 +115,7 @@ export async function dress(baseUrl: string, ownerPassword: string, log: (s: str
 export const GUEST = { username: 'morgan', name: 'Morgan Reyes', password: 'teamax-guest-1' }
 
 /** What the guest pictures show, without AI: a group chat about the launch email with a guest from an outside agency in
- * it (Invite a guest), who says hello there. The shared brand-voice chat (Share…) is made by dress above, with Priya. */
+ * it (Invite a guest), who says hello there. The shared brand-voice chat (Share) is made by dress above, with Priya. */
 export async function sharing(baseUrl: string, log: (s: string) => void = console.log) {
   const jordan = await signIn(baseUrl, 'jordan')
   const alex = await signIn(baseUrl, 'alex')

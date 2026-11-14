@@ -102,8 +102,8 @@ You can share any chat of yours with people and groups, like a file in Google Dr
 were added, and can ask the AI in it themselves.
 
 :::steps
-#### Open Share…
-In the chat's title menu, or in **···** on its row in your list, choose **Share…**.
+#### Open Share
+In the chat's title menu, or in **···** on its row in your list, choose **Share**.
 
 #### Add people and groups
 Type a name in **Add people and groups**. You are in the list as **Started this chat**. **✕** takes someone out again
@@ -130,14 +130,14 @@ Press **Share** (**Save** when it was shared already). Leaving with changes you 
   When you add someone by name they also get a notification on their phone and in their browser (**Settings ›
   Notifications › Chats shared with me** turns it off). They can continue the chat with their own access, or choose
   **Hide from my list** in its menu; opening it again brings it back.
-- **Change who sees it.** Only the person who started the chat changes who sees it: **Share…** again, or **Change who
+- **Change who sees it.** Only the person who started the chat changes who sees it: **Share** again, or **Change who
   sees it** under the box. Someone you take out loses the chat and its files at once and reads "This chat is no longer
   shared with you", also when they open its link later; what they were typing in it stays there with **Copy**. Someone
   you take out by name who is also in a group you shared it with keeps it through that group, and the dialog says so.
   Taking everyone out makes it yours alone again.
 - **Personal things stay out.** In a shared chat the AI does not use your memories, your browser, your email or your
   schedules. To use them, choose **Continue in a chat only you see** in the chat's menu.
-- A chat in a personal project stays yours: **Share…** offers to move it out first. A chat in a team project is shared
+- A chat in a personal project stays yours: **Share** offers to move it out first. A chat in a team project is shared
   with the project's members (see [Projects](#projects)).
 
 ![The Share dialog after Share: Priya Nair marked New, a warning that 1 person can't open some of what this chat used (groups/Marketing/), and the Share anyway button](../images/chats/share-warning.webp "Before new people are added")
