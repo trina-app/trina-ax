@@ -2589,7 +2589,7 @@ export const ja: Record<MessageKey, string> = {
   "system.updateRunning": "現在{count, plural, one {#件} other {#件}}のタスクが実行中です。完了まで待ってから更新する（最大30分）か、今すぐ更新して止めることができます。止まったタスクにはその旨と［再試行］が表示されます。",
   "system.updateWait": "待ってから更新",
   "system.updateAnyway": "今すぐ更新する",
-  "system.updateWaiting": "更新は実行中のタスク{count, plural, one {#件} other {#件}}の完了を待っています（遅くとも{time}まで）。",
+  "system.updateWaiting": "更新は実行中のタスク{count, plural, one {#件} other {#件}}の完了を待っています。",
   'system.updateDone': "更新が完了しました。",
   'system.previousNeedsRestore': "{version}は、このバージョンがすでに更新したデータベースを読み込めないため、ここからは戻せません。{version}に戻すには、更新前に作成したバックアップを復元する必要があります（バックアップと復元のガイドを参照）。",
   'system.updateNotKept': "{version}に切り替えられませんでした。現在も{current}で動いています。",

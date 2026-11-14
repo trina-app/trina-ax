@@ -26916,24 +26916,39 @@ connect_service are unchanged.
   `--scheduled`, and an app-only update then switched and restarted at once (native/cmd/mycel-ctl/update.go
   `updateApp`: `if u.scheduled && !u.waitForTurns()`); only root files waited. The answer said "stopped because Trina
   was updating" (TC-338), but the render step showed as failed and nothing said it was cut.
-- **Now every update path waits for running answers before the server restarts**, at most 30 minutes (one deadline
-  for root files and the app together; `--max-wait` default 1800, was 600). `mycel-ctl update` (an administrator's,
-  the update timer, the dev server's timer) writes root/update-waiting.json {since, until} while it waits; the
-  server's own run (Update now, the Linux automatic update) keeps the same in memory (system/update-wait.ts).
-  Running work = the turns (answers and scheduled runs, and the commands and renders inside them); dev-environment
-  jobs and dev servers are not waited for: they run in their own systemd units and the tracker finds them again after
-  the restart.
-- **While an update waits**, no scheduled run starts (`runDue` writes nothing, so it runs once after the restart),
-  and box_shell refuses a foreground command longer than 120 s with "run it with job=true" (a job keeps running
-  through the restart). New messages are still taken: blocking chat for up to 30 minutes is worse than a cut answer
-  with Try again. Admin › System shows "An update is waiting for N running tasks to finish (at most until …)", and the
-  update job's progress line says the same.
-- **Update now:** with tasks running, the dialog says how many and offers "Wait, then update" (default) or "Update
-  now anyway" (`force`, no wait).
-- **Work cut anyway** (cap, force, crash): a step still running when the server stopped is `stopped`, not failed (the
-  orderly stop in `finishState` and the next start's recovery alike), and the answer's line is `updating_step`
-  ("... A step that was still running (a command or a render) was stopped before it finished. Send it again."), with
-  Try again. Zero-downtime switching, the health check and roll-back are unchanged.
-- Tests: native/cmd/mycel-ctl update_test.go (app switch waits, one shared deadline; run in Linux Docker),
-  tests/unit/update-waits-for-work.test.ts, update-interrupts-answers.test.ts (cut step, recovery, schedules wait),
-  dev-env-srt.test.ts (long command refused, job accepted).
+- **Every update path now waits for running answers before the server restarts.** `mycel-ctl update` without
+  `--scheduled` (an administrator's run, the dev server's timer) waits before the app switch too, with one deadline
+  for root files and the app together. The default `--max-wait` is 1800 s on a self-installed server (was 600) and
+  stays 600 s on a hosted one, whose control plane gives the whole command 1800 s
+  (shared/src/cloud-protocol/tenant-commands.ts). The server's own run (Update now, the Linux automatic update) waits
+  up to 30 minutes (was 10). The update timer's `--scheduled` run is unchanged: it waits for a quiet moment and never
+  cuts an answer, except its last resort.
+  Running work means the turns: answers and scheduled runs, and the commands and renders inside them.
+  Dev-environment jobs and dev servers are not waited for. They run in their own systemd units, and the tracker
+  finds them again after the restart.
+- **Mark from the wait to the restart.** `mycel-ctl` writes root/update-waiting.json {since, until} (root-owned, the
+  server only reads it, lstat + size cap) when it starts waiting, sets `until` to now when the wait is over and removes
+  it when the run ends. The server counts it at most 15 minutes past `until` (a killed run). The server's own run keeps
+  the same in memory from its start until its restart; a failed run clears it (system/update-wait.ts). Meanwhile no
+  scheduled run starts (`runDue` writes nothing, so it runs once after the restart). box_shell also refuses a
+  foreground command whose time limit would run past `until`, telling the AI to use job=true (a job keeps running
+  through the restart) or a shorter time limit. A skill that needs the output in the same answer may stop there. That
+  is accepted for the short window. New messages are still taken: blocking chat for up to 30 minutes is worse than a
+  cut answer with Try again.
+- **What people see.** Admin › System shows "An update is waiting for N running tasks to finish", and the update
+  job's progress line says the same. With tasks running, Install update offers "Wait, then update" (default) or
+  "Update now anyway" (`force`, no wait). While this server's own update waits, "Update now anyway" on the waiting
+  line ends the wait: the second request returns the waiting job instead of being refused as busy.
+- **Work cut anyway** (cap, force, crash): a step still running when the server stopped is `stopped`, not failed.
+  This holds both for the orderly stop in `finishState` and for the next start's recovery (`stopRunningSteps`). When a
+  tool step (not the AI's thinking) was cut, the answer's line is `updating_step`: "... A step that was still running
+  (a command or a render) was stopped before it finished. Send it again.", with Try again. Zero-downtime switching,
+  the health check and roll-back are unchanged.
+- Left as it was: `retireNow` (the one-time box runner retirement) still restarts at once. The dev server's own update
+  unit is not in this repository, so its systemd timeout must allow the 30-minute wait.
+- Tests:
+  - native/cmd/mycel-ctl update_test.go: the app switch waits, the mark is there at the switch, one shared deadline,
+    and the defaults (self-installed and hosted). Run in Linux Docker.
+  - tests/unit/update-waits-for-work.test.ts.
+  - update-interrupts-answers.test.ts: a cut step, recovery, and schedules during a wait.
+  - dev-env-srt.test.ts: a command that cannot finish before the restart is refused, and a job is accepted.

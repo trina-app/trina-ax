@@ -385,14 +385,14 @@ export function useReauthCall() {
 export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (password: string) => Promise<string | null | void> }; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
   const t = useT()
   const [pw, setPw] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'main' | 'alt' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
-  const go = async (confirmWith: (password: string) => Promise<string | null | void>) => {
-    setBusy(true)
+  const go = async (confirmWith: (password: string) => Promise<string | null | void>, which: 'main' | 'alt') => {
+    setBusy(which)
     setError(null)
     const refused = await confirmWith(pw)
-    setBusy(false)
+    setBusy(null)
     if (refused) {
       setError(refused)
       input.current?.focus()
@@ -410,16 +410,16 @@ export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onCon
             {t('common.cancel')}
           </Button>
           {alt && (
-            <Button variant="secondary" disabled={!pw || busy} data-testid={alt.testId} onClick={() => void go(alt.onConfirm)}>
+            <Button variant="secondary" busy={busy === 'alt'} disabled={!pw || !!busy} data-testid={alt.testId} onClick={() => void go(alt.onConfirm, 'alt')}>
               {alt.label}
             </Button>
           )}
           <Button
             variant={danger ? 'danger' : 'primary'}
-            busy={busy}
-            disabled={!pw}
+            busy={busy === 'main'}
+            disabled={!pw || !!busy}
             data-testid="reauth-confirm"
-            onClick={() => void go(onConfirm)}
+            onClick={() => void go(onConfirm, 'main')}
           >
             {confirm}
           </Button>

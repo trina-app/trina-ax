@@ -2628,7 +2628,7 @@ export const en: Record<MessageKey, string> = {
   "system.updateRunning": "{count, plural, one {# task is running now} other {# tasks are running now}}. The update can wait for them (at most 30 minutes), or update now and stop them: they say so, with Try again.",
   "system.updateWait": "Wait, then update",
   "system.updateAnyway": "Update now anyway",
-  "system.updateWaiting": "An update is waiting for {count, plural, one {# running task} other {# running tasks}} to finish (at most until {time}).",
+  "system.updateWaiting": "An update is waiting for {count, plural, one {# running task} other {# running tasks}} to finish.",
   'system.updateDone': 'Update finished.',
   'system.previousNeedsRestore': '{version} cannot read the database that this version has already updated, so there is no Go back here. To return to {version}, the backup made before the update has to be restored (see the backup and restore guide).',
   'system.updateNotKept': 'Could not switch to {version}; still on {current}.',

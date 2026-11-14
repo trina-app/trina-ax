@@ -14,6 +14,7 @@ import { OfficeRelease, signRelease, verifyRelease } from '../../server/src/offi
 import { DEFAULT_RAMP, holdRollout, inheritRollout, promoteRollout, inRollout, newerHeadSeen, readRollout, resumeRollout, rolloutPercent, rolloutTurn, HeldRollout, type Rollout } from '../../server/src/system/rollout'
 import { ReleaseFeed, UpdateManager } from '../../server/src/system/update'
 import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-job'
+import { _resetUpdateWait } from '../../server/src/system/update-wait'
 import type { BackupManager } from '../../server/src/system/backup'
 import { dirStore, type FeedStore } from '../../scripts/release/publish-server'
 import { holdRelease, main, type HoldOptions } from '../../scripts/release/hold'
@@ -138,6 +139,7 @@ describe('what the updaters make of a held head', () => {
     expect(did).toEqual(['backup'])
     f = { ...f, rollout: resumeRollout(held, PUBLISHED, hours(31)) }
     await runUpdate(d, '1.1.0', { staged: false, rollback: false })
+    _resetUpdateWait() // a switched run keeps its mark until the restart, which a test never does
     expect(did).toEqual(['backup', 'backup', 'download', 'switch 1.1.0', 'restart'])
   })
   test('servers that know ramp but not hold (0.4.0-beta.3 to this change), and those that know only percent: 0%', () => {

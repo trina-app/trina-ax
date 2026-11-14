@@ -9,7 +9,7 @@ import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
 import { zonedDay, zonedParts, zonedToUtc } from './time-zone'
-import { beginUpdateWait, endUpdateWait } from './update-wait'
+import { beginUpdateWait, endUpdateWait, updateWaitEndsBy, updateWaitOver, updateWaitSkipped } from './update-wait'
 import { UpdateError, compareVersions, inRollout, releaseNeedsRoot, type ReleaseFeed, type UpdateManager } from './update'
 import type { z } from 'zod'
 
@@ -38,19 +38,28 @@ export interface RunUpdateDeps {
 }
 
 export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: boolean; rollback: boolean }): Promise<{ fromVersion: string; toVersion: string; rolledBack: boolean }> {
+  // from here until the restart (or a failure) no scheduled run or long foreground command starts
+  // (system/update-wait.ts): the backup and the download after the wait take time too
+  const deadline = Date.now() + (d.force ? 0 : d.waitMs ?? UPDATE_WAIT_MS)
+  beginUpdateWait(new Date(), new Date(deadline))
+  // a run that switched keeps the mark until the restart it asked for (a few seconds; at most 10 minutes if that
+  // restart never came); a failed one clears it
+  try {
+    const r = await updateSteps(d, target, o, deadline)
+    updateWaitEndsBy(new Date(Date.now() + 10 * 60_000))
+    return r
+  } catch (e) { endUpdateWait(); throw e }
+}
+
+async function updateSteps(d: RunUpdateDeps, target: string, o: { staged: boolean; rollback: boolean }, deadline: number) {
   const progress = d.progress ?? (() => {})
   const sleep = d.sleep ?? ((ms: number) => Bun.sleep(ms))
-  // 1) let running work finish; meanwhile no scheduled run or long foreground command starts (system/update-wait.ts)
-  const deadline = Date.now() + (d.force ? 0 : d.waitMs ?? UPDATE_WAIT_MS)
-  if (d.running() > 0 && Date.now() < deadline) {
-    beginUpdateWait(new Date(), new Date(deadline))
-    try {
-      for (let n = d.running(); n > 0 && Date.now() < deadline; n = d.running()) {
-        progress(null, tr(d.locale, waitingTasks(n)))
-        await sleep(2000)
-      }
-    } finally { endUpdateWait() }
+  // 1) let running work finish (up to the deadline, or until the owner picks "Update now anyway")
+  for (let n = d.running(); n > 0 && Date.now() < deadline && !updateWaitSkipped(); n = d.running()) {
+    progress(null, tr(d.locale, waitingTasks(n)))
+    await sleep(2000)
   }
+  updateWaitOver()
   // 2) DB backup (an update never rolls the DB back by itself)
   progress(0.2, stepText(d.locale, 'backup'))
   await d.backups.run({ kind: 'pre-update', scope: 'db' })

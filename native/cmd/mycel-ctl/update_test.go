@@ -743,9 +743,9 @@ func TestInstallScriptRetiresBoxRunner(t *testing.T) {
 	})
 }
 
-// The app's switch waits too (the dev server's timer runs `mycel-ctl update` without --scheduled for every
-// dev build) waits for the running answers before it restarts the server, as root files did already: an app-only
-// update used to restart at once and cut a render off mid-way. While it waits, root/update-waiting.json tells the
+// The app's switch waits for the running answers before the server restarts, as root files did already (the dev
+// server's timer runs `mycel-ctl update` without --scheduled for every dev build): an app-only
+// update used to restart at once and cut a render off mid-way. Until the run ends, root/update-waiting.json tells the
 // server (it starts no scheduled run meanwhile, server/src/system/update-wait.ts); it is gone afterwards.
 func TestAppOnlyUpdateWaitsForRunningAnswers(t *testing.T) {
 	tb := newTestBase(t, "0.1.0")
@@ -756,9 +756,12 @@ func TestAppOnlyUpdateWaitsForRunningAnswers(t *testing.T) {
 	marker := filepath.Join(tb.base, "root", updateWaitingFile)
 	// the root files' wait finds it quiet; answers start after it, before the app's switch
 	left := []int{0, 2, 2, 1}
-	polls, sawMarker, switchedWhileBusy := 0, false, false
+	polls, sawMarker, switchedWhileBusy, markedAtSwitch := 0, false, false, false
 	updateHooks(t, tb, func(v string) {
 		switchedWhileBusy = len(left) > 0
+		// still there at the switch (the restart follows): the server starts nothing long meanwhile
+		_, err := os.Lstat(marker)
+		markedAtSwitch = err == nil
 		os.Remove(filepath.Join(tb.base, "app/current"))
 		os.Symlink("versions/"+v, filepath.Join(tb.base, "app/current"))
 		tb.health.Store(v)
@@ -794,8 +797,8 @@ func TestAppOnlyUpdateWaitsForRunningAnswers(t *testing.T) {
 	if !strings.Contains(errs, "waiting for 2 running answer(s)") || !strings.Contains(errs, "waiting for 1 running answer(s)") {
 		t.Fatalf("stderr: %q", errs)
 	}
-	if !sawMarker {
-		t.Fatal("no root/update-waiting.json while the update waited")
+	if !sawMarker || !markedAtSwitch {
+		t.Fatalf("root/update-waiting.json: while waiting %v, at the switch %v", sawMarker, markedAtSwitch)
 	}
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("root/update-waiting.json left after the wait: %v", err)

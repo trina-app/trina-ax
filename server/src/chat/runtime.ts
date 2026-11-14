@@ -66,17 +66,17 @@ const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
 
 /** An answer a stop left streaming: its steps still running become stopped (Step.stopped; status 'error' for older
- * apps). Returns how many. A stored list that does not read is left as it is. */
+ * apps). Returns how many of them were work (not the AI's thinking). A stored list that does not read is left as it is. */
 export function stopRunningSteps(db: Database, messageId: string, now: string): number {
   const row = db.query("SELECT steps FROM messages WHERE id = ? AND status = 'streaming'").get(messageId) as { steps: string | null } | null
   if (!row?.steps) return 0
-  let steps: { status?: string; stopped?: true; endedAt?: string | null }[]
+  let steps: { kind?: string; status?: string; stopped?: true; endedAt?: string | null }[]
   try { steps = JSON.parse(row.steps) } catch { return 0 }
   if (!Array.isArray(steps)) return 0
-  let n = 0
-  for (const st of steps) if (st && st.status === 'running') { st.status = 'error'; st.stopped = true; st.endedAt = now; n++ }
+  let n = 0, work = 0
+  for (const st of steps) if (st && st.status === 'running') { st.status = 'error'; st.stopped = true; st.endedAt = now; n++; if (st.kind !== 'thinking') work++ }
   if (n) db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
-  return n
+  return work
 }
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000

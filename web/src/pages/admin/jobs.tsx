@@ -52,7 +52,7 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
   const t = useT()
   const reauth = useReauthCall()
   const runner = useJobRunner()
-  const [ask, setAsk] = useState<'update' | 'rollback' | null>(null)
+  const [ask, setAsk] = useState<'update' | 'rollback' | 'anyway' | null>(null)
   // tasks running now: the update waits for them (at most 30 minutes) unless the owner picks "Update now anyway"
   const running = o.running ?? 0
   const start = async (password: string, force: boolean) => {
@@ -74,14 +74,17 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
       },
     )
   }
+  // with tasks running, "Install update" asks: wait for them, or update now anyway; 'anyway': an update that waits
+  // already (Admin > System's waiting line) goes on now
+  const choice = ask === 'update' && running > 0
   const dialog = ask && (
     <ReauthDialog
-      title={ask === 'update' ? t('system.installUpdate') : t('system.rollback', { version: o.previous ?? '' })}
-      body={running > 0 ? <>{t('system.updateNote')} <span className="mt-2 block font-medium text-ink" data-testid="update-running">{t('system.updateRunning', { count: running })}</span></> : t('system.updateNote')}
-      confirm={running > 0 ? t('system.updateWait') : t('common.continue')}
-      alt={running > 0 ? { label: t('system.updateAnyway'), testId: 'update-anyway', onConfirm: (password) => start(password, true) } : undefined}
+      title={ask === 'rollback' ? t('system.rollback', { version: o.previous ?? '' }) : ask === 'anyway' ? t('system.updateAnyway') : t('system.installUpdate')}
+      body={choice || ask === 'anyway' ? <>{t('system.updateNote')} <span className="mt-2 block font-medium text-ink" data-testid="update-running">{t('system.updateRunning', { count: running })}</span></> : t('system.updateNote')}
+      confirm={choice ? t('system.updateWait') : ask === 'anyway' ? t('system.updateAnyway') : t('common.continue')}
+      alt={choice ? { label: t('system.updateAnyway'), testId: 'update-anyway', onConfirm: (password) => start(password, true) } : undefined}
       onClose={() => setAsk(null)}
-      onConfirm={(password) => start(password, false)}
+      onConfirm={(password) => start(password, ask === 'anyway')}
     />
   )
   return { jobId: runner.jobId, ask: setAsk, dialog }

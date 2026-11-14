@@ -2589,7 +2589,7 @@ export const es: Record<MessageKey, string> = {
   "system.updateRunning": "{count, plural, one {Hay # tarea en curso} other {Hay # tareas en curso}}. La actualización puede esperar a que terminen (como máximo 30 minutos), o actualizar ahora y detenerlas: lo indicarán, con Reintentar.",
   "system.updateWait": "Esperar y actualizar",
   "system.updateAnyway": "Actualizar ahora de todos modos",
-  "system.updateWaiting": "Una actualización espera a que {count, plural, one {termine # tarea en curso} other {terminen # tareas en curso}} (como mucho hasta las {time}).",
+  "system.updateWaiting": "Una actualización espera a que {count, plural, one {termine # tarea en curso} other {terminen # tareas en curso}}.",
   'system.updateDone': "Actualización completada.",
   'system.previousNeedsRestore': "{version} no puede leer la base de datos que esta versión ya actualizó, así que aquí no se puede volver. Para volver a {version}, hay que restaurar la copia de seguridad hecha antes de la actualización (consulte la guía de copia y restauración).",
   'system.updateNotKept': "No se pudo cambiar a {version}; sigue en {current}.",

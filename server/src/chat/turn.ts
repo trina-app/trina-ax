@@ -3558,8 +3558,10 @@ export class TurnExec {
     // kept. Not a pause: nothing reached a limit, the engine stopped answering. (One answer has no time limit since
     // 2026-11-14; answers paused at the old one keep their 'time_limit' and their "continue".)
     if (this.stopReason === 'timeout' && !this.error) this.error = engineError('stalled', this.spec.locale)
-    // an update that cut a step off (a command, a render mid-way) says so: the step did not finish, it was stopped
-    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? (cut.size ? 'updating_step' : 'updating') : 'interrupted', this.spec.locale)
+    // an update that cut a step off (a command, a render mid-way; not the AI's thinking, not one that ended by itself)
+    // says so: the step did not finish, it was stopped
+    const cutWork = this.steps.some((s) => cut.has(s.id) && s.kind !== 'thinking' && s.status === 'error')
+    if (this.stopReason === 'shutdown') this.error = engineError(this.interruptedFor === 'update' ? (cutWork ? 'updating_step' : 'updating') : 'interrupted', this.spec.locale)
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit

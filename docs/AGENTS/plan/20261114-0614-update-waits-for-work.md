@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14 06:14
 - Branch: `fix/update-waits-for-work`
-- Status: in progress
+- Status: done
 - Where: server/src/system, native/cmd/mycel-ctl, web admin. Why: the update paths live there (docs/REPOSITORY-RULES.md)
 - Version impact: patch: a fix to how updates restart; no API removed, new fields are optional
 
@@ -19,9 +19,9 @@ In:
   a self-installed server, 600 s on a hosted one, whose control plane gives the command 1800 s). While it waits it
   writes root/update-waiting.json.
 - The server's own update run (Update now, the Linux automatic update): wait cap 10 → 30 minutes, the same wait mark.
-- While an update waits: no scheduled run starts; box_shell refuses foreground commands longer than 120 s (a job runs
-  through the restart); Admin › System says "An update is waiting for N running tasks to finish".
-- Update now with tasks running: "Wait, then update" or "Update now anyway".
+- While an update runs: no scheduled run starts; box_shell refuses a foreground command that could not end before the
+  restart (a job runs through it); Admin › System says "An update is waiting for N running tasks to finish".
+- Update now with tasks running: "Wait, then update" or "Update now anyway"; the waiting line can go on now too.
 - Work cut anyway: the cut step is stopped (not failed) and the answer says a running step was stopped, with Try again.
 
 Out: blocking new chat messages during the wait; a waiting line for members in chat; changing the dev server's timer
@@ -46,4 +46,7 @@ minutes), five app languages, no migration.
 web unit tests, mycel-ctl Go tests in Linux Docker.
 
 ## Result
-
+Built as planned. After the independent review: the wait mark lasts until the restart (it covered only the wait), a
+command is refused only when it could not end before the restart (it was any command over 120 s), "Update now
+anyway" also works on an update that already waits, and the AI's thinking does not count as a cut step. PR: see the
+pull request that links this plan.

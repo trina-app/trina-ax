@@ -95,8 +95,9 @@ export const UpdateStatus = z.object({
    * the server (at most 30 minutes; "Update now anyway" does not). Absent from older servers. */
   running: z.number().int().nonnegative().optional(),
   /** an update waits for running tasks before the server restarts (this server's own run, or root's `mycel-ctl update`):
-   * since when and until when at most. null/absent: none. Absent from older servers. */
-  waiting: z.object({ since: IsoTime, until: IsoTime }).nullable().optional(),
+   * since when and until when at most it waits; skippable: this server's own update, still waiting, which "Update now
+   * anyway" (startUpdate force) can end. null/absent: none. Absent from older servers. */
+  waiting: z.object({ since: IsoTime, until: IsoTime, skippable: z.boolean().optional() }).nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 /** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin

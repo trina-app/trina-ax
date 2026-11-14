@@ -2627,7 +2627,7 @@ export const ko = {
   "system.updateRunning": "지금 작업 {count}개가 실행 중이에요. 끝날 때까지 기다렸다가(최대 30분) 업데이트하거나, 지금 바로 업데이트하고 멈출 수 있어요. 멈춘 작업에는 안내와 [다시 시도]가 남아요.",
   "system.updateWait": "기다렸다가 업데이트",
   "system.updateAnyway": "그래도 지금 업데이트",
-  "system.updateWaiting": "업데이트가 실행 중인 작업 {count}개가 끝나기를 기다리고 있어요 (늦어도 {time}까지).",
+  "system.updateWaiting": "업데이트가 실행 중인 작업 {count}개가 끝나기를 기다리고 있어요.",
   'system.updateDone': '업데이트를 마쳤어요.',
   'system.previousNeedsRestore': '{version}은(는) 이 버전이 이미 바꾼 데이터베이스를 읽지 못해서 여기서 되돌릴 수 없어요. {version}(으)로 돌아가려면 업데이트 전에 만든 백업을 복원해야 해요(백업·복원 안내 참고).',
   'system.updateNotKept': '{version}(으)로 바꾸지 못했어요. 지금도 {current}(으)로 실행 중이에요.',

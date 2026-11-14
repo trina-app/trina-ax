@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { UPDATE_WAIT_MS, runUpdate, waitingTasks } from '../../server/src/system/update-job'
-import { _resetUpdateWait, beginUpdateWait, updateWaiting } from '../../server/src/system/update-wait'
+import { ROOT_WAIT_GRACE_MS, _resetUpdateWait, beginUpdateWait, skipUpdateWait, updateWaiting } from '../../server/src/system/update-wait'
 import type { UpdateManager } from '../../server/src/system/update'
 import type { BackupManager } from '../../server/src/system/backup'
 
@@ -38,20 +38,43 @@ test('the cap is 30 minutes, and the line says how many tasks it waits for', () 
   expect(waitingTasks(3).en).toBe('An update is waiting for 3 running tasks to finish')
 })
 
-test('runUpdate waits for running tasks before the restart, marks the wait meanwhile, and clears it', async () => {
-  const t = deps([2, 2, 2, 1, 0])
+test('runUpdate waits for running tasks before the restart; the mark stays until the restart, and a failure clears it', async () => {
+  const t = deps([2, 2, 1, 0])
+  let atBackup: ReturnType<typeof updateWaiting> = null
+  t.d.backups.run = (async () => { atBackup = updateWaiting(); t.did.push('backup') }) as never
   await runUpdate(t.d, '1.1.0', { staged: true, rollback: false })
   expect(t.progress.slice(0, 3)).toEqual([waitingTasks(2).en, waitingTasks(2).en, waitingTasks(1).en])
   expect(t.waitingSeen).toEqual([true, true, true])
   expect(t.did.filter((x) => x !== 'count')).toEqual(['backup', 'switch 1.1.0', 'restart'])
   expect(t.did.lastIndexOf('count')).toBeLessThan(t.did.indexOf('backup'))
+  // the backup and the download after the wait are covered too; the wait is over, so its end is now
+  expect(atBackup).toMatchObject({ skippable: false })
+  expect(Date.parse(atBackup!.until)).toBeLessThanOrEqual(Date.now())
+  // switched: kept until the restart it asked for
+  expect(updateWaiting()).toMatchObject({ skippable: false })
+  _resetUpdateWait()
+  const failing = deps([0])
+  failing.d.backups.run = (async () => { throw new Error('disk full') }) as never
+  await expect(runUpdate(failing.d, '1.1.0', { staged: true, rollback: false })).rejects.toThrow('disk full')
   expect(updateWaiting()).toBeNull()
 })
 
-test('"Update now anyway" (force) does not wait; nothing running does not mark a wait', async () => {
+test('"Update now anyway" during the wait ends it: the update goes on with tasks still running', async () => {
+  const t = deps([1])
+  let looks = 0
+  const sleep = async () => { looks++; expect(updateWaiting()).toMatchObject({ skippable: looks === 1 }); if (looks === 1) expect(skipUpdateWait()).toBe(true) }
+  await runUpdate({ ...t.d, sleep }, '1.1.0', { staged: true, rollback: false })
+  expect(looks).toBe(1)
+  expect(t.did.filter((x) => x !== 'count')).toEqual(['backup', 'switch 1.1.0', 'restart'])
+  // nothing waits now
+  expect(skipUpdateWait()).toBe(false)
+})
+
+test('"Update now anyway" (force) does not wait; nothing running does not wait either', async () => {
   const forced = deps([3])
   await runUpdate({ ...forced.d, force: true }, '1.1.0', { staged: true, rollback: false })
   expect(forced.waitingSeen).toEqual([])
+  _resetUpdateWait()
   expect(forced.did.filter((x) => x !== 'count')).toEqual(['backup', 'switch 1.1.0', 'restart'])
   const idle = deps([0])
   await runUpdate(idle.d, '1.1.0', { staged: true, rollback: false })
@@ -67,7 +90,6 @@ test('the wait ends at its cap even with tasks still running (they stop and say 
     await runUpdate({ ...t.d, waitMs: 10_000, sleep: async (ms: number) => { now += ms } }, '1.1.0', { staged: true, rollback: false })
   } finally { Date.now = real }
   expect(t.did.filter((x) => x !== 'count')).toEqual(['backup', 'switch 1.1.0', 'restart'])
-  expect(updateWaiting()).toBeNull()
 })
 
 test("root's wait (root/update-waiting.json): read until its own deadline; a link, a past or far deadline is none", () => {
@@ -77,8 +99,10 @@ test("root's wait (root/update-waiting.json): read until its own deadline; a lin
     const f = path.join(root, 'update-waiting.json')
     expect(updateWaiting({ rootDir: root, now })).toBeNull()
     fs.writeFileSync(f, JSON.stringify({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z' }))
-    expect(updateWaiting({ rootDir: root, now })).toEqual({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z' })
-    expect(updateWaiting({ rootDir: root, now: new Date('2026-11-14T10:26:00Z') })).toBeNull()
+    expect(updateWaiting({ rootDir: root, now })).toEqual({ since: '2026-11-14T09:55:00Z', until: '2026-11-14T10:25:00Z', skippable: false })
+    // past its until the run still switches and restarts (then removes it): it counts for a grace, not for ever
+    expect(updateWaiting({ rootDir: root, now: new Date('2026-11-14T10:26:00Z') })).not.toBeNull()
+    expect(updateWaiting({ rootDir: root, now: new Date(Date.parse('2026-11-14T10:25:00Z') + ROOT_WAIT_GRACE_MS) })).toBeNull()
     fs.writeFileSync(f, JSON.stringify({ since: '2026-11-14T09:55:00Z', until: '2026-11-15T10:25:00Z' }))
     expect(updateWaiting({ rootDir: root, now })).toBeNull()
     fs.writeFileSync(f, 'not json')

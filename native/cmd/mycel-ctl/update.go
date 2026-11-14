@@ -94,8 +94,10 @@ type updater struct {
 	// adminUntil: the end of an unscheduled run's wait (an administrator's `mycel-ctl update`, the dev server's timer):
 	// one deadline for the root files and the app together, so the two waits are never maxWait each
 	adminUntil time.Time
-	deferred   bool
-	turnedOff  bool
+	// marked: root/update-waiting.json was written by this run (removed when the run ends)
+	marked    bool
+	deferred  bool
+	turnedOff bool
 	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
 	// that one, so a release published while the gate waited for a quiet moment waits for the next check's own gate
 	gateVersion string
@@ -208,6 +210,11 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
+	defer func() {
+		if u.marked {
+			_ = os.Remove(e.root(updateWaitingFile))
+		}
+	}()
 	// a hold of the release that runs here and answers is over (QA TC-334): neither the timer nor this run waits for it
 	if _, note := readHold(e, in); note != "" {
 		res.Notes = append(res.Notes, note)
@@ -1249,12 +1256,14 @@ func (u *updater) waitForTurns() bool {
 // waitQuiet asks the launcher until it runs no turn and the server runs no maintenance (true) or the deadline passes
 // (false; u.busy and u.busyWith are the last answers).
 func (u *updater) waitQuiet(deadline time.Time) bool {
-	marked := false
-	defer func() {
-		if marked {
-			_ = os.Remove(u.e.root(updateWaitingFile))
-		}
-	}()
+	// root/update-waiting.json from now until the run ends (cmdUpdate removes it): while the update waits the server
+	// starts no scheduled run and no foreground command that could not end before the deadline; once the wait is over
+	// its `until` is now, as the restart follows. Not for the update timer's run looking for a quiet moment (it never
+	// cuts an answer and may look for an hour), only for its last resort
+	if (!u.scheduled || u.force) && markUpdateWaiting(u.e, u.e.now(), deadline) == nil {
+		u.marked = true
+		defer func() { _ = markUpdateWaiting(u.e, u.e.now(), u.e.now()) }()
+	}
 	for i := 0; ; i++ {
 		if i > 0 && i%12 == 0 && u.timerTurnedOff() { // about once a minute
 			u.turnedOff = true
@@ -1267,11 +1276,6 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		}
 		if err == nil && n == 0 && m == "" {
 			return true
-		}
-		if !marked {
-			// the server reads it (server/src/system/update-wait.ts): it starts no scheduled run and no long
-			// foreground command meanwhile, and Admin says what the update waits for
-			marked = markUpdateWaiting(u.e, u.e.now(), deadline) == nil
 		}
 		if u.say && err == nil && (n != u.busy || m != u.busyWith || i == 0) {
 			// an administrator's update: what it waits for, on stderr (stdout stays the result, also with --json)
@@ -1291,7 +1295,8 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 }
 
 // updateWaitingFile (root/, read by the server account like root/VERSION): an update waits for running work to end
-// before the server restarts, until `until`. Removed when the wait ends; the server ignores one whose until passed.
+// before the server restarts, until `until`. Removed when the run ends; the server ignores one 15 minutes past its
+// until (a run killed meanwhile).
 const updateWaitingFile = "update-waiting.json"
 
 func markUpdateWaiting(e *env, now, until time.Time) error {

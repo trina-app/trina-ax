@@ -2628,7 +2628,7 @@ export const id: Record<MessageKey, string> = {
   "system.updateRunning": "{count} tugas sedang berjalan. Pembaruan bisa menunggu tugas itu selesai (paling lama 30 menit), atau memperbarui sekarang dan menghentikannya: tugas itu akan memberi tahu, dengan Coba lagi.",
   "system.updateWait": "Tunggu, lalu perbarui",
   "system.updateAnyway": "Tetap perbarui sekarang",
-  "system.updateWaiting": "Pembaruan menunggu {count} tugas yang sedang berjalan selesai (paling lambat sampai {time}).",
+  "system.updateWaiting": "Pembaruan menunggu {count} tugas yang sedang berjalan selesai.",
   'system.updateDone': 'Update selesai.',
   'system.previousNeedsRestore': '{version} tidak dapat membaca basis data yang sudah diperbarui versi ini, jadi tidak bisa kembali dari sini. Untuk kembali ke {version}, cadangan yang dibuat sebelum pembaruan harus dipulihkan (lihat panduan cadangan dan pemulihan).',
   'system.updateNotKept': 'Tidak bisa beralih ke {version}; masih memakai {current}.',
