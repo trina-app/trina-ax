@@ -404,7 +404,10 @@ export function useAccessCount(participants: readonly ProjectParticipant[], o: {
       }, (e) => {
         if (!live) return
         setN(last.current)
-        const wait = e instanceof ApiError ? e.body.retryAfter : undefined
+        // only a refusal that passes (the limit, a server busy or starting) is asked again, a few times
+        const passing = e instanceof ApiError && (e.status === 429 || e.status >= 500 || e.body.retryAfter !== undefined)
+        if (!passing || retry >= 8) return
+        const wait = e.body.retryAfter
         again = setTimeout(() => { if (live) setRetry((x) => x + 1) }, Math.min(60, Math.max(1, wait ?? 15)) * 1000)
       })
     }, ACCESS_COUNT_DEBOUNCE_MS)

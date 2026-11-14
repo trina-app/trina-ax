@@ -373,6 +373,9 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<boolean> }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), busyRef = useRef(false), [waking, setWaking] = useState(false)
   busyRef.current = busy
+  // while a starting team is waited for, Back is Cancel too
+  const wakingRef = useRef(false)
+  wakingRef.current = waking
   // the connect the person said yes to could not reach the team (or not be saved): [다시 시도] goes again with that link
   const [again, setAgain] = useState(false)
   // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
@@ -415,14 +418,14 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       // another switch is still running: ④ stays with [Try again] (the gate keeps the link this yes confirmed)
       else if (!await onDone({ origin: r.origin, entryPath: o.entryPath })) { setError(t.stillSwitching); setAgain(true); return }
       gate.clear(offer.id)
-    } catch { setError(t.saveFailed); setAgain(true) } finally { setBusy(false); setWaking(false) }
+    } catch { if (!mine.signal.aborted) { setError(t.saveFailed); setAgain(true) } } finally { if (!mine.signal.aborted) { setBusy(false); setWaking(false) } }
   }
   useEffect(() => {
     gate.shown(offer.id, Date.now())
     const on = setTimeout(() => setReady(true), 650)
     const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
     // during a switch (the old team's sign-out) back cancels nothing
-    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!busyRef.current) no(); return true })
+    const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!busyRef.current || wakingRef.current) no(); return true })
     return () => { clearTimeout(id); clearTimeout(on); back.remove() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer])
