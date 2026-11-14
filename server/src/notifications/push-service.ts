@@ -55,7 +55,7 @@ const SOURCES=[
   {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type IN ('owner.lead_joined','owner.reauth_locked')",unread:"(read_at IS NULL OR event_type='owner.reauth_locked')",wanted:handoverPushWanted,due:'?'},
   // an answer in my own AI chat (migration 347): after its wait, only while it is still unseen or its card still open
   {inbox:'chat_answer_notices',deliveries:'chat_answer_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,_now:number,ctx:AppContext)=>chatAnswerWanted(ctx,id),due:'MAX(?,n.push_at)'},
-  // an app in a room the person manages paused for the day (migration 351): while unread, the app still paused and the
+  // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
   // person still in its room (rooms/apps/notice.ts)
   {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
 ] as const

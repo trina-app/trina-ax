@@ -24,7 +24,7 @@ export function roomAppNoticeOut(ctx: AppContext, userId: string, sourceId: stri
 }
 
 /** The "someone who left knows the address" notice (notifications 'room_app.leaver', table room_app_leaver_notices,
- * migration 351): the app and its room, read when the notice is read. Null once the app is removed or got a new address
+ * migration 352): the app and its room, read when the notice is read. Null once the app is removed or got a new address
  * (the source's token hash prefix is no longer the app's). The room is named and linked only while the person is in it. */
 export function roomAppLeaverOut(ctx: AppContext, userId: string, sourceId: string): NonNullable<InboxNotification['roomAppLeaver']> | null {
   const m = /^(.+)\.([0-9a-f]{12})$/.exec(sourceId)
@@ -47,7 +47,7 @@ function noticeApp(ctx: AppContext, notificationId: string): { room_id: string; 
   return ctx.db.query(`SELECT a.room_id, a.paused_until FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
     JOIN room_members m ON m.room_id = a.room_id AND m.user_id = ? WHERE a.id = ?`).get(n.user_id, appId) as { room_id: string; paused_until: string | null } | null
 }
-/** The paused push (migration 351, room_app_push_deliveries), asked before and after each send
+/** The paused push (migration 352, room_app_push_deliveries), asked before and after each send
  * (notifications/push-service.ts SOURCES wanted): the app is still there and still paused ("Resume now" clears
  * paused_until, the team's midnight passes it) and the person is still in its room. */
 export function roomAppPushWanted(ctx: AppContext, notificationId: string, now = Date.now()): boolean {

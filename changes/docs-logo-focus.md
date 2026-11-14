@@ -1,0 +1,1 @@
+- **Docs**: clicking a link in the top bar (the logo, a section tab) with the mouse no longer leaves an orange focus ring around it when you next press a key. The ring still shows when you move with Tab.

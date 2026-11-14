@@ -224,9 +224,10 @@ function searchUrls(db: Database, chatId: string): Set<string> {
  * others wrote in it (a deleted project's, now its creator's; the rollback guard: chat/shared.ts severalAuthors)? A
  * room's AI session has its own rules. */
 function sharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id, room_id, user_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string } | null
+  const r = db.query('SELECT shared_at, project_id, room_id, user_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string; people_shared_at: string | null } | null
   if (!r) return false
-  if (r.shared_at && r.project_id) return true
+  // a shared project chat, or a chat shared with people and groups
+  if ((r.shared_at && r.project_id) || (r.people_shared_at && !r.project_id)) return true
   return !r.room_id && !!db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, r.user_id)
 }
 

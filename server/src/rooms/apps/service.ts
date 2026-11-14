@@ -85,7 +85,7 @@ export function teamDay(db: Database, now: number): { day: string; next: string 
 export { mayManageApps }
 
 /** The source of a "someone who left knows the address" notice for the app's current address (room_app_leaver_notices,
- * migration 351): one per person and address; a new address starts over. */
+ * migration 352): one per person and address; a new address starts over. */
 export const leaverSource = (row: Pick<AppRow, 'id' | 'token_hash'>) => `${row.id}.${row.token_hash.slice(0, 12)}`
 const likePrefix = (id: string) => `${id.replace(/[\\%_]/g, (c) => `\\${c}`)}.%`
 
