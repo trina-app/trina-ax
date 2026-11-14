@@ -1465,14 +1465,14 @@ export function ProjectFiles() {
   const down = (f: FileEntry) => `/projects/${projectId}/files?dir=${encodeURIComponent(dir ? `${dir}/${f.name}` : f.name)}`
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="project-files-page">
-      <h1 className={phone ? 'sr-only' : 'px-4 pt-4 text-title font-semibold text-ink'} data-testid="project-files-title">{name}</h1>
-      <PhoneBarTitle>{name}</PhoneBarTitle>
       {/* a computer (a guest): the way back to the project, which a phone's bar has */}
       {!phone && p && (
-        <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="mx-4 mt-1 inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
+        <Link to={dir ? `/projects/${p.id}/files${dir.includes('/') ? `?dir=${encodeURIComponent(dir.slice(0, dir.lastIndexOf('/')))}` : ''}` : `/projects/${p.id}`} className="mx-4 mt-4 inline-flex w-fit items-center gap-1 text-sm text-muted hover:text-ink" data-testid="project-files-back">
           <ChevronLeft size={14} aria-hidden /> {dir ? (dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')).split('/').pop() : t('files.title')) : p.name}
         </Link>
       )}
+      <h1 className={phone ? 'sr-only' : 'px-4 pt-1 text-title font-semibold text-ink'} data-testid="project-files-title">{name}</h1>
+      <PhoneBarTitle>{name}</PhoneBarTitle>
       {/* not for the owner or an admin who is not a member: the 파일 screen would not open the folder for them; nor a
           guest, who has no 파일 screen */}
       {path !== null && p?.member !== false && !guest && (
