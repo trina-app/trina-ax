@@ -74,8 +74,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
-      'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). The file stores no results: Excel or ' +
-      'LibreOffice calculate them when the file opens, so do not state computed values as read from the file. ' +
+      'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). Simple formulas (numbers, cells of the same ' +
+      'sheet, + - * / ^, parentheses, SUM, AVERAGE, MIN, MAX, COUNT, ABS, ROUND) are saved together with their computed result, so the file ' +
+      'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
+      'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
@@ -100,7 +102,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       const text = r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
-        : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; the spreadsheet app calculates them when the file opens.`
+        : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
         : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''

@@ -117,7 +117,30 @@ function closersOf(s: string): Closers {
     }
     i = k
   }
+  // the `</a>` closers of an HTML link (any case), in order, for the same kind of search
+  const ends: number[] = []
+  for (let i = s.indexOf('</'); i !== -1; i = s.indexOf('</', i + 2)) if ((s[i + 2] === 'a' || s[i + 2] === 'A') && s[i + 3] === '>') ends.push(i)
+  if (ends.length) runs.set('</a>', ends)
   return runs
+}
+/** an HTML link `<a href=…>text</a>` at `i` (bounded: the tag is at most 2100 characters and has no `<` inside it, the
+ * text at most 500; no regex runs on more than that), or null */
+function anchorAt(s: string, i: number, to: number, runs: Closers): { href: string; open: number; close: number; end: number } | null {
+  const c1 = s[i + 1]
+  if ((c1 !== 'a' && c1 !== 'A') || !/\s/.test(s[i + 2] ?? '')) return null
+  let gt = -1
+  for (let k = i + 2; k < to && k < i + 2100; k++) { const ch = s[k]!; if (ch === '<') return null; if (ch === '>') { gt = k; break } }
+  if (gt === -1) return null
+  const m = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(s.slice(i + 2, gt))
+  if (!m) return null
+  const list = runs.get('</a>')
+  if (!list) return null
+  let lo = 0, hi = list.length
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]! < gt + 1) lo = mid + 1; else hi = mid }
+  if (lo >= list.length || list[lo]! + 4 > to || list[lo]! - (gt + 1) > 500) return null
+  const href = (m[1] ?? m[2] ?? m[3] ?? '').replace(/&amp;/gi, '&').trim()
+  if (/[\s\x00-\x1f]/.test(href)) return null
+  return { href, open: gt + 1, close: list[lo]!, end: list[lo]! + 4 }
 }
 /** the first run of exactly `n` × `c` that can close, starting at `from` or later and ending by `to`; -1 if none */
 function closer(runs: Closers, c: string, n: number, from: number, to: number): number {
@@ -166,6 +189,17 @@ function inline(s: string, style: Style, home: string | null, out: RichInline[] 
       }
     }
     if (c === '<') {
+      const a = anchorAt(s, i, to, runs)
+      if (a) {
+        const target = targetOf(a.href, home)
+        if (target === null) { buf += s.slice(i, a.end); i = a.end; continue } // another kind of link: as written
+        flush()
+        const label = inline(s, style, home, [], a.open, a.close, runs).map((e): RichInline => e.type === 'link' ? text(e.text ?? e.url, (e.style ?? {}) as Style) : e)
+        if (target === 'text') for (const e of label) push(out, e)
+        else linkTo(out, target, label, style, home)
+        i = a.end
+        continue
+      }
       AUTOLINK.lastIndex = i
       const m = AUTOLINK.exec(s)
       if (m && AUTOLINK.lastIndex <= to) { flush(); push(out, link(m[1]!, undefined, style)); i = AUTOLINK.lastIndex; continue }
