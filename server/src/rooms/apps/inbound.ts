@@ -173,6 +173,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   }
   let app = now_
   const ev = parsed.event
+  // which events have arrived at all (also with the switch off): "Not set up in <service>" under the others
+  apps.sawEvent(now_, ev.switch)
   if (ev.alert && !app.alert_seen) app = apps.alertSeen(app)
   if (!apps.switches(app)[ev.switch]) { apps.count(row, 'skipped', day); return answer(200, 'ok') }
   const paused = apps.capCheck(app)

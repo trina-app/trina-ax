@@ -13,7 +13,7 @@ import { teamDefaultLocale } from '../../server/src/admin/settings'
 import { roomAppsOf } from '../../server/src/rooms/apps/service'
 import { appText } from '../../server/src/rooms/apps/text'
 import { loggablePath } from '../../server/src/http/middleware'
-import { tolerantZendesk } from '../../server/src/rooms/apps/presets/zendesk'
+import { tolerantZendesk, zendeskDuplicateKey } from '../../server/src/rooms/apps/presets/zendesk'
 import { jotformPretty } from '../../server/src/rooms/apps/presets/forms'
 import { money } from '../../server/src/rooms/apps/presets/common'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -423,6 +423,11 @@ test('security review of #854, Zendesk: a comment that closes its quote and adds
   expect((await post(token, inj)).status).toBe(400)
   // the tolerant reader refuses a duplicated key too
   expect(tolerantZendesk(inj.replace('"update":"x"', '"update":"x"x"'))).toBeNull()
+  // the same keys written with \u escapes ("id" is "id"): JSON.parse reads them as the keys, so they are refused too
+  const esc = '{"trina":"zendesk","event":"updated","id":"777","title":"t","status":"Open","priority":"","requester":"","assignee":"","url":"acme.zendesk.com/agent/tickets/777","update":"x","\\u0069d":"123","\\u0073tatus":"solved"}'
+  expect(JSON.parse(esc).id).toBe('123')
+  expect(zendeskDuplicateKey(esc)).toBe(true)
+  expect((await post(token, esc)).status).toBe(400)
   expect(await messages()).toHaveLength(0)
   // every outsider-written placeholder is escaped in the Copy body; id, status, priority and url are Zendesk's own
   for (const ph of ['ticket.title', 'ticket.requester.name', 'ticket.assignee.name', 'ticket.latest_public_comment']) expect(roomAppZendeskBody('created')).toContain(`{{${ph} | escape}}`)
@@ -528,4 +533,24 @@ test('the pinned service account: Regenerate clears it; saving a secret clears i
   expect(pinOf(s.app.id)).toBe('evil-shop')
   await owner.call('POST', `/api/rooms/${all}/apps/${s.app.id}/rotate`)
   expect(pinOf(s.app.id)).toBeNull()
+})
+
+test('eventsSeen: the switch keys an event has arrived for, also with the switch off; keys only; nothing before the first event', async () => {
+  const { owner, all, add, post } = await setup()
+  const { token, app } = await add('shopify')
+  expect(app.eventsSeen).toEqual([])
+  const hdr = (topic: string, id: string) => ({ 'x-shopify-topic': topic, 'x-shopify-shop-domain': 'acme-shop.myshopify.com', 'x-shopify-event-id': id })
+  const order = fixture('shopify/orders-create.json')
+  expect((await post(token, order, hdr('orders/create', 's1'))).status).toBe(200)
+  // fulfilled is off by default: it still counts as arrived (the settings must not say "Not set up")
+  const fulfilled = JSON.stringify({ ...JSON.parse(order), fulfillment_status: 'fulfilled' })
+  expect((await post(token, fulfilled, hdr('orders/fulfilled', 's2'))).status).toBe(200)
+  // a skipped topic and an unreadable body add nothing
+  expect((await post(token, order, hdr('products/update', 's3'))).status).toBe(200)
+  expect((await post(token, '{', hdr('orders/paid', 's4'))).status).toBe(400)
+  const item = ((await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]).find((i) => i.id === app.id)
+  expect(item.eventsSeen).toEqual(['order', 'fulfilled'])
+  // only switch keys ever: a stored value that is not one is not shown
+  h.ctx.db.query(`UPDATE room_apps SET events_seen = '["order","jamie@example.com",7]' WHERE id = ?`).run(app.id)
+  expect(((await owner.call('GET', `/api/rooms/${all}/apps`)).items as any[]).find((i) => i.id === app.id).eventsSeen).toEqual(['order'])
 })

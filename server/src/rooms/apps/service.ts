@@ -51,7 +51,7 @@ const THREADS_KEPT_DAYS = 90
 const REFUSAL_EVERY_MS = 60_000
 
 export interface AppRow {
-  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
+  id: string; room_id: string; kind: RoomAppKind; preset: string | null; preset_pin: string | null; events_seen: string; name: string; token_hash: string; token_enc: string; secret_enc: string | null; key_version: number
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
 }
@@ -190,6 +190,19 @@ export class RoomApps {
     for (const k of Object.keys(out)) if (typeof saved[k] === 'boolean') out[k] = saved[k] as boolean
     return out
   }
+  /** The switch keys an event has arrived for (only keys of the app's switches). */
+  eventsSeen(row: Pick<AppRow, 'kind' | 'preset' | 'events' | 'events_seen'>): string[] {
+    let v: unknown = []
+    try { v = JSON.parse(row.events_seen ?? '[]') } catch { v = [] }
+    const known = Object.keys(this.switches(row))
+    return Array.isArray(v) ? known.filter((k) => v.includes(k)) : []
+  }
+  /** An event for `key` arrived (inbound.ts, after it was read): remembered once. */
+  sawEvent(row: AppRow, key: string) {
+    if (this.eventsSeen(row).includes(key) || !(key in this.switches(row))) return
+    const next = [...this.eventsSeen(row), key]
+    this.db.query('UPDATE room_apps SET events_seen = ? WHERE id = ?').run(JSON.stringify(next), row.id)
+  }
   private shownToday(appId: string, day: string): number {
     return (this.db.query('SELECT shown FROM room_app_days WHERE app_id = ? AND day = ?').get(appId, day) as { shown: number } | null)?.shown ?? 0
   }
@@ -215,6 +228,7 @@ export class RoomApps {
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
       pausedUntil: paused, canResume: !!paused && !this.capDay(row, day).resumed && this.teamShownToday(day) < ROOM_APP_TEAM_DAILY_CAP,
+      eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
       today: this.shownToday(row.id, day),
     }

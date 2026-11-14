@@ -25,7 +25,10 @@ type Body = Partial<Record<(typeof KEYS)[number], string>>
 
 /** A template key named more than once anywhere in the raw text: an injected key (refused). */
 export function zendeskDuplicateKey(text: string): boolean {
-  return KEYS.some((k) => (text.match(new RegExp(`"${k}"\\s*:`, 'g')) ?? []).length > 1)
+  // a key may be written with \uXXXX escapes ("id" is "id"): checked on a copy with them decoded (an escaped
+  // backslash before a "u" decodes too: stricter, never looser)
+  const plain = text.replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+  return KEYS.some((k) => (plain.match(new RegExp(`"${k}"\\s*:`, 'g')) ?? []).length > 1)
 }
 
 /** The HTML entities Liquid's `escape` writes, decoded (&amp; last, so "&amp;quot;" stays "&quot;"). */

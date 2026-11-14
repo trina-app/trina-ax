@@ -27945,6 +27945,10 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
 - **API (additive).** `RoomApp.preset?`, `RoomAppRef.preset?` (also on stored cards, so a removed app's messages keep
   their logo), the paused notice's `roomApp.preset?`, `CreateRoomAppBody.preset?`, `ROOM_APP_PRESET_SWITCHES / _NAMES /
   _SIGNING / _NEEDS`, `ZENDESK_TEST_SECRET`, `roomAppZendeskBody()`. Audit: `room_app.add` / `.remove` carry `preset`.
+- **`RoomApp.eventsSeen`** (additive, for the web's "Not set up in Shopify" under a switch): the app's switch keys an
+  event has arrived for at least once, also while its switch is off; keys only (`room_apps.events_seen`, JSON array, in
+  migration 401), written once per key after the body was read. A Zendesk key written with `\uXXXX` escapes counts
+  as a duplicate too (the check runs on a copy with them decoded; re-review of #854).
 - **Logs.** `loggablePath` also drops the query string on `/in/` (a service that puts a token in `?token=`).
 - **After the security review of #854.**
   - **Zendesk quote injection (blocker).** Zendesk does not JSON-escape placeholder values, so a customer comment

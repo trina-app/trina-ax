@@ -199,6 +199,9 @@ export const RoomApp = z.object({
   canResume: z.boolean(),
   /** messages shown today (the team's day) */
   today: z.number().int().nonnegative(),
+  /** the switch keys an event has arrived for at least once (also while its switch is off): the settings say "Not set
+   * up in <service>" under the others. Keys only, never content. Older servers omit it */
+  eventsSeen: z.array(z.string().max(32)).optional(),
   /** someone who was shown the address (or a secret Trina made) can no longer manage the app (left the room or the
    * team, or is no longer an admin in a team room): "Someone who left knows this address · Get a new address" */
   leaverKnows: z.literal(true).optional(),
