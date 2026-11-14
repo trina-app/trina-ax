@@ -18,6 +18,7 @@ describe('joined notice', () => {
     expect(joinedText({ name: 'Nora' }, en)).toBe('Nora joined the team.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: 'Quote prep' } }, en)).toBe("Gina joined 'Quote prep' as a guest.")
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '' } }, en)).toBe('Gina joined a group chat as a guest.')
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: '' } }, en)).toBe('Gina joined a project as a guest.')
   })
 })
 
@@ -53,6 +54,7 @@ describe("a guest's delete-account page", () => {
     expect(text).toContain('your chats with the AI, your AI sign-in')
     expect(text).toContain("the files and chats you added to 'Acme bid'")
     expect(text).not.toContain('personal folder')
+    expect(text).toContain('Files you saved in Your files move to an archive')
   })
 
   test('a member keeps the full list', async () => {

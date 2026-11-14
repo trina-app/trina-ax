@@ -3775,6 +3775,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.joinedNoticeGone": "Someone joined the team.",
   "teamLink.joinedGuest": "{name} joined '{place}' as a guest.",
   "teamLink.joinedGuestChat": "{name} joined a group chat as a guest.",
+  "teamLink.joinedGuestProject": "{name} joined a project as a guest.",
   // account deletion (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' and the person's inbox)
   "accountDeletion.row": "Delete account",
   "accountDeletion.rowHint": "Your account is deleted {days, plural, one {# day} other {# days}} after you ask. You can cancel until then.",
@@ -3788,6 +3789,7 @@ export const en: Record<MessageKey, string> = {
   "accountDeletion.goesGuest": "Deleted: your sign-in, your profile and photo, and your notifications.",
   "accountDeletion.goesGuestAi": "Deleted: your sign-in, your profile and photo, your chats with the AI and your notifications.",
   "accountDeletion.goesGuestOwn": "Deleted: your sign-in, your profile and photo, your chats with the AI, your AI sign-in and your notifications.",
+  "accountDeletion.folderGuest": "Files you saved in Your files move to an archive that only the team owner can read. Delete them before then if you want them gone.",
   "accountDeletion.staysGuestRoom": "Stays with the team: the messages and files you sent in {place} and to its people, which keep your name.",
   "accountDeletion.staysGuestProject": "Stays with the team: the files and chats you added to {place} and the messages you sent to its people, which keep your name.",
   "accountDeletion.guestRoom": "your group chat",

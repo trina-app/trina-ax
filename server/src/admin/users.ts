@@ -149,7 +149,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   }
   const before = captureState(ctx.db)
   // who may see them while the account is as it is now: a status that goes with it is told to them only
-  const seenBefore = b.status !== undefined ? seenBy(ctx.db, id) : null
+  const seenBefore = b.status !== undefined && liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : null
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
     // the caller and the target as they are now (an owner who handed the team over a moment ago is an admin; a member
@@ -205,7 +205,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
   // their status message (docs/DECISIONS.md "상태 메시지") is the team's only while the account is on: open windows read
   // the directory again when it goes or comes back with the account
-  if (changed.status !== undefined) statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true), [seenBefore ?? seenBy(ctx.db, id), seenBy(ctx.db, id)])
+  if (changed.status !== undefined && liveStatusOf(ctx.db, id, new Date(), true)) statusGoneWithAccount(ctx, true, [seenBefore ?? (() => false), seenBy(ctx.db, id)])
   if (changed.status === 'disabled') {
     // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
     accountDeactivated(ctx.db, id, auth.user.id)
@@ -398,7 +398,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   let ownAi: string[] = []
   let hadStatus = false
   // who may see them before the account goes (afterwards nobody shares a place with it): their status goes to them only
-  const seen = seenBy(ctx.db, id)
+  const seen = liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : () => false
   let auditId = 0
   ctx.db.transaction(() => {
     o.check?.()
@@ -630,7 +630,7 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
 export function disableAccount(ctx: AppContext, id: string, actorId: string | null, why: string): boolean {
   let done = false
   // who may see them while the account is on: its status goes to them only
-  const seen = seenBy(ctx.db, id)
+  const seen = liveStatusOf(ctx.db, id, new Date(), true) ? seenBy(ctx.db, id) : () => false
   ctx.db.transaction(() => {
     // read first, then write: `changes` of an UPDATE on users counts the safe-ops trigger's write too on some Bun
     // versions (1.3.12 answers 2), so it cannot tell whether this row changed

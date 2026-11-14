@@ -17,11 +17,14 @@ test('a guest joins a project: its people are told (with its id), a member outsi
   const pia = await addMember(h, owner, { username: 'pia' })
   const p = await teamProject(owner, 'Acme bid')
   const told: { to: string; message: string }[] = []
+  // every window open: publishEach is asked for each person (the hub asks only for people with a window)
+  const everyone = () => (h.ctx.db.query('SELECT id FROM users').all() as { id: string }[]).map((r) => r.id)
   const rt = h.ctx.services.realtime
-  const real = rt.publish.bind(rt)
-  rt.publish = (to, ev) => {
-    if (ev.type === 'notice' && ev.data.code === PROJECT_PEOPLE_CHANGED) told.push({ to, message: ev.data.message })
-    real(to, ev)
+  rt.publishEach = (build) => {
+    for (const to of everyone()) {
+      const ev = build(to)
+      if (ev && ev.type === 'notice' && ev.data.code === PROJECT_PEOPLE_CHANGED) told.push({ to, message: ev.data.message })
+    }
   }
   const gus = await addGuest(h, owner, { username: 'gus', place: { kind: 'project', id: p.id } })
   expect(told.filter((x) => x.to === ownerId).map((x) => x.message)).toContain(p.id)

@@ -3774,6 +3774,7 @@ export const ko = {
   "teamLink.joinedNoticeGone": "누군가 팀에 들어왔어요.",
   "teamLink.joinedGuest": "{name}님이 게스트로 '{place}'에 들어왔어요.",
   "teamLink.joinedGuestChat": "{name}님이 게스트로 그룹 대화에 들어왔어요.",
+  "teamLink.joinedGuestProject": "{name}님이 게스트로 프로젝트에 들어왔어요.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "계정 삭제",
   "accountDeletion.rowHint": "요청하고 {days}일 뒤 계정이 삭제돼요. 그 전에는 취소할 수 있어요.",
@@ -3787,6 +3788,7 @@ export const ko = {
   "accountDeletion.goesGuest": "삭제되는 것: 로그인 정보, 프로필과 사진, 알림.",
   "accountDeletion.goesGuestAi": "삭제되는 것: 로그인 정보, 프로필과 사진, AI와 나눈 대화, 알림.",
   "accountDeletion.goesGuestOwn": "삭제되는 것: 로그인 정보, 프로필과 사진, AI와 나눈 대화, 연결한 내 AI 계정, 알림.",
+  "accountDeletion.folderGuest": "'내 파일'에 저장한 파일은 팀장만 볼 수 있는 보관 폴더로 옮겨져요. 남기고 싶지 않으면 그 전에 지워 주세요.",
   "accountDeletion.staysGuestRoom": "팀에 남는 것: {place}에서 보낸 메시지와 파일, 그곳 사람들에게 따로 보낸 메시지. 이름도 그대로 남아요.",
   "accountDeletion.staysGuestProject": "팀에 남는 것: {place}에 올린 파일과 대화, 그곳 사람들에게 보낸 메시지. 이름도 그대로 남아요.",
   "accountDeletion.guestRoom": "그룹 대화",

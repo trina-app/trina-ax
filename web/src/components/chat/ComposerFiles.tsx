@@ -38,6 +38,7 @@ import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
 import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
@@ -340,6 +341,8 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
 export function ComposerFileList({ files, onRemove, className }: { files: Pending[]; onRemove: (f: Pending) => void; className?: string }) {
   const t = useT()
   const words = useFolderWords()
+  // a guest: their project's folder without the Projects step on the way (lib/guestFiles.ts)
+  const guest = isGuestMe(useMe())
   const locale = useLocale()
   if (!files.length) return null
   return (
@@ -406,7 +409,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                 <span className="max-w-[180px] truncate font-medium">{f.name}</span>
               )}
               {/* the team folder it is in, visible without hovering (phones) */}
-              {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(folderOf(f.attachment?.path ?? f.path ?? '')) || t('files.root')}</span>}
+              {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(guest ? folderOf(f.attachment?.path ?? f.path ?? '').replace(/^projects\//, '') : folderOf(f.attachment?.path ?? f.path ?? '')) || t(guest ? 'picker.guestRoot' : 'files.root')}</span>}
             </span>
             {/* both stay through the whole upload, so a screen reader hears each change */}
             <span className="flex items-center">

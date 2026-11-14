@@ -115,10 +115,13 @@ export function reachFilter(db: Database, viewerId: string): (otherId: string) =
  */
 export function seenBy(db: Database, userId: string): (to: string) => boolean {
   const guests = (db.query("SELECT id FROM users WHERE guest = 1 AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
-  const own = isGuest(db, userId) ? placePeople(db, userId) : null
-  if (!guests.length && !own) return () => true
+  const target = isGuest(db, userId)
+  if (!guests.length && !target) return () => true
+  // one rule set for every project place read here (placePeople reads it again otherwise)
+  const rules = RuleSet.fromDb(db)
+  const own = target ? placePeople(db, userId, rules) : null
   const guestSees = new Map<string, boolean>()
-  for (const g of guests) if (g !== userId) guestSees.set(g, (!own || own.has(g)) && placePeople(db, g).has(userId))
+  for (const g of guests) if (g !== userId) guestSees.set(g, (!own || own.has(g)) && placePeople(db, g, rules).has(userId))
   return (to) => to === userId || (guestSees.get(to) ?? (own ? own.has(to) : true))
 }
 

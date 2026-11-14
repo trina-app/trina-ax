@@ -105,15 +105,16 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
   return r.open ? `${who} ${t('notifications.resetLink.openHint')}` : who
 }
 
-/** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
- * words, in <bdi>); without it, "a scheduled task" as before. */
 /** "{name} joined the team.", or for a guest the one place they joined: "{name} joined 'Quote prep' as a guest." (a group
- * chat with no name: "joined a group chat as a guest") */
+ * chat with no name, or a place the reader is not in: "joined a group chat / a project as a guest") */
 export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
   if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
-  return j.guestPlace.name ? t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name }) : t('teamLink.joinedGuestChat', { name: j.name })
+  if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
+  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
 }
 
+/** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
+ * words, in <bdi>); without it, "a scheduled task" as before. */
 export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
   if (item.handover) return handoverNoticeNode(locale, item.handover)
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)

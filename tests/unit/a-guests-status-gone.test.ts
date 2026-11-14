@@ -68,3 +68,21 @@ test('a member switched off: the team is told, a guest outside their places is n
   expect(seenBy(h.ctx.db, gus.id)(pia.id)).toBe(false)
   expect(seenBy(h.ctx.db, gus.id)(nora.id)).toBe(true)
 })
+
+// (a guest switched off is out of their place, and switching them on again is refused: guest_no_place)
+test('a member switched on again: the team is told, a guest outside their places is not', async () => {
+  const { owner, ownerId, mia, pia, gus, told } = await setup('a-guests-status-gone-on')
+  expect((await pia.client.try('PUT', '/api/me/status', { emoji: '🌴', text: 'off', clear: 'never' })).status).toBe(200)
+  expect((await owner.try('PATCH', `/api/admin/users/${pia.id}`, { status: 'disabled' })).status).toBe(200)
+  told.length = 0
+  expect((await owner.try('PATCH', `/api/admin/users/${pia.id}`, { status: 'active' })).status).toBe(200)
+  expect(told).toEqual(expect.arrayContaining([ownerId, mia.id]))
+  expect(told).not.toContain(gus.id)
+})
+
+test('no status: switching an account off tells nobody', async () => {
+  const { owner, gus, told } = await setup('a-guests-status-gone-none')
+  told.length = 0
+  expect((await owner.try('PATCH', `/api/admin/users/${gus.id}`, { status: 'disabled' })).status).toBe(200)
+  expect(told).toEqual([])
+})

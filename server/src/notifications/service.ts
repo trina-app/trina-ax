@@ -1,5 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
-import { guestDetail } from '../auth/guests'
+import { guestDetail, placePeople } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -621,11 +621,13 @@ export class Notifications {
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail; the
-      // notice goes to the owners and whoever invited them, who see the guest's place in Admin › Guests anyway)
+      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail). The
+      // place's name as it is now, only to a reader who is in that place or is the owner or an admin (who see it in
+      // Admin › Guests anyway); an inviter who left it reads "a group chat" / "a project", never a later rename
       const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
+      const named = !!place && (isStaff(this.ctx.db, row.user_id) || placePeople(this.ctx.db, row.source_id).has(row.user_id))
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
-        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: place.name } } : {}) } } : {}) }
+        ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '' } } : {}) } } : {}) }
     }
     // the owner and the admins see who asks (a name while the account is there) and where the request is now; while it
     // waits, the link opens that person in Admin › Members, where the account is deleted
@@ -894,6 +896,10 @@ export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, source
     const ids = (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
     for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
   } catch { ctx.log.warn('hosting notification recording failed') }
+}
+/** The owner or an admin (stored role; a guest is stored as a member, so never one). */
+function isStaff(db: AppContext['db'], userId: string): boolean {
+  return !!db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND guest = 0").get(userId)
 }
 export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
   for (const userId of new Set(userIds)) {

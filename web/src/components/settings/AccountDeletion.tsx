@@ -44,13 +44,15 @@ export function deletionDueText(t: T, item: Pick<InboxNotification, 'deletionDue
 /** What happens, in plain lines: the same list before and after asking. */
 function WhatHappens({ value, viewerIsAdmin }: { value: AccountDeletionRequest; viewerIsAdmin: boolean }) {
   const t = useT()
-  // a guest (lib/guests.ts) has none of a member's things (team folders, shared skills, a folder of their own on the
-  // Files page, scheduled tasks or app connections): only their account, their chats with the AI when it is on for them,
-  // and what they sent in their one place, which stays
+  // a guest (lib/guests.ts) has none of a member's things (team folders, shared skills, scheduled tasks or app
+  // connections): only their account, their chats with the AI when it is on for them, the files they saved in "Your
+  // files", and what they sent in their one place, which stays
   const guest = meGuest(useMe())
   const lines = guest ? [
     t('accountDeletion.told'),
     t(guest.ai === 'own' ? 'accountDeletion.goesGuestOwn' : guest.ai === 'team' ? 'accountDeletion.goesGuestAi' : 'accountDeletion.goesGuest'),
+    // their own folder ("Your files" in the pickers): what they saved there goes to the owner's archive, as a member's
+    t('accountDeletion.folderGuest'),
     guest.place?.kind === 'project'
       ? t('accountDeletion.staysGuestProject', { place: guest.place.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestProject') })
       : t('accountDeletion.staysGuestRoom', { place: guest.place?.name ? t('accountDeletion.placeNamed', { name: guest.place.name }) : t('accountDeletion.guestRoom') }),
