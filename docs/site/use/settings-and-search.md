@@ -58,7 +58,7 @@ Press **Esc** or choose **✕**. You are back where you were.
 
 **Browser** has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in rooms. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or room message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
 
-**Language** in Profile offers English, 한국어, Bahasa Indonesia, 日本語, Español and 简体中文. **Delete my account** (in Profile) deletes your account 7 days after you ask; you can cancel until then.
+**Language** in Profile offers **Team default** and English, 한국어, Bahasa Indonesia, 日本語, Español and 简体中文. **Delete my account** (in Profile) deletes your account 7 days after you ask; you can cancel until then.
 
 On a phone, Settings fills the screen. The section list comes first, and **←** goes back to it.
 
