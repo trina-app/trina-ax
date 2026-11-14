@@ -3,8 +3,9 @@
 // fictional company; every person, number, address and file is made up (README.md).
 //
 // Four moments: ① the AI already knows the company (3 files read, people to know), ② one prompt gives a launch set of
-// five deliverables, ③ the team reacts live in #Marketing, ④ the mail goes out and the agency answers.
-import type { DemoAnswer, DemoAsk, DemoFile, DemoReply, DemoScript, DemoStep } from '../../../web/demo/script'
+// five deliverables shot with Higgsfield, ③ the team reacts live in #Marketing, ④ the mail goes out and the agency
+// answers.
+import type { DemoAnswer, DemoAsk, DemoReply, DemoScript, DemoStep } from '../../../web/demo/script'
 import type { Strings } from './strings/en'
 
 type Mail = Strings['mail']['plain']
@@ -14,13 +15,11 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const inProject = (name: string) => `projects/${P}/${name}`
   const brief = `groups/${s.marketingGroup}/${s.paths.brief}`
   const leoBanner = inProject(s.paths.leoBanner)
-  // version A and B save under the same names: whatever the visitor made last is what gets mailed
   const banner = inProject(s.paths.banner)
   const square = inProject(s.paths.square)
   const story = inProject(s.paths.story)
   const captions = inProject(s.paths.captions)
-  const brandCheck = inProject(s.paths.brandCheck)
-  const background = inProject(s.paths.background)
+  const photo = inProject(s.paths.photo)
 
   const link = (text: string) => text.replaceAll('{project}', '{{project:launch}}')
   const st = s.steps
@@ -28,27 +27,11 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
   const make = (what: string, path: string, ms = 900): DemoStep => ({ label: `${what} · ${path}`, tool: 'write', ms })
   const a = s.answers
 
-  // ---- ② the launch set: banner, square, story, captions, and brand check (A) or the background (B)
+  // ---- ② the launch set, shot with Higgsfield: banner, square, story, captions, and the photo itself
 
   const captionsText = `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`
   const captionsQuote = a.captions.map((c, i) => `> ${i + 1}. ${c}`).join('\n>\n')
-  const brandCheckText = `# ${a.brandCheck.title}\n\n${a.brandCheck.lines.map((l) => `- ${l}`).join('\n')}\n`
   const d = a.deliverables
-  const set = (v: 'a' | 'b'): DemoFile[] => [
-    { path: banner, asset: `banner-${v}.${locale}.png` },
-    { path: square, asset: `square-${v}.${locale}.png` },
-    { path: story, asset: `story-${v}.${locale}.png` },
-    { path: captions, text: captionsText },
-  ]
-  const tiles = [{ path: banner, label: d.banner }, { path: square, label: d.square }, { path: story, label: d.story }, { path: captions, label: d.captions }]
-  const compare = { before: leoBanner, after: banner, beforeLabel: a.compare.before, afterLabel: a.compare.after }
-  const sendTo = { room: 'mkt-room', label: a.sendTo }
-  const makeSet: DemoStep[] = [
-    make(`${st.makeBanner} 1200×628`, banner, 1500),
-    make(`${st.makeSquare} 1080×1080`, square),
-    make(`${st.makeStory} 1080×1920`, story),
-    make(st.writeCaptions, captions, 700),
-  ]
 
   // ---- ④ the mail to the agency: a draft with the banner and the square, a confirm card, a sent line
 
@@ -85,26 +68,37 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       people: (['sara', 'leo', 'daniel'] as const).map((id) => ({ id, why: a.company.people[id] })),
     },
     {
-      id: 'banner-a',
+      id: 'banner',
       where: { project: 'launch' },
-      prompt: a.bannerA.prompt,
-      steps: [read(s.paths.brandGuide), read(leoBanner), ...makeSet, make(d.brandCheck, brandCheck, 500)],
-      text: `${a.bannerA.text}\n\n${captionsQuote}\n\n${a.bannerA.after}`,
-      files: [...set('a'), { path: brandCheck, text: brandCheckText }],
-      compare,
-      deliverables: [...tiles, { path: brandCheck, label: d.brandCheck }],
-      sendTo,
-    },
-    {
-      id: 'banner-b',
-      where: { project: 'launch' },
-      prompt: a.bannerB.prompt,
-      steps: [read(s.paths.brandGuide), { label: `Higgsfield · ${st.higgsfield}`, tool: 'higgsfield', ms: 2600 }, make(st.save, background, 500), ...makeSet],
-      text: `${a.bannerB.text}\n\n${captionsQuote}\n\n${a.bannerB.after}`,
-      files: [...set('b'), { path: background, asset: 'bg-b.png' }],
-      compare,
-      deliverables: [...tiles, { path: background, label: d.background }],
-      sendTo,
+      prompt: a.banner.prompt,
+      steps: [
+        read(s.paths.brandGuide),
+        read(leoBanner),
+        { label: `Higgsfield · ${st.higgsfieldHero}`, tool: 'higgsfield', ms: 3200 },
+        { label: `Higgsfield · ${st.higgsfieldCrops}`, tool: 'higgsfield', ms: 2600 },
+        make(st.save, photo, 500),
+        make(`${st.makeBanner} 1200×628`, banner, 1500),
+        make(`${st.makeSquare} 1080×1080`, square),
+        make(`${st.makeStory} 1080×1920`, story),
+        make(st.writeCaptions, captions, 700),
+      ],
+      text: `${a.banner.text}\n\n${captionsQuote}\n\n${a.banner.after}`,
+      files: [
+        { path: banner, asset: `campaign-banner.${locale}.png` },
+        { path: square, asset: `campaign-square.${locale}.png` },
+        { path: story, asset: `campaign-story.${locale}.png` },
+        { path: captions, text: captionsText },
+        { path: photo, asset: 'higgsfield-photo.jpg' },
+      ],
+      compare: { before: leoBanner, after: banner, beforeLabel: a.compare.before, afterLabel: a.compare.after },
+      deliverables: [
+        { path: banner, label: d.banner },
+        { path: square, label: d.square },
+        { path: story, label: d.story },
+        { path: captions, label: d.captions },
+        { path: photo, label: d.photo },
+      ],
+      sendTo: { room: 'mkt-room', label: a.sendTo },
     },
     {
       id: 'mail',
@@ -182,7 +176,7 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       { id: 'ask', text: s.guide.ask.text, away: s.guide.ask.away, go: 'home', highlight: '[data-testid="member-welcome-ask"]', until: { answer: 'company' } },
       { id: 'dm', text: s.guide.dm.text, away: s.guide.dm.away, go: { room: 'dm-lead' }, after: { event: 'dm-1' }, highlight: '[data-testid="demo-toast"]', until: { opened: { room: 'dm-lead' } } },
       { id: 'project', text: s.guide.project.text, away: s.guide.project.away, go: { room: 'dm-lead' }, highlight: '[data-testid="demo-project-card"]', until: { opened: { project: 'launch' } } },
-      { id: 'banner', text: s.guide.banner.text, away: s.guide.banner.away, go: { project: 'launch' }, suggest: ['banner-a', 'banner-b'], until: { answer: ['banner-a', 'banner-b'] } },
+      { id: 'banner', text: s.guide.banner.text, away: s.guide.banner.away, go: { project: 'launch' }, suggest: ['banner'], until: { answer: 'banner' } },
       { id: 'share', text: s.guide.share.text, away: s.guide.share.away, go: { project: 'launch' }, highlight: '[data-testid="demo-send-to"]', until: { shared: 'mkt-room' } },
       { id: 'mail', text: s.guide.mail.text, away: s.guide.mail.away, go: { side: 'mkt-room' }, after: { event: 'gmail' }, suggest: ['mail'], until: { answer: 'mail' } },
     ],
