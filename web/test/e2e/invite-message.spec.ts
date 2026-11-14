@@ -44,7 +44,7 @@ for (const width of [1440, 390] as const) {
       const lines = message.split('\n')
       expect(lines[0]).toBe('안녕하세요, Olga입니다. 트리나에서 Acme에 초대할게요.')
       expect(lines[1]).toBe('우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요')
-      expect(message).toContain("'자연스러운 글' 스킬부터 같이 써 봐요.")
+      expect(message).toContain("우리 팀용으로 '자연스러운 글' 스킬을 준비해 뒀어요.")
       expect(lines.at(-1)).toBe(url)
       // edited in place: the copy is what is in the box
       const edited = `민지님, 다음 주부터 같이 써요!\n${url}`
@@ -66,6 +66,6 @@ test('no team description: no "우리 팀 소개" line and no blank line', async
   const message = await page.getByTestId('team-link-message').inputValue()
   expect(message).not.toContain('우리 팀 소개')
   expect(message).not.toContain('\n\n')
-  expect(message.split('\n')[1]).toBe('여기서는 우리 팀 파일과 도구를 아는 AI 동료랑 같이 일해요. 매일 하는 문서 작업이 훨씬 빨라져요.')
+  expect(message.split('\n')[1]).toBe('우리 팀은 트리나에서 일상 문서 작업을 AI에게 맡겨요.')
   expect(realErrors(errors)).toEqual([])
 })

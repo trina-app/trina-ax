@@ -507,8 +507,8 @@ function GroupsEditor({ groups, initial, busy, newGroupLink, onCancel, onSave }:
  * ("quote-maker") reads as words (skillLabel). */
 const optionLabel = (title: string) => (/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(title) ? skillLabel({ name: title }) : title)
 
-/** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link opens; 바꾸기 (only with two
- * or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
+/** "들어온 사람은 팀 스킬에서 '{스킬}' 스킬을 볼 수 있어요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link
+ * names; 바꾸기 (only with two or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
 function LandingLine({ shared, skill }: { shared: InviteShared; skill: string }) {
   const t = useT()
   const id = useId()

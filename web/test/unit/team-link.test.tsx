@@ -46,12 +46,12 @@ describe('the address', () => {
 describe('the ready-made message', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
   const en = (k: MessageKey, p?: Record<string, string | number>) => translate('en', k, p)
-  test('Korean: a hello from the inviter, the team\'s line, what it is for, the skill to try first, the link alone on the last line', () => {
+  test('Korean: a hello from the inviter, the team\'s line, what it is for, the skill set up for the team, the link alone on the last line', () => {
     expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구', about: '병원 마케팅 콘텐츠를 만드는 팀이에요' })).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
       '우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요',
-      '여기서는 우리 팀 파일과 도구를 아는 AI 동료랑 같이 일해요. 매일 하는 문서 작업이 훨씬 빨라져요.',
-      "들어오면 '광고 문구' 스킬부터 같이 써 봐요.",
+      `우리 팀은 ${named('ko')}에서 일상 문서 작업을 AI에게 맡겨요.`,
+      "우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.",
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
     ].join('\n'))
@@ -60,7 +60,7 @@ describe('the ready-made message', () => {
     const m = teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, about: '  ' })
     expect(m).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
-      '여기서는 우리 팀 파일과 도구를 아는 AI 동료랑 같이 일해요. 매일 하는 문서 작업이 훨씬 빨라져요.',
+      `우리 팀은 ${named('ko')}에서 일상 문서 작업을 AI에게 맡겨요.`,
       '들어오면 지금 하고 있는 일 하나를 맡겨 보세요.',
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
@@ -72,14 +72,14 @@ describe('the ready-made message', () => {
     expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_, skill: 'SEO strategy plan', about: 'We make SEO content\nfor clinics' })).toBe([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
       'About us: We make SEO content for clinics',
-      "There we work with an AI teammate that knows our team's files and tools, so everyday documents get done faster.",
-      "Once you're in, let's try the 'SEO strategy plan' skill together.",
+      `${named('en')} is where we ask AI to help with our everyday documents.`,
+      "I set up the 'SEO strategy plan' skill for us.",
       'Join with this link:',
       URL_,
     ].join('\n'))
     expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_ }).split('\n')).toEqual([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
-      "There we work with an AI teammate that knows our team's files and tools, so everyday documents get done faster.",
+      `${named('en')} is where we ask AI to help with our everyday documents.`,
       "Once you're in, give it one thing you're working on today.",
       'Join with this link:',
       URL_,
@@ -108,7 +108,7 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
   test('Korean: "본인 AI 계정이 필요해요" on its own line before the link, with and without a skill; never without ownAi', () => {
     const lines = (o: { skill?: string; ownAi?: boolean }) => teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ...o }).split('\n')
-    expect(lines({ skill: '할 일 정리', ownAi: true }).slice(-4)).toEqual(["들어오면 '할 일 정리' 스킬부터 같이 써 봐요.", '본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
+    expect(lines({ skill: '할 일 정리', ownAi: true }).slice(-4)).toEqual(["우리 팀용으로 '할 일 정리' 스킬을 준비해 뒀어요.", '본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
     expect(lines({ ownAi: true }).slice(-3)).toEqual(['본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
     expect(lines({ skill: '할 일 정리' }).join('\n')).not.toContain('본인 AI')
   })
@@ -129,7 +129,7 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
     const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
     const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
     let html = render(data)
-    expect(message(html)).toContain(`Once you&#x27;re in, let&#x27;s try the &#x27;Weekly report&#x27; skill together.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
+    expect(message(html)).toContain(`I set up the &#x27;Weekly report&#x27; skill for us.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
     expect(message(html)).not.toContain('Quote draft')
     expect(html).toContain('data-testid="team-link-landing"')
     expect(message(html)).not.toContain('own AI account')
@@ -171,7 +171,7 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('Copy message')
     // a skill without a title: its folder name as words, never the raw 'ad-copy' (also when the title only repeats it)
     expect(html).toContain(`Hi, it&#x27;s Olga. I&#x27;d like you to join Acme on ${named('en')}.`)
-    expect(html).toContain('let&#x27;s try the &#x27;ad copy&#x27; skill together.')
+    expect(html).toContain('I set up the &#x27;ad copy&#x27; skill for us.')
     expect(html).not.toContain('&#x27;ad-copy&#x27;')
     const repeated = view({ ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker', title: 'quote-maker' } } })
     expect(repeated).toContain('&#x27;quote maker&#x27; skill')
@@ -734,7 +734,7 @@ describe('the team\'s group and the invite\'s skill', () => {
       try {
         await m.until(() => m.find('team-link-message'), 'the message')
         expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: QUOTES, addGroupIds: [GROUP] }])
-        expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("'견적서 쓰기' 스킬부터 같이 써 봐요")
+        expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("우리 팀용으로 '견적서 쓰기' 스킬을 준비해 뒀어요")
         expect(called('POST /api/admin/team-link')).toEqual([])
       } finally { await m.unmount() }
       // opened again: the link leads there now, nothing to change
