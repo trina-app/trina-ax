@@ -15,6 +15,7 @@ import { ja } from '../src/i18n/ja'
 import { es } from '../src/i18n/es'
 import { id } from '../src/i18n/id'
 import { ko } from '../src/i18n/ko'
+import { zh } from '../src/i18n/zh'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY, recoveryLocale } from '../src/i18n/recovery-locale'
 
 const PWA_DIR = path.resolve(import.meta.dirname, '../pwa')
@@ -51,7 +52,7 @@ export function pwaFile(name: keyof typeof PWA_FILES, build = 'dev'): string {
     if (!/^[a-z0-9]{1,32}$/.test(build)) throw new Error(`sw.js: bad build id ${build}`)
     text = text.replace('__STATIC_BUILD__', build)
     // JSON is embedded inside an HTML script inside a JS template literal: escape each boundary.
-    const messages = Object.fromEntries(Object.entries({ ko, en, id, ja, es }).map(([locale, dict]) => [locale, {
+    const messages = Object.fromEntries(Object.entries({ ko, en, id, ja, es, zh }).map(([locale, dict]) => [locale, {
       title: dict['conn.cantReach'], hint: dict['conn.cantReachHint'], retry: dict['common.retry'],
     }]))
     const script = `(() => {

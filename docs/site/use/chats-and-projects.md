@@ -49,16 +49,16 @@ On a computer, **Trina** on the bar on the left opens your list of Trina chats b
 |---|---|
 | **Waiting for you** | Shows only while a chat waits for your answer, and opens it |
 | **Pinned** | The chats you pinned |
-| **Recent** | All your other chats, newest first. A chat in a project shows the project's name at the end of its row |
+| **Trina history** | All your other chats, newest first. A chat in a project shows the project's name at the end of its row |
 
 **Trina** on the bar also opens the waiting chat while it shows **?**. Chats you deleted are in **Deleted history**, in
-the **⋯** menu next to **Recent**. The filter button at the top of the list can show only some chats, for example the
+the **⋯** menu next to **Trina history**. The filter button at the top of the list can show only some chats, for example the
 ones that are answering or wait for you. Your projects have their own place: **Projects** on the bar.
 
 On a phone, the **Trina** tab opens on Home. **☰** at the top opens your history: **Search**, **Scheduled**, **Team
 skills**, then **Trina history** (newest first, by date), and **Deleted history** at the bottom.
 
-![The Trina list: Ask Trina, Search, Scheduled and Team skills, then Pinned and Recent chats](../images/chats/trina-list.webp "Your Trina list")
+![The Trina list: Ask Trina, Search, Scheduled and Team skills, then Pinned chats and your chat history](../images/chats/trina-list.webp "Your Trina list")
 
 ![On a phone, ☰ on the Trina tab opens Search, Scheduled, Team skills and your Trina history](../images/chats/trina-drawer-phone.webp "The Trina history on a phone")
 
@@ -148,7 +148,7 @@ Start a chat from the project's page, or move a chat in with **Move to project**
 
 - Your projects are under **Projects**, on the bar on the left and on the phone's **Projects** tab: **Team projects**
   (others see them too) and **My projects** (only you). A project's name opens its page. A chat you open from a project
-  goes back to that project; its chats are in **Recent** in your Trina list too. The team folder and its trash are
+  goes back to that project; its chats are in **Trina history** in your Trina list too. The team folder and its trash are
   under **Files**.
 - A project has members. On the project's page, **Members** shows who they are, and **Add people** shares a project
   that is only yours. Before it saves, it tells you that they can see and edit its files and instructions, that your

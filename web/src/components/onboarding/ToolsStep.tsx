@@ -150,6 +150,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
                 {t('drive.openGoogle')}
               </a>
             )}
+            <Button size="sm" variant="secondary" disabled={d.busy} onClick={start} data-testid="welcome-tools-drive-retry">{t('common.retry')}</Button>
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancel} data-testid="welcome-tools-drive-cancel">{t('common.cancel')}</Button>
           </div>
         ) : (
@@ -230,7 +231,7 @@ function ListedTools({ onConnected }: { onConnected: (on: boolean) => void }) {
               </span>
             ) : waiting ? (
               <div className="flex shrink-0 gap-1">
-                {flow.away && <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>}
+                <Button size="sm" variant="secondary" onClick={() => void connect(c)} data-testid="welcome-tools-service-retry">{t('common.retry')}</Button>
                 <Button size="sm" variant="ghost" onClick={signIn.cancel} data-testid="welcome-tools-service-cancel">{t('common.cancel')}</Button>
               </div>
             ) : (

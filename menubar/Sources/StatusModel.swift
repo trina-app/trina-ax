@@ -41,12 +41,13 @@ public struct Health: Codable, Equatable {
 
 /// The menubar app's language follows the team's default language (status.json `locale`), else the last one seen,
 /// else English. The system language does not decide (docs/DECISIONS.md "언어").
-public enum Lang: String { case ko, en, id, ja, es
+public enum Lang: String { case ko, en, id, ja, es, zh
     public static func of(_ code: String?) -> Lang? {
         guard let c = code?.lowercased() else { return nil }
         if c.hasPrefix("ko") { return .ko }
         if c.hasPrefix("ja") { return .ja }
         if c.hasPrefix("es") { return .es }
+        if c.hasPrefix("zh") { return .zh }
         if c.hasPrefix("en") { return .en }
         if c.hasPrefix("id") || c.hasPrefix("in") { return .id }
         return nil
@@ -91,7 +92,7 @@ public func safeLocalURL(_ s: String?, fallback: String) -> String {
 }
 
 enum T {
-    static func s(_ l: Lang, _ ko: String, _ en: String, _ id: String, _ ja: String, _ es: String) -> String { l == .ko ? ko : l == .id ? id : l == .ja ? ja : l == .es ? es : en }
+    static func s(_ l: Lang, _ ko: String, _ en: String, _ id: String, _ ja: String, _ es: String, _ zh: String) -> String { l == .ko ? ko : l == .id ? id : l == .ja ? ja : l == .es ? es : l == .zh ? zh : en }
 }
 
 public enum DaemonState: Equatable { case running, notRunning, disabled, unknown }
@@ -105,14 +106,14 @@ public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Hea
         var offer = false
         switch daemon {
         case .disabled:
-            lines.append(T.s(lang, "백그라운드 항목이 꺼져 있어요. 시스템 설정 > 일반 > 로그인 항목에서 \(product)를 켜 주세요.", "The background item is switched off. Turn \(product) on in System Settings > General > Login Items.", "Item latar belakang dimatikan. Aktifkan \(product) di Pengaturan Sistem > Umum > Item Masuk.", "バックグラウンド項目が無効です。「システム設定 > 一般 > ログイン項目」で\(product)を有効にしてください。", "El elemento en segundo plano está desactivado. Active \(product) en Ajustes del Sistema > General > Ítems de inicio."))
+            lines.append(T.s(lang, "백그라운드 항목이 꺼져 있어요. 시스템 설정 > 일반 > 로그인 항목에서 \(product)를 켜 주세요.", "The background item is switched off. Turn \(product) on in System Settings > General > Login Items.", "Item latar belakang dimatikan. Aktifkan \(product) di Pengaturan Sistem > Umum > Item Masuk.", "バックグラウンド項目が無効です。「システム設定 > 一般 > ログイン項目」で\(product)を有効にしてください。", "El elemento en segundo plano está desactivado. Active \(product) en Ajustes del Sistema > General > Ítems de inicio.", "后台项目已关闭。请在“系统设置 > 通用 > 登录项”中开启\(product)。"))
             offer = true
         case .notRunning:
-            lines.append(T.s(lang, "서버가 다시 시작하는 중이거나 멈췄어요. 1분 뒤에도 그대로면 로그를 확인해 주세요.", "The server is restarting or has stopped. If this lasts more than a minute, check the logs.", "Server sedang dimulai ulang atau berhenti. Jika lebih dari semenit, periksa log.", "サーバーが再起動中か停止しています。1分以上続く場合はログを確認してください。", "El servidor se está reiniciando o se ha detenido. Si dura más de un minuto, revise los registros."))
+            lines.append(T.s(lang, "서버가 다시 시작하는 중이거나 멈췄어요. 1분 뒤에도 그대로면 로그를 확인해 주세요.", "The server is restarting or has stopped. If this lasts more than a minute, check the logs.", "Server sedang dimulai ulang atau berhenti. Jika lebih dari semenit, periksa log.", "サーバーが再起動中か停止しています。1分以上続く場合はログを確認してください。", "El servidor se está reiniciando o se ha detenido. Si dura más de un minuto, revise los registros.", "服务器正在重启或已停止。如果超过一分钟仍是这样，请查看日志。"))
         case .running, .unknown:
-            lines.append(T.s(lang, "서버가 응답하지 않아요.", "The server does not answer.", "Server tidak merespons.", "サーバーが応答しません。", "El servidor no responde."))
+            lines.append(T.s(lang, "서버가 응답하지 않아요.", "The server does not answer.", "Server tidak merespons.", "サーバーが応答しません。", "El servidor no responde.", "服务器没有响应。"))
         }
-        return MenuState(icon: .off, headline: "\(product): " + T.s(lang, "꺼짐", "off", "mati", "停止", "desactivado"), lines: lines, alert: nil,
+        return MenuState(icon: .off, headline: "\(product): " + T.s(lang, "꺼짐", "off", "mati", "停止", "desactivado", "已关闭"), lines: lines, alert: nil,
                          offerLoginItems: offer, webUrl: nil)
     }
     var lines: [String] = []
@@ -121,27 +122,27 @@ public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Hea
     if let s = status, !stale {
         let c = s.connection
         switch c.state {
-        case "connected": lines.append(T.s(lang, "원격 접속: 연결됨", "Remote access: connected", "Akses jarak jauh: terhubung", "リモートアクセス：接続済み", "Acceso remoto: conectado") + (c.address.map { " (\($0))" } ?? ""))
-        case "connecting": lines.append(T.s(lang, "원격 접속: 연결하는 중", "Remote access: connecting", "Akses jarak jauh: menghubungkan", "リモートアクセス：接続中", "Acceso remoto: conectando"))
-        case "offline": lines.append(T.s(lang, "원격 접속: 끊김 (사무실 안 접속은 됨)", "Remote access: offline (office access works)", "Akses jarak jauh: terputus (akses kantor tetap bisa)", "リモートアクセス：オフライン（社内からは接続可能）", "Acceso remoto: sin conexión (el acceso desde la oficina funciona)"))
+        case "connected": lines.append(T.s(lang, "원격 접속: 연결됨", "Remote access: connected", "Akses jarak jauh: terhubung", "リモートアクセス：接続済み", "Acceso remoto: conectado", "远程访问：已连接") + (c.address.map { " (\($0))" } ?? ""))
+        case "connecting": lines.append(T.s(lang, "원격 접속: 연결하는 중", "Remote access: connecting", "Akses jarak jauh: menghubungkan", "リモートアクセス：接続中", "Acceso remoto: conectando", "远程访问：正在连接"))
+        case "offline": lines.append(T.s(lang, "원격 접속: 끊김 (사무실 안 접속은 됨)", "Remote access: offline (office access works)", "Akses jarak jauh: terputus (akses kantor tetap bisa)", "リモートアクセス：オフライン（社内からは接続可能）", "Acceso remoto: sin conexión (el acceso desde la oficina funciona)", "远程访问：已断开（办公室内仍可访问）"))
         case "replaced":
-            alert = T.s(lang, "다른 맥의 서버가 이 팀 주소를 대신 쓰고 있어요. 이 서버는 원격 접속을 멈췄어요.", "A server on another Mac has taken over this team address. This server stopped remote access.", "Server di Mac lain mengambil alih alamat tim ini. Server ini menghentikan akses jarak jauh.", "別のMacのサーバーがこのチームアドレスを引き継ぎました。このサーバーのリモートアクセスは停止しました。", "Un servidor en otra Mac tomó esta dirección del equipo. Este servidor detuvo el acceso remoto.")
+            alert = T.s(lang, "다른 맥의 서버가 이 팀 주소를 대신 쓰고 있어요. 이 서버는 원격 접속을 멈췄어요.", "A server on another Mac has taken over this team address. This server stopped remote access.", "Server di Mac lain mengambil alih alamat tim ini. Server ini menghentikan akses jarak jauh.", "別のMacのサーバーがこのチームアドレスを引き継ぎました。このサーバーのリモートアクセスは停止しました。", "Un servidor en otra Mac tomó esta dirección del equipo. Este servidor detuvo el acceso remoto.", "另一台 Mac 上的服务器接管了此团队地址。此服务器已停止远程访问。")
             icon = .replaced
-        default: lines.append(T.s(lang, "원격 접속: 꺼짐 (사무실 안에서만)", "Remote access: off (office only)", "Akses jarak jauh: mati (hanya kantor)", "リモートアクセス：オフ（社内のみ）", "Acceso remoto: desactivado (solo oficina)"))
+        default: lines.append(T.s(lang, "원격 접속: 꺼짐 (사무실 안에서만)", "Remote access: off (office only)", "Akses jarak jauh: mati (hanya kantor)", "リモートアクセス：オフ（社内のみ）", "Acceso remoto: desactivado (solo oficina)", "远程访问：已关闭（仅限办公室）"))
         }
-        lines.append(T.s(lang, "실행 중 \(s.queue.running) · 대기 \(s.queue.queued)", "\(s.queue.running) running · \(s.queue.queued) waiting", "\(s.queue.running) berjalan · \(s.queue.queued) menunggu", "実行中\(s.queue.running) · 待機中\(s.queue.queued)", "\(s.queue.running) en ejecución · \(s.queue.queued) en espera"))
+        lines.append(T.s(lang, "실행 중 \(s.queue.running) · 대기 \(s.queue.queued)", "\(s.queue.running) running · \(s.queue.queued) waiting", "\(s.queue.running) berjalan · \(s.queue.queued) menunggu", "実行中\(s.queue.running) · 待機中\(s.queue.queued)", "\(s.queue.running) en ejecución · \(s.queue.queued) en espera", "运行中\(s.queue.running) · 等待中\(s.queue.queued)"))
         if s.firewall == "fail" {
-            alert = alert ?? T.s(lang, "AI 엔진 방화벽이 꺼져 있어요. 복구해야 해요(관리자 비밀번호 필요).", "AI engine firewall off — repair needed (admin password).", "Firewall mesin AI mati — perlu perbaikan (kata sandi admin).", "AIエンジンのファイアウォールが無効です — 修復が必要です（管理者パスワード）。", "Firewall del motor de IA desactivado — necesita reparación (contraseña de administrador).")
+            alert = alert ?? T.s(lang, "AI 엔진 방화벽이 꺼져 있어요. 복구해야 해요(관리자 비밀번호 필요).", "AI engine firewall off — repair needed (admin password).", "Firewall mesin AI mati — perlu perbaikan (kata sandi admin).", "AIエンジンのファイアウォールが無効です — 修復が必要です（管理者パスワード）。", "Firewall del motor de IA desactivado — necesita reparación (contraseña de administrador).", "AI 引擎防火墙已关闭——需要修复（需要管理员密码）。")
         }
         lines.append(contentsOf: s.problems.prefix(5))
         if icon != .replaced {
             icon = s.overall == "fail" || s.firewall == "fail" ? .fail : s.overall == "warn" ? .warn : .ok
         }
     } else {
-        lines.append(T.s(lang, "자세한 상태를 읽을 수 없어요(status.json).", "Detailed status unavailable (status.json).", "Status rinci tidak tersedia (status.json).", "詳細な状態を取得できません（status.json）。", "Estado detallado no disponible (status.json)."))
+        lines.append(T.s(lang, "자세한 상태를 읽을 수 없어요(status.json).", "Detailed status unavailable (status.json).", "Status rinci tidak tersedia (status.json).", "詳細な状態を取得できません（status.json）。", "Estado detallado no disponible (status.json).", "无法读取详细状态（status.json）。"))
         icon = .warn
     }
-    return MenuState(icon: icon, headline: "\(product): " + T.s(lang, "켜짐", "on", "aktif", "稼働中", "activo") + " (\(h.version))", lines: lines, alert: alert,
+    return MenuState(icon: icon, headline: "\(product): " + T.s(lang, "켜짐", "on", "aktif", "稼働中", "activo", "运行中") + " (\(h.version))", lines: lines, alert: alert,
                      offerLoginItems: false, webUrl: safeWebURL(status?.webUrl)?.absoluteString)
 }
 

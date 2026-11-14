@@ -38,7 +38,7 @@ Trina AX は、チームのファイル、スキル、ツールを1台のサー�
 
 - **Trina ホスティング：** サーバーの運用は要りません。14日間の無料トライアルのあと、月額プランになります。[プラン](https://ax.trina.app/pricing)
 - **アプリ：** [Mac、iPhone、Android、Windows](https://ax.trina.app/download)、またはどのブラウザーからでも。
-- **セルフホスト：** 自社の Linux サーバー、Docker、オフィスの Mac で。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィス Mac](docs/OFFICE.en.md)
+- **セルフホスト：** 自社の Linux サーバー、Docker、オフィスの Mac で。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィス Mac](docs/OFFICE.en.md) · [AI エージェントでインストール](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <details>
 <summary><b>自分のパソコンで10分で試す</b>（架空のチーム、AI はオフ）</summary>
@@ -76,7 +76,7 @@ Trina が提供するのはワークスペースで、AI そのものではあ�
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [リリース](https://github.com/trina-app/trina-ax/releases/latest) · [変更履歴](CHANGELOG.md) · [サポート](SUPPORT.md) · [貢献ガイド](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [開発](docs/DEVELOPMENT.md) · [設定](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
-アプリは英語、韓国語、インドネシア語、日本語、スペイン語に対応しています。画像に出てくる会社と人物はすべて架空です。
+アプリは英語、韓国語、インドネシア語、日本語、スペイン語、簡体字中国語に対応しています。画像に出てくる会社と人物はすべて架空です。
 
 ## ライセンス
 

@@ -90,10 +90,10 @@ describe('server and relay texts', () => {
   })
   test('relay pages', () => {
     const kinds: PageKind[] = ['team_offline', 'team_unknown', 'team_suspended', 'team_busy', 'team_timeout', 'team_connection_lost', 'bad_gateway', 'bad_request', 'request_timeout']
-    for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
+    for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
   })
   test('language pickers name each language in its own language', () => {
-    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: '日本語', es: 'Español' })
+    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: '日本語', es: 'Español', zh: '简体中文' })
   })
 })
 
@@ -342,7 +342,7 @@ test('storage diagnostics use Spanish decimal separators on Mac and Linux', () =
 
 describe('address card "Allow all websites" (QA TC-512)', () => {
   test('names no Browser row: a phone has none (its switch is under Allowed for Trina), and the server cannot tell a phone', () => {
-    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador' } as const
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
+    const browser = { en: 'Browser', ko: '브라우저', id: 'Browser', ja: 'ブラウザー', es: 'Navegador', zh: '浏览器' } as const
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(URL_GATE_TEXT.all[l]).not.toContain(browser[l])
   })
 })

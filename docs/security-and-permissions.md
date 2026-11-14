@@ -1,6 +1,6 @@
 # Security and permissions
 
-[한국어](security-and-permissions.ko.md)
+[한국어](security-and-permissions.ko.md) · [简体中文](security-and-permissions.zh.md)
 
 The same question, “Summarize our onboarding policy,” can use an HR file only for a person permitted to read it. The server checks the asking person's access on file requests. A skill is an accessible instruction, not extra authority.
 

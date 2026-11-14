@@ -61,7 +61,7 @@ const SkillName = z.string().max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 const Text = (max: number) => z.string().min(1).max(max).refine((s) => s.trim() === s && !/[\u0000-\u001f\u007f<>]/.test(s), 'plain text without surrounding spaces')
 
 export const PluginStrings = z.strictObject({ name: Text(60), description: Text(300) })
-export const PluginI18n = z.strictObject({ en: PluginStrings, ko: PluginStrings.optional(), id: PluginStrings.optional(), ja: PluginStrings.optional(), es: PluginStrings.optional() })
+export const PluginI18n = z.strictObject({ en: PluginStrings, ko: PluginStrings.optional(), id: PluginStrings.optional(), ja: PluginStrings.optional(), es: PluginStrings.optional(), zh: PluginStrings.optional() })
 export type PluginI18n = z.infer<typeof PluginI18n>
 
 export const PluginOs = z.enum(['darwin', 'linux', 'any'])
@@ -198,7 +198,7 @@ export const CatalogEntry = z.strictObject({
   /** pending_clearance: listed for discovery, no bytes are distributed yet (a licence or platform review is open) */
   availability: z.enum(['available', 'pending_clearance']),
   /** a recommendation signal only: never installs or enables anything */
-  recommendedFor: z.strictObject({ locales: z.array(z.enum(['ko', 'en', 'id', 'ja', 'es'])).max(5) }).optional(),
+  recommendedFor: z.strictObject({ locales: z.array(z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])).max(6) }).optional(),
   /** where the package bytes come from, pinned by archive digest: a file next to the catalog (tests, offline mirrors;
    * the catalog shipped in default release bundles carries metadata only and never a package) */
   package: z.strictObject({ file: PluginPath, sha256: Sha256, size: z.number().int().positive() }).optional(),

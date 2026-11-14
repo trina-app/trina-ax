@@ -10,6 +10,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { audienceOf, authorizationUrl, flowReasonKey } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
+import { useWaitLimit } from '../../lib/signInWait'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { toast } from '../../store/ui'
 import { Badge, Button, confirmDialog } from '../ui'
@@ -130,12 +131,35 @@ export function useSignIn(onCompleted: (id: string) => void, onGone?: () => void
     }
   }
 
+  /** the flow on the server too, while it still waits: a window left open cannot finish it afterwards (QA TC-1417) */
+  // One the service already answered (being exchanged) is not stopped by it: the flow is read again after, and one that
+  // ended connected says so (the list reads it again) instead of the screen saying cancelled or timed out.
+  const drop = (flowId: string | null | undefined, id: string | undefined) => {
+    if (!flowId) return
+    void (async () => {
+      try { await api.call(API.cancelIntegrationFlow, { params: { id: flowId } }) } catch { /* it expires there by itself */ }
+      try {
+        const f = await api.call(API.integrationFlow, { params: { id: flowId } })
+        if (f.state === 'completed' && id) { setS((x) => (x && x.flowId === flowId ? null : x)); done.current(id) }
+      } catch { /* gone: nothing more to say */ }
+    })()
+  }
   const cancel = () => {
     generation.current++
     popup.current?.close()
     popup.current = null
+    if (s && WAITING.has(s.state)) drop(s.flowId, s.id)
     setS(null)
   }
+  // waiting too long (the window was closed, or left): the wait ends as timed out, with Try again and Close
+  useWaitLimit(waiting, s?.flowId, () => {
+    if (!s?.flowId) return
+    generation.current++
+    popup.current?.close()
+    popup.current = null
+    drop(s.flowId, s.id)
+    setS((x) => (x && x.flowId === s.flowId ? { ...x, state: 'expired', reason: null } : x))
+  })
 
   return { state: s, start, cancel }
 }
@@ -280,12 +304,11 @@ export function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; on
             {t('integrations.signIn.open')}
           </a>
         )}
-        {(failed || flow.away) && (
-          <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
-            {t('common.retry')}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        {/* always: a window closed before it finished needs a way back (QA TC-1417) */}
+        <Button size="sm" onClick={onRetry} data-testid="integration-signin-retry">
+          {t('common.retry')}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} data-testid="integration-signin-cancel">
           {failed ? t('common.close') : t('common.cancel')}
         </Button>
       </div>

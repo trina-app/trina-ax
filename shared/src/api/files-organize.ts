@@ -74,16 +74,16 @@ export type OrganizeApplied = z.infer<typeof OrganizeApplied>
 
 // ---------------------------------------------------------------- name rules
 
-/** The words that tell a document's kind from its name (any of the five languages), checked in this order. */
+/** The words that tell a document's kind from its name (any of the six languages), checked in this order. */
 const NAME_WORDS: [TeamFileReason, RegExp][] = [
-  ['form', /양식|서식|템플릿|신청서|template|\bforms?\b|plantilla|formulario|templat|formulir|テンプレート|様式|書式|ひな形|雛形/i],
-  ['minutes', /회의록|minutes|meeting notes|議事録|\bacta|notulen|notula/i],
-  ['proposal', /제안서|proposal|提案|propuesta/i],
-  ['report', /보고서|\breports?\b|報告|informe|laporan/i],
-  ['intro', /소개서|회사\s*소개|company profile|introduction|会社案内|会社紹介|presentaci[oó]n|profil perusahaan/i],
-  ['policy', /규정|정책|규칙|\bpolic(y|ies)\b|\brules\b|規程|規定|ポリシー|pol[ií]tica|reglamento|kebijakan|peraturan/i],
-  ['training', /매뉴얼|교육|가이드|안내서|\bmanual\b|\bguide\b|handbook|training|マニュアル|研修|ガイド|gu[ií]a|capacitaci[oó]n|panduan|pelatihan/i],
-  ['brand', /로고|브랜드|\blogo|\bbrand|ブランド|ロゴ|\bmarca\b|\bmerek\b/i],
+  ['form', /양식|서식|템플릿|신청서|template|\bforms?\b|plantilla|formulario|templat|formulir|テンプレート|様式|書式|ひな形|雛形|模板|申请表/i],
+  ['minutes', /회의록|minutes|meeting notes|議事録|\bacta|notulen|notula|会议记录|会议纪要/i],
+  ['proposal', /제안서|proposal|提案|propuesta|方案|建议书/i],
+  ['report', /보고서|\breports?\b|報告|报告|informe|laporan/i],
+  ['intro', /소개서|회사\s*소개|company profile|introduction|会社案内|会社紹介|presentaci[oó]n|profil perusahaan|公司介绍|公司简介/i],
+  ['policy', /규정|정책|규칙|\bpolic(y|ies)\b|\brules\b|規程|規定|ポリシー|pol[ií]tica|reglamento|kebijakan|peraturan|规定|规章|制度/i],
+  ['training', /매뉴얼|교육|가이드|안내서|\bmanual\b|\bguide\b|handbook|training|マニュアル|研修|ガイド|gu[ií]a|capacitaci[oó]n|panduan|pelatihan|手册|培训|指南/i],
+  ['brand', /로고|브랜드|\blogo|\bbrand|ブランド|ロゴ|\bmarca\b|\bmerek\b|品牌/i],
 ]
 
 /** The kind of document a file name says (without its extension), or null. */
@@ -99,11 +99,11 @@ export const REASON_FOLDER: Record<TeamFileReason, Record<Locale, string>> = {
   form: TEMPLATES_FOLDER,
   minutes: NOTES_FOLDER,
   brand: BRAND_FOLDER,
-  intro: { ko: '회사 소개', en: 'Company intro', id: 'Profil perusahaan', ja: '会社紹介', es: 'Presentación de la empresa' },
-  report: { ko: '보고서', en: 'Reports', id: 'Laporan', ja: '報告書', es: 'Informes' },
-  policy: { ko: '규정', en: 'Policies', id: 'Kebijakan', ja: '規程', es: 'Políticas' },
-  training: { ko: '교육 자료', en: 'Training', id: 'Pelatihan', ja: '研修資料', es: 'Formación' },
-  proposal: { ko: '제안서', en: 'Proposals', id: 'Proposal', ja: '提案書', es: 'Propuestas' },
+  intro: { ko: '회사 소개', en: 'Company intro', id: 'Profil perusahaan', ja: '会社紹介', es: 'Presentación de la empresa', zh: '公司介绍' },
+  report: { ko: '보고서', en: 'Reports', id: 'Laporan', ja: '報告書', es: 'Informes', zh: '报告' },
+  policy: { ko: '규정', en: 'Policies', id: 'Kebijakan', ja: '規程', es: 'Políticas', zh: '规章制度' },
+  training: { ko: '교육 자료', en: 'Training', id: 'Pelatihan', ja: '研修資料', es: 'Formación', zh: '培训资料' },
+  proposal: { ko: '제안서', en: 'Proposals', id: 'Proposal', ja: '提案書', es: 'Propuestas', zh: '方案' },
 }
 
 /** A folder name as a plan uses it, or null: NFC, spaces collapsed, no separators or characters Windows refuses, no

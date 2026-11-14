@@ -17,7 +17,7 @@ export interface OrganizeMaterial {
   files: { id: string; folder: string; name: string; type: string; text: string }[]
 }
 
-const LANGUAGE: Record<Locale, string> = { ko: 'Korean', en: 'English', id: 'Indonesian', ja: 'Japanese', es: 'Spanish' }
+const LANGUAGE: Record<Locale, string> = { ko: 'Korean', en: 'English', id: 'Indonesian', ja: 'Japanese', es: 'Spanish', zh: 'Simplified Chinese' }
 /** The material's own tags inside it are broken, so "</material>" in a name or a file's text cannot close the block. */
 const noTag = (s: string) => s.replace(/<(\/?)(material)/gi, '‹$1$2')
 const flat = (s: string, n: number) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim().slice(0, n)

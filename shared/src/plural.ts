@@ -1,8 +1,8 @@
 // Counts in texts: "{n, plural, one {# person} other {# people}}" (the part of ICU's plural format the apps use). The
 // form is the one Intl.PluralRules picks for the number in the text's language, and # is the number as given. The web
 // app, the desktop app's own screens and the team server's messages fill counts with it, so "1 people" never shows.
-// English and Spanish write both forms; Japanese repeats the same words in each form (bun run check:i18n keeps the
-// forms of ja / es the same as en); Korean and Indonesian do not change a word with the number and keep a plain {n}.
+// English and Spanish write both forms; Japanese and Chinese repeat the same words in each form (bun run check:i18n keeps the
+// forms of ja / es / zh the same as en; zh always picks 'other'); Korean and Indonesian do not change a word with the number and keep a plain {n}.
 
 /** One plural placeholder: its name and its forms. */
 export const PLURAL_PATTERN = /\{(\w+), plural,((?:\s*(?:zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g

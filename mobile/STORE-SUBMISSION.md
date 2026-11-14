@@ -45,8 +45,8 @@ What the owner provides or decides before each store step. Engineering steps and
 - Run the push gateway (push-gateway/README.md): `bun push-gateway/src/bun.ts` behind TLS at `push.trina.app`, with
   `APNS_PRIVATE_KEY`, `APNS_KEY_ID` (and later `FCM_SERVICE_ACCOUNT`) in its environment. A Cloudflare Worker cannot
   reach APNs (HTTP/2 only).
-- Team servers need the release with migrations 243 and 245 (`/api/push/devices`) and `push.gatewayUrl: "https://push.trina.app"`
-  in server.json (or `MYCEL_PUSH_GATEWAY`): phone push is off until then. Owners see it in Settings › Notifications.
+- Team servers need the release with migrations 243 and 245 (`/api/push/devices`). Trina servers send through
+  `https://push.trina.app` by default (`MYCEL_PUSH_GATEWAY=off` turns it off). Owners see it in Settings › Notifications.
 - Who and where on the iPhone (1.0.1) needs the gateway release that marks room pushes mutable (`push-gateway/src/apns.ts`)
   and team servers with migration 263 (`/api/push/devices/:id/label`). With either missing the phone shows the generic
   line, as before. Check on TestFlight: a DM and a mention show "name" and "name · #room" (a thread "› 스레드"), never the

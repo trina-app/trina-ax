@@ -76,6 +76,10 @@ export function http2Fetch(h2Hosts: string[] = APNS_HOSTS, fallback: FetchLike =
 export function openSqlite(path: string) {
   const db = new Database(path, { create: true })
   db.exec('PRAGMA journal_mode = WAL')
+  // FULL (the default) waits for the disk on every commit, and a send makes 4-5 commits on the only thread: on a gp3
+  // disk that capped the gateway at ~75 sends a second. In WAL mode NORMAL stays consistent; a power loss can drop the
+  // last commits, which are counters and dedupe entries that expire anyway (README "State on disk").
+  db.exec('PRAGMA synchronous = NORMAL')
   db.exec('CREATE TABLE IF NOT EXISTS shard (shard TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, until INTEGER, PRIMARY KEY (shard, k))')
   db.exec('CREATE TABLE IF NOT EXISTS blocked (key_id TEXT PRIMARY KEY, at INTEGER NOT NULL)')
   const get = db.query<{ v: string }, [string, string]>('SELECT v FROM shard WHERE shard = ? AND k = ?')

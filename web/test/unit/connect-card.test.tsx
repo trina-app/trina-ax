@@ -249,7 +249,7 @@ describe('what the card shows', () => {
     // only words of 3+ characters count
     expect(hostOffName('X', 'api.x.com')).toBe(true)
     expect(hostOffName('My AI', 'my.ai.example')).toBe(true)
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       // on a team template's card (an unknown service's card has its own warning box instead: one warning, not two)
       const warned = html(card({ name: 'GitHub', template: { id: 't1', version: 1 }, service: { kind: 'mcp', url: 'https://mcp.example.org/mcp', host: 'mcp.example.org', auth: 'oauth', authHeader: null } }))
@@ -279,7 +279,7 @@ describe('what the card shows', () => {
   })
 
   test('sign-in: a sign-in page opens in a new window, to check; the AI never sees the password', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(card({ name: 'Lineup', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } }))
       const where = part(out, 'p', 'connect-where')![0]
@@ -302,7 +302,7 @@ describe('what the card shows', () => {
   })
 
   test('an admin\'s template: "your own key for" the name, from your team, and where the key goes', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(card({ name: 'Demo Wiki', template: { id: 't1', version: 2 } }))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.templateTitle', { name: 'Demo Wiki' })))
@@ -318,7 +318,7 @@ describe('what the card shows', () => {
   })
 
   test('QA TC-127: the person\'s own connection that stopped working: "Sign in again to" (or "a new key for") the name, and a line that nothing new is added', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const signIn = html(card({ name: 'Notion', reconnect: true, service: { kind: 'mcp', url: 'https://mcp.notion.com/mcp', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } }))
       expect(part(signIn, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'Notion' })))
@@ -335,7 +335,7 @@ describe('what the card shows', () => {
   })
 
   test('what kind of connection it is, and the header a key goes in', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       expect(part(html(card()), 'p', 'connect-kind')![1]).toBe(esc(translate(locale, 'connect.kindMcp')))
       const http = html(card({ service: { kind: 'http', url: 'https://api.higgsfield.example/v1', host: 'api.higgsfield.example', auth: 'header', authHeader: 'X-API-Key' } }))
@@ -352,7 +352,7 @@ describe('what the card shows', () => {
   const notion = (url: string, o: Partial<ConnectServiceRequest> = {}) => card({ name: 'Notion', why: undefined, service: { kind: 'mcp', url, host: new URL(url).host, auth: 'oauth', authHeader: null }, ...o })
   test('TC-135: Notion at its official address says so, and offers the sign-in', () => {
     expect(cardTrust(notion('https://mcp.notion.com/mcp'))).toMatchObject({ kind: 'official', service: { id: 'notion' } })
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(notion('https://mcp.notion.com/mcp'))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'Notion' })))
@@ -367,7 +367,7 @@ describe('what the card shows', () => {
     // an older server's card (the AI's name, no notOfficial) gets the same line, worked out here
     const older = notion(made)
     for (const r of [server, older]) expect(notOfficialOf(r, cardTrust(r))).toEqual({ name: 'Notion', host: 'mcp.notion.com' })
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       for (const r of [server, older]) {
         const out = html(r)
@@ -403,7 +403,7 @@ describe('what the card shows', () => {
       const host = new URL(url).host
       expect(cardTrust(notion(url, { name })), `${name} ${url}`).toEqual({ kind: 'unlisted', display: host })
     }
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(notion('https://gitlab.acme.com/api/v4/mcp', { name: 'GitLab' }))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.title', { name: 'gitlab.acme.com' })))
@@ -417,7 +417,7 @@ describe('what the card shows', () => {
   })
   test('a service the app does not know: the address in bold and a plain warning above the button', () => {
     expect(cardTrust(card())).toEqual({ kind: 'unlisted', display: 'Higgs Studio' })
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(card())
       const box = part(out, 'p', 'connect-unlisted')![1]
@@ -440,7 +440,7 @@ describe('what the card shows', () => {
     expect(cardTrust(old('Notion', 'https://notion-mcp.example.com/mcp'))).toEqual({ kind: 'template', display: 'notion-mcp.example.com' })
     expect(cardTrust(old('N\u043etion', 'https://wiki.example.com/mcp'))).toEqual({ kind: 'template', display: 'wiki.example.com' })
     expect(cardTrust(old('Notion', 'https://mcp.notion.com/mcp'))).toMatchObject({ kind: 'official', service: { id: 'notion' } })
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(old('Notion', 'https://notion-mcp.example.com/mcp'))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'notion-mcp.example.com' })))
@@ -458,7 +458,7 @@ describe('what the card shows', () => {
     expect(at('Acme Tools')).toEqual({ kind: 'unlisted', display: 'Acme Tools' })
   })
   test('bug 2: a reconnect card says it fixes the connection the person has, by sign-in or by key', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const signIn = html(notion('https://mcp.notion.com/mcp', { reconnect: true }))
       expect(part(signIn, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.reconnectTitle', { name: 'Notion' })))
@@ -472,7 +472,7 @@ describe('what the card shows', () => {
     expect(html(card())).not.toContain('connect-reconnect-note')
   })
   test('bug 5: a template you sign in to talks about your account, not a key', () => {
-    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       setLocale(locale)
       const out = html(notion('https://mcp.notion.com/mcp', { template: { id: 't1', version: 1 } }))
       expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.templateTitleSignIn', { name: 'Notion' })))

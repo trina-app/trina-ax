@@ -35,7 +35,7 @@ describe('the rule in the instructions', () => {
   })
 
   test('every app language: the chat, a resumed session\'s turn context and a room session have it; sub-agents get only the note\'s line', () => {
-    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
+    expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es', 'zh'])
     for (const locale of Locale.options) {
       // the archive folder's word follows the templates folder's language (the team's); without one, the names there
       const t = templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))

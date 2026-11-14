@@ -1,6 +1,6 @@
 # A guide for CEOs and team leads
 
-[한국어](for-teams.ko.md)
+[한국어](for-teams.ko.md) · [简体中文](for-teams.zh.md)
 
 Trina fits teams that have company files, repeatable tasks and different access needs. Prepare shared sources, procedures and permissions instead of attaching the same files to each personal AI chat. This does not promise a better model or immediate high-quality output.
 

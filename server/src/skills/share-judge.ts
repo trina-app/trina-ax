@@ -81,7 +81,7 @@ export function shareJudgeOf(ctx: AppContext, chatId: string): ShareJudgeScope |
   return { chatId, shareId: r.share_id, userId: r.created_by, material: { locale: teamDefaultLocale(ctx.db), company, team, candidates, rule: readStagedRule(ctx, r.share_id) } }
 }
 
-const EXAMPLE_TITLE: Record<Locale, string> = { ko: '주간 업무 보고', en: 'Weekly report', id: 'Laporan mingguan', ja: '週次業務報告', es: 'Informe semanal' }
+const EXAMPLE_TITLE: Record<Locale, string> = { ko: '주간 업무 보고', en: 'Weekly report', id: 'Laporan mingguan', ja: '週次業務報告', es: 'Informe semanal', zh: '周报' }
 
 /** The instructions of a judge turn (fixed, English like every instruction; titles and the rule in the team's language). */
 export function shareJudgeSystemPrompt(d: ShareJudgeScope, o: { history?: { role: 'user' | 'assistant'; content: string }[] | null }): string {
