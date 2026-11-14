@@ -3696,6 +3696,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.progress.profile": "Sobre la empresa",
   "welcome.progress.skipped": "pospuesto",
   "welcome.back": "Atrás",
+  "welcome.returnBack": "Volver a los primeros pasos",
   "welcome.later": "Hacerlo más tarde",
   "welcome.leave": "Más tarde",
   "welcome.leaveLabel": "Continuar más tarde",

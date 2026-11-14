@@ -40,6 +40,7 @@ import { folderName } from '../../lib/access-view'
 import { ADMIN_DETAILS, adminChain, adminDesktopOf, adminParent, isAdminDetail } from './adminScreens'
 import { AdminBarProvider, type AdminBar } from './phoneBar'
 import { AdminBarSlot } from './barActions'
+import { SetupReturn } from '../../components/onboarding/SetupReturn'
 
 const Home = lazy(() => import('./Home'))
 const PhoneRoot = lazy(() => import('./PhoneRoot'))
@@ -276,6 +277,8 @@ export default function AdminLayout() {
           ) : (
             <div className="mx-auto w-full max-w-6xl p-4">
               {/* the list says once that every page here applies to the whole team (PhoneRoot.tsx); not again on each */}
+              {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+              <SetupReturn className="mb-3" />
               {page}
             </div>
           )}
@@ -325,6 +328,8 @@ export default function AdminLayout() {
           {/* the form pages (Team settings, System) are one narrow column in the middle of the area, the others use the
               whole width; both are centred, so the page does not shift from one to the next */}
           <div className={clsx('w-full', NARROW.has(section) && 'mx-auto max-w-3xl')} data-testid="admin-column">
+            {/* opened from the welcome steps: the way back to them (components/onboarding/SetupReturn.tsx) */}
+            <SetupReturn className="mb-3" />
             <AdminScope />
             {page}
           </div>

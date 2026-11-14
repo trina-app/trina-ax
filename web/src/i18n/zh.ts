@@ -3683,6 +3683,7 @@ export const zh: Record<MessageKey, string> = {
   "welcome.progress.profile": "关于公司",
   "welcome.progress.skipped": "暂时跳过",
   "welcome.back": "返回",
+  "welcome.returnBack": "返回开始使用",
   "welcome.later": "稍后再做",
   "welcome.leave": "稍后",
   "welcome.leaveLabel": "稍后继续",

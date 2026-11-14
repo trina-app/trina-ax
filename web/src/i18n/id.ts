@@ -3740,6 +3740,7 @@ export const id: Record<MessageKey, string> = {
   "welcome.progress.profile": "Profil perusahaan",
   "welcome.progress.skipped": "ditunda",
   "welcome.back": "Kembali",
+  "welcome.returnBack": "Kembali ke persiapan awal",
   "welcome.later": "Nanti saja",
   "welcome.leave": "Nanti",
   "welcome.leaveLabel": "Lanjutkan nanti",
