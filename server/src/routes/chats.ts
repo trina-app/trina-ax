@@ -87,6 +87,25 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProjec
  * delete, restore. The owner and admins for every team project; its creator while they may edit it. */
 const mayManage = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayManageProject(ctx.files, p, r)
 
+/** POST /api/projects/access-preview: at most this many per person per minute (QA TC-1408). The Members dialog asks
+ * 400 ms after the last pick, so a person picking fast stays far below it. */
+export const PREVIEW_PER_MINUTE = 60
+const previewsOf = new WeakMap<AppContext, Map<string, number[]>>()
+/** One dry run of `userId`, or 429 past PREVIEW_PER_MINUTE in the last minute (in memory, per server: a restart forgets
+ * it). */
+export function previewLimit(ctx: AppContext, userId: string, now = Date.now()): void {
+  const previews = previewsOf.get(ctx) ?? new Map<string, number[]>()
+  previewsOf.set(ctx, previews)
+  const recent = (previews.get(userId) ?? []).filter((t) => now - t < 60_000)
+  if (recent.length >= PREVIEW_PER_MINUTE) {
+    previews.set(userId, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (now - recent[0]!)) / 1000)) })
+  }
+  recent.push(now)
+  previews.set(userId, recent)
+  if (previews.size > 10_000) for (const [k, ts] of previews) if (!ts.some((t) => now - t < 60_000)) previews.delete(k)
+}
+
 /** A project as "move to a new project" made it, for its undo (deleteProject ifEmpty): mine, personal (exactly
  * users/<me>/projects/<name>, so no other member), no instructions, no chat of anyone's in it (in the trash too), no
  * scheduled task or dev environment job on it, and nothing in its folder. */
@@ -810,6 +829,9 @@ export const chatsRoutes: RouteModule = {
     // change of an existing one's participants (its creator or an admin)
     kit.handle(API.previewProjectAccess, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      // a light limit per person (QA TC-1408): the dialog asks again on every pick, the widening count walks the
+      // project's shared answers; a burst beyond it is 429 (the dialog keeps its last count)
+      previewLimit(ctx, auth.user.id)
       const p = principal(ctx, auth)
       if (!body.projectId) {
         assertMayCreateTeamProject(ctx.db, p, locale)
