@@ -10,7 +10,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom, type MockMessage } from './rooms-mock'
-import { ADDRESS, appMessage, mockApp, routeRoomApps, type MockApp } from './room-apps-mock'
+import { ADDRESS, appMessage, mockApp, mockPreset, routeRoomApps, type MockApp } from './room-apps-mock'
 
 test.use({ serviceWorkers: 'block', locale: 'en-US' })
 
@@ -222,6 +222,148 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('app-reply')).toHaveCount(2)
       await expect(page.getByTestId('app-reply').last()).toHaveText('Resolved by Jun')
       await expect(page.getByTestId('thread-app-summarise')).toHaveText('Summarize this thread')
+    })
+
+    test('presets: the picker\'s groups with Needs and Other last; the guides of Stripe, Zendesk, Notion, Shopify, Typeform; Other\'s JANDI line and Zapier/Make', async ({ page, context }) => {
+      test.setTimeout(120_000)
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      const { apps } = await open(page, { size: vp.size, messages: MESSAGES.slice(0, 1) })
+      await (await menuItem(page)).click()
+      const picker = page.getByTestId('apps-picker')
+      await expect(picker.getByTestId('apps-pick-group')).toHaveText([/forms/i, /payments & orders/i, /work/i, /for developers/i, /any other way/i])
+      const rows = picker.locator('[data-testid^="apps-pick-"]:not([data-testid="apps-pick-group"]):not([data-testid^="apps-pick-needs-"])')
+      await expect(rows).toHaveCount(11)
+      await expect(rows.last()).toHaveAttribute('data-testid', 'apps-pick-other')
+      await expect(page.getByTestId('apps-pick-other')).toContainText('Slack, Discord or JANDI webhooks')
+      await expect(page.getByTestId('apps-pick-email')).toHaveCount(0)
+      await expect(page.getByTestId('apps-pick-needs-stripe')).toHaveText('Needs: Admin or Developer role in Stripe')
+      await expect(page.getByTestId('apps-pick-needs-notion')).toHaveText('Needs: a paid Notion plan')
+      await expect(page.getByTestId('apps-pick-notion').getByTestId('app-logo')).toHaveCount(1)
+      await expect(page.getByTestId('apps-pick-shopify').getByTestId('app-initial')).toHaveText('S')
+      expect(apps.calls).toEqual([])
+
+      // Stripe: Needs in the header, its events as chips in their step, its signing secret checked by shape
+      await page.getByTestId('apps-pick-stripe').click()
+      await expect(page.getByTestId('apps-title')).toHaveText('Connect Stripe')
+      await expect(page.getByTestId('apps-needs')).toHaveText('Needs: Admin or Developer role in Stripe')
+      await expect(page.getByTestId('apps-steps')).toContainText('“Developers › Workbench › Webhooks”')
+      await expect(page.getByTestId('apps-stripe-events')).toContainText('charge.refunded')
+      await expect(page.getByTestId('apps-stripe-events')).not.toContainText('customer.subscription.created')
+      await page.getByTestId('apps-copy-address').click()
+      await expect(page.getByTestId('apps-copy-address')).toHaveText('Copied')
+      expect(apps.calls).toEqual(['create:other+stripe'])
+      await page.getByTestId('apps-safer').locator('summary').click()
+      await expect(page.getByTestId('apps-safer-how')).toContainText('“Reveal secret”')
+      await expect(page.getByTestId('apps-sentry-secret')).toHaveAttribute('placeholder', 'Signing secret (whsec_…)')
+      await page.getByTestId('apps-sentry-secret').fill('not-a-secret')
+      await page.getByTestId('apps-sentry-secret-save').click()
+      await expect(page.getByTestId('apps-secret-error')).toHaveText("That doesn't look like Stripe's signing secret.")
+      await page.getByTestId('apps-sentry-secret').fill(`whsec_${'a'.repeat(32)}`)
+      await page.getByTestId('apps-sentry-secret-save').click()
+      await expect(page.getByTestId('apps-signed')).toBeVisible()
+      await page.getByTestId('apps-example').click()
+      await expect(page.getByTestId('apps-preview')).toContainText('$49.00 from Jamie Rivera')
+      await expect(page.getByTestId('apps-preview').getByTestId('app-tile')).toHaveAttribute('data-kind', 'stripe')
+
+      // Zendesk: each trigger's body with its Copy inside the step where it is pasted
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-pick-zendesk').click()
+      await expect(page.getByTestId('apps-step').nth(2).getByTestId('apps-copy-body')).toBeVisible()
+      await page.getByTestId('apps-copy-body').click()
+      await expect(page.getByTestId('apps-copy-body')).toHaveText('Copied')
+      // the clipboard is written after the click resolves: read it until it holds the body
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('"event":"created"')
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('{{ticket.id}}')
+      await expect(page.getByTestId('apps-step-optional')).toContainText('Optional')
+      await expect(page.getByTestId('apps-step-optional').getByTestId('apps-copy-body-updated')).toBeVisible()
+      // the body was copied without the URL: nothing added yet
+      expect(apps.calls.filter((c) => c.startsWith('create'))).toHaveLength(1)
+
+      // Notion: no signing, "tick at least the title and Status"
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-pick-notion').click()
+      await expect(page.getByTestId('apps-steps')).toContainText('tick at least the title and Status')
+      await expect(page.getByTestId('apps-safer')).toHaveCount(0)
+
+      // Shopify: the other events are an optional step; Typeform: a secret Trina makes, answers seen by the room
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-pick-shopify').click()
+      await expect(page.getByTestId('apps-step-optional')).toContainText('“Order payment”')
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-pick-typeform').click()
+      await expect(page.getByTestId('apps-forms-answers')).toContainText('email addresses too')
+      await page.getByTestId('apps-safer').locator('summary').click()
+      await page.getByTestId('apps-copy-secret').click()
+      await expect.poll(() => apps.calls.slice(-2)).toEqual(['create:other+typeform', expect.stringMatching(/:generate$/)])
+
+      // Other: the JANDI line under the URL, then "Don't see your app?" with Zapier's rows and Make's body
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-pick-other').click()
+      await expect(page.getByTestId('apps-other-where')).toHaveText('Paste this where an app asks for a Slack, Discord or JANDI webhook URL.')
+      await expect(page.getByTestId('apps-dont-see')).toContainText("Don't see your app?")
+      await page.getByTestId('apps-zapier').locator('summary').click()
+      await expect(page.getByTestId('apps-zapier-needs')).toHaveText('Needs: a paid Zapier plan')
+      await expect(page.getByTestId('apps-zapier-rows')).toContainText('thread')
+      await page.getByTestId('apps-make').locator('summary').click()
+      await page.getByTestId('apps-copy-make-body').click()
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('{{1.summary}}')
+      expect(JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))).toMatchObject({ title: '{{1.summary}}' })
+    })
+
+    test('presets: cards with their logo and link, a refused secret named per service, the vendor\'s Regenerate warning, switches', async ({ page }) => {
+      test.setTimeout(120_000)
+      const stripe = mockPreset('stripe', { signed: true, lastRefusal: { at: '2026-11-05T10:57:00.000Z', reason: 'signature' } })
+      const shopify = mockPreset('shopify', { eventsSeen: ['order', 'paid'] })
+      const notion = mockPreset('notion')
+      const messages: MockMessage[] = [
+        MESSAGES[0]!,
+        { id: '019a5f00-0000-7000-8000-00000000d001', author: MINA, body: '', extra: appMessage(stripe, { kind: 'Payment received', title: '$49.00 from Jamie Rivera', details: ['Pro plan (monthly)'], status: 'Status: Succeeded', link: { url: 'https://dashboard.stripe.com/payments/pi_123', host: 'dashboard.stripe.com' } }) },
+        { id: '019a5f00-0000-7000-8000-00000000d002', author: MINA, body: '', extra: appMessage(shopify, { kind: 'New order #1042', title: '86.00 USD · 3 items', details: ['2 × T-shirt · Jamie, Portland https://evil.example.com'], status: 'Status: Paid' }) },
+      ]
+      const { apps } = await open(page, { size: vp.size, apps: [stripe, shopify, notion], messages })
+      const card = page.locator('[data-testid="room-message"][data-app="stripe"]').first()
+      await expect(page.locator('[data-testid="app-tile"][data-kind="stripe"]').first().getByTestId('app-logo')).toBeVisible()
+      await expect(page.locator('[data-testid="app-tile"][data-kind="shopify"]').first()).toHaveText('S')
+      await expect(card.getByTestId('room-app-link')).toContainText('Open in Stripe')
+      await expect(card.locator('a')).toHaveCount(1)
+      const order = page.locator('[data-testid="room-message"][data-app="shopify"]').first()
+      await expect(order.getByTestId('app-card-detail')).toHaveText('2 × T-shirt · Jamie, Portland https://evil.example.com')
+      await expect(order.locator('a')).toHaveCount(0)
+
+      await (await menuItem(page)).click()
+      await page.getByTestId('apps-list-row').first().click()
+      await expect(page.getByTestId('apps-title-kind')).toHaveCount(0)
+      await expect(page.getByTestId('apps-warning-refused')).toContainText('Stripe sent a message')
+      await expect(page.getByTestId('apps-warning-refused')).toContainText("but the signing secret didn't match. Copy it again from Reveal secret.")
+      await page.getByTestId('apps-set-up-again').click()
+      await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', 'stripe')
+      await page.getByTestId('apps-back').click()
+      await expect(page.getByTestId('apps-switch-subscription_new')).toHaveCount(1)
+      await page.getByTestId('apps-back').click()
+      // Shopify: unsigned with its one action; Regenerate names what Shopify does with the old URL
+      await page.getByTestId('apps-list-row').nth(1).click()
+      await expect(page.getByTestId('apps-warning-unsigned')).toBeVisible()
+      await expect(page.getByTestId('apps-switch-fulfilled')).toHaveCount(1)
+      await page.getByTestId('apps-new-address').click()
+      await expect(page.getByRole('dialog').last()).toContainText('Shopify deletes a webhook after repeated failures')
+      await page.getByRole('button', { name: 'Regenerate', exact: true }).last().click()
+      await expect.poll(() => apps.calls).toContain('rotate:app-shopify')
+      // the optional events that never arrived (eventsSeen): "Not set up in Shopify", with the way to its step
+      await expect(page.getByTestId('apps-switch-paid-not-set-up')).toHaveCount(0)
+      await expect(page.getByTestId('apps-switch-order-not-set-up')).toHaveCount(0)
+      await expect(page.getByTestId('apps-switch-refund-not-set-up')).toContainText('Not set up in Shopify')
+      await page.getByTestId('apps-switch-refund-not-set-up').getByRole('button', { name: 'Show the step' }).click()
+      await expect(page.getByTestId('apps-guide')).toHaveAttribute('data-kind', 'shopify')
+      await expect(page.getByTestId('apps-step-optional')).toBeInViewport()
+      await page.getByTestId('apps-back').click()
+      await page.getByTestId('apps-back').click()
+      // Notion can't sign: no "Not signed" warning, one switch (none shown), no How to send
+      await page.getByTestId('apps-list-row').nth(2).click()
+      await expect(page.getByTestId('apps-settings')).toHaveAttribute('data-kind', 'notion')
+      await expect(page.getByTestId('apps-warning-unsigned')).toHaveCount(0)
+      await expect(page.getByTestId('apps-how-to-send')).toHaveCount(0)
+      await page.getByTestId('apps-how-to-connect').click()
+      await expect(page.getByTestId('apps-needs')).toHaveText('Needs: a paid Notion plan')
     })
 
     test('a member sees cards, no ⋯ item, and who to ask', async ({ page }) => {

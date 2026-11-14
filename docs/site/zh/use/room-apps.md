@@ -11,8 +11,9 @@ description: 让 Sentry、GitHub、Google Forms 或其他任何服务把更新�
 ## 添加应用
 
 1. 打开群聊，然后选择 **⋯ › 添加应用**。
-2. 选择 **Google 表单**、**其他应用**、**GitHub** 或 **Sentry**。其他应用要先起个名字（例如 *备份通知*），它的消息会以这个
-   名字显示。
+2. 选择一个服务。服务分组列出：**表单**（Google 表单、Typeform、Tally、Jotform）、**付款与订单**（Stripe、Shopify）、
+   **工作**（Notion、Zendesk）和 **开发者**（GitHub、Sentry）。最后的 **其他应用** 可以接入其他任何服务。需要特定方案或角色
+   的服务会在它那一行写明（例如 *需要：Notion 付费方案*）。其他应用要先起个名字（例如 *备份通知*），它的消息会以这个名字显示。
 3. 按 Webhook URL 旁边的 **复制**（Google 表单为 **复制代码**），然后按照该服务中的编号步骤操作。在你复制之前，群聊里不会
    添加任何东西，所以你可以先看看，再关闭指南。
 4. 指南会实时显示进展：*正在等待第一条消息*、*已连接*，或者上一次为什么没有显示。**看个示例** 会在指南里显示它的消息会是
@@ -44,7 +45,30 @@ Google 表单没有可以粘贴网址的地方，所以 Trina 会给你一段用
 - 如果表单收集电子邮件地址，每条回复都会显示回复者的邮箱。在应用设置中关闭 **回复者的邮箱** 即可不显示。能编辑表单的人都能
   看到这段代码。
 
+### 表单、付款和工作工具
+
+Typeform、Tally、Jotform、Stripe、Shopify、Notion 和 Zendesk 各有自己的指南，步骤用的是该服务自己的界面名称。简单来说：
+
+- **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴、保存并打开。
+- **Tally**：在表单的 **Integrations › Webhooks › Connect** 中，粘贴到 **Endpoint URL**。
+- **Jotform**：在表单的 **Settings › Integrations** 中搜索 **WebHooks** 并粘贴。
+- **Stripe**（需要 Admin 或 Developer 角色）：**Developers › Workbench › Webhooks › Create an event destination**，勾选指南
+  列出的事件，选择 **Webhook endpoint**，粘贴到 **Endpoint URL**。
+- **Shopify**（店主或可访问设置的员工）：在 **Settings › Notifications › Webhooks › Create webhook** 中为 **Order
+  creation** 创建；也可以再为 Order payment、Order cancellation 和 Refund create 各创建一个。
+- **Notion**（付费方案）：数据库的 **Automations**，操作选 **Send webhook**；至少勾选标题和 Status。
+- **Zendesk**（Team 方案或更高，管理员）：先创建 webhook，再创建一个触发器，发送指南给出的正文（**复制正文** 就在那一步里）。
+
+表单回答会按原样显示在群聊里，包括电子邮件地址；上传的文件只显示文件名。付款和订单卡片只显示客户的名字（Shopify 还显示城市），
+从不显示邮箱、电话或银行卡。
+
+Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名。指南中的 **可选：提高安全性** 用来填入该服务的签名密钥
+（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。
+
 ### 其他应用
+
+要求填写 **Slack、Discord 或 JANDI 的 webhook URL** 的工具，可以把 Trina 的 Webhook URL 粘贴到那个位置。两者都没有的工具，
+可以通过 Zapier 或 Make 连接；指南中的 **没有你用的应用？** 为两者各举了一个例子。
 
 任何能向 Webhook URL 发送消息的服务（Zapier、Make、Grafana、Uptime Kuma、你自己的脚本）都可以。把 Webhook URL 粘贴到该服务
 发送消息的位置，然后发一条测试消息。指南和应用设置里的 **发送方法** 有可以复制的示例：
@@ -96,9 +120,10 @@ Sentry 中的所有者或管理者。
 - 是谁设置的，以及 **连接方法**（再次查看步骤）。
 - **状态行**：上一条消息、*已暂停* 或 *正在等待第一条消息*。
 - **提醒**，每条只有一个操作：上一次为什么没有显示（**检查密钥**）、*已离开的成员知道这个 Webhook URL*（**重新生成**），
-  以及没有设置密钥的 GitHub 和 Sentry 的 *未签名：知道 Webhook URL 的任何人都能发布*（**提高安全性**）。
+  以及能签名但还没有设置密钥的服务的 *未签名：知道 Webhook URL 的任何人都能发布*（**提高安全性**）。
 - **名称**：它的消息显示的名字。
-- **在此群聊中显示**：要发布的更新类型（适用于会发送多种更新的应用）。
+- **在此群聊中显示**：要发布的更新类型（适用于会发送多种更新的应用）。在服务中从未设置过的可选事件（例如 Shopify 的退款）
+  会显示 *尚未在 Shopify 中设置*，并附有通往那一步的链接。
 - **安静发布**：一行简短显示，没有未读标记和提醒。
 - **发送方法**（其他应用）。
 - **Webhook URL**：再次 **复制**，或 **重新生成**（旧的会立即失效；把新的粘贴到该服务中）。

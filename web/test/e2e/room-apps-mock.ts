@@ -2,6 +2,7 @@
 // (shared/src/api/room-apps.ts ROOM_APPS) answered through page.route, contract-shaped, with what the screens asked kept
 // for the spec to read; and app messages (cards) as the server sends them, for routeRoom's messages.
 import type { Page } from '@playwright/test'
+import { ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, type RoomAppPreset } from '@mycel/shared/api'
 import { ROOM_ID } from './rooms-mock'
 
 export const T0 = Date.parse('2026-11-05T09:00:00.000Z')
@@ -9,9 +10,9 @@ const iso = (min: number) => new Date(T0 + min * 60_000).toISOString()
 
 type Kind = 'sentry' | 'github' | 'google_forms' | 'other'
 export interface MockApp {
-  id: string; roomId: string; kind: Kind; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
+  id: string; roomId: string; kind: Kind; preset?: RoomAppPreset; name: string; events: Record<string, boolean>; quiet: boolean; signed: boolean
   createdBy: { id: string; name: string } | null; createdAt: string; firstOkAt: string | null; lastOkAt: string | null
-  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true
+  lastRefusal: { at: string; reason: 'signature' | 'format' | 'too_big' } | null; pausedUntil: string | null; canResume: boolean; today: number; leaverKnows?: true; eventsSeen?: string[]
 }
 const SWITCHES: Record<Kind, Record<string, boolean>> = {
   sentry: { new_issue: true, came_back: true, resolved: true, alert: false, assigned: false, metric: false },
@@ -20,6 +21,12 @@ const SWITCHES: Record<Kind, Record<string, boolean>> = {
   other: { message: true },
 }
 const NAMES: Record<Kind, string> = { sentry: 'Sentry', github: 'GitHub', google_forms: 'Google Forms', other: 'Other app' }
+const PRESET_NAMES: Record<RoomAppPreset, string> = { notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk' }
+
+/** An Other app set up as a preset (kind 'other' + preset), with the preset's switches and name. */
+export function mockPreset(preset: RoomAppPreset, o: Partial<MockApp> = {}): MockApp {
+  return mockApp('other', { id: `app-${preset}`, preset, name: PRESET_NAMES[preset], events: Object.fromEntries(ROOM_APP_PRESET_SWITCHES[preset].map((s) => [s.key, s.on])), ...o })
+}
 export const ADDRESS = (n: number) => `https://acme.trina.app/in/tax_in_${'A'.repeat(40)}${String(n).padStart(3, '0')}`
 
 export function mockApp(kind: Kind, o: Partial<MockApp> = {}): MockApp {
@@ -62,10 +69,11 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
       return route.fulfill(json({ items: state.apps, available: state.available, max: 10 }))
     }
     if (path === base && method === 'POST') {
-      const b = req.postDataJSON() as { kind: Kind; name?: string }
-      state.calls.push(b.name ? `create:${b.kind}:${b.name}` : `create:${b.kind}`)
+      const b = req.postDataJSON() as { kind: Kind; preset?: RoomAppPreset; name?: string }
+      state.calls.push(`create:${b.kind}${b.preset ? `+${b.preset}` : ''}${b.name ? `:${b.name}` : ''}`)
       if (!state.available) return route.fulfill(json({ error: { code: 'conflict', message: 'no address', params: { reason: 'no_public_address' } } }, 409))
-      const app = mockApp(b.kind, { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date(Date.now() - (o.createdAgoMs ?? 0)).toISOString(), firstOkAt: null, lastOkAt: null, today: 0, ...(b.name ? { name: b.name } : {}) })
+      const fresh = { id: `019a5f00-0000-7000-8000-0000000b${String(++n).padStart(4, '0')}`, createdAt: new Date(Date.now() - (o.createdAgoMs ?? 0)).toISOString(), firstOkAt: null, lastOkAt: null, today: 0, ...(b.name ? { name: b.name } : {}) }
+      const app = b.preset ? mockPreset(b.preset, fresh) : mockApp(b.kind, fresh)
       state.apps.push(app)
       return route.fulfill(json({ app, address: ADDRESS(n) }, 201))
     }
@@ -73,11 +81,14 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
     const app = m && state.apps.find((a) => a.id === m[1])
     if (!m || !app) return route.fulfill(json({ error: { code: 'not_found', message: 'not found' } }, 404))
     const what = m[2]
-    if (what === 'address' && method === 'GET') { state.calls.push(`address:${app.id}`); return route.fulfill(json({ address: ADDRESS(state.apps.indexOf(app) + 1), ...(app.signed && app.kind === 'github' ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) })) }
+    if (what === 'address' && method === 'GET') { state.calls.push(`address:${app.id}`); return route.fulfill(json({ address: ADDRESS(state.apps.indexOf(app) + 1), ...(app.signed && (app.kind === 'github' || (app.preset && ROOM_APP_PRESET_SIGNING[app.preset].signing === 'trina_makes')) ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) })) }
     if (what === 'secret' && method === 'PUT') {
       const b = req.postDataJSON() as { generate?: true; secret?: string | null }
       state.calls.push(`secret:${app.id}:${b.generate ? 'generate' : b.secret === null ? 'off' : 'set'}`)
-      if (b.secret && !/^[0-9a-f]{64}$/i.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like a Sentry Client Secret." } }, 400))
+      const signing = app.preset ? ROOM_APP_PRESET_SIGNING[app.preset] : null
+      if (signing?.signing === 'none') return route.fulfill(json({ error: { code: 'validation', message: 'This service cannot sign.', params: { reason: 'no_signing' } } }, 400))
+      if (b.secret && !app.preset && !/^[0-9a-f]{64}$/i.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like a Sentry Client Secret." } }, 400))
+      if (b.secret && app.preset === 'stripe' && !/^whsec_[A-Za-z0-9+/=_-]{16,200}$/.test(b.secret)) return route.fulfill(json({ error: { code: 'validation', message: "That doesn't look like Stripe's signing secret." } }, 400))
       app.signed = b.secret !== null
       return route.fulfill(json({ app, ...(b.generate ? { secret: `tax_whs_${'s'.repeat(43)}` } : {}) }))
     }
@@ -103,11 +114,11 @@ export async function routeRoomApps(page: Page, o: { apps?: MockApp[]; available
 }
 
 /** A message an app posted, as routeRoom's `extra` (author null, the app and its card). */
-export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name'> & { by?: { id: string; name: string } | null; quiet?: boolean; example?: boolean }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
+export function appMessage(app: Pick<MockApp, 'id' | 'kind' | 'name' | 'preset'> & { by?: { id: string; name: string } | null; quiet?: boolean; example?: boolean }, card: { kind?: string; title: string; details?: string[]; status?: string; link?: { url: string; host: string } }, more: Record<string, unknown> = {}) {
   const text = [[card.kind, card.title].filter(Boolean).join(' · '), ...(card.details ?? []), card.status ?? ''].filter(Boolean).join('\n')
   return {
     author: null,
-    app: { id: app.id, name: app.name, kind: app.kind, by: app.by === undefined ? { id: 'mina', name: 'Mina' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
+    app: { id: app.id, name: app.name, kind: app.kind, ...(app.preset ? { preset: app.preset } : {}), by: app.by === undefined ? { id: 'mina', name: 'Mina' } : app.by, ...(app.quiet ? { quiet: true } : {}), ...(app.example ? { example: true } : {}) },
     appCard: { details: [], ...card },
     body: `${app.name}: ${text}`,
     ...more,
