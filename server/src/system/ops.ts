@@ -34,7 +34,7 @@ import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
 import { cleanDevenv } from './devenv-clean'
 import { busyOwners, srtConfig } from '../devenv/srt/runner'
-import { activityFacts } from './activity'
+import { activityFacts, configureActivityStore } from './activity'
 import { absoluteFloor, cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
@@ -98,6 +98,8 @@ export class OpsService {
 
   constructor(private ctx: AppContext, private o: OpsOptions = {}) {
     this.layout = o.layout ?? resolveLayout(ctx.config)
+    // F2 / trial auto-stop: the idle clock survives a restart and an instance stop (system/activity.ts)
+    configureActivityStore(this.layout.statusDir)
     // the root-owned plan file of an installed server (system/limits.ts); $MYCEL_PLAN_FILE wins
     configurePlan({ file: this.layout.planFile, log: ctx.log.child({ c: 'plan' }) })
     // the operator's notices for the web banner (system/managed.ts); $MYCEL_NOTICES_FILE wins

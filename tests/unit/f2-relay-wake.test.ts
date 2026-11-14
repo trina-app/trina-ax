@@ -8,7 +8,7 @@ import path from 'node:path'
 import { WAKE_API_PATH, parseWakeAuthorizationHeader, wakeSigningString } from '@mycel/shared/cloud-protocol/relay-ops'
 import { GLOBAL_PER_MIN, TEAM_GAP_MS, WakeClient, type WakeFetch } from '../../relay/src/wake.ts'
 import { loadRelayConfig } from '../../relay/src/config.ts'
-import { isNavigation } from '../../relay/src/relay.ts'
+import { isNavigation, mayWake } from '../../relay/src/relay.ts'
 import { htmlPage, PAGE_RETRY_AFTER, PAGE_STATUS, wakingRefreshSec } from '../../relay/src/pages.ts'
 import { WORK } from '../lib/env'
 
@@ -56,7 +56,7 @@ describe('wake client', () => {
     const fetch: WakeFetch = async () => { if (fail) throw new Error('net'); return { ok: status === 200, status, json: async () => answer } }
     const w = new WakeClient({ url: 'https://cp.example', keyFile: k.file, keyId: 'k', log: quiet, fetch, now: () => now })
     for (let i = 0; i < GLOBAL_PER_MIN; i++) expect((await w.wake(`A${i}`, 'http')).state).toBe('awake')
-    expect((await w.wake('over', 'http')).state).toBe('error')
+    expect((await w.wake('over', 'http')).state).toBe('limited')
     expect(w.counters.wakeLimited).toBe(1)
     now += 60_000
     answer = { state: 'asleep-ish', retryAfterSec: 1 }
@@ -125,5 +125,21 @@ describe('the waking page (a stopped hosted server starts in about a minute)', (
       expect(h).toContain(`lang="${lang}"`)
       expect(h).not.toContain('Starting your team')
     }
+  })
+})
+
+describe('who may wake a sleeping team (trial auto-stop, 2026-11-14)', () => {
+  const req = (method: string, url: string, headers: Record<string, string> = {}) => ({ method, url, headers })
+  test('a browser page load, a cookie or a token wakes it', () => {
+    expect(mayWake(req('GET', '/', { 'sec-fetch-mode': 'navigate', accept: 'text/html' }))).toBe(true)
+    expect(mayWake(req('GET', '/api/me', { cookie: 'sid=x' }))).toBe(true)
+    expect(mayWake(req('POST', '/mcp', { authorization: 'Bearer tax_mcp_a_x' }))).toBe(true)
+  })
+  test('scanners, link previews, uptime checks and probes do not', () => {
+    expect(mayWake(req('GET', '/', { accept: 'text/html', 'user-agent': 'Slackbot-LinkExpanding 1.0' }))).toBe(false)
+    expect(mayWake(req('GET', '/wp-login.php'))).toBe(false)
+    expect(mayWake(req('HEAD', '/', { 'sec-fetch-mode': 'navigate' }))).toBe(false)
+    expect(mayWake(req('GET', '/robots.txt', { 'sec-fetch-mode': 'navigate' }))).toBe(false)
+    expect(mayWake(req('GET', '/favicon.ico', { cookie: 'sid=x' }))).toBe(false)
   })
 })

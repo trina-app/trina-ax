@@ -1,6 +1,6 @@
 // When this server was last in use, for the hosted service's sleep policy (F2: an idle hosted team's server is stopped,
 // a free team's VM suspended to disk or a trial team's EC2 instance stopped, and started on the next request). One
-// clock per server process; it starts at the process start.
+// clock per server process; it starts at the last use saved before (configureActivityStore), else at the start.
 //   in use: a signed-in API request (session middleware; every chunk of an upload is one), an open realtime connection,
 //   a running or queued answer, a queued or running background job (transcribe, backup, export, update, restore), a
 //   dev environment job that waits or runs, or a backup in progress (the nightly one has no jobs row)
@@ -9,10 +9,42 @@
 //   the server before it.
 // status/status.json carries the result as `activity` (durations, not times: the guest clock can be behind after a
 // resume); admin.js cloud-idle reads it for mycel-ctl idle-wait --activity.
+// The clock survives a restart (configureActivityStore: status/last-activity, written at most once a minute): an EC2
+// trial's sleep is a stop, so every wake is a fresh boot, and a clock that started at boot would make every wake (a
+// backup, a schedule, a bot) cost a full idle limit of running time.
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { SLEEP_SCHEDULE_GUARD_SEC } from '@mycel/shared/cloud-protocol'
 
 let lastActiveAt = Date.now()
+let store: { file: string; savedAt: number; saved: number } | null = null
+/** the file is written at most this often (status.json runs every 30 s) */
+export const ACTIVITY_SAVE_EVERY_MS = 60_000
+
+/** Keep the clock in `<statusDir>/last-activity` (epoch ms) and start from it: the last use before a restart or a stop,
+ *  never later than now. No file (a new server) or an unreadable one: the clock starts now. */
+export function configureActivityStore(statusDir: string | null, now: number = Date.now()): void {
+  if (!statusDir) { store = null; return }
+  const file = path.join(statusDir, 'last-activity')
+  store = { file, savedAt: 0, saved: 0 }
+  try {
+    const t = Number(fs.readFileSync(file, 'utf8').trim())
+    if (Number.isFinite(t) && t > 0) { lastActiveAt = Math.min(t, now); store.saved = lastActiveAt }
+  } catch { /* none yet */ }
+}
+
+/** Write the clock when it moved and the last write is a minute old (tmp + rename; a failure is not fatal). */
+function saveActivity(now: number): void {
+  if (!store || lastActiveAt === store.saved || now - store.savedAt < ACTIVITY_SAVE_EVERY_MS) return
+  try {
+    fs.mkdirSync(path.dirname(store.file), { recursive: true, mode: 0o750 })
+    const tmp = store.file + '.tmp'
+    fs.writeFileSync(tmp, String(lastActiveAt), { mode: 0o640 })
+    fs.renameSync(tmp, store.file)
+    store.savedAt = now; store.saved = lastActiveAt
+  } catch { /* the next status write tries again */ }
+}
 
 /** Record use now. */
 export function touchActivity(now: number = Date.now()): void {
@@ -65,6 +97,7 @@ export function busyJobs(db: Database): number {
 export function activityFacts(o: { db: Database; connections: number; busy: boolean; now?: number }): ActivityFacts {
   const now = o.now ?? Date.now()
   if (o.connections > 0 || o.busy || busyJobs(o.db) > 0) touchActivity(now)
+  saveActivity(now)
   const due = nextScheduleDue(o.db, now)
   return {
     connections: o.connections,

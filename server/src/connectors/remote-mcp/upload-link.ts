@@ -1,3 +1,4 @@
+import { touchActivity } from '../../system/activity'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { z } from 'zod'
@@ -113,6 +114,8 @@ export async function linkUpload(ctx: AppContext, request: Request, token: strin
     }
     const ended = () => { record(false, { reason: 'connection' }); return reply({ error: 'access_denied', message: 'The connection that made this link has ended or has no write permission. Reconnect and ask for a new link.' }, 403) }
     if (!live()) return ended()
+    // an upload through a live link is use of the team (system/activity.ts)
+    touchActivity()
     const tooLarge = (size?: number) => { record(false, { reason: 'too_large', ...(size === undefined ? {} : { size }) }); return reply({ error: 'too_large', message: `File too large: an upload link takes at most ${mib(link.max_bytes)} MiB.` }, 413) }
     const length = request.headers.get('content-length')
     if (length !== null && Number(length) > link.max_bytes) return tooLarge(Number(length))

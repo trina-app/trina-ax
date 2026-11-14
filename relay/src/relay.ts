@@ -426,14 +426,17 @@ export class RelayServer {
     }
     const visitor = visitorKey(this.clientIp(req) ?? 'unknown')
     if (this.overVisitorCap(row.id, visitor)) return this.refuseOverCap(req, res)
-    const sleeping = this.startWake(row, 'http')
+    // only a person wakes a team: a browser page load, a request with a cookie or a token (the apps, the connector), not
+    // a scanner, a link preview or an uptime check (each would keep an idle trial running)
+    const sleeping = mayWake(req) ? this.startWake(row, 'http') : null
     const navigation = isNavigation(req)
     const ctl = await this.connFor(row.id, req, sleeping ? { holdMs: navigation ? this.cfg.wake!.pageMs : this.cfg.wake!.holdMs, stop: sleeping.stop } : undefined)
     if (res.destroyed || req.destroyed) return
     if (!ctl && sleeping) {
       // F2: the VM sleeps. Waking: the browser gets the reloading page, everything else a retryable 503
       const a = sleeping.answered()
-      if (!a || a.state === 'waking' || a.state === 'awake') {
+      // limited: this relay asked for too many wakes this minute; the page reloads and asks again
+      if (!a || a.state === 'waking' || a.state === 'awake' || a.state === 'limited') {
         this.counters.httpWaking++
         return this.sendPage(req, res, 'team_waking', null, { html: navigation, retryAfter: navigation ? wakingRefreshSec(a?.retryAfterSec) : Math.max(1, Math.min(a?.retryAfterSec ?? 3, 30)) })
       }
@@ -1161,6 +1164,17 @@ function errorName(e: unknown): string {
 /** A browser page load (F2 waking page): GET/HEAD that asks for HTML. Under /api/ only the provider callbacks
  * (connector OAuth, Google Drive) are pages: a browser lands on them from the provider with the code in the query. */
 const CALLBACK_PATHS = new Set(['/api/integrations/oauth/callback', '/api/integrations/google-drive/callback'])
+/** Paths that browsers and crawlers fetch on their own: never a reason to wake a team */
+const PROBE_PATHS = new Set(['/robots.txt', '/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/.well-known/security.txt'])
+/** A request that may wake a sleeping team: a real browser's page load (Sec-Fetch-Mode: navigate, which crawlers and
+ *  link previews do not send), or a request with a cookie or an Authorization header (a signed-in web page, the
+ *  desktop and phone apps, the connector). Not HEAD, not the probe paths. */
+export function mayWake(req: Pick<http.IncomingMessage, 'method' | 'url' | 'headers'>): boolean {
+  if (req.method === 'HEAD' || req.method === 'OPTIONS') return false
+  if (PROBE_PATHS.has((req.url ?? '/').split('?')[0]!)) return false
+  return req.headers['sec-fetch-mode'] === 'navigate' || !!req.headers.cookie || !!req.headers.authorization
+}
+
 export function isNavigation(req: Pick<http.IncomingMessage, 'method' | 'url' | 'headers'>): boolean {
   if (req.method !== 'GET' && req.method !== 'HEAD') return false
   const p = (req.url ?? '/').split('?')[0]!

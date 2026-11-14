@@ -13,7 +13,8 @@ export const TEAM_GAP_MS = 10_000
 export const GLOBAL_PER_MIN = 30
 const TIMEOUT_MS = 5_000
 
-export type WakeAnswer = OpsWakeResponse | { state: 'error'; retryAfterSec: number }
+/** error: the call failed; limited: this relay's own wake budget for the minute is used (no call made) */
+export type WakeAnswer = OpsWakeResponse | { state: 'error' | 'limited'; retryAfterSec: number }
 export type WakeFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
 
 export interface WakeClientOptions { url: string; keyFile: string; keyId: string; log: RelayLog; fetch?: WakeFetch; now?: () => number }
@@ -45,7 +46,7 @@ export class WakeClient {
     this.recent = this.recent.filter((t) => now - t < 60_000)
     if (this.recent.length >= GLOBAL_PER_MIN) {
       this.counters.wakeLimited++
-      return Promise.resolve({ state: 'error', retryAfterSec: 10 })
+      return Promise.resolve({ state: 'limited', retryAfterSec: 10 })
     }
     this.recent.push(now)
     const answer = this.call(teamId, reason)

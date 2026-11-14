@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IdleWaitResult, TENANT_COMMANDS, tenantCommandArgv, tenantCommandProblem } from '@mycel/shared/cloud-protocol'
 import { openDb } from '../../server/src/db'
-import { activityFacts, busyJobs, lastActivity, nextScheduleDue, PUSH_RETRY_TABLES, setLastActivity, sleepableBy, touchActivity } from '../../server/src/system/activity'
+import { ACTIVITY_SAVE_EVERY_MS, activityFacts, busyJobs, configureActivityStore, lastActivity, nextScheduleDue, PUSH_RETRY_TABLES, setLastActivity, sleepableBy, touchActivity } from '../../server/src/system/activity'
 import { cloudIdle } from '../../server/src/system/cloud-tenant'
 import { WORK } from '../lib/env'
 
@@ -159,5 +159,40 @@ describe('idle-wait contract (F2)', () => {
     expect(TENANT_COMMANDS['idle-wait'].output.parse({ idle: true, running: 0 })).toEqual({ idle: true, running: 0 })
     expect(IdleWaitResult.parse({ idle: true, running: 0, sleepable: true, idleForSec: 10, connections: 0, nextScheduleInSec: null }).sleepable).toBe(true)
     expect(IdleWaitResult.safeParse({ idle: true, running: 0, idleForSec: -1 }).success).toBe(false)
+  })
+})
+
+describe('the idle clock survives a restart (an EC2 trial wakes with a fresh boot)', () => {
+  afterEach(() => configureActivityStore(null))
+  test('the last use is saved at most once a minute and read back at start; a wake does not reset the idle time', () => {
+    const d = db()
+    const dir = path.join(W, 'status')
+    const t0 = Date.parse('2026-11-14T01:00:00Z')
+    configureActivityStore(dir, t0)
+    setLastActivity(t0)
+    touchActivity(t0 + 1000)
+    activityFacts({ db: d, connections: 0, busy: false, now: t0 + ACTIVITY_SAVE_EVERY_MS + 1 })
+    expect(Number(fs.readFileSync(path.join(dir, 'last-activity'), 'utf8'))).toBe(t0 + 1000)
+    // not again within a minute
+    touchActivity(t0 + 2000)
+    activityFacts({ db: d, connections: 0, busy: false, now: t0 + ACTIVITY_SAVE_EVERY_MS + 2 })
+    expect(Number(fs.readFileSync(path.join(dir, 'last-activity'), 'utf8'))).toBe(t0 + 1000)
+    // the instance stops; 5 hours later it boots for a backup: the clock starts at the saved use, not at the boot
+    const boot = t0 + 5 * 3600_000
+    setLastActivity(boot)
+    configureActivityStore(dir, boot)
+    expect(lastActivity()).toBe(t0 + 1000)
+    expect(activityFacts({ db: d, connections: 0, busy: false, now: boot + 1000 }).idleForSec).toBeGreaterThan(4 * 3600)
+  })
+  test('a saved time in the future (a clock that was ahead) is not trusted past now; no file: the clock starts now', () => {
+    const dir = path.join(W, 'status2')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'last-activity'), String(Date.parse('2030-01-01T00:00:00Z')))
+    const now = Date.parse('2026-11-14T01:00:00Z')
+    configureActivityStore(dir, now)
+    expect(lastActivity()).toBe(now)
+    setLastActivity(now)
+    configureActivityStore(path.join(W, 'none'), now + 5)
+    expect(lastActivity()).toBe(now)
   })
 })

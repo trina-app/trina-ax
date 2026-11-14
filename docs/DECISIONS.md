@@ -27569,8 +27569,11 @@ and the phone push are core.
   repo); this repo gives it the facts and the visitor side. This ports the F2 sleep work (feat/f2-sleep, 2026-10-31,
   never merged) onto dev.
 - **What the team server reports** (`server/src/system/activity.ts`, `status.json` `activity`, `admin.js cloud-idle`,
-  `mycel-ctl idle-wait --activity`). One clock per process: a signed-in request (session middleware; every chunk of
-  an upload is one), an open realtime connection (web, desktop, mobile), a running or queued answer, a queued or
+  `mycel-ctl idle-wait --activity`). One clock per server, kept in `status/last-activity` (written at most once a
+  minute, read back at start, never later than now): a stopped EC2 instance wakes with a fresh boot, and a clock
+  that started at boot would make every wake (a backup, a schedule, a bot) cost a full idle limit of running time.
+  Use: a signed-in request (session middleware; every chunk of an upload is one), a connector call with a live token
+  (`/mcp`) or an upload through a live upload link, an open realtime connection (web, desktop, mobile), a running or queued answer, a queued or
   running background job, a backup in progress, and (new here) a dev environment job that waits or runs
   (`dev_env_runs` kind `job`) count as use. A dev environment *server* (a preview) does not: one left running would
   keep a trial team awake for ever; it stops with the server and is started again from the chat. Requests nobody
@@ -27586,7 +27589,12 @@ and the phone push are core.
   `POST /ops/v1/teams/:id/sleep` just before the stop and cleared when the team server authenticates. A request for a
   sleeping team with no live connection asks the control plane (`POST <RELAY_WAKE_URL>/relay/v1/wake`, the relay's
   own Ed25519 wake key, its own signing domain), once per team per 10 s, 30 a minute in all, 5 s timeout. The control
-  plane answers waking, awake, busy or unknown; the relay does not decide.
+  plane answers waking, awake, busy or unknown; the relay does not decide. Only a person wakes a team (`mayWake`): a
+  real browser's page load (`Sec-Fetch-Mode: navigate`, which crawlers and link previews do not send), or a request
+  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), and a WebSocket; never HEAD,
+  OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
+  or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
+  the waking page (it reloads and asks again).
 - Hold, then answer: a browser page load waits `RELAY_WAKE_PAGE_MS` (2.5 s) and gets "Starting your team…" (about a
   minute, six languages), which reloads the same address after the control plane's `retryAfterSec` kept to 3-20 s
   (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
@@ -27599,8 +27607,9 @@ and the phone push are core.
 - **`mycel-ctl data-grow`** (owner decision 2026-11-14: new trial teams get a 20 GB data disk, grown when the team
   starts to pay). The hosting service grows the EBS volume online and calls `data-grow` when `df` still shows the old
   size (the image's udev rule normally grows the file system already). It resolves the data folder's block device
-  (`findmnt -n -o SOURCE --target /var/lib/mycel`; anything that is not a `/dev/...` device is refused), runs
-  `resize2fs <dev>` (online; nothing to do when the sizes match), and prints `{ grown, beforeBytes, afterBytes }`
+  (`findmnt -n -o SOURCE --mountpoint /var/lib/mycel`: the data folder itself must be the mount, so an unmounted data
+  disk never sends resize2fs to the root file system; anything that is not a `/dev/...` device is refused), runs
+  `resize2fs <dev>` (online, at most 75 s, under hostd's 90 s; nothing to do when the sizes match), and prints `{ grown, beforeBytes, afterBytes }`
   from statfs before and after. Errors: non-zero exit, the reason on stderr, as every tenant command.
 - Tests: `tests/unit/f2-sleep-activity.test.ts` (activity clock, every push queue, dev environment jobs, cloud-idle,
   the contract), `tests/unit/f2-relay-wake.test.ts` (wake client, settings, page loads, the waking page's refresh and

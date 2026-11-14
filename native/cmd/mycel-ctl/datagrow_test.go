@@ -20,7 +20,7 @@ func TestTenantDataGrow(t *testing.T) {
 	}
 	oldF, oldR := findmntBin, resize2fsBin
 	t.Cleanup(func() { findmntBin, resize2fsBin = oldF, oldR })
-	findmntBin = stub("findmnt", `[ "$1 $2 $3 $4 $5" = "-n -o SOURCE --target `+tb.base+`" ] || { echo bad args >&2; exit 9; }; echo /dev/nvme1n1`)
+	findmntBin = stub("findmnt", `[ "$1 $2 $3 $4 $5" = "-n -o SOURCE --mountpoint `+tb.base+`" ] || { echo bad args >&2; exit 9; }; echo /dev/nvme1n1`)
 	resize2fsBin = stub("resize2fs", `echo "$@" >> '`+calls+`'; [ -f '`+tb.fakeBin+`/resize-fail' ] && { echo 'resize2fs: Device or resource busy' >&2; exit 1; }; echo 'The filesystem is already 5242880 (4k) blocks long.  Nothing to do!'`)
 
 	code, out, errs := tb.tctl("", "data-grow", "--json")
