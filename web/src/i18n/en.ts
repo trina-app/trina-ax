@@ -3029,6 +3029,7 @@ export const en: Record<MessageKey, string> = {
   'storage.part.data': 'Server data',
   'storage.part.app': 'App',
   'storage.part.other': 'Other',
+  'storage.kept': 'Includes {size} from deleted chats and rooms, removed after 30 days',
   'storage.measured': 'Measured {date}',
   'storage.planDisk': '{gb} GB disk',
   'plan.title': 'Plan',

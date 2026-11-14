@@ -2987,6 +2987,7 @@ export const es: Record<MessageKey, string> = {
   'storage.part.data': "Datos del servidor",
   'storage.part.app': "Aplicación",
   'storage.part.other': "Otros",
+  'storage.kept': 'Incluye {size} de chats y salas eliminados, que se borran a los 30 días',
   'storage.measured': "Medido el {date}",
   'storage.planDisk': "Disco de {gb} GB",
   'plan.title': "Plan",

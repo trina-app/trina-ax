@@ -3028,6 +3028,7 @@ export const ko = {
   'storage.part.data': '서버 데이터',
   'storage.part.app': '앱',
   'storage.part.other': '기타',
+  'storage.kept': '삭제한 채팅과 방의 파일 {size}가 포함돼 있어요. 30일 뒤에 지워져요',
   'storage.measured': '{date}에 잰 값',
   'storage.planDisk': '디스크 {gb} GB',
   'plan.title': '요금제',

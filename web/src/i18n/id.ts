@@ -3029,6 +3029,7 @@ export const id: Record<MessageKey, string> = {
   'storage.part.data': 'Data server',
   'storage.part.app': 'Aplikasi',
   'storage.part.other': 'Lainnya',
+  'storage.kept': 'Termasuk {size} dari chat dan ruang yang dihapus, dihapus setelah 30 hari',
   'storage.measured': 'Diukur {date}',
   'storage.planDisk': 'Disk {gb} GB',
   'plan.title': 'Paket',
