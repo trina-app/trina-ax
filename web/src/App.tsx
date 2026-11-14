@@ -190,6 +190,40 @@ export function useSessionLifecycle(): boolean {
   return signedIn
 }
 
+/** How often the page asks the server again on its own while "Can't reach" shows. */
+const RETRY_MS = 5000
+
+/** The offline page: it asks again by itself (every few seconds, when the network comes back, when the tab is looked at
+ * again) and the screen the person was on returns when the server answers; the button asks at once. */
+function CantReach({ hint, detail }: { hint: string; detail: string }) {
+  const t = useT()
+  const load = useSession((s) => s.load)
+  useEffect(() => {
+    let asking = false
+    const ask = () => {
+      if (asking || document.visibilityState === 'hidden') return
+      asking = true
+      void load().finally(() => { asking = false })
+    }
+    const timer = setInterval(ask, RETRY_MS)
+    window.addEventListener('online', ask)
+    document.addEventListener('visibilitychange', ask)
+    return () => { clearInterval(timer); window.removeEventListener('online', ask); document.removeEventListener('visibilitychange', ask) }
+  }, [load])
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
+      <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+        <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+        {PRODUCT.displayName}
+      </p>
+      <p className="font-medium">{t('conn.cantReach')}</p>
+      <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+      {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
+      <Button onClick={() => void load()}>{t('common.retry')}</Button>
+    </div>
+  )
+}
+
 function Gate() {
   const t = useT()
   const locale = useLocale()
@@ -217,18 +251,7 @@ function Gate() {
     const hint = t('conn.cantReachHint')
     const text = errorText(status.error, locale, hint)
     const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
-        <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
-          {PRODUCT.displayName}
-        </p>
-        <p className="font-medium">{t('conn.cantReach')}</p>
-        <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
-        {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
-        <Button onClick={() => void load()}>{t('common.retry')}</Button>
-      </div>
-    )
+    return <CantReach hint={hint} detail={detail} />
   }
   if (status.kind === 'setup')
     return (

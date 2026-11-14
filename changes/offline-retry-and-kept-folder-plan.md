@@ -1,0 +1,2 @@
+- The "Can't reach the team server" page now tries again by itself every few seconds, when the internet comes back and when you return to the tab, and takes you back to where you were as soon as the server answers. The "Try again" button is still there.
+- Getting started, sorting files: if you leave before pressing "Sort like this" or "Later" (reload, close the tab, come back later), the same plan shows again on that step instead of leaving the uploaded files loose.
