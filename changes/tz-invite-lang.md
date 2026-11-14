@@ -1,0 +1,2 @@
+- Team settings: the time zone list shows cities with their UTC offset ("Seoul (UTC+9)", "서울 (UTC+9)") instead of names like Asia/Seoul. The usual zones come first, the rest follow, and a search box finds a city by name or offset. The saved zone does not change.
+- Invite and team-link pages still open in the team's language. When the visitor's browser speaks another supported language, one line offers it, and the pick is saved as the new account's language.

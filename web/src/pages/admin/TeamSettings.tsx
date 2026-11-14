@@ -37,7 +37,7 @@ import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, Setting
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
 import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
 import { legacyWindow } from '../../lib/officeUpdate'
-import { timeZoneOptions } from '../../lib/time-zones'
+import { PhoneTimeZoneRow, TimeZoneSelect } from '../../components/settings/TimeZoneField'
 import { checkIconFile } from '../../lib/team-icon'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
@@ -226,18 +226,9 @@ export default function TeamSettingsPage() {
                         </SettingsSection>
                         <SettingsSection title={t('teamSettings.section.time')} id="ts-time" testId="team-settings-time">
                           {phone ? (
-                            <PhoneChoiceRow title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')} value={f.timeZone}
-                              options={timeZoneOptions(f.timeZone).map((z) => ({ value: z, label: z }))} onChange={(v) => setF({ ...f, timeZone: v })} testId="team-time-zone" />
+                            <PhoneTimeZoneRow value={f.timeZone} onChange={(v) => setF({ ...f, timeZone: v })} />
                           ) : <SettingRow id="ts-time-zone" title={t('teamSettings.timeZone')} desc={t('teamSettings.row.timeZoneDesc')} more={t('teamSettings.timeZoneHint')}
-                            control={
-                              <select id="ts-time-zone" aria-describedby="ts-time-zone-desc" className={clsx(inputCls, 'md:w-64')} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
-                                {timeZoneOptions(f.timeZone).map((z) => (
-                                  <option key={z} value={z}>
-                                    {z}
-                                  </option>
-                                ))}
-                              </select>
-                            } />}
+                            control={<TimeZoneSelect id="ts-time-zone" describedBy="ts-time-zone-desc" value={f.timeZone} onChange={(v) => setF({ ...f, timeZone: v })} />} />}
                           {/* the update window drives every automatic update of this server: the app's own (Linux), the root
                               update timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server
                               is updated by its control plane, so it has none. (No channel here: the channel is the
