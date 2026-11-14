@@ -58,7 +58,7 @@ const planOf = (user: string, paths: string[]): AiTrashPlan => {
 }
 
 beforeAll(async () => {
-  h = await startHarness({ name: 'ai-delete-files', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'ai-delete-files', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short (as b-room-ai-grants)
   db.exec('PRAGMA foreign_keys = OFF')

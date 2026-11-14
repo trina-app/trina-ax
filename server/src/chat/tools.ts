@@ -239,6 +239,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     readsFree: (name, input) => connections.get(name)?.card === false && readsOnly(name, input),
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
+    callStarted: () => exec.ownCallStarted(),
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts

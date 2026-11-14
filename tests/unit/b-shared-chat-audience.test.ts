@@ -31,7 +31,7 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-shared-chat-audience', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-shared-chat-audience', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('gina', 'gina', 'Gina Han', 'member')").run()
   addTestPerson('gina', { id: 'gina', name: 'Gina Han', role: 'member', locale: 'en' })
   for (const u of ['alice', 'bob', 'carol', 'erin', 'gina']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }

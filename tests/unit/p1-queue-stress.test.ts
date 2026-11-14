@@ -13,7 +13,7 @@ function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p1-queue-stress', concurrency: 2, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p1-queue-stress', concurrency: 2, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-p1-queue' })
   await alice.next('hello')
 })

@@ -1,6 +1,6 @@
 // Folder permissions (tab 2): folders that carry rules, each rule = who (everyone / role / group / person) gets
 // none / read / write. "By folder" (AccessTree.tsx) is the team folder as a tree: who sees each folder and from where,
-// each person's access and why; its rules change in the edit panel there (AccessEdit.tsx). "By person"
+// each person's access and why; its rules change in the Share dialog there (FolderSharing.tsx). "By person"
 // (AccessPeople.tsx) shows, read only, what one person and their AI see and why; changing a folder's rules from there
 // opens the same panel in By folder (`?edit=<path>&back=<the person view>`), and closing it goes back.
 // A phone (QA TC-377, TC-379): the header's button place is the Admin bar (barActions.tsx: By folder's + and its
@@ -105,7 +105,7 @@ export default function Folders() {
   const view = params.get('view') === 'people' ? 'people' : 'folders'
   // a phone: a folder, its rule editor and a person are pages of their own under the bar (adminScreens.ts), without the
   // page's line, its button and the two views' switch
-  const inDetail = phone && (params.has('folder') || params.has('rules') || (view === 'people' && (params.has('person') || params.get('new') === '1')))
+  const inDetail = phone && (params.has('folder') || (view === 'people' && (params.has('person') || params.get('new') === '1')))
   // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
   // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
   // (two keys pressed quickly on the tabs)

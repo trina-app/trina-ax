@@ -45,7 +45,7 @@ const looked = (host: string) => lookups.filter((x) => x === host.toLowerCase())
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p0-exfil-server', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p0-exfil-server', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   // the office's exit address is known (otherwise every address asks: tools/egress.ts)
   noteEgressIp(h.ctx, '198.51.100.7')
   alice = await h.ws('alice', { windowId: 'win-p0-exfil' })

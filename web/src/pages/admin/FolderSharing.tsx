@@ -1,6 +1,9 @@
-// The admin's part of the Files page's "Who can open it" panel (components/FolderAccess.tsx; docs/DECISIONS.md "Who can
-// open it, like Drive's Share"): the people and groups who can open the folder, one general access setting, and an
-// admin changes them right here, like Google Drive's Share dialog. The words are for office workers: no rules, paths
+// The admin's part of the Share dialog (components/FolderAccess.tsx; docs/DECISIONS.md "Who can open it, like Drive's
+// Share" and "Share like Google Drive (P1)"), used from Files and from Admin › Folder permissions: Google Drive's Share
+// dialog in Drive's order and words. People with access (a role menu Viewer / Editor / Remove access per row, greyed rows
+// from the folders above, the owner and admins), Access removed (old "No access" rows, brought back with Add), and
+// General access (Restricted, or the team with a role; a folder with no setting of its own shows what it gets from
+// above). The deepest rule still decides (until P2): a row that gives less than the person would get otherwise says so. The words are for office workers: no rules, paths
 // or reasons on screen. Everything on screen comes from the admin endpoints (the server refuses them to members), and
 // what a change does comes from the server's answer for exactly the draft on screen (useRulesDraft: the same draft,
 // answer, hash and save as Admin › Folder permissions' editor). Save asks the server again at once, and asks the admin
@@ -8,18 +11,18 @@
 // folder. Phones: the panel is the app's bottom sheet (#339's shared phone rows are not on dev yet; the rows here use
 // the same 44 px sizes and switch to them when they land).
 import clsx from 'clsx'
-import { ChevronRight, TriangleAlert, X } from 'lucide-react'
+import { Building2, ChevronRight, Lock, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { addNamed, draftOf, removeNamed, setNamed, type Basic, type Draft } from '../../lib/access-edit'
-import { isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, generalLevel, hasPanel, latentLines, outcomeLines, overridingGroup, overrideText, parentOf, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
+import { addNamed, removeNamed, setNamed, type Draft } from '../../lib/access-edit'
+import { isPersonalPath, isSkillsPath } from '../../lib/access-view'
+import { aboveRows, askTitle, peopleOf, audienceOf, generalLevel, generalLowerOf, hasPanel, inProjects, latentLines, lowerOf, outcomeLines, overridingGroup, overrideText, parentOf, pickBasic, sameOutcome, saveAsk, type AboveRow, type Lower } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
-import { Button, ErrorNote, IconButton, Skeleton, confirmDialog } from '../../components/ui'
+import { Button, ErrorNote, Skeleton, confirmDialog } from '../../components/ui'
 import { Avatar } from '../../components/Avatar'
 import { GroupTile } from '../../components/GroupTile'
 import { useFaceOf } from '../../store/people'
@@ -44,6 +47,11 @@ export interface FolderSharingProps {
   list: ListControl
   /** the sheet's own footer (the Modal's footer slot): what will happen and the buttons go there, always in sight */
   footer: HTMLElement | null
+  /** opened from Admin › Folder permissions: any folder there (the team root, a rule row the tree does not show), every
+   * folder above opens in place, and no way to Admin (it is there) */
+  admin?: boolean
+  /** after a save (Admin reads its tree again) */
+  onSaved?: () => void
 }
 
 export default function FolderSharing(props: FolderSharingProps) {
@@ -81,7 +89,7 @@ export default function FolderSharing(props: FolderSharingProps) {
   if (error && !loaded) return <ErrorNote onRetry={() => setRound((n) => n + 1)}>{error}</ErrorNote>
   if (!loaded) return <Skeleton lines={4} />
   // the folder's rule row by its exact path (names on disk), as Admin › Folder permissions finds it
-  const folder = loaded.folders.find((f) => f.path === path && !f.hidden) ?? null
+  const folder = loaded.folders.find((f) => f.path === path && !f.hidden) ?? (props.admin ? loaded.folders.find((f) => f.path === path) : undefined) ?? null
   // another admin's rules came first (a 409): the folder list again, for the same draft (a row made meanwhile is then
   // saved over with PUT, not POSTed again)
   const refreshFolders = () => void api.call(API.listFolders).then((r) => setLoaded((l) => (l ? { ...l, folders: r.items } : l)), () => {})
@@ -94,9 +102,15 @@ export default function FolderSharing(props: FolderSharingProps) {
   return <Body key={`${path}\u0003${round}`} {...props} folder={folder} users={loaded.users} groups={loaded.groups} below={loaded.below} reload={reload} onStale={refreshFolders} />
 }
 
-const LEVEL_WORD: Record<Access, 'folderAccess.canView' | 'folderAccess.canEdit' | 'folderAccess.noAccess'> = { read: 'folderAccess.canView', write: 'folderAccess.canEdit', none: 'folderAccess.noAccess' }
+const LEVEL_WORD: Record<Access, 'folderAccess.canView' | 'folderAccess.canEdit' | 'folderAccess.cantOpenHere'> = { read: 'folderAccess.canView', write: 'folderAccess.canEdit', none: 'folderAccess.cantOpenHere' }
+/** the role menu's own value for Remove access (Drive puts it in the same menu, under the roles) */
+const REMOVE = 'remove'
+/** the owner's or an admin's row: Full access, the only other choice is Remove access */
+const STAFF = 'staff'
+const generalSelect = 'h-9 cursor-pointer rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-sm:h-11'
+const roleSelect = 'h-8 shrink-0 cursor-pointer rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent max-sm:h-11'
 
-function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, users, groups, below, reload, onStale }: FolderSharingProps & {
+function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, folder, users, groups, below, reload, onStale, admin, onSaved }: FolderSharingProps & {
   folder: Folder | null
   users: User[]
   groups: Group[]
@@ -119,8 +133,6 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
   }
   const d = useRulesDraft({ path, folder, sort, onStale })
   const { draft, setDraft, data, ready, edited } = d
-  const stored = useMemo(() => draftOf(d.base.rules, d.root).draft, [d.base.rules, d.root])
-  const storedAccess = useMemo(() => new Map(stored.named.map((n) => [`${n.subjectType}:${n.subjectId}`, n.access])), [stored])
   const [busy, setBusy] = useState(false)
   const [changedNow, setChangedNow] = useState(false)
 
@@ -166,6 +178,13 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
 
   // a person or group just added: its select takes the focus
   const [focusKey, setFocusKey] = useState<string | null>(null)
+  // the add field takes the focus on a computer (Drive's first step; the Close button's tooltip covered the title).
+  // Not on a touch screen: the keyboard would cover the list
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches) search.current?.focus()
+  }, [])
+  const peopleId = useId()
+  const removedId = useId()
   const listRef = useRef<HTMLUListElement>(null)
   const search = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -177,7 +196,7 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
 
   const skills = isSkillsPath(path)
   const above = data?.everyoneAbove?.access ?? 'none'
-  const general = generalLevel(draft.basic, above)
+  const level = generalLevel(draft.basic, above)
   // the rows the folders above give, from the answer for the draft (dimmed while the next one is on its way)
   const fromAbove = data ? aboveRows(data.next, path) : []
   const projectRows = new Map<string, { project: Project; folder: string }>()
@@ -188,20 +207,29 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
     else plainAbove.push(r)
   }
   const anyone = draft.named.some((n) => n.access !== 'none') || fromAbove.some((r) => r.access !== 'none')
-  const anyNone = draft.named.some((n) => n.access === 'none') || fromAbove.some((r) => r.access === 'none')
-  // shared/ and skills/ keep a setting of their own: "same as the folder above" only when it is what they have now
-  const choices = d.choices.filter((b) => b !== 'follow' || folder?.keep !== 'team' || d.initial.basic === 'follow')
   const parent = parentOf(path)
-  const basicLabel = (b: Basic) =>
-    b === 'follow' ? (parent === '' || parent === null ? t('folderAccess.sameAsTop') : hasPanel(parent) ? t('folderAccess.sameAs', { folder: nameOf(parent) }) : t('folderAccess.sameAsAbove'))
-      : b === 'named' ? t('folderAccess.onlyHere')
-        : t(b === 'read' ? 'folderAccess.everyoneView' : 'folderAccess.everyoneEdit', { team })
-  const hint = (() => {
-    if (general === 'none' && !anyone) return t('folderAccess.hintAdminsOnly')
-    if (draft.basic === 'follow') return t(above === 'none' ? 'folderAccess.hintAboveOnly' : above === 'read' ? 'folderAccess.hintAboveView' : 'folderAccess.hintAboveEdit', { team })
-    if (draft.basic === 'named') return t('folderAccess.hintOnly')
-    return t(draft.basic === 'read' ? 'folderAccess.hintEveryoneView' : 'folderAccess.hintEveryoneEdit', { team })
-  })()
+  // no setting here is possible except at the team root and in shared/ and skills/ (they keep one of their own)
+  const canFollow = !d.root && folder?.keep !== 'team'
+  const pick = (to: Access) => setDraft((x) => ({ ...x, basic: pickBasic(to, { initial: d.initial.basic, above, canFollow }) }))
+  // a connected folder offers the team no Editor, unless it has it now (shown as it is)
+  const teamEdit = d.choices.includes('write') || level === 'write'
+  const hint = !data ? '' : level === 'none' ? t(anyone ? 'folderAccess.restrictedHint' : 'folderAccess.hintAdminsOnly') : t(level === 'read' ? 'folderAccess.teamHintView' : 'folderAccess.teamHintEdit', { team })
+  const folderWord = (f: string) => (f === '' ? team : nameOf(f))
+  const lowerGeneral = data ? generalLowerOf(draft.basic, data.everyoneAbove, { above: data.above, named: new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`)) }) : null
+  /** Remove access (the role menu), asked first: a native menu's arrow keys would otherwise remove a row on the way */
+  const removeRow = async (i: number, label: string) => {
+    if (!(await confirmDialog({ title: t('folderAccess.removeTitle', { name: label }), confirm: t('folderAccess.removeAccess'), danger: true }))) return
+    setDraft((x) => removeNamed(x, i))
+    search.current?.focus()
+  }
+  const isStaff = (u: User | undefined) => !!u && (u.role === 'owner' || u.role === 'admin')
+  const lowerText = (l: Lower) =>
+    l.kind === 'group' ? t('folderAccess.inGroupView', { group: l.group })
+      : l.kind === 'team' ? (l.folder === null ? t('folderAccess.lowerTeam', { team }) : t('folderAccess.lowerTeamAbove', { team, folder: folderWord(l.folder) }))
+        : l.kind === 'groupAbove' ? t('folderAccess.lowerGroupAbove', { group: l.group, folder: folderWord(l.folder) })
+          : t('folderAccess.lowerSelfAbove', { folder: folderWord(l.folder) })
+  // the owner and admins open every team folder, except projects (only as members) and personal folders
+  const staff = !project && !inProjects(path) && !isPersonalPath(path)
 
   const lines = (p: FolderEditPreview) => outcomeLines(t, locale, p, { skills })
 
@@ -231,7 +259,10 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
         setChangedNow(true)
         return
       }
-      const ask = saveAsk(fresh)
+      // Restricted that cuts off people the folders above let in (Drive's Limit access): asked first, by name, like the
+      // team's own files (re-review of #779); other narrowing saves straight, "What will happen" having named who
+      const cuts = draft.basic === 'named' && d.initial.basic !== 'named' && peopleOf(fresh.changes, 'lose').count > 0
+      const ask = saveAsk(fresh) ?? (cuts ? { widen: false, later: false, narrow: [], skillsEveryone: false } : null)
       if (ask) {
         const ok = await confirmDialog({
           title: askTitle(t, fresh, ask),
@@ -263,7 +294,10 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
       }
       if (gone() || leaving.current) return
       const saved = await d.save()
-      if (saved) reload()
+      if (saved) {
+        reload()
+        onSaved?.()
+      }
     } finally {
       saving.current = false
       setBusy(false)
@@ -277,13 +311,36 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
     if (await askToLeave()) onSwap(to)
   }
   /** a row from a folder above opens that folder's panel, or Admin for the team root and the top folders */
-  const openFrom = (folderPath: string) => (hasPanel(folderPath) ? void swap(folderPath) : void leave(`/admin/folders?folder=${encodeURIComponent(folderPath)}`))
+  const inPlace = (folderPath: string) => admin || hasPanel(folderPath)
+  const openFrom = (folderPath: string) => (inPlace(folderPath) ? void swap(folderPath) : void leave(`/admin/folders?folder=${encodeURIComponent(folderPath)}`))
   const fromText = (folderPath: string) => (folderPath === '' ? t('folderAccess.fromTop') : t('folderAccess.fromFolder', { folder: nameOf(folderPath) }))
+
+  /** a row a folder above gives (or keeps out): greyed, the whole row opens that folder */
+  const aboveRow = (r: AboveRow) => {
+    const g = r.type === 'group' ? groupById.get(r.id) : undefined
+    const u = r.type === 'user' ? userById.get(r.id) : undefined
+    return (
+      <AboveButton
+        key={`${r.type}:${r.id}:${r.folder}:${r.access}`}
+        onOpen={() => openFrom(r.folder)}
+        title={g?.name ?? u?.name ?? r.name}
+        second={fromText(r.folder)}
+        level={t(LEVEL_WORD[r.access])}
+        label={t('folderAccess.changeIn', { folder: r.folder === '' ? t('files.root') : nameOf(r.folder) })}
+        tile={r.type === 'group'}
+        face={r.type === 'user' ? faceOf({ id: r.id, name: u?.name ?? r.name }) : undefined}
+        testId="sharing-above"
+        subject={`${r.type}:${r.id}`}
+      />
+    )
+  }
 
   const taken = new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`))
   // the owner and admins can always open it: a setting would change nothing for them
   const addable = users.filter((u) => u.role === 'member')
-  const nothing = !draft.named.length && !fromAbove.length
+  const nothing = !draft.named.length && !fromAbove.length && !staff
+  const removed = draft.named.map((n, i) => ({ n, i })).filter((x) => x.n.access === 'none')
+  const removedAbove = plainAbove.filter((r) => r.access === 'none')
   const dim = !ready && !!data
 
   return (
@@ -323,89 +380,145 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
 
       {/* busy until the answer for the draft on screen is in, the first one too: the rows from the folders above come
           with it */}
-      <ul ref={listRef} className={clsx('divide-y divide-line transition-opacity', dim && 'opacity-60')} data-testid="sharing-list" aria-busy={(!ready && !d.preview.error) || undefined}>
-        {draft.named.map((n, i) => {
-          const k = `${n.subjectType}:${n.subjectId}`
-          const u = n.subjectType === 'user' ? userById.get(n.subjectId) : undefined
-          const g = n.subjectType === 'group' ? groupById.get(n.subjectId) : undefined
-          const label = u?.name ?? g?.name ?? '?'
-          const always = !!u && (u.role === 'owner' || u.role === 'admin')
-          const over = u ? overridingGroup(draft, u.id, groupById) : null
-          const offerNone = n.access === 'none' || storedAccess.get(k) === 'none'
-          const second = g ? t('accessEdit.kind.group', { n: g.memberIds.length })
-            : over ? overrideText(t, over.name, n.access)
-              : u ? [t(`role.${u.role}`), u.status === 'disabled' ? t('folderAccess.switchedOff') : null].filter(Boolean).join(' · ') : ''
-          return (
-            <li key={k} className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-row" data-subject={k} data-access={n.access}>
-              {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-row font-medium text-ink">{label}</p>
-                {second && <p className="text-xs [overflow-wrap:anywhere] text-faint sm:truncate" data-testid="sharing-row-second">{second}</p>}
-              </div>
-              {always ? (
-                <span className="shrink-0 text-xs text-muted">{t('folderAccess.always')}</span>
-              ) : (
+      <section aria-labelledby={peopleId} data-testid="sharing-people">
+        <h3 id={peopleId} className="text-title-sm font-semibold text-ink">{t('folderAccess.peopleWithAccess')}</h3>
+        <ul ref={listRef} className={clsx('mt-1 divide-y divide-line transition-opacity', dim && 'opacity-60')} data-testid="sharing-list" aria-busy={(!ready && !d.preview.error) || undefined}>
+          {draft.named.map((n, i) => {
+            if (n.access === 'none') return null
+            const k = `${n.subjectType}:${n.subjectId}`
+            const u = n.subjectType === 'user' ? userById.get(n.subjectId) : undefined
+            const g = n.subjectType === 'group' ? groupById.get(n.subjectId) : undefined
+            const label = u?.name ?? g?.name ?? '?'
+            // the owner and admins open it anyway: their row changes nothing, and Remove access is all it offers
+            const always = isStaff(u)
+            // a role lower than what they would get without this row (the deepest rule decides until P2): said
+            const lower = data ? lowerOf(draft, n, { groups: groupById, above: data.above, everyoneAbove: data.everyoneAbove, names: (id) => userById.get(id)?.name }) : null
+            const over = !lower && u ? overridingGroup(draft, u.id, groupById) : null
+            const second = lower ? lowerText(lower)
+              : over ? overrideText(t, over.name, n.access)
+                : g ? t('accessEdit.kind.group', { n: g.memberIds.length })
+                  : u ? [t(`role.${u.role}`), u.status === 'disabled' ? t('folderAccess.switchedOff') : null].filter(Boolean).join(' · ') : ''
+            return (
+              <li key={k} className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-row" data-subject={k} data-access={n.access}>
+                {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-row font-medium text-ink">{label}</p>
+                  {/* a lower role is never cut: it is the one line that says why they get less */}
+                  {second && <p className={clsx('text-xs [overflow-wrap:anywhere]', lower ? 'text-warn' : 'text-faint sm:truncate')} data-testid={lower ? 'sharing-row-lower' : 'sharing-row-second'}>{second}</p>}
+                </div>
                 <select
-                  value={n.access}
+                  value={always ? STAFF : n.access}
                   aria-label={t('folderAccess.levelOf', { name: label })}
-                  onChange={(e) => setDraft((x) => setNamed(x, i, e.target.value as Access))}
-                  className="h-8 shrink-0 cursor-pointer rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent max-sm:h-11"
+                  onChange={(e) => {
+                    if (e.target.value === REMOVE) void removeRow(i, label)
+                    else if (e.target.value !== STAFF) setDraft((x) => setNamed(x, i, e.target.value as Access))
+                  }}
+                  className={roleSelect}
                   data-testid="sharing-level"
                 >
-                  <option value="read">{t('folderAccess.canView')}</option>
-                  <option value="write">{t('folderAccess.canEdit')}</option>
-                  {offerNone && <option value="none">{t('folderAccess.noAccess')}</option>}
+                  {always ? (
+                    <option value={STAFF}>{t('folderAccess.fullAccess')}</option>
+                  ) : (
+                    <>
+                      <option value="read">{t('folderAccess.canView')}</option>
+                      <option value="write">{t('folderAccess.canEdit')}</option>
+                    </>
+                  )}
+                  <option value={REMOVE}>{t('folderAccess.removeAccess')}</option>
                 </select>
-              )}
-              <IconButton
-                label={t('folderAccess.remove', { name: label })}
-                onClick={() => {
-                  setDraft((x) => removeNamed(x, i))
-                  search.current?.focus()
-                }}
-                className="shrink-0 max-sm:size-11"
-                data-testid="sharing-remove"
-              >
-                <X size={15} />
-              </IconButton>
+              </li>
+            )
+          })}
+          {[...projectRows.values()].map(({ project: p, folder: f }) => (
+            <AboveButton key={`project:${f}`} onOpen={() => openFrom(f)} title={t('folderAccess.projectMembers')} second={t('folderAccess.fromProject', { project: p.name })} level={null} label={t('folderAccess.changeIn', { folder: nameOf(f) })} tile testId="sharing-above-project" />
+          ))}
+          {plainAbove.filter((r) => r.access !== 'none').map(aboveRow)}
+          {staff && (
+            <li className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-staff">
+              <GroupTile size={24} icon={ShieldCheck} />
+              <p className="min-w-0 flex-1 truncate text-row font-medium text-ink">{t('folderAccess.staffRow')}</p>
+              <span className="shrink-0 pr-1 text-xs text-muted">{t('folderAccess.fullAccess')}</span>
             </li>
-          )
-        })}
-        {[...projectRows.values()].map(({ project: p, folder: f }) => (
-          <AboveButton key={`project:${f}`} onOpen={() => openFrom(f)} title={t('folderAccess.projectMembers')} second={t('folderAccess.fromProject', { project: p.name })} level={null} label={t('folderAccess.changeIn', { folder: nameOf(f) })} tile testId="sharing-above-project" />
-        ))}
-        {plainAbove.map((r) => {
-          const g = r.type === 'group' ? groupById.get(r.id) : undefined
-          const u = r.type === 'user' ? userById.get(r.id) : undefined
-          return (
-            <AboveButton
-              key={`${r.type}:${r.id}:${r.folder}:${r.access}`}
-              onOpen={() => openFrom(r.folder)}
-              title={g?.name ?? u?.name ?? r.name}
-              second={fromText(r.folder)}
-              level={t(LEVEL_WORD[r.access])}
-              label={t('folderAccess.changeIn', { folder: r.folder === '' ? t('files.root') : nameOf(r.folder) })}
-              tile={r.type === 'group'}
-              face={r.type === 'user' ? faceOf({ id: r.id, name: u?.name ?? r.name }) : undefined}
-              testId="sharing-above"
-              subject={`${r.type}:${r.id}`}
-            />
-          )
-        })}
-        {nothing && data && <li className="py-2 text-sm text-faint" data-testid="sharing-empty">{t('folderAccess.noneAdded')}</li>}
-      </ul>
+          )}
+          {nothing && data && <li className="py-2 text-sm text-faint" data-testid="sharing-empty">{t('folderAccess.noneAdded')}</li>}
+        </ul>
+      </section>
+
+      {/* Drive's "Access removed": people and groups a "No access" row keeps out (set in Admin before P1). Add brings
+          them back as Viewer (asked before Save, like any more access) */}
+      {(removed.length > 0 || removedAbove.length > 0) && (
+        <section aria-labelledby={removedId} data-testid="sharing-removed">
+          <h3 id={removedId} className="text-title-sm font-semibold text-ink">{t('folderAccess.accessRemoved')}</h3>
+          <ul className={clsx('mt-1 divide-y divide-line transition-opacity', dim && 'opacity-60')}>
+            {removed.map(({ n, i }) => {
+              const k = `${n.subjectType}:${n.subjectId}`
+              const u = n.subjectType === 'user' ? userById.get(n.subjectId) : undefined
+              const g = n.subjectType === 'group' ? groupById.get(n.subjectId) : undefined
+              const label = u?.name ?? g?.name ?? '?'
+              // the owner or an admin kept out here: the row does nothing (they open it anyway), so it only goes
+              const staffRow = isStaff(u)
+              return (
+                <li key={k} className="flex min-h-12 items-center gap-2.5 py-1.5" data-testid="sharing-removed-row" data-subject={k}>
+                  {g ? <GroupTile size={24} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={24} />}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-row font-medium text-ink">{label}</p>
+                    <p className="text-xs text-faint">{t(staffRow ? 'folderAccess.always' : 'folderAccess.cantOpenHere')}</p>
+                  </div>
+                  {staffRow ? (
+                    <Button size="sm" variant="ghost" onClick={() => setDraft((x) => removeNamed(x, i))} className="shrink-0 max-sm:min-h-11" data-testid="sharing-removed-drop">
+                      {t('folderAccess.removeFromList')}
+                    </Button>
+                  ) : (
+                  <Button
+                    size="sm"
+                    aria-label={t('folderAccess.addBack', { name: label })}
+                    onClick={() => {
+                      setDraft((x) => setNamed(x, i, 'read'))
+                      setFocusKey(k)
+                    }}
+                    className="shrink-0 max-sm:min-h-11"
+                    data-testid="sharing-add-back"
+                  >
+                    {t('folderAccess.addBackShort')}
+                  </Button>
+                  )}
+                </li>
+              )
+            })}
+            {removedAbove.map(aboveRow)}
+          </ul>
+        </section>
+      )}
       {!data && !d.preview.error && <Skeleton lines={2} />}
+      {/* the first answer refused (a team project's folder opened by its address in Admin, a network error): said */}
+      {!data && d.preview.error && <ErrorNote onRetry={d.retry}>{d.preview.error}</ErrorNote>}
       {d.connected && <p className="text-xs text-muted" data-testid="sharing-connected">{t('folderAccess.connectedCopy')}</p>}
       {skills && <p className="text-xs text-muted" data-testid="sharing-skills">{t('folderAccess.skillsEdit')}</p>}
 
-      <GeneralAccess value={draft.basic} choices={choices} label={basicLabel} hint={hint} except={anyNone} onChange={(b) => setDraft((x) => ({ ...x, basic: b }))}
-        from={draft.basic === 'follow' && parent !== null && hasPanel(parent) ? () => void swap(parent) : null} fromText={parent !== null ? t('folderAccess.changeInShort', { folder: nameOf(parent) }) : ''} fromLabel={parent !== null ? t('folderAccess.changeIn', { folder: nameOf(parent) }) : ''} keepOne={d.keepsOne} />
+      <GeneralAccess
+        level={level}
+        teamName={team}
+        teamEdit={teamEdit}
+        hint={hint}
+        onPick={(to) => pick(to)}
+        onAudience={(a) => pick(a === 'restricted' ? 'none' : above !== 'none' ? above : 'read')}
+        from={draft.basic === 'follow' && parent !== null ? { text: fromText(parent), label: t('folderAccess.changeIn', { folder: parent === '' ? t('files.root') : nameOf(parent) }), open: () => openFrom(parent) } : null}
+        lower={!lowerGeneral ? null
+          : lowerGeneral.who !== undefined ? t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerViewWho' : 'folderAccess.generalLowerClosedWho', { who: lowerGeneral.who, folder: folderWord(lowerGeneral.folder) })
+            : t(lowerGeneral.kind === 'view' ? 'folderAccess.generalLowerView' : 'folderAccess.generalLowerClosed', { team, folder: folderWord(lowerGeneral.folder) })}
+        keepOne={d.keepsOne}
+        // nothing to pick from before the first answer: what the folder above gives is not known yet (review M1)
+        loading={!data}
+        // "no setting here" again: its own control (a pick never goes back to it, review H1)
+        useAbove={draft.basic !== 'follow' && canFollow && parent !== null ? { text: t('folderAccess.useAbove', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'follow' })) } : null}
+        // following a Restricted folder above still lets in who it lists: "only people listed here" cuts them off
+        limit={draft.basic === 'follow' && parent !== null && level === 'none' && fromAbove.some((r) => r.access !== 'none') ? { text: t('folderAccess.limitHere', { folder: parent === '' ? t('files.root') : nameOf(parent) }), use: () => setDraft((x) => ({ ...x, basic: 'named' })) } : null}
+      />
 
-      <div className="space-y-1 border-t border-line pt-3 text-xs text-muted">
-        <p data-testid="sharing-footer">{t('folderAccess.adminsAlways')}</p>
+      {(below > 0 || !admin) && <div className="border-t border-line pt-3 text-xs text-muted">
         <p>
-          {below > 0 && <span data-testid="sharing-below">{t('folderAccess.sharedDifferently', { n: below })} · </span>}
-          <Link
+          {below > 0 && <span data-testid="sharing-below">{t('folderAccess.sharedDifferently', { n: below })}{!admin && ' · '}</span>}
+          {!admin && <Link
             to={`/admin/folders?folder=${encodeURIComponent(path)}`}
             onClick={(e) => {
               e.preventDefault()
@@ -415,9 +528,9 @@ function Body({ path, projectOf, onSwap, onLeave, guard, list, footer, folder, u
             data-testid="sharing-open-admin"
           >
             {t('folderAccess.openInAdmin')}
-          </Link>
+          </Link>}
         </p>
-      </div>
+      </div>}
 
       <Footer to={footer}>
         <div className="w-full space-y-2" data-testid="sharing-footer-bar">
@@ -487,44 +600,71 @@ function AboveButton({ onOpen, title, second, level, label, tile, face, testId, 
   )
 }
 
-function GeneralAccess({ value, choices, label, hint, except, onChange, from, fromText, fromLabel, keepOne }: {
-  value: Basic
-  choices: Basic[]
-  label: (b: Basic) => string
+/** General access, as Drive has it: Restricted or the team, then the team's role; one true line under it, where it
+ * comes from when the folder has no setting of its own, and a lasting line when it is lower than the folder above. */
+function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, from, lower, keepOne, loading, useAbove, limit }: {
+  level: Access
+  teamName: string
+  teamEdit: boolean
   hint: string
-  except: boolean
-  onChange: (b: Basic) => void
-  from: (() => void) | null
-  fromText: string
-  fromLabel: string
+  onPick: (level: Access) => void
+  onAudience: (a: 'restricted' | 'team') => void
+  from: { text: string; label: string; open: () => void } | null
+  lower: string | null
   keepOne: boolean
+  loading: boolean
+  useAbove: { text: string; use: () => void } | null
+  limit: { text: string; use: () => void } | null
 }) {
   const t = useT()
   const id = useId()
+  const audience = audienceOf(level)
   return (
     <section aria-labelledby={id} data-testid="sharing-general">
       <h3 id={id} className="text-title-sm font-semibold text-ink">{t('folderAccess.general')}</h3>
-      <select
-        value={value}
-        aria-labelledby={id}
-        onChange={(e) => onChange(e.target.value as Basic)}
-        className="mt-1.5 h-9 w-full cursor-pointer rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-sm:h-11"
-        data-testid="sharing-general-select"
-      >
-        {choices.map((b) => <option key={b} value={b}>{label(b)}</option>)}
-      </select>
-      <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">
+      <div className="mt-1.5 flex items-center gap-2.5">
+        <GroupTile size={32} icon={loading ? Building2 : audience === 'restricted' ? Lock : Building2} />
+        {/* before the first answer no value is known: none is shown (not "Restricted"), re-review of #779 */}
+        <select
+          value={loading ? '' : audience}
+          aria-labelledby={id}
+          onChange={(e) => onAudience(e.target.value as 'restricted' | 'team')}
+          className={clsx(generalSelect, 'min-w-0 flex-1 disabled:cursor-default disabled:opacity-60')}
+          disabled={loading}
+          aria-busy={loading || undefined}
+          data-testid="sharing-general-select"
+          data-level={level}
+        >
+          {loading && <option value="">{t('common.loading')}</option>}
+          <option value="restricted">{t('folderAccess.restricted')}</option>
+          <option value="team">{teamName}</option>
+        </select>
+        {!loading && audience === 'team' && (
+          <select value={level} aria-label={t('folderAccess.teamRole', { team: teamName })} onChange={(e) => onPick(e.target.value as Access)} disabled={loading} className={clsx(generalSelect, 'shrink-0')} data-testid="sharing-general-role">
+            <option value="read">{t('folderAccess.canView')}</option>
+            {teamEdit && <option value="write">{t('folderAccess.canEdit')}</option>}
+          </select>
+        )}
+      </div>
+      {!loading && <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">
         {hint}
-        {except && <> {t('folderAccess.hintExcept')}</>}
         {from && (
           <>
-            {' '}
-            <button type="button" onClick={from} aria-label={fromLabel} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid="sharing-general-from">
-              {fromText} ›
+            {' · '}
+            <span data-testid="sharing-general-inherited">{from.text}</span>{' · '}
+            <button type="button" onClick={from.open} aria-label={from.label} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid="sharing-general-from">
+              {t('folderAccess.changeThere')} ›
             </button>
           </>
         )}
-      </p>
+      </p>}
+      {lower && <p role="note" className="mt-1.5 text-xs text-warn" data-testid="sharing-general-lower">{lower}</p>}
+      {!loading && (useAbove || limit) && (
+        <p className="mt-1 text-xs">
+          {useAbove && <button type="button" onClick={useAbove.use} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-follow">{useAbove.text}</button>}
+          {limit && <button type="button" onClick={limit.use} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-limit">{limit.text}</button>}
+        </p>
+      )}
       {keepOne && <p role="note" className="mt-1.5 rounded-lg bg-warn-soft px-2.5 py-1.5 text-xs text-warn" data-testid="sharing-keep-one">{t('folderAccess.keepOne')}</p>}
     </section>
   )

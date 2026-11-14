@@ -44,7 +44,7 @@ let alice: TestSocket
 beforeAll(async () => {
   const u = `http://127.0.0.1:${up.port}`
   h = await startHarness({
-    name: 'b-cred-failover', turnTimeoutMs: 60_000, upstreams: { anthropic: u, openai: u + '/v1' },
+    name: 'b-cred-failover', stallTimeoutMs: 60_000, upstreams: { anthropic: u, openai: u + '/v1' },
     credentials: [...[1, 2, 3, 4].map((n) => ({ kind: 'anthropic-api-key' as CredentialKind, secret: K(n), label: `K${n}`, priority: n * 10 })), { kind: 'openai-api-key' as CredentialKind, secret: OKEY, label: 'O', priority: 10 }],
   })
   alice = await h.ws('alice', { windowId: 'win-alice-fo' }); await alice.next('hello')

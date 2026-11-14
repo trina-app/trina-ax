@@ -70,7 +70,7 @@ describe('artifact errors sent as "fix it" (web)', () => {
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'p0-webfetch-gate', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'p0-webfetch-gate', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   alice = await h.ws('alice', { windowId: 'win-p0-gate' })
   await alice.next('hello')
 })

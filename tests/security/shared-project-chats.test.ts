@@ -27,7 +27,7 @@ const ws: Partial<Record<Who, TestSocket>> = {}
 let projectId: string, otherProject: string
 let chatId: string, questionId: string, answerId: string, turnId: string
 beforeAll(async () => {
-  h = await startHarness({ name: 'sec-shared-chats', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'sec-shared-chats', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of PEOPLE) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   // the owner and an admin are not members of it: neither reads it; carol adds herself (Add me), dana stays out

@@ -16,7 +16,7 @@ setDefaultTimeout(60_000)
 let h: Harness
 const socks: Record<string, TestSocket> = {}
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-always-allow', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-always-allow', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'carol']) { socks[u] = await h.ws(u, { windowId: `win-aa-${u}` }); await socks[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h.close() })

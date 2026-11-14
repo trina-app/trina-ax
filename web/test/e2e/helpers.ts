@@ -87,3 +87,25 @@ export function backLabelHasRoom(label: Locator): Promise<boolean> {
   })
 }
 
+
+/** Admin › Folder permissions or Files: the open Share dialog's General access set to the team with a role (or
+ * Restricted), saved (Give access when it asks), and closed with Done (docs/DECISIONS.md "Share like Google Drive (P1)") */
+export async function shareGeneral(page: Page, to: 'read' | 'write' | 'restricted', o: { close?: boolean } = {}) {
+  const panel = page.getByTestId('folder-access-panel')
+  await expect(panel.getByTestId('sharing-general-select')).toBeVisible()
+  if (to === 'restricted') await panel.getByTestId('sharing-general-select').selectOption('restricted')
+  else {
+    await panel.getByTestId('sharing-general-select').selectOption('team')
+    await panel.getByTestId('sharing-general-role').selectOption(to)
+  }
+  await expect(page.getByTestId('sharing-outcome')).toBeVisible()
+  await page.getByTestId('sharing-save').click()
+  const confirm = page.getByTestId('dialog-confirm')
+  await expect(page.getByTestId('sharing-done').or(confirm)).toBeVisible()
+  if (await confirm.isVisible()) await confirm.click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  if (o.close !== false) {
+    await page.getByTestId('sharing-done').click()
+    await expect(panel).toHaveCount(0)
+  }
+}

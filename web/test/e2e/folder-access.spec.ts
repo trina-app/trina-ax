@@ -1,5 +1,5 @@
-// "Who can open it" on the Files page (docs/DECISIONS.md "Who can see a folder, in place" and "Who can open it, like
-// Drive's Share"): the chip at the end of the breadcrumbs and the panel, for a member, their own folder, a team
+// The Share dialog on the Files page (docs/DECISIONS.md "Who can see a folder, in place", "Who can open it, like Drive's
+// Share" and "Share like Google Drive (P1)"): the chip at the end of the breadcrumbs and the panel, for a member, their own folder, a team
 // project's folder and an admin, who changes it in place (add, change, remove, general access, the confirm before more
 // access, rows from the folders above, a team project's folder only shown). The mock server keeps its own simple file
 // policy; its edit previews are the server's own computation. What a member may learn and the save's checks are tested
@@ -32,7 +32,7 @@ test('a member: a count where they can write, no names; the panel from the chip 
   await expect(chip(page)).toHaveAccessibleName(en('folderAccess.peopleAll', { n: 3 }))
   await chip(page).click()
   await expect(panel(page)).toBeVisible()
-  await expect(page.getByRole('dialog', { name: t['folderAccess.menu'] })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: en('folderAccess.title', { name: 'marketing' }) })).toBeVisible()
   await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 3 }))
   await expect(panel(page)).toContainText(t['folderAccess.adminsChange'])
   for (const name of ['Olga', 'Dana', 'Eve']) await expect(panel(page)).not.toContainText(name)
@@ -46,14 +46,14 @@ test('a member: a count where they can write, no names; the panel from the chip 
   await page.goto('/files')
   await row(page, 'marketing').hover()
   await row(page, 'marketing').getByTestId('file-menu').click()
-  await page.getByRole('menuitem', { name: t['folderAccess.menu'] }).click()
+  await page.getByRole('menuitem', { name: t['folderAccess.menu'], exact: true }).click()
   await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
   await expect(page.getByTestId('folder-access-headline')).toHaveText(en('folderAccess.openCount', { n: 3 }))
   await page.keyboard.press('Escape')
   // no entry on users/ ("Personal", a container), and no chip at the root
   await row(page, TOP_FOLDER_LABELS.users.en).hover()
   await row(page, TOP_FOLDER_LABELS.users.en).getByTestId('file-menu').click()
-  await expect(page.getByRole('menuitem', { name: t['folderAccess.menu'] })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: t['folderAccess.menu'], exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(chip(page)).toHaveCount(0)
 })
@@ -66,7 +66,7 @@ test('a plugin\'s managed folder: no chip, and its panel ends with no endless lo
   await page.goto('/files')
   await row(page, 'docs').hover()
   await row(page, 'docs').getByTestId('file-menu').click()
-  await page.getByRole('menuitem', { name: t['folderAccess.menu'] }).click()
+  await page.getByRole('menuitem', { name: t['folderAccess.menu'], exact: true }).click()
   await expect(panel(page)).toContainText(t['folderAccess.adminsChange'])
   await expect(page.getByTestId('folder-access-headline')).toHaveCount(0)
   await expect(panel(page).locator('.animate-pulse')).toHaveCount(0)
@@ -190,10 +190,19 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   await expect(page.getByTestId('sharing')).toBeVisible()
   // like Drive's list: Bob, who can edit; general access as the team folder gives it (nobody else)
   await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toHaveValue('write')
-  await expect(page.getByTestId('sharing-general-select')).toHaveValue('follow')
-  await expect(page.getByTestId('sharing-general-select').locator('option:checked')).toHaveText(t['folderAccess.sameAsTop'])
-  await expect(page.getByTestId('sharing-general-hint')).toHaveText(t['folderAccess.hintAboveOnly'])
-  await expect(page.getByTestId('sharing-footer')).toHaveText(t['folderAccess.adminsAlways'])
+  // Drive's General access: Restricted, as the team folder gives it (no "Same as" choice), and where it comes from
+  await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
+  await expect(page.getByTestId('sharing-general-role')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-general-hint')).toContainText(t['folderAccess.restrictedHint'])
+  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(t['folderAccess.fromTop'])
+  await expect(page.getByTestId('sharing-general-select').locator('option')).toHaveText([t['folderAccess.restricted'], 'Acme'])
+  // the owner and admins are a row of the list (Full access), not a footer sentence
+  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.staffRow'])
+  await expect(page.getByTestId('sharing-staff')).toContainText(t['folderAccess.fullAccess'])
+  await expect(page.getByRole('heading', { name: t['folderAccess.peopleWithAccess'] })).toBeVisible()
+  // the role menu: Viewer, Editor and Remove access; no ✕
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level').locator('option:not([disabled])')).toHaveText([t['folderAccess.canView'], t['folderAccess.canEdit'], t['folderAccess.removeAccess']])
+  await expect(page.getByTestId('sharing-remove')).toHaveCount(0)
   // no reasons, no counts line, no one who cannot open it, no paths
   for (const gone of ['Carol', 'Dana', 'Eve', 'Name only', 'Can open:']) await expect(page.getByTestId('sharing-list')).not.toContainText(gone)
   await expect(page.getByTestId('sharing-done')).toBeVisible()
@@ -224,17 +233,20 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   const bar = (await page.getByTestId('sharing-footer-slot').boundingBox())!
   expect(link.y + link.height).toBeLessThanOrEqual(bar.y + 1)
 
-  // remove Carol: only less access, saved without a question
-  await sharingRow(page, 'user:carol').getByTestId('sharing-remove').click()
+  // remove Carol (Remove access, in her role menu): only less access, saved without a question
+  await sharingRow(page, 'user:carol').getByTestId('sharing-level').selectOption('remove')
+  await expect(page.getByRole('dialog', { name: en('folderAccess.removeTitle', { name: 'Carol' }) })).toBeVisible()
+  await confirm(page).click()
   await expect(outcome(page)).toHaveText(en('folderAccess.willLose', { names: 'Carol' }))
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()
   await expect(confirm(page)).toHaveCount(0)
   expect(await rules(page, 'marketing')).toEqual(['user:bob:read'])
 
-  // general access: everyone at Acme can view; asks first
-  await page.getByTestId('sharing-general-select').selectOption('read')
-  await expect(page.getByTestId('sharing-general-hint')).toHaveText(en('folderAccess.hintEveryoneView', { team: 'Acme' }))
+  // general access: the team (Acme) as Viewer; asks first
+  await page.getByTestId('sharing-general-select').selectOption('team')
+  await expect(page.getByTestId('sharing-general-role')).toHaveValue('read')
+  await expect(page.getByTestId('sharing-general-hint')).toHaveText(en('folderAccess.teamHintView', { team: 'Acme' }))
   await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
   await page.getByTestId('sharing-save').click()
   await confirm(page).click()
@@ -321,14 +333,31 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   await expect(above).toContainText(t['folderAccess.changeThere'])
   await expect(above.getByRole('combobox')).toHaveCount(0)
   await expect(page.getByTestId('sharing-row')).toHaveCount(0)
-  await expect(page.getByTestId('sharing-general-select').locator('option:checked')).toHaveText(en('folderAccess.sameAs', { folder: 'marketing' }))
+  // no setting of its own: General access shows what marketing gives, and where from
+  await expect(page.getByTestId('sharing-general-select')).toHaveValue('restricted')
+  await expect(page.getByTestId('sharing-general-inherited')).toHaveText(en('folderAccess.fromFolder', { folder: 'marketing' }))
+  // following a Restricted folder still lets in who it lists (Bob): "Only people listed here" cuts them off (review H1),
+  // and "Use the access of" brings the folder back to following
+  await expect(page.getByTestId('sharing-general-limit')).toHaveText(en('folderAccess.limitHere', { folder: 'marketing' }))
+  await page.getByTestId('sharing-general-limit').click()
+  await expect(outcome(page)).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  // cutting them off asks first, by name (re-review of #779); Cancel keeps the draft
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] })).toBeVisible()
+  await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willLose', { names: 'Bob' }))
+  await page.getByRole('dialog', { name: t['folderAccess.narrowTitle'] }).getByRole('button', { name: t['common.cancel'] }).click()
+  await expect(page.getByTestId('sharing-general-limit')).toHaveCount(0)
+  await page.getByTestId('sharing-general-follow').click()
+  await expect(page.getByTestId('sharing-save')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-general-limit')).toBeVisible()
 
   // the group Sales set to "Can view" here: Bob is in it, so here he can only view; Carol gets in. Both named
   await page.getByTestId('edit-add').fill('Sal')
   await page.getByTestId('edit-add-option').filter({ hasText: 'Sales' }).click()
   await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
   await expect(outcome(page)).toContainText(en('folderAccess.willOpen', { names: 'Carol' }))
-  await expect(sharingRow(page, `group:${sales.id}`)).toContainText(en('accessEdit.kind.group', { n: 2 }))
+  // Bob can edit marketing by his own row: the Sales row here lowers him, and says so (the deepest rule decides, P1)
+  await expect(sharingRow(page, `group:${sales.id}`).getByTestId('sharing-row-lower')).toHaveText(en('folderAccess.lowerGroupAbove', { group: 'Bob', folder: 'marketing' }))
   // the confirm says both
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-confirm-body')).toContainText(en('folderAccess.willViewOnly', { names: 'Bob' }))
@@ -348,6 +377,45 @@ test('rows from a folder above: greyed, read only, "Change there" opens that fol
   // the greyed row itself opens the folder above too
   await above.click()
   await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+})
+
+test('Drive\'s words over the old model: a Viewer under a team that can edit says it is lower, before and after Save; Access removed comes back with Add (review A1, A3, A5)', async ({ page, playwright }) => {
+  await signIn(page)
+  await addCarol(page, playwright)
+  await post(page, '/__test/file', { path: 'marketing/down/a.md', text: 'a' })
+  // marketing: everyone at Acme can edit; down: no setting of its own (screenshot 08 "Downgrade")
+  // (Bob: an old "No access" row there, for Access removed below)
+  await post(page, '/api/admin/folders', { path: 'marketing', create: false, rules: [{ subjectType: 'everyone', subjectId: null, access: 'write' }, { subjectType: 'user', subjectId: 'bob', access: 'none' }] })
+  await page.goto('/files?path=marketing%2Fdown')
+  await chip(page).click()
+  await expect(page.getByTestId('sharing-general-select')).toHaveValue('team')
+  await expect(page.getByTestId('sharing-general-role')).toHaveValue('write')
+  await page.getByTestId('edit-add').fill('Car')
+  await page.getByTestId('edit-add-option').filter({ hasText: 'Carol' }).click()
+  const lower = en('folderAccess.lowerTeamAbove', { team: 'Acme', folder: 'marketing' })
+  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-row-lower')).toHaveText(lower)
+  await expect(outcome(page)).toContainText(en('folderAccess.willViewOnly', { names: 'Carol' }))
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  // after Save it still says so
+  await expect(sharingRow(page, 'user:carol').getByTestId('sharing-row-lower')).toHaveText(lower)
+  await page.keyboard.press('Escape')
+
+  // a "No access" row (made in Admin before P1): Access removed, "Can't open it here", and Add (not "Remove from list")
+  await page.goto('/files?path=marketing')
+  await chip(page).click()
+  const removed = page.getByTestId('sharing-removed-row').and(page.locator('[data-subject="user:bob"]'))
+  await expect(page.getByTestId('sharing-removed')).toContainText(t['folderAccess.accessRemoved'])
+  await expect(removed).toContainText(t['folderAccess.cantOpenHere'])
+  await expect(sharingRow(page, 'user:bob')).toHaveCount(0)
+  await removed.getByTestId('sharing-add-back').click()
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toHaveValue('read')
+  await expect(sharingRow(page, 'user:bob').getByTestId('sharing-level')).toBeFocused()
+  await page.getByTestId('sharing-save').click()
+  await expect(page.getByRole('dialog').filter({ hasText: en('folderAccess.confirmOpen', { n: 1 }) })).toBeVisible()
+  await confirm(page).click()
+  await expect(page.getByTestId('sharing-done')).toBeVisible()
+  expect(await rules(page, 'marketing')).toEqual(['everyone::write', 'user:bob:read'])
 })
 
 test('a team project\'s folder and the folders inside it: shown, not changed, and no admin endpoint is asked', async ({ page }) => {
@@ -382,10 +450,12 @@ test('one\'s own folder, and Admin\'s `from` that is not "files"', async ({ page
   await chip(page).click()
   await expect(page.getByTestId('folder-access-headline')).toHaveText(t['folderAccess.onlyYouOpen'])
   await expect(page.getByTestId('sharing')).toHaveCount(0)
-  // a `from` that is not "files" is no way back anywhere: the editor opens as Admin opens it
+  // a `from` that is not "files" is no way back anywhere: the Share dialog opens as Admin opens it, and Done stays there
   await page.goto('/admin/folders?edit=marketing&from=https%3A%2F%2Fexample.com')
-  await expect(page.getByTestId('edit-panel')).toHaveAttribute('data-path', 'marketing')
-  await expect(page.getByTestId('edit-return')).toHaveCount(0)
+  await expect(panel(page)).toHaveAttribute('data-path', 'marketing')
+  await page.getByTestId('sharing-done').click()
+  await expect(panel(page)).toHaveCount(0)
+  await expect(page).toHaveURL(/\/admin\/folders/)
 })
 
 
@@ -405,7 +475,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/files?path=marketing%2Fplans')
     await chip(page).click()
     await expect(page.getByTestId('sharing-above')).toBeVisible()
-    await page.getByTestId('sharing-general-select').selectOption('read')
+    await page.getByTestId('sharing-general-select').selectOption('team')
     await expect(page.getByTestId('sharing-outcome')).toBeVisible()
     await axe(page, 'admin panel')
     // axe needs a page of a context of its own

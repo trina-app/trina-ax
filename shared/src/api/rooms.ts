@@ -482,6 +482,9 @@ export const Room = z.object({
   /** the list folder I keep it in (PUT /api/rooms/:id/folder; docs/DECISIONS.md "List folders"). Mine only: each
    * member's copy of the room carries theirs. Not while hidden (it comes back with the room). Absent = in no folder. */
   folderId: Uuid7.optional(),
+  /** a DM whose other person was deleted from the team: it stays readable but nobody can write in it any more. Absent
+   * = they are still here (older servers never send it). */
+  gone: z.literal(true).optional(),
 })
 export type Room = z.infer<typeof Room>
 

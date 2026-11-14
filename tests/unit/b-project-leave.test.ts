@@ -19,7 +19,7 @@ const user = (id: string): ProjectParticipant => ({ subjectType: 'user', subject
 const group = (id: string): ProjectParticipant => ({ subjectType: 'group', subjectId: id })
 
 let h: Harness
-beforeAll(async () => { h = await startHarness({ name: 'b-project-leave', turnTimeoutMs: 60_000 }) })
+beforeAll(async () => { h = await startHarness({ name: 'b-project-leave', stallTimeoutMs: 60_000 }) })
 afterAll(async () => { await h?.close() })
 
 const db = () => h.ctx.db

@@ -1021,7 +1021,7 @@ export class MockServer {
     return q.rules === '1' || q.rules === 'true' ? ruledAnswer(src, segs, exists, page) : treeAnswer(src, segs, exists, { ...page, open: q.open === '1' || q.open === 'true' })
   }
 
-  /** the edit panel's preview (like explainEdit in server/src/admin/access-explain.ts): the server's own computation
+  /** the Share dialog's preview (like explainEdit in server/src/admin/access-explain.ts): the server's own computation
    * (server/src/admin/access-edit.ts) over the rules and people here. A folder with a rule row as stored, any other as
    * the tree takes it; nothing in users/. Connected folders are those under connected/ here. */
   explainEdit(body: { path: string; rules: { subjectType: string; subjectId: string | null; access: Access }[]; limited?: boolean }, locale: Locale): FolderEditPreview {
@@ -5930,7 +5930,15 @@ export class MockServer {
     }
     const shared = (id: string | undefined) => (id ? this.sharedChats.get(id) : undefined)
     const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
-    const view = (chat: Chat, u: User) => this.sharedView(chat, u) ?? fail('not_found', 404)
+    // every route of a shared chat answers as chat/shared.ts chatFor does: a project in the trash tells its members why
+    // (not only getChat: the page reads the first error that comes back, and the messages answer can be it)
+    const view = (chat: Chat, u: User) => {
+      const v = this.sharedView(chat, u)
+      if (v) return v
+      const sc = this.sharedChats.get(chat.id)
+      const tp = sc ? project(sc) : undefined
+      return fail('not_found', 404, undefined, undefined, tp?.inTrash && this.projectWasMember(tp, u) ? { reason: 'project_in_trash', projectId: tp.id } : undefined)
+    }
     const nameOf = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
     const project = (s: { projectId: string }) => this.projects.find((p) => p.id === s.projectId)
 

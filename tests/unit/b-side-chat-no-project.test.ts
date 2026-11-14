@@ -16,7 +16,7 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 const errOf = async (p: Promise<unknown>) => { try { await p } catch (e) { return e as ApiError } throw new Error('expected an error') }
 let projectId = ''
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-side-chat-no-project', turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-side-chat-no-project', stallTimeoutMs: 60_000 })
   // (team rooms are keyed by their group's id: the fixture's groups get real ids, as the app makes them)
   const db = h.ctx.db
   db.exec('PRAGMA foreign_keys = OFF')

@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, translate } from '../../src/i18n'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, shareGeneral, signIn, watchConsole } from './helpers'
 
 const t = DICTS.ko
 const call = async (page: Page, method: 'post' | 'patch', url: string, data: unknown) => {
@@ -18,14 +18,10 @@ const tree = (page: Page) => page.getByTestId('folder-tree')
 const item = (page: Page, path: string) => tree(page).locator(`[role="treeitem"][data-path="${path}"]`)
 const detail = (page: Page) => page.getByTestId('folder-detail')
 const person = (page: Page, id: string) => detail(page).locator(`[data-testid="folder-person"][data-person="${id}"]`)
-/** the chosen folder's rules in the edit panel (stage 5): everyone reads, saved */
+/** the chosen folder's Share dialog (the same one as the Files page's): the team can view, saved, closed */
 async function everyoneReads(page: Page) {
-  const panel = page.getByTestId('edit-panel')
   await page.getByTestId('folder-detail-edit').click()
-  await panel.getByTestId('edit-basic-read').click()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
-  await panel.getByTestId('edit-save').click()
-  await expect(panel).toHaveCount(0)
+  await shareGeneral(page, 'read')
 }
 
 /** Olga (owner, 재무팀), Bob, Carol (영업팀), Dan; shared: everyone writes; skills: everyone reads, admins write;
@@ -117,8 +113,9 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await expect(item(page, 'partners/apollo')).toHaveAttribute('aria-selected', 'true')
   await expect(page).toHaveURL(/folder=partners%2Fapollo/)
   await expect(detail(page).getByRole('heading', { name: 'partners/apollo' })).toBeVisible()
-  await expect(detail(page).getByTestId('folder-rules')).toContainText(`Dan: ${t['access.write']}`)
-  await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
+  // its rules are in the Share dialog (the same as the Files page's), not repeated here as chips
+  await expect(detail(page).getByTestId('folder-rules')).toHaveCount(0)
+  await expect(detail(page).getByTestId('folder-detail-edit')).toHaveText(t['accessTree.share'])
   // the stage 3 reasons, at this folder
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'none')
   await expect(person(page, 'bob')).toContainText(translate('ko', 'accessView.why.ruleHere', { who: t['rules.everyone'], access: t['access.none'] }))
@@ -128,7 +125,7 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await expect(person(page, 'olga')).toContainText(t['accessView.why.owner'])
   await expect(page.getByTestId('folder-detail-counts')).toHaveText(translate('ko', 'accessTree.counts', { see: 3, write: 2, none: 1 }))
 
-  // change the rules from here (the edit panel): everyone reads; the row and the people follow, and the lock goes
+  // change the rules from here (the Share dialog): everyone reads; the row and the people follow, and the lock goes
   await everyoneReads(page)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   await expect(item(page, 'partners/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
@@ -292,7 +289,7 @@ test('rules of folders gone from disk: folded under the tree, removed with the s
   expect(realErrors(errors)).toEqual([])
 })
 
-test('add a folder: the picker, the folder opened to and chosen, then its rules in the edit panel; the address opens one', async ({ page }) => {
+test('add a folder: the picker, the folder opened to and chosen, then its Share dialog; the address opens one', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/folders')
@@ -306,14 +303,10 @@ test('add a folder: the picker, the folder opened to and chosen, then its rules 
   // the folder is found in the tree and chosen, and its rules open in the panel there
   await expect(item(page, 'finance')).toHaveAttribute('aria-expanded', 'true')
   await expect(item(page, 'finance/2026')).toHaveAttribute('aria-selected', 'true')
-  const panel = page.getByTestId('edit-panel')
+  const panel = page.getByTestId('folder-access-panel')
   await expect(panel).toHaveAttribute('data-path', 'finance/2026')
-  await panel.getByTestId('edit-basic-read').click()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
-  await panel.getByTestId('edit-save').click()
-  await expect(panel).toHaveCount(0)
+  await shareGeneral(page, 'read')
   await expect(detail(page)).toHaveAttribute('data-path', 'finance/2026')
-  await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.read']}`)
   await expect(item(page, 'finance/2026').getByTestId('tree-who')).toHaveText(`${t['rules.everyone']} · ${t['access.read']}`)
   // a link to a folder opens the way to it and chooses it
   await page.goto(`/admin/folders?folder=${encodeURIComponent('finance/2026')}`)
@@ -545,13 +538,14 @@ test('a refresh that fails says so with a way to try again; the people already s
   await team(page)
   await page.goto('/admin/folders?folder=partners%2Fapollo')
   await expect(page.getByTestId('folder-people')).toBeVisible()
-  // the rules change (the edit panel works its result out first), and the answers that would show it fail
-  const panel = page.getByTestId('edit-panel')
+  // the rules change (the Share dialog works its result out first), and the answers that would show it fail
   await page.getByTestId('folder-detail-edit').click()
-  await panel.getByTestId('edit-basic-read').click()
-  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  await page.getByTestId('sharing-general-select').selectOption('team')
+  await expect(page.getByTestId('sharing-outcome')).toBeVisible()
   await page.route(/\/api\/admin\/access\/(tree|folder)/, (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
-  await panel.getByTestId('edit-save').click()
+  await page.getByTestId('sharing-save').click()
+  await page.getByTestId('dialog-confirm').click()
+  await page.getByTestId('sharing-done').click()
   await expect(page.getByTestId('tree-stale')).toContainText(t['accessTree.refreshFailed'])
   await expect(page.getByTestId('folder-people-stale')).toContainText(t['accessTree.refreshFailed'])
   await expect(person(page, 'dan')).toBeVisible()
@@ -586,18 +580,18 @@ test('rule rows the tree never shows (a name it hides) are listed under it, to r
   expect(realErrors(errors)).toEqual([])
 })
 
-test('375px: long group and person names in a folder\'s rules wrap inside the panel', async ({ page }) => {
+test('375px: long group and person names in a folder\'s Share dialog stay inside it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)
   await signIn(page)
   const long = await call(page, 'post', '/api/admin/groups', { name: '아주긴그룹이름'.repeat(12), memberIds: [] })
   await call(page, 'post', '/api/admin/folders', { path: 'marketing', create: true, rules: [{ subjectType: 'group', subjectId: long.id, access: 'write' }, everyone('read')] })
-  await page.goto('/admin/folders?folder=marketing')
-  await expect(page.getByTestId('folder-rules')).toBeVisible()
+  await page.goto('/admin/folders?edit=marketing')
+  await expect(page.getByTestId('sharing-row')).toBeVisible()
   const fits = await page.evaluate(() => {
-    const box = document.querySelector('[data-testid="folder-detail"]')!.getBoundingClientRect()
-    const badges = [...document.querySelectorAll('[data-testid="folder-rules"] > *')]
-    return document.documentElement.scrollWidth <= window.innerWidth && badges.every((b) => b.getBoundingClientRect().right <= box.right + 1)
+    const box = document.querySelector('[data-testid="folder-access-panel"]')!.getBoundingClientRect()
+    const rows = [...document.querySelectorAll('[data-testid="sharing-row"] *')]
+    return document.documentElement.scrollWidth <= window.innerWidth && rows.every((b) => b.getBoundingClientRect().right <= box.right + 1)
   })
   expect(fits).toBe(true)
 })
@@ -700,7 +694,7 @@ test('a team folder that serves Skills/ is the team skills on the screen too: th
   await page.goto(`/admin/folders?folder=${encodeURIComponent('Skills/영업')}`)
   await expect(item(page, 'Skills/영업')).toContainText(t['accessTree.kind.skills'])
   await expect(detail(page)).toContainText(t['skillMgr.folderHint'])
-  await expect(detail(page).getByTestId('skill-manager-badge')).toBeVisible()
+  await expect(detail(page).getByTestId('folder-skill-editors')).toBeVisible()
 })
 
 test('the header stays at the top while the tree scrolls: title, Add folder, the tabs and the switch', async ({ page }) => {
@@ -759,9 +753,9 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     const manage = detail(page).getByTestId('folder-detail-manage-members')
     await expect(manage).toHaveText(t['accessTree.manageMembers'])
     await expect(manage).toHaveAttribute('href', `/projects/${id}?members=1`)
-    // the edit panel by its address: the server's refusal, in its words
+    // the Share dialog by its address: the server's refusal, in its words
     await page.goto(`/admin/folders?edit=${encodeURIComponent('projects/falcon')}`)
-    await expect(page.getByTestId('edit-panel')).toContainText('프로젝트 멤버는 프로젝트 페이지에서 바꿔요.')
+    await expect(page.getByTestId('folder-access-panel')).toContainText('프로젝트 멤버는 프로젝트 페이지에서 바꿔요.')
     // and "멤버 관리": the project's page with its members dialog
     await page.goto(`/admin/folders?folder=${encodeURIComponent('projects/falcon')}`)
     await detail(page).getByTestId('folder-detail-manage-members').click()

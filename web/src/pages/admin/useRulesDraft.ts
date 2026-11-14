@@ -1,5 +1,5 @@
-// One folder's rules being changed, shared by Admin › Folder permissions' edit panel (AccessEdit.tsx) and the Files
-// page's "Who can open it" panel (FolderSharing.tsx): the draft, the server's answer for it (POST
+// One folder's rules being changed in the Share dialog (FolderSharing.tsx, from Files and from Admin › Folder
+// permissions): the draft, the server's answer for it (POST
 // /api/admin/access/edit-preview, server/src/admin/access-edit.ts: the permission function itself), the hash of the
 // rules it started from, another admin's change seen in an answer, and the save (PUT /api/admin/folders/:id/rules, or
 // POST /api/admin/folders for a folder without a rule row) with that hash, so a save over another admin's change is

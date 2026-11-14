@@ -21,7 +21,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 import type { Database } from 'bun:sqlite'
 import type { CredentialBroker } from '../credentials/broker'
 import { isCreditLimit } from '../credentials/store'
-import { overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, toolPolicyOf, type ProxyTurnEvent, type TokenRow } from './model-proxy'
+import { aliveSignal, overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, toolPolicyOf, type ProxyTurnEvent, type TokenRow } from './model-proxy'
 
 export interface CodexPathDeps {
   db: Database
@@ -408,12 +408,14 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   if (up.status < 300 && up.body && sse) {
     // pass the stream through as it arrives
     const reader = up.body.getReader()
+    const alive = aliveSignal(row.turn_id, d.onTurnEvent)
     const stream = new ReadableStream<Uint8Array>({
       async pull(ctl) {
         try {
           const { value, done: end } = await reader.read()
           if (end) { done(); ctl.close(); return }
           ctl.enqueue(value)
+          alive()
           scan(value)
         } catch (e) { done(); ctl.error(e) }
       },

@@ -3210,6 +3210,8 @@ only themselves. The owner chose the safest defaults for the open questions:
 
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
 
+- **2026-11-14:** the 20 active minutes and the 45 minutes in total are gone; only a stall guard (15 minutes with
+  nothing from the engine) remains. See "No time limit on one answer" below. The rest of this entry is unchanged.
 - The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`; 150 and an admin setting since 2026-10-31,
   "Tool rounds per answer" below), 30 rounds (API engine), 20 active minutes
   and 45 minutes in total. What changed is how a turn ends at them. Before, Claude's `error_max_turns` result was read
@@ -4128,6 +4130,8 @@ Trina should feel like Claude Code, which has WebSearch.
 
 ## Tool rounds per answer (feat/a9-followups, 2026-10-31)
 
+- **2026-11-14:** the 20 active minutes and the 45 minutes in total are gone; only a stall guard (15 minutes with
+  nothing from the engine) remains. See "No time limit on one answer" below. The rest of this entry is unchanged.
 - Claude Code's `--max-turns` for an answer is now the team setting `answerStepLimit` (Admin > Team settings, "한 답변의
   도구 사용 한도" / "Tool rounds per answer"), **default 150** (was a fixed 50), 10-500. Claude Code itself has no such
   cap, and the A9 comparison with Claude Code (2026-10-31, ten office tasks) showed Trina using many more
@@ -26547,6 +26551,134 @@ restore it) and "휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·
   `project-trash-members.spec.ts` (`SHOTS_DIR`: 1440 and 390, light and dark, as admin, creator and member).
 - Version impact: **minor** (members see a trashed project's card; creators restore; API fields `trashed`,
   `wasMember`, `canRestore`, `TrashItem.project`).
+
+## 드라이브처럼 공유 (P1) — Share like Google Drive, one dialog (feat/share-like-drive-p1, 2026-11-14, product owner, QA TC-1305..1312)
+
+넣을 곳: Team AX core (`web/src/pages/admin/FolderSharing.tsx`, `web/src/components/FolderAccess.tsx`,
+`web/src/lib/folder-sharing.ts`, `web/src/pages/admin/AccessTree.tsx`, `web/src/pages/Files.tsx`), 이유: files and
+permissions are core. Plan: `docs/AGENTS/plan/20261113-2306-share-like-drive-p1.md`. Amends "열 수 있는 사람, 드라이브
+공유 창처럼" (2026-11-11). Spec and an independent review compared the dialog with Google Drive's help pages (Share and
+manage access, Limited access, Shared drives, the Drive API's sharing guides).
+
+The owner: sharing must look **the same** as Google Drive. P1 changes the look and the words only; who can open what,
+the data and the API do not change. P2 (Drive's additive inheritance, a `limited` flag) is a separate change.
+
+- **One dialog, Drive's order and words.** Files › folder ⋯ › **Share** (was "Who can open it") and Admin › Folder
+  permissions › **[Share]** (was [Change rules] / [Set rules]) open the same dialog, titled `Share "<name>"`: **Add
+  people and groups**, **People with access** (a row per person or group with one role menu: **Viewer / Editor**, a
+  separator, **Remove access**; no ✕), greyed rows from the folders above (`From "Sales" · Change there ›`), a fixed
+  **Owner and admins · Full access** row (not in a team project's folder or inside it, not in personal folders), then
+  **General access**: **Restricted** or the team, and for the team a **Viewer / Editor** select. The breadcrumb chip
+  stays the count.
+- **No "Same as …" choice.** Drive has none: a folder with no setting of its own shows what it gets from above, with
+  `From "Company-wide" · Change there ›`. **Restricted is always stored** ("everyone: no access"): only the people
+  listed here open it, and whoever the folders above let in is cut off, Drive's Limit access meaning (review H1: a
+  Restricted folder above can still list Sales, so "Restricted = follow it" let Sales in). Where a folder follows a
+  Restricted folder that lists people, one link under General access, **Don't let people from "<parent>" in**, does
+  the same (re-review: "Only people listed here" read like the line above it). A Restricted that cuts off people the
+  folders above let in **asks first**, by name ("Take access away?", Save anyway), like taking the team's own files;
+  other narrowing still saves straight. Before the first answer General access shows no value and no line. A
+  team role equal to what a folder with no setting already gets stores nothing; any other role is stored. Back to
+  "no setting here" is one link, **Use the access of "<parent>"** (not at the team root, `shared/` or `skills/`, which
+  keep a setting of their own; there a team pick is always stored, review H2). General access waits for the server's
+  first answer (what the folder above gives is not known before it, review M1). P2 replaces the link pair with
+  Drive's own Limit access switch.
+- **Deepest rule still wins (until P2), said truthfully in Drive's words** (review A1). Drive readers expect access to
+  add up, so wherever a listed Viewer gives less than the person would get otherwise, the row says why, in the warning
+  colour and never cut: "Can only view here, though anyone at Acme can edit "Company-wide"" (the team above), "…though
+  Sales can edit "Plans"" (a group above, or for a group row a member's own row above, by name), "…though anyone at
+  Acme can edit it" (General access Editor on the same folder: a group beats everyone there), "In Sales, but can only
+  view here" (a person below their group on the same folder). The caption names the rule that decides (the deepest
+  folder with a rule for them), so a deeper group with Viewer is not overstated by a group above with Editor. General
+  access lower than the folders above (the team, or a person or group there: "Sales can edit "Plans" but can only view
+  this folder.") keeps a line for as long as it is so, not only before Save: "Anyone at Acme can edit "Company-wide"
+  but can only view this folder.", "Anyone at Acme can open "Company-wide", but not this folder." The captions come from the server's `above` / `everyoneAbove`
+  answer; unit tests check each against the permission function. "What will happen" and the confirm are unchanged.
+- **Remove access asks first** ("Remove access for Bob?"): it is an item of a native select, whose arrow keys would
+  otherwise remove a row on the way. The owner's and admins' rows say **Full access** and offer only Remove access
+  (they open it anyway); an owner or admin under Access removed has no Add (it would change nothing), only **Remove
+  from list**. The add field takes the focus on a computer (not on a touch screen).
+- **Access removed** (Drive's own section): existing "No access" rows (set in Admin before P1) are listed apart with
+  "Can't open it here" and Drive's **Add**, which brings them back as Viewer (asked before Save like any more access).
+  Not "Remove from list": in Trina that deletes a deny row, which grants access (review A3). Rows from a folder above
+  that keep someone out show there too, greyed. New "No access" rows are no longer offered anywhere.
+- **Admin's second editor is removed** (`AccessEdit.tsx`, its four Basic access radios, Can view / Can edit / No access
+  strips, "How rules work", the Save button's counts, its phone page `&rules=`). Admin's tree and By person stay the
+  overview (who sees what, and why); the folder part loses its "This folder's rules" chips (the dialog shows the rows).
+  The dialog in Admin takes any folder there (the team root, a rule row the tree does not show), opens every folder
+  above in place, and has no "Open in Folder permissions". `?edit=<path>` (By person, Files) still opens it; Done goes
+  back to where it came from. The draft, preview, hash, 409 and save are the same hook as before (`useRulesDraft`).
+- **File ⋯ "Share (copy)" is "Copy to…"** (`Copy "<name>" to: pick a folder`), so "Share" means one thing.
+- **Phones:** the same dialog in the app's bottom sheet, in Files and Admin; Back closes it.
+- **Left as it is (said in review):** Admin's tree and By person keep their own words (Can view / Can edit, "Everyone")
+  for now; they are the overview, and their wording is shared with other admin screens.
+- **Words:** English first, then ko with Google Drive's own Korean labels where it has them (공유, 사용자 및 그룹 추가,
+  액세스 권한이 있는 사용자, 뷰어, 편집자, 액세스 권한 삭제, 일반 액세스, 제한됨, 액세스 권한이 삭제됨). This differs
+  from the house style ("keep the idea, not the wording"); the owner's "the same as Drive" overrides it for this
+  dialog. "팀장 및 관리자 · 모든 권한" (Owner and admins · Full access) is kept knowingly: it is the shared-drive
+  Manager idea, and "관리자 · 관리자" would read badly.
+- **Deliberate differences from Drive:** no Commenter (Trina has no comments), no "Notify people" (Trina tells people
+  who start seeing a project its own way), no "Copy link" (no per-folder link), members do not share (only the owner
+  and admins change access; members see the count and "An admin changes who can open it."). The model copied is the
+  shared drive's (the team owns the folders, the owner and admins act like Managers).
+- Tests: web unit `folder-sharing.test.ts` (General access picks, the downgrade captions against the permission
+  function), `folder-sharing-panel.test.tsx` (role menu, Access removed + Add, the lasting General access line);
+  e2e `folder-access.spec.ts` (the dialog, Remove access, the Downgrade world before and after Save, Access removed),
+  Admin specs moved from the old editor to the dialog. `tests/security/folder-sharing.test.ts` is unchanged (same
+  endpoints).
+- Version impact: **minor** (the sharing dialog and its words; no data, API or migration change).
+
+## No time limit on one answer — 한 답변의 시간 제한 없앰 (feat/no-answer-time-limit, 2026-11-14, the owner, QA TC-1290)
+
+- **Why:** the owner wants long jobs to finish. An answer used to stop after 20 active minutes (time waiting for a person
+  not counted) or 45 minutes in total, whatever the AI was doing ("Continue after the per-answer limit", 2026-10-30).
+  What one answer may spend stays bounded by the budgets (the model proxy stops a Claude answer as soon as a block
+  budget is used up) and by the tool rounds per answer (150 by default, Admin > Team settings, "Tool rounds per answer";
+  the API engine's 30 rounds, each sub-agent's 50), all unchanged. Stop ends any answer at once.
+- **Removed:** the active clock (`TURN_TIMEOUT_MS`, `tick`), the total clock (`ChatRuntime.wallTimeoutMs`, the wall
+  timer, `TurnSpec.wallDeadlineAt`; the queue no longer writes `turns.wall_deadline_at`, which stays NULL: no
+  migration, older rows keep a value nothing reads) and the launch's `timeoutMs` cut to the remaining wall time. That
+  covers every engine (Claude Code, Codex, API engine), chat turns, side chats, scheduled tasks and approved template
+  runs, which all run as a `TurnExec`. The answer-step hint (5 languages), for-admins and the site's runtime page no
+  longer name 20 minutes.
+- **What else ends a turn that is really stuck, checked before removing:** the Stop button; the engine's exit; the
+  launcher stops the engine when the server's connection goes (a crash, kill -9, restart: mycel-launcher main.go);
+  a restart's recovery ends or requeues running rows; the launcher's own backstop (3 h, meant for a stuck server, and
+  never reached while 45 minutes cut every launch). Nothing ended an engine that is alive but silent (a model stream that
+  hangs, a hung engine or MCP bridge) before that backstop, while it held a queue slot. So one guard stays:
+- **Stall guard** (`STALL_TIMEOUT_MS`, 15 minutes; `ChatRuntime.stallTimeoutMs`): the turn ends when the engine has
+  had the turn and produced nothing for 15 minutes. Signs of life: every launcher event of the engine (each stdout or
+  stderr line, so Claude's partial messages and streamed tool input count, which give no EngineEvent of their own),
+  every EngineEvent, every API-engine stream chunk (`runApiAgent` `activity`), a step added or changed (tool progress),
+  a model-proxy event (busy retries included), a model answer streaming through the proxy (`activity`, at most one
+  every 10 s per stream: Codex and Claude's sub-agents print nothing until a model call ends, so a long single call
+  would otherwise look silent), a card answer, one of our tool calls starting or ending. The clock does not run while
+  the turn waits for a person or a queue slot, while one of our tools runs (`TurnToolSet.callStarted`, counted around
+  every `tools/call` in mcp/protocol.ts: box_shell may run 30 minutes, a long transcription longer; each tool keeps its
+  own limits; at most 2 hours per pause, `OWN_CALL_PAUSE_MAX_MS`, so a tool that never returns cannot hold the turn
+  until the backstop) or while the turn waits for the launcher. Why 15 minutes: longer than any silent stretch of
+  a working engine (Claude Code's own Bash tool stops at 10 minutes; a model stream sends bytes every few seconds) and
+  shorter than the old 20 minutes, so a hung turn frees its slot no later than before. It is not a cap on length: an
+  answer that keeps producing anything runs on.
+- A stall ends the answer as an **error** `stalled` (`CHAT_ERROR_MESSAGES.stalled`, code `internal`: "The AI didn't
+  respond for 15 minutes, so the answer was stopped. Please try again."), the text so far kept, retry offered; not a
+  pause, since nothing reached a limit. A scheduled run that stalled is `failed` (an error, like a crash; a run that
+  paused at the old time limit was `problems`). The model proxy logs a request the stall cut off as `by: 'stalled'`.
+- **Launcher backstop 3 h -> 12 h** (`LAUNCHER_BACKSTOP_MS`, also the turn's proxy token lifetime): it only catches a
+  server that is alive but stuck, and must not cut a real long answer. A quarantined slot (the engine's end not
+  confirmed after a stop) is released at its latest launch's own hard stop, but at most 45 minutes after the stop
+  (`QUARANTINE_HOLD_MAX_MS`, the bound it had under the old 45-minute limit), plus 5 minutes; the probe still frees it
+  as soon as the engine's process group or the launcher is gone. Without the cap a chat could stay "ending" for 12 h.
+- **Kept for answers stored before:** `time_limit` in `TurnStopReason`, the database CHECK (migration 212) and the
+  readers, the "paused" line with Continue, the `<continuation>` note after such an answer, and the `timeout` /
+  `wall_timeout` error texts. No new answer gets any of them.
+- Tests: `tests/unit/b-chat.test.ts` "per-answer limits" (a stall ends as `stalled` with the text kept; output now and
+  then past the stall time is not stopped; one of our tools running past it is not stopped; an old `time_limit` answer
+  still gets the note), `b-subagents.test.ts` (a stall while sub-agents wait: the cut sub-tasks are audited),
+  `turn-deadline.test.ts` (no deadline, launches get the backstop, a person's wait pauses the stall clock, the API
+  engine's request ends at a stall), `fair-queue*.test.ts` (no deadline written), `proxy-codex.test.ts`,
+  `chat-errors-plain.test.ts`; the harness option `turnTimeoutMs` is now `stallTimeoutMs`.
+- Version impact: **patch** (a limit removed, one error text added; no API or database change).
 
 ## Folder access adds up like Google Drive (P2) — 폴더 권한이 드라이브처럼 위에서 더해진다 (feat/folder-access-additive, 2026-11-14, owner decisions pending)
 

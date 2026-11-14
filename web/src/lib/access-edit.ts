@@ -1,4 +1,4 @@
-// Admin › Folder permissions › the edit panel (stage 5): a folder's rules as the panel shows them, and back. Nothing
+// The Share dialog (pages/admin/FolderSharing.tsx): a folder's rules as the dialog shows them, and back. Nothing
 // here decides access: what a draft changes comes from the server (POST /api/admin/access/edit-preview,
 // server/src/admin/access-edit.ts). The panel asks one thing first, the basic access for everyone not named below it,
 // then the people and groups named; old role rows are read as the basic access and saved as "everyone".
@@ -11,9 +11,9 @@
 //
 // Since folder access adds up (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"), "only the people
 // named" is Limit access (the folder's `limited`), not an "everyone: none" rule: the server refuses "no access" rules.
-// TODO(P2 UI, after the P1 Share dialog is on dev): the Limit access switch of its own, General access apart from it,
-// Access removed › Add, the Manager row and the "Added when folders changed" tag (docs/DECISIONS.md, same entry).
-import type { Access, FolderEditPreview, FolderRuleInput } from '@mycel/shared/api'
+// TODO(P2 UI): the Limit access switch of its own, General access apart from it, Access removed › Add, the Manager row
+// and the "Added when folders changed" tag (docs/DECISIONS.md, same entry).
+import type { Access, FolderRuleInput } from '@mycel/shared/api'
 
 /** The basic access, for everyone the rows below do not name: follow the folder above (no everyone rule), only the
  * people named (everyone: none), everyone reads, everyone reads and writes. */
@@ -84,32 +84,6 @@ export const addNamed = (d: Draft, n: Omit<Named, 'access'>, access: Access = 'r
   d.named.some((x) => x.subjectType === n.subjectType && x.subjectId === n.subjectId) ? d : { ...d, named: [...d.named, { ...n, access }] }
 export const setNamed = (d: Draft, i: number, access: Access): Draft => ({ ...d, named: d.named.map((x, j) => (j === i ? { ...x, access } : x)) })
 export const removeNamed = (d: Draft, i: number): Draft => ({ ...d, named: d.named.filter((_, j) => j !== i) })
-
-/** What a change does to people, kept apart (an edit that becomes view only is not losing access): how many can no
- * longer open it, can no longer edit it, can now open it, can now edit it. From the server's `changes` for this draft
- * (the folder itself; the rule folders below are said apart). */
-export interface Outcomes { loseOpen: number; loseEdit: number; gainOpen: number; gainEdit: number }
-export function outcomesOf(changes: readonly Pick<FolderEditPreview['changes'][number], 'before' | 'after' | 'count'>[]): Outcomes {
-  const o: Outcomes = { loseOpen: 0, loseEdit: 0, gainOpen: 0, gainEdit: 0 }
-  for (const c of changes) {
-    if (c.after === 'none') o.loseOpen += c.count
-    else if (c.before === 'none') o.gainOpen += c.count
-    else if (c.before === 'write') o.loseEdit += c.count
-    else o.gainEdit += c.count
-  }
-  return o
-}
-
-type Say = (key: 'accessEdit.outLoseOpen' | 'accessEdit.outLoseEdit' | 'accessEdit.outGainOpen' | 'accessEdit.outGainEdit', params: { n: number }) => string
-/** The outcomes in words, losses first: "2 can no longer open it", "1 can no longer edit", "3 can now open it". */
-export function outcomeWords(say: Say, o: Outcomes): string[] {
-  const out: string[] = []
-  if (o.loseOpen) out.push(say('accessEdit.outLoseOpen', { n: o.loseOpen }))
-  if (o.loseEdit) out.push(say('accessEdit.outLoseEdit', { n: o.loseEdit }))
-  if (o.gainOpen) out.push(say('accessEdit.outGainOpen', { n: o.gainOpen }))
-  if (o.gainEdit) out.push(say('accessEdit.outGainEdit', { n: o.gainEdit }))
-  return out
-}
 
 /** The choices of the basic access a folder offers: no "follow" at the team root (nothing is above it); no "everyone
  * writes" in a connected folder (a one-way copy, server/src/team-files/connected.ts: what is written there never reaches

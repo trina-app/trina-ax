@@ -46,7 +46,7 @@ The AI can split a big request into sub-tasks, up to 4 at a time. A helper works
 | Limit | Default |
 |---|---|
 | Tool rounds per answer | 150 (admins choose 10–500) |
-| Answer time | 20 minutes |
+| Answer time | No limit. An answer stops only if the AI does nothing for 15 minutes |
 | Usage | Token limits per person, group or team, if set |
 
 In a scheduled run nobody can answer cards, so anything that needs a person is skipped or refused.

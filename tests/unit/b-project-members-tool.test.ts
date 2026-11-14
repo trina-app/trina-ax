@@ -52,7 +52,7 @@ let h: Harness
 const socks: Record<string, TestSocket> = {}
 let marketing = '', finance = ''
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-project-members-tool', askUserTimeoutMs: 6000, turnTimeoutMs: 60_000 })
+  h = await startHarness({ name: 'b-project-members-tool', askUserTimeoutMs: 6000, stallTimeoutMs: 60_000 })
   const db = h.ctx.db
   // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short (as b-post-to-room)
   db.exec('PRAGMA foreign_keys = OFF')

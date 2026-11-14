@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 import { openTrinaRow } from './nav'
+import { translate } from '../../src/i18n'
 
 const SHOTS = process.env.STAGE67_SHOTS
 
@@ -105,8 +106,11 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
   await page.goto('/admin/folders?folder=skills')
   const detail = page.getByTestId('folder-detail')
-  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 고칠 수 있음')
-  await expect(detail.getByTestId('skill-manager-badge')).toBeVisible()
+  await detail.getByTestId('folder-detail-edit').click()
+  await expect(page.getByTestId('sharing-row').filter({ hasText: '영업팀' }).getByTestId('sharing-level')).toHaveValue('write')
+  await page.getByTestId('sharing-done').click()
+  // the rule chips (and their skill manager mark) are gone from the folder part: the skills line says who edits
+  await expect(detail.getByTestId('folder-skill-editors')).toBeVisible()
   await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
   // no team skills column on Members and Groups any more
   await page.goto('/admin/members')
@@ -165,24 +169,13 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   await expect(page.getByTestId('folder-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
   await expect(page.getByTestId('folder-skill-locked')).toHaveText('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Bob 님')
   await shot('skills-line-tree-1360')
-  // the panel: the same, for the rules as edited
+  // the Share dialog (docs/DECISIONS.md "Share like Google Drive (P1)"): one line, Editors change the team's skills
   await page.getByTestId('folder-detail-edit').click()
-  const panel = page.getByTestId('edit-panel')
-  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
-  await expect(panel.getByTestId('edit-skill-locked')).toHaveText('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Bob 님')
-  await panel.getByTestId('edit-basic-follow').click()
-  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
-  await expect(panel.getByTestId('edit-skill-locked')).toHaveCount(0)
+  const panel = page.getByTestId('folder-access-panel')
+  await expect(panel.getByTestId('sharing-skills')).toHaveText(translate('ko', 'folderAccess.skillsEdit'))
   await shot('skills-line-panel-1360')
-  await panel.getByTestId('edit-close').click()
-  await page.getByRole('dialog', { name: '바꾼 규칙을 버릴까요?' }).getByRole('button', { name: '버리기', exact: true }).click()
+  await page.getByTestId('sharing-done').click()
   await expect(panel).toHaveCount(0)
-  // a phone: the rule editor is a page of its own (`&rules=`, since 1d63c17a1), with the same line
-  await page.setViewportSize({ width: 375, height: 800 })
-  await page.goto(`/admin/folders?folder=${encodeURIComponent('skills/재무')}&rules=${encodeURIComponent('skills/재무')}`)
-  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
-  await shot('skills-line-panel-375')
-  await page.setViewportSize({ width: 1360, height: 860 })
 
   // the Team skills page says the same as the tree; the group's rule is a row of its dialog
   await page.goto('/skills')

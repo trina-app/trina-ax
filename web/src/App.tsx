@@ -46,7 +46,8 @@ import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
-import { afterJoinSet, afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { useLogoutTo } from './lib/logout'
+import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './lib/team-link'
 import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -190,6 +191,40 @@ export function useSessionLifecycle(): boolean {
   return signedIn
 }
 
+/** How often the page asks the server again on its own while "Can't reach" shows. */
+const RETRY_MS = 5000
+
+/** The offline page: it asks again by itself (every few seconds, when the network comes back, when the tab is looked at
+ * again) and the screen the person was on returns when the server answers; the button asks at once. */
+function CantReach({ hint, detail }: { hint: string; detail: string }) {
+  const t = useT()
+  const load = useSession((s) => s.load)
+  useEffect(() => {
+    let asking = false
+    const ask = () => {
+      if (asking || document.visibilityState === 'hidden') return
+      asking = true
+      void load().finally(() => { asking = false })
+    }
+    const timer = setInterval(ask, RETRY_MS)
+    window.addEventListener('online', ask)
+    document.addEventListener('visibilitychange', ask)
+    return () => { clearInterval(timer); window.removeEventListener('online', ask); document.removeEventListener('visibilitychange', ask) }
+  }, [load])
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
+      <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+        <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+        {PRODUCT.displayName}
+      </p>
+      <p className="font-medium">{t('conn.cantReach')}</p>
+      <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+      {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
+      <Button onClick={() => void load()}>{t('common.retry')}</Button>
+    </div>
+  )
+}
+
 function Gate() {
   const t = useT()
   const locale = useLocale()
@@ -217,18 +252,7 @@ function Gate() {
     const hint = t('conn.cantReachHint')
     const text = errorText(status.error, locale, hint)
     const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
-        <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
-          {PRODUCT.displayName}
-        </p>
-        <p className="font-medium">{t('conn.cantReach')}</p>
-        <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
-        {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
-        <Button onClick={() => void load()}>{t('common.retry')}</Button>
-      </div>
-    )
+    return <CantReach hint={hint} detail={detail} />
   }
   if (status.kind === 'setup')
     return (
@@ -375,10 +399,19 @@ export default function App() {
 export function AfterJoin() {
   const t = useT()
   const team = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.team.name : ''))
-  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet() }))
+  const [target] = useState(() => ({ to: afterJoinTarget(), joined: afterJoinSet(), token: readJoinToken(window.location).token }))
+  const signOutToJoin = useLogoutTo()
   const told = useRef(false)
   useEffect(() => {
-    if (!target.joined && team && !told.current) { told.current = true; toast({ level: 'info', text: t('teamLink.alreadyIn', { team }) }) }
+    if (!target.joined && team && !told.current) {
+      told.current = true
+      // a shared computer: the next person can sign this one out and come back to the same link (the link is in the address only here)
+      const token = target.token
+      toast({
+        level: 'info', text: t('teamLink.alreadyIn', { team }), ms: 15000,
+        action: token ? { label: t('teamLink.signOutToJoin'), run: () => void signOutToJoin(`/join#t=${token}`) } : undefined,
+      })
+    }
     return () => clearAfterJoin()
     // once, on arriving
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -264,7 +264,7 @@ describe('in the app: GET /api/skills, rename, delete, the AI\'s card, skills_li
   const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
   const cm = () => 'cm-' + crypto.randomUUID()
   beforeAll(async () => {
-    h = await startHarness({ name: 'group-skills-app', askUserTimeoutMs: 4000, turnTimeoutMs: 60_000 })
+    h = await startHarness({ name: 'group-skills-app', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
     linkGroups(h.ctx.db)
     layout(h.team)
     for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) {

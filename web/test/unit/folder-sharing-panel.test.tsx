@@ -149,19 +149,142 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
     const m = await open()
     const rows = rowsOf(m, 'sharing-row')
     expect(rows.map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`, 'user:alice'])
-    expect(rows[1]!.querySelector('[data-testid="sharing-row-second"]')!.textContent).toBe(en('folderAccess.inGroupView', { group: 'Sales' }))
+    // lower than her group here (the deepest, most personal rule decides until P2): said, in the warning colour
+    expect(rows[1]!.querySelector('[data-testid="sharing-row-lower"]')!.textContent).toBe(en('folderAccess.inGroupView', { group: 'Sales' }))
     const above = rowsOf(m, 'sharing-above')
     expect(above.map((r) => r.getAttribute('data-subject'))).toEqual([`group:${LEADS}`])
     expect(above[0]!.textContent).toContain(en('folderAccess.fromFolder', { folder: 'Sales' }))
     expect(above[0]!.textContent).toContain(en('folderAccess.canView'))
-    // general access: the same as the folder above, which lets in only the people in the list
-    expect(valueOf(m.get('sharing-general-select'))).toBe('follow')
-    expect(m.get('sharing-general-hint').textContent).toContain(en('folderAccess.hintAboveOnly'))
-    expect(m.get('sharing-footer').textContent).toBe(en('folderAccess.adminsAlways'))
+    // general access: no setting here, so it shows what Sales gives (Restricted) and where it comes from; no "Same as"
+    expect(valueOf(m.get('sharing-general-select'))).toBe('restricted')
+    expect(m.find('sharing-general-role')).toBeNull()
+    expect(m.get('sharing-general-hint').textContent).toContain(en('folderAccess.restrictedHint'))
+    expect(m.get('sharing-general-inherited').textContent).toBe(en('folderAccess.fromFolder', { folder: 'Sales' }))
+    // the owner and admins: a row of the list, not a footer sentence
+    expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.staffRow'))
+    expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.fullAccess'))
+    // the role menu holds Remove access (Drive), no ✕
+    expect(rowsOf(m, 'sharing-row')[0]!.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['read', 'write', 'remove'])
+    expect(m.find('sharing-remove')).toBeNull()
     // nothing changed: Done, no Save
     expect(m.find('sharing-done')).not.toBeNull()
     expect(m.find('sharing-save')).toBeNull()
     await m.unmount()
+  })
+})
+
+describe('Drive\'s role menu and Access removed (P1)', () => {
+  test('Remove access is in the role menu: the row goes, and what will happen names who loses it', async () => {
+    const m = await open()
+    await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
+    // asked first (a native menu's arrow keys would remove on the way); Cancel keeps the row
+    const ask = await m.until(() => m.find('dialog-confirm'), 'the remove question')
+    expect(m.html()).toContain(en('folderAccess.removeTitle', { name: 'Alice' }))
+    await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'the question closed')
+    expect(rowsOf(m, 'sharing-row')).toHaveLength(2)
+    await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the remove question'))
+    await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
+    expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
+    await ready(m)
+    // Alice is in Sales, which can edit here: without her own row she can edit
+    expect(m.get('sharing-outcome').textContent).toContain('Alice will be able to edit it')
+    await m.unmount()
+  })
+
+  test('a No access row is under Access removed with Add (Google\'s word), which brings them back as Viewer, asked before Save', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'carol', access: 'none' }])
+    const m = await open()
+    expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
+    const removed = rowsOf(m, 'sharing-removed-row')
+    expect(removed.map((r) => r.getAttribute('data-subject'))).toEqual(['user:carol'])
+    expect(m.get('sharing-removed').textContent).toContain(en('folderAccess.accessRemoved'))
+    expect(removed[0]!.textContent).toContain(en('folderAccess.cantOpenHere'))
+    expect(removed[0]!.textContent).not.toContain('Remove from list')
+    await m.click('sharing-add-back')
+    expect(m.find('sharing-removed')).toBeNull()
+    const back = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:carol')!
+    expect(back.getAttribute('data-access')).toBe('read')
+    await ready(m)
+    expect(m.get('sharing-outcome').textContent).toContain('Carol will be able to open it')
+    await m.click('sharing-save')
+    const confirm = await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(m.html()).toContain(en('folderAccess.confirmOpen', { n: 1 }))
+    await m.click(confirm)
+    const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)[0], 'the save')
+    expect(put.body.rules).toContainEqual({ subjectType: 'user', subjectId: 'carol', access: 'read' })
+    await m.unmount()
+  })
+
+  test('General access lower than the folder above: a lasting line, not only while something is changed', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }, { subjectType: 'everyone', subjectId: null, access: 'read' }])
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])
+    const m = await open()
+    expect(valueOf(m.get('sharing-general-select'))).toBe('team')
+    expect(valueOf(m.get('sharing-general-role'))).toBe('read')
+    expect(m.get('sharing-general-lower').textContent).toBe(en('folderAccess.generalLowerView', { team: 'Acme', folder: 'Sales' }))
+    // nothing changed: the line is there without a draft
+    expect(m.find('sharing-save')).toBeNull()
+    await m.unmount()
+  })
+})
+
+describe('review of #779: the owner\'s row, and General access before the first answer', () => {
+  test('Restricted that cuts off who the folder above lets in asks first, by name (re-review of #779)', async () => {
+    const m = await open()
+    // Quotes has no General access of its own; Sales (above) lets Leads in: Carol
+    await m.click('sharing-general-limit')
+    await ready(m)
+    expect(m.get('sharing-outcome').textContent).toContain('Carol will no longer be able to open it')
+    await m.click('sharing-save')
+    const ask = await m.until(() => m.find('dialog-confirm'), 'the confirm')
+    expect(m.html()).toContain(en('folderAccess.narrowTitle'))
+    expect(m.get('sharing-confirm-body').textContent).toContain('Carol will no longer be able to open it')
+    expect(ask.textContent).toBe(en('folderAccess.saveAnyway'))
+    // Cancel: nothing saved
+    await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
+    await m.until(() => !m.find('dialog-confirm'), 'closed')
+    expect(calls(`PUT /api/admin/folders/${ids.get('shared/Sales/Quotes')}/rules`)).toHaveLength(0)
+    await m.unmount()
+  })
+
+  test('the owner listed here: Full access with Remove access only; kept out (an old row): no Add, only off the list', async () => {
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'read' }])
+    const m = await open()
+    const olga = rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:olga')!
+    expect(olga.querySelectorAll('option').map((o) => o.getAttribute('value'))).toEqual(['staff', 'remove'])
+    await m.unmount()
+    rows.set('shared/Sales/Quotes', [{ subjectType: 'group', subjectId: SALES, access: 'write' }, { subjectType: 'user', subjectId: 'olga', access: 'none' }])
+    const m2 = await open()
+    expect(m2.find('sharing-add-back')).toBeNull()
+    await m2.click('sharing-removed-drop')
+    expect(m2.find('sharing-removed')).toBeNull()
+    await m2.unmount()
+  })
+
+  test('General access waits for the first answer (what the folder above gives is not known before)', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    const before = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/admin/access/edit-preview')) await held
+      return before(input, init)
+    }) as typeof fetch
+    try {
+      const m = await mountHost('shared/Sales/Quotes')
+      const sel = await m.until(() => m.find('sharing-general-select'), 'the select')
+      expect(sel.hasAttribute('disabled')).toBe(true)
+      // no value shown yet (not "Restricted"), no role, no line under it (re-review of #779)
+      expect(valueOf(sel)).toBe('')
+      expect(m.find('sharing-general-role')).toBeNull()
+      expect(m.find('sharing-general-hint')).toBeNull()
+      release()
+      await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'enabled after the answer')
+      await m.unmount()
+    } finally {
+      globalThis.fetch = before
+    }
   })
 })
 
@@ -193,7 +316,7 @@ describe('Save asks the server again, and asks first before more access', () => 
   test('more access: the confirm names who; Cancel saves nothing and keeps the draft; Give access saves with the hash', async () => {
     const m = await open()
     const before = folderOfHash('shared/Sales/Quotes')
-    await choose(m.get('sharing-general-select'), 'read')
+    await choose(m.get('sharing-general-select'), 'team')
     await ready(m)
     // Carol could already open it (Leads, from Sales); Erin could not
     expect(m.get('sharing-outcome').textContent).toContain('Erin will be able to open it')
@@ -348,7 +471,7 @@ describe('after a save, and the other ways a save ends', () => {
   test('Cancel pressed while Save waits for its answer, then kept: Save does not cover the question, and saves after', async () => {
     const m = await open()
     // more access: Save asks first
-    await choose(m.get('sharing-general-select'), 'read')
+    await choose(m.get('sharing-general-select'), 'team')
     await ready(m)
     let release: () => void = () => {}
     const held = new Promise<void>((r) => { release = r })
@@ -405,7 +528,8 @@ describe('after a save, and the other ways a save ends', () => {
     // on disk, no rule row: the folder list does not have it
     const m = await mountHost('shared/Sales/New')
     await m.until(() => m.find('sharing-above'), 'the panel and the rows from above')
-    await choose(m.get('sharing-general-select'), 'named')
+    // General access: the team can view (more access: Save asks first)
+    await choose(m.get('sharing-general-select'), 'team')
     await ready(m)
     // the other admin's row is made between this panel's answer and its save
     postReply = () => {
@@ -413,11 +537,13 @@ describe('after a save, and the other ways a save ends', () => {
       return json(409, { error: { code: 'conflict', message: 'exists', params: { reason: 'folder_exists' } } })
     }
     await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
     await m.until(() => m.find('sharing-stale'), 'the "someone else changed this" note')
     expect(calls('POST /api/admin/folders')).toHaveLength(1)
     // the next Save goes over their row (PUT with their hash), never POST again
     await m.until(() => m.find('sharing-save')?.hasAttribute('disabled') === false, 'Save ready')
     await m.click('sharing-save')
+    await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
     const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/New')}/rules`)[0], 'the PUT')
     expect(put.body.expectedHash).toBe(rulesHash([{ subjectType: 'user', subjectId: 'erin', access: 'read' }]))
     expect(calls('POST /api/admin/folders')).toHaveLength(1)

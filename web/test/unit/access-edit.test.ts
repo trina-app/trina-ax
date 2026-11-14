@@ -1,10 +1,9 @@
-// Admin › Folder permissions › the edit panel (stage 5): a folder's rules as the panel reads them and the rules it saves
+// The Share dialog (FolderSharing.tsx): a folder's rules as the dialog reads them and the rules it saves
 // (web/src/lib/access-edit.ts). Reading and saving again changes nothing; old role rows are saved as "everyone" and that
 // changes nobody's access, checked here against the server's own permission function (RuleSet) on random worlds.
 import { describe, expect, test } from 'bun:test'
 import { type Access, type Principal } from '../../../server/src/policy/access'
-import { addNamed, basicChoices, draftKey, draftOf, limitedOf, outcomesOf, outcomeWords, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, setNamed, type RuleLike } from '../../src/lib/access-edit'
-import { translate } from '../../src/i18n'
+import { addNamed, basicChoices, draftKey, draftOf, limitedOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, setNamed, type RuleLike } from '../../src/lib/access-edit'
 import { ruleWorld } from '../../../tests/lib/rule-world'
 
 const every = (access: Access) => ({ subjectType: 'everyone' as const, subjectId: null, access })
@@ -102,25 +101,6 @@ describe('changing a draft', () => {
     expect(basicChoices({ root: true, connected: false, current: 'named' })).toEqual(['named', 'read', 'write'])
     expect(basicChoices({ root: false, connected: true, current: 'read' })).toEqual(['follow', 'named', 'read'])
     expect(basicChoices({ root: false, connected: true, current: 'write' })).toEqual(['follow', 'named', 'read', 'write'])
-  })
-
-  test('the Save button and the summary keep the outcomes apart: an edit that becomes view only is not losing access', () => {
-    const c = (before: 'none' | 'read' | 'write', after: 'none' | 'read' | 'write', count: number) => ({ before, after, count })
-    const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
-    const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
-    // write → read only: "can no longer edit", never "loses access"
-    const writeToRead = outcomesOf([c('write', 'read', 1)])
-    expect(writeToRead).toEqual({ loseOpen: 0, loseEdit: 1, gainOpen: 0, gainEdit: 0 })
-    expect(outcomeWords(en, writeToRead)).toEqual(['1 can no longer edit'])
-    expect(en('accessEdit.saveParts', { parts: outcomeWords(en, writeToRead).join(' · ') })).toBe('Save (1 can no longer edit)')
-    expect(ko('accessEdit.saveParts', { parts: outcomeWords(ko, writeToRead).join(' · ') })).toBe('저장 (1명 못 고치게 됨)')
-    for (const l of ['en', 'ko', 'id', 'ja', 'es'] as const) expect(outcomeWords((k, p) => translate(l, k, p), writeToRead).join(' ')).not.toMatch(/lose|loses|kehilangan|pierde|잃|못 열/)
-    // the four outcomes, losses first
-    const all = outcomesOf([c('write', 'none', 2), c('read', 'none', 1), c('write', 'read', 1), c('none', 'read', 3), c('none', 'write', 1), c('read', 'write', 2)])
-    expect(all).toEqual({ loseOpen: 3, loseEdit: 1, gainOpen: 4, gainEdit: 2 })
-    expect(outcomeWords(en, all)).toEqual(['3 can no longer open it', '1 can no longer edit', '4 can now open it', '2 can now edit'])
-    expect(outcomeWords(en, outcomesOf([]))).toEqual([])
-    expect(ko('accessEdit.saveNone')).toBe('저장 (권한 변화 없음)')
   })
 })
 

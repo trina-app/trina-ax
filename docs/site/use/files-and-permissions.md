@@ -24,25 +24,30 @@ One permission function on the server decides every access. The OS stops the AI 
 - Changes apply **at once**. The AI reads permissions again on every tool call.
 - Removing access does not erase earlier answers that quoted a file.
 
-## Change folder rules
+## Share a folder
 
-Admins use **Admin › Folder permissions**.
+Owners and admins share a folder like in Google Drive: **Files › a folder's ⋯ › Share**, or **Admin › Folder permissions › Share**. Both open the same dialog.
 
 :::steps
-#### Pick a folder
-**By folder** shows the team folder as a tree. Each row says who can open it and where that comes from.
-
-![Admin › Folder permissions › By folder: the team folder as a tree, each folder with who can open it](../images/files/folder-permissions.webp "Folder permissions, by folder")
-
-#### Choose the basic access
-Follow the folder above, only the people named, everyone can view, or everyone can edit.
-
 #### Add people and groups
-Give each **Can view**, **Can edit** or **No access**, the same words as the Files page's **Who can open it**. So "everyone can view, but not Bob" is possible.
+Type a name. Each person or group gets **Viewer** or **Editor**. **Remove access** is in the same menu.
+
+#### Check General access
+**Restricted**: only the people listed can open it. Or the whole team, as **Viewer** or **Editor**. A folder without a setting of its own shows what it gets from the folder above, with **Change there**.
 
 #### Check before saving
-The server works out who loses or gains access, and the Save button says it. Nothing changes until you save.
+The dialog names who will gain or lose access. Nothing changes until you save. Giving more access asks first.
 :::
+
+The owner and admins can always open team folders, except projects they are not a member of.
+
+:::note
+Until a later update, the setting closest to a file decides, also when it gives less. If a listed role gives someone less than they would get otherwise, for example Viewer in a folder where the whole team can edit, the row says so. People kept out by an older "No access" setting are listed under **Access removed**; **Add** brings them back.
+:::
+
+**Admin › Folder permissions › By folder** shows the team folder as a tree. Each row says who can open it and where that comes from.
+
+![Admin › Folder permissions › By folder: the team folder as a tree, each folder with who can open it](../images/files/folder-permissions.webp "Folder permissions, by folder")
 
 **By person** shows what one person, and so their AI, can see, and why.
 
