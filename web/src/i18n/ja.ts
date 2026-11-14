@@ -2007,7 +2007,6 @@ export const ja: Record<MessageKey, string> = {
   'folders.reasonGroup': "{group}のメンバー",
   'folders.reasonPerson': "名前で追加",
   'folders.reasonProject': "プロジェクトのメンバー",
-  'folders.reasonStaff': "{role}: すべてのチームフォルダーを開けます",
   'folders.share': "共有",
   'folders.shareOf': "{name}を共有",
   'folders.tabFolders': "フォルダー",

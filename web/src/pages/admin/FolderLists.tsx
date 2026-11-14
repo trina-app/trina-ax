@@ -276,7 +276,8 @@ function PersonAnswer({ who: user, load, groupName, compact }: { who: Who; load:
   // the group folders of groups they are not in are one count line (the list would grow with every group)
   const otherGroup = (f: PersonFolderAccess) => !!f.group && !user.groupIds.includes(f.group.id)
   // a team project's folder they are not in: one count line too (the list would grow with every project)
-  const otherProject = (f: PersonFolderAccess) => /^projects\/[^/]+$/i.test(f.path)
+  // (one they left stays a row of its own: "Left the project")
+  const otherProject = (f: PersonFolderAccess) => /^projects\/[^/]+$/i.test(f.path) && f.reason.kind !== 'left'
   // groups/, projects/ and connected/ only hold folders: everyone passes through them in Files, never "can't open"
   const container = (f: PersonFolderAccess) => CONTAINERS.has(f.path)
   const notInGroup = rows.filter((f) => f.access === 'none' && otherGroup(f)).length
@@ -298,7 +299,6 @@ function PersonAnswer({ who: user, load, groupName, compact }: { who: Who; load:
   }
   const reason = (f: PersonFolderAccess): string => {
     const r = f.reason
-    if (r.kind === 'owner-admin') return t('folders.reasonStaff', { role: t(`role.${user.role}`) })
     if (r.kind !== 'rule') return ''
     const what = inProjects(f.path) ? t('folders.reasonProject')
       : r.tier === 'everyone' || r.tier === 'role' ? t('folders.everyoneAt', { team })

@@ -2039,7 +2039,6 @@ export const en: Record<MessageKey, string> = {
   'folders.reasonGroup': "In {group}",
   'folders.reasonPerson': "Added by name",
   'folders.reasonProject': "Project member",
-  'folders.reasonStaff': "{role}: opens every team folder",
   'folders.share': "Share",
   'folders.shareOf': "Share {name}",
   'folders.tabFolders': "Folders",

@@ -2038,7 +2038,6 @@ export const ko = {
   'folders.reasonGroup': "{group} 소속",
   'folders.reasonPerson': "이름으로 추가됨",
   'folders.reasonProject': "프로젝트 멤버",
-  'folders.reasonStaff': "{role}: 모든 팀 폴더를 열어요",
   'folders.share': "공유",
   'folders.shareOf': "{name} 공유",
   'folders.tabFolders': "폴더",

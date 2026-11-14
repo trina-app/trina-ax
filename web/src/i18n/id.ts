@@ -2039,7 +2039,6 @@ export const id: Record<MessageKey, string> = {
   'folders.reasonGroup': "Di {group}",
   'folders.reasonPerson': "Ditambahkan dengan nama",
   'folders.reasonProject': "Anggota proyek",
-  'folders.reasonStaff': "{role}: membuka setiap folder tim",
   'folders.share': "Bagikan",
   'folders.shareOf': "Bagikan {name}",
   'folders.tabFolders': "Folder",

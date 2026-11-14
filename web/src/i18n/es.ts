@@ -2007,7 +2007,6 @@ export const es: Record<MessageKey, string> = {
   'folders.reasonGroup': "En {group}",
   'folders.reasonPerson': "Añadido por nombre",
   'folders.reasonProject': "Miembro del proyecto",
-  'folders.reasonStaff': "{role}: abre todas las carpetas del equipo",
   'folders.share': "Compartir",
   'folders.shareOf': "Compartir {name}",
   'folders.tabFolders': "Carpetas",
