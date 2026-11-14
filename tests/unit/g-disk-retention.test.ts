@@ -204,3 +204,20 @@ describe('a 20 GB data disk warns before 3 GB is left', () => {
     expect(levelOf(at(2).percent)).toBe('high')
   })
 })
+
+describe('clean-up never follows a link out of devenv', () => {
+  const NOW = new Date('2026-11-14T04:00:00Z').getTime()
+  test('tmp, .npm and a build folder that are links leave their targets alone', async () => {
+    const base = path.join(W, 'links')
+    const victim = path.join(W, 'links-victim')
+    put(path.join(victim, 'key.pem'), 'k', 99, NOW); put(path.join(victim, '_cacache', 'a'), 'x', 99, NOW); put(path.join(victim, '_logs', 'a'), 'x', 99, NOW)
+    age(victim, 99, NOW)
+    const home = path.join(base, 'devenv', 'home', 'u1')
+    fs.mkdirSync(home, { recursive: true })
+    fs.symlinkSync(victim, path.join(home, 'tmp')); fs.symlinkSync(victim, path.join(home, '.npm'))
+    const work = path.join(base, 'devenv', 'work', 'c1'); fs.mkdirSync(work, { recursive: true })
+    fs.symlinkSync(victim, path.join(work, 'node_modules'))
+    await cleanDevenv({ base, now: () => NOW, busy: () => ({ users: new Set(), chats: new Set() }), chatActivity: () => NOW - 60 * DAY })
+    expect(fs.readdirSync(victim).sort()).toEqual(['_cacache', '_logs', 'key.pem'])
+  })
+})

@@ -102,6 +102,7 @@ async function scanWork(root: string): Promise<{ build: { abs: string; bytes: nu
         try { const s = await fsp.lstat(abs); newest = Math.max(newest, s.mtimeMs) } catch {}
       }
       if (++n % 1000 === 0) await new Promise((res) => setImmediate(res))
+      if (n >= SCAN_LIMIT) return { build, newest: Date.now() } // too big to judge in one pass: counts as in use
     }
   }
   return { build, newest }
@@ -113,8 +114,23 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
   const p = devenvPaths(o.base)
   const now = o.now()
   const busy = o.busy()
-  const drop = async (abs: string, kind: CleanItem['kind'], bytes: number) => {
+  const devRoot = (() => { try { return fs.realpathSync(p.root) } catch { return null } })()
+  /** every part of `abs` below `top` is a real folder (a person's run may write in its home and make a link of any of
+   * them), and what is removed really is inside devenv/ */
+  const plain = async (top: string, abs: string): Promise<boolean> => {
+    const rel = path.relative(top, abs)
+    let cur = top
+    for (const part of rel.split(path.sep)) {
+      cur = path.join(cur, part)
+      try { if (!(await fsp.lstat(cur)).isDirectory()) return false } catch { return false }
+    }
+    try { const r = await fsp.realpath(abs); return !!devRoot && r.startsWith(devRoot + path.sep) && r === path.join(await fsp.realpath(top), rel) } catch { return false }
+  }
+  const drop = async (abs: string, kind: CleanItem['kind'], bytes: number, who: { user?: string; chat?: string }) => {
     if (!o.dryRun) {
+      // a run may have started during the pass
+      const b = o.busy()
+      if ((who.user && b.users.has(who.user)) || (who.chat && b.chats.has(who.chat))) { res.keptBusy++; return }
       try { await fsp.rm(abs, { recursive: true, force: true }) } catch (e) { res.errors.push({ path: path.relative(o.base, abs), error: (e as Error).message }); return }
     }
     res.removed.push({ path: path.relative(o.base, abs), kind, bytes })
@@ -128,13 +144,12 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     const home = path.join(p.home, u.name)
     for (const rel of CACHE_ROOTS) {
       const abs = path.join(home, rel)
-      let st: fs.Stats
-      try { st = await fsp.lstat(abs) } catch { continue }
-      if (!st.isDirectory()) continue // a link or a file here is not a cache folder of ours
+      if (!await plain(home, abs)) continue // a link on the way (.npm, .cache, .bun ...) or a file: not a cache folder of ours
       const s = await scan(abs)
-      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes)
+      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, { user: u.name })
     }
     const tmp = path.join(home, 'tmp')
+    if (!await plain(home, tmp)) continue
     for (const e of await ls(tmp)) {
       const abs = path.join(tmp, e.name)
       let s: fs.Stats
@@ -142,7 +157,7 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
       if (now - s.mtimeMs < TMP_KEEP_DAYS * DAY) continue
       // a folder is judged by its newest file: a dev server's socket or log in it may still be live
       const inner = s.isDirectory() ? await scan(abs) : { bytes: s.size, newest: s.mtimeMs, truncated: false }
-      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes)
+      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes, { user: u.name })
     }
   }
 
@@ -162,7 +177,8 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
       let newest = s.truncated ? 0 : s.newest
       try { newest = Math.max(newest, (await fsp.lstat(b.abs)).mtimeMs); for (const e of await ls(b.abs)) newest = Math.max(newest, (await fsp.lstat(path.join(b.abs, e.name))).mtimeMs) } catch {}
       if (now - newest < WORK_IDLE_DAYS * DAY) continue
-      await drop(b.abs, 'build', s.bytes)
+      if (!await plain(root, b.abs)) continue
+      await drop(b.abs, 'build', s.bytes, { chat: c.name })
     }
   }
 

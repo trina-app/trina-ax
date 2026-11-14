@@ -452,7 +452,9 @@ export class BackupManager {
       const preCutoff = this.now().getTime() - PRE_MIGRATE_KEEP_DAYS * 86400_000
       const pre = fs.readdirSync(this.o.layout.dbBackupsDir).filter((n) => n.endsWith('.db') && PRE_MIGRATE_RE.test(n.slice(0, -3)))
         .map((n) => ({ n, t: fs.statSync(path.join(this.o.layout.dbBackupsDir, n)).mtimeMs })).sort((a, b) => a.t - b.t)
-      for (const p of pre.slice(0, Math.max(0, pre.length - PRE_MIGRATE_KEEP_NEWEST))) if (p.t < preCutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
+      // the roll-back picks the newest by name: that one stays whatever its mtime says
+      const newestName = pre.reduce((m, x) => (x.n > m ? x.n : m), '')
+      for (const p of pre.slice(0, Math.max(0, pre.length - PRE_MIGRATE_KEEP_NEWEST)).filter((x) => x.n !== newestName)) if (p.t < preCutoff) { fs.rmSync(path.join(this.o.layout.dbBackupsDir, p.n), { force: true }); removed.push(p.n.slice(0, -3)) }
     } catch {}
     removed.push(...this.pruneBeforeRestore(cutoff))
     removed.push(...this.removeUnfinished())
