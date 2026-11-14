@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -47,6 +47,8 @@ export const User = z.object({
   groupIds: z.array(Uuid7),
   createdAt: IsoTime,
   lastSeenAt: IsoTime.nullable(),
+  /** role guest only: their one place and AI choice */
+  guest: GuestDetail.optional(),
 })
 export type User = z.infer<typeof User>
 

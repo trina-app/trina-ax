@@ -26,3 +26,5 @@ CREATE TABLE guests (
 ALTER TABLE invites ADD COLUMN guest_place_kind TEXT CHECK (guest_place_kind IS NULL OR guest_place_kind IN ('room', 'project'));
 ALTER TABLE invites ADD COLUMN guest_place_id TEXT;
 ALTER TABLE invites ADD COLUMN guest_ai TEXT;
+-- invites.guest_name: who a guest link is for, in the inviter's words (optional; the account picks its own name)
+ALTER TABLE invites ADD COLUMN guest_name TEXT;

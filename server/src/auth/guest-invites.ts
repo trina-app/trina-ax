@@ -86,8 +86,8 @@ export function createGuestInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typ
   ctx.db.transaction(() => {
     if (!inviteMakerOk(ctx.db, auth.user.id, place, ai)) fail('forbidden')
     assertGuestFree(ctx.db, locale)
-    ctx.db.query(`INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at, guest_place_kind, guest_place_id, guest_ai)
-      VALUES (?, 'guest', '[]', ?, ?, ?, ?, ?, ?, ?)`).run(id, hashToken(token), auth.user.id, createdAt, expiresAt, place.kind, place.id, JSON.stringify(ai))
+    ctx.db.query(`INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at, guest_place_kind, guest_place_id, guest_ai, guest_name)
+      VALUES (?, 'guest', '[]', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, hashToken(token), auth.user.id, createdAt, expiresAt, place.kind, place.id, JSON.stringify(ai), b.name ?? null)
     audit(ctx.db, { actor: auth.user.id, action: 'invite.create', target: id, detail: { role: 'guest', place, ai: ai.mode, expiresAt } })
   }).immediate()
   return { invite: toInvite(id), token, url: `${linkBase}/invite/${token}` }

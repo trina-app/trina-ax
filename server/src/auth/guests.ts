@@ -8,8 +8,9 @@
 // 'member' with users.guest = 1 and every read of the role goes through roleSql() / USER_COLS / loadPrincipal, which
 // answer 'guest'. Raw SQL that filters people by role must add `guest = 0` (or use roleSql()).
 import type { Database } from 'bun:sqlite'
-import type { GuestAi, GuestPlace, Locale } from '@mycel/shared/api'
+import type { GuestAi, GuestAiChoice, GuestPlace, Locale } from '@mycel/shared/api'
 import { fail } from '../http/errors'
+import { AUTH_MESSAGES } from './messages'
 import { currentPlan, planManageUrl } from '../system/limits'
 import { RuleSet, atLeast, type Principal } from '../policy/access'
 
@@ -120,14 +121,8 @@ export function guestLimit(): number | null {
 export function guestsUsed(db: Database): number {
   return (db.query("SELECT COUNT(*) AS n FROM users WHERE guest = 1 AND status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
 }
-export const GUEST_LIMIT_MSG: Record<Locale, (n: number) => string> = {
-  en: (n) => `The plan's guest limit (${n}) is reached. Remove a guest who no longer needs access, or change the plan.`,
-  ko: (n) => `요금제의 게스트 한도(${n}명)에 도달했어요. 더 이상 필요 없는 게스트를 내보내거나 요금제를 바꿔 주세요.`,
-  id: (n) => `Batas tamu paket (${n}) sudah tercapai. Keluarkan tamu yang tidak perlu akses lagi, atau ubah paket.`,
-  ja: (n) => `プランのゲスト上限（${n}人）に達しました。もうアクセスが不要なゲストを外すか、プランを変更してください。`,
-  es: (n) => `Se alcanzó el límite de invitados del plan (${n}). Quite a un invitado que ya no necesite acceso o cambie de plan.`,
-  zh: (n) => `已达到套餐的访客上限（${n}）。请移除不再需要访问的访客，或更改套餐。`,
-}
+/** The plan's guest limit message ({n}: the limit), from the language table (auth/messages.ts guestLimit). */
+export const GUEST_LIMIT_MSG = Object.fromEntries((Object.keys(AUTH_MESSAGES.guestLimit) as Locale[]).map((l) => [l, (n: number) => AUTH_MESSAGES.guestLimit[l].replace('{n}', String(n))])) as Record<Locale, (n: number) => string>
 /** Refuse (409 plan_limit, reason guest_limit) when one more active guest would go over the plan. Call it inside the
  * write that adds the guest. */
 export function assertGuestFree(db: Database, locale: Locale, adding = 1): void {
@@ -138,14 +133,8 @@ export function assertGuestFree(db: Database, locale: Locale, adding = 1): void 
 }
 
 // ---------------- one place ----------------
-export const GUEST_ONE_PLACE_MSG: Record<Locale, string> = {
-  en: 'A guest can be in one room or project only. To add them to more, make them a team member.',
-  ko: '게스트는 방이나 프로젝트 한 곳에만 들어갈 수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요.',
-  id: 'Tamu hanya bisa berada di satu ruang atau proyek. Untuk menambahkannya ke tempat lain, jadikan dia anggota tim.',
-  ja: 'ゲストが入れるのはルームかプロジェクトの1か所だけです。複数に追加するには、チームメンバーにしてください。',
-  es: 'Un invitado solo puede estar en una sala o un proyecto. Para añadirlo a más, hágalo miembro del equipo.',
-  zh: '访客只能加入一个聊天室或项目。要把他加入更多地方，请把他设为团队成员。',
-}
+/** guest_one_place, from the language table (auth/messages.ts guestOnePlace). */
+export const GUEST_ONE_PLACE_MSG: Record<Locale, string> = AUTH_MESSAGES.guestOnePlace
 /** 409 conflict, reason guest_one_place: a guest is never put into a second room or project. */
 export function failOnePlace(locale: Locale): never {
   return fail('conflict', GUEST_ONE_PLACE_MSG[locale] ?? GUEST_ONE_PLACE_MSG.en, { params: { reason: 'guest_one_place' } })
@@ -160,4 +149,28 @@ export function assertGuestMayJoin(db: Database, userId: string, place: GuestPla
 export function guestsAmong(db: Database, ids: readonly string[]): string[] {
   if (!ids.length) return []
   return (db.query(`SELECT id FROM users WHERE guest = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string }[]).map((r) => r.id)
+}
+
+/** The guest's AI as screens show it: 'team' with its connection and monthly limit (the user 'block' budget), only
+ * while both are there (else what resolution does: none). */
+export function guestAiChoice(db: Database, userId: string): GuestAiChoice {
+  const r = guestRow(db, userId)
+  if (!r || r.ai === 'none') return { mode: 'none' }
+  if (r.ai === 'own') return { mode: 'own' }
+  const cred = (db.query('SELECT team_credential_id AS c FROM guests WHERE user_id = ?').get(userId) as { c: string | null } | null)?.c ?? null
+  const b = db.query("SELECT limit_usd FROM budgets WHERE subject_type = 'user' AND subject_id = ? AND action = 'block' ORDER BY limit_usd LIMIT 1").get(userId) as { limit_usd: number } | null
+  return cred && b && b.limit_usd > 0 ? { mode: 'team', credentialId: cred, limitUsd: b.limit_usd } : { mode: 'none' }
+}
+
+/** The name of a place as the team calls it (a group chat's name, '' when it has none; a project's name). */
+export function placeName(db: Database, place: GuestPlace): string {
+  if (place.kind === 'room') return (db.query('SELECT name FROM rooms WHERE id = ?').get(place.id) as { name: string | null } | null)?.name ?? ''
+  return (db.query('SELECT name FROM projects WHERE id = ?').get(place.id) as { name: string } | null)?.name ?? ''
+}
+
+/** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
+export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice } | undefined {
+  const place = guestPlace(db, userId)
+  if (!place) return undefined
+  return { place: { ...place, name: placeName(db, place) }, ai: guestAiChoice(db, userId) }
 }

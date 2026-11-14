@@ -19,6 +19,8 @@ export const Person = z.object({
   /** their status message now (docs/DECISIONS.md "상태 메시지"): absent without one, before its first day and after it
    * cleared */
   statusMessage: StatusMessage.optional(),
+  /** an outside person in one room or project of the team (the "Guest" tag beside their name); absent for members */
+  guest: z.literal(true).optional(),
 })
 export type Person = z.infer<typeof Person>
 export const PeopleResponse = z.object({ people: z.array(Person) })

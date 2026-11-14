@@ -19,7 +19,7 @@ import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
 import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, type GuestInviteFields } from './guest-invites'
-import { assertGuestFree, guestLimit, guestsUsed, projectFolder } from './guests'
+import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
@@ -381,7 +381,9 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
   const full = valid && (r!.role === 'guest' ? guestsFull(ctx.db) : seatsFull(ctx.db))
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full }
+  // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
+  const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {

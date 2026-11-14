@@ -20,6 +20,7 @@ import { myStatusOf } from './status-messages'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
+import { guestDetail } from './guests'
 import { USER_COLS_U, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconOfMe } from '../admin/team-icon'
@@ -263,7 +264,9 @@ export class AuthService implements SessionService {
     const address = teamAddressOf(this.ctx, at)
     // my status message, also one that starts later (docs/DECISIONS.md "상태 메시지")
     const status = myStatusOf(this.db, u.id)
+    const guest = u.role === 'guest' ? guestDetail(this.db, u.id) : undefined
     return {
+      ...(guest ? { guest } : {}),
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,

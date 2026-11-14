@@ -50,16 +50,19 @@ const person = (id: string, name: string, p: ProfileRow | null): Person => ({
 export function listPeople(db: Database, now = new Date(), viewerId?: string): Person[] {
   const reach = viewerId ? reachFilter(db, viewerId) : null
   const iso = now.toISOString()
-  const rows = db.query(`SELECT u.id, u.name, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
+  const rows = db.query(`SELECT u.id, u.name, u.guest, p.title, p.status_text, p.avatar_version, s.emoji, s.text, s.clears_at, s.until_day FROM users u
     LEFT JOIN user_profiles p ON p.user_id = u.id
     LEFT JOIN user_status_messages s ON s.user_id = u.id AND ${LIVE_SQL}
     WHERE u.deleted_at IS NULL AND u.status = 'active' ORDER BY lower(u.name), u.id`).all(iso, iso) as {
-    id: string; name: string; title: string | null; status_text: string | null; avatar_version: number | null
+    id: string; name: string; guest: number; title: string | null; status_text: string | null; avatar_version: number | null
     emoji: string | null; text: string | null; clears_at: string | null; until_day: string | null
   }[]
   return rows.filter((r) => !reach || reach(r.id)).map((r) => ({
     ...person(r.id, r.name, { title: r.title ?? '', status_text: r.status_text ?? '', avatar_version: r.avatar_version }),
     ...(r.emoji ? { statusMessage: statusOut({ emoji: r.emoji, text: r.text ?? '', clears_at: r.clears_at, until_day: r.until_day }) } : {}),
+    // the "Guest" tag: only on a guest the viewer may see at all (reachFilter: the people of the guest's place; nobody
+    // else gets the guest in their list)
+    ...(r.guest === 1 ? { guest: true as const } : {}),
   }))
 }
 

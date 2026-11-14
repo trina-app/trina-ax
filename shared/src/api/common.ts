@@ -75,6 +75,10 @@ export const GuestAiChoice = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('team'), credentialId: z.string().min(1).max(64), limitUsd: z.number().positive().max(100_000) }),
 ])
 export type GuestAiChoice = z.infer<typeof GuestAiChoice>
+/** A guest's place with its name, as screens show it (Me.guest, User.guest). */
+export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
+/** A guest's details: their one place and their AI (Me.guest for the guest, User.guest for admins). */
+export const GuestDetail = z.object({ place: GuestPlaceNamed, ai: GuestAiChoice })
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
 export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])

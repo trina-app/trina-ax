@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import { UserPrefs, type Locale, type Role, type User, type UserRef } from '@mycel/shared/api'
 import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { teamDefaultLocale } from '../admin/settings'
+import { guestDetail } from './guests'
 
 export interface UserRow {
   id: string
@@ -70,8 +71,11 @@ export function toUser(db: Database, r: UserRow): User {
     groupIds: userGroupIds(db, r.id),
     createdAt: r.created_at,
     lastSeenAt: r.last_seen_at,
+    // a guest: their one place and AI (the admin users list; docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(r.role === 'guest' ? withGuest(db, r.id) : {}),
   }
 }
+const withGuest = (db: Database, id: string) => { const g = guestDetail(db, id); return g ? { guest: g } : {} }
 
 /** The person's own language, or null when they follow the team default. */
 export const localeChoice = (r: Pick<UserRow, 'locale' | 'locale_follows_team'>): Locale | null => (r.locale_follows_team ? null : r.locale)
