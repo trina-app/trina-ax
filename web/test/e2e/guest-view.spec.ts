@@ -78,6 +78,64 @@ test.describe('computer', () => {
     await expect(page.locator('a[href="/settings/memory"]')).toHaveCount(0)
   })
 
+  test('a guest with their own sign-in not made yet: Ask Trina and the room\'s ✦ side chat offer "내 AI 연결하기"; their own Claude sign-in ends it', async ({ page }) => {
+    await guestIn(page, { kind: 'room', id: GROUP }, { mode: 'own' })
+    // Ask Trina: the box, and above it the way to connect their own (never "ask the person who invited you")
+    await page.goto('/')
+    const banner = page.getByTestId('ai-access-banner')
+    await expect(banner).toHaveText(/쓸 수 있는 AI가 없어요. 내 AI를 연결하면 바로 쓸 수 있어요./)
+    await expect(banner.getByTestId('ai-access-button')).toHaveAttribute('data-action', 'connect_own')
+    await expect(page.getByTestId('guest-no-ai')).toHaveCount(0)
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    // their room's ✦ side chat says the same
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('room-side-chat-button').click()
+    const side = page.getByTestId('side-chat-panel')
+    await expect(side.getByTestId('ai-access-banner').getByTestId('ai-access-button')).toHaveAttribute('data-action', 'connect_own')
+    await expect(side.getByTestId('guest-no-ai')).toHaveCount(0)
+    // Settings › AI accounts: their own Claude sign-in, in place
+    await page.goto('/settings/providers')
+    // only their own account answers them: no word of team or company accounts
+    await expect(page.getByText('내 질문에는 내 계정만 써요. 여기서 Claude나 ChatGPT 계정을 연결해 주세요.')).toBeVisible()
+    await page.getByTestId('my-credential-add-claude').click()
+    const add = page.getByRole('dialog', { name: '계정 추가' })
+    await expect(add).toContainText('내 구독이나 내 API 키를 연결하세요. 내 질문에만 쓰여요.')
+    await expect(add).not.toContainText('회사')
+    await expect(add).not.toContainText('팀 사용')
+    await page.getByTestId('kind-anthropic-oauth').check()
+    await page.getByTestId('credential-label').fill('내 Claude')
+    await page.getByTestId('plan-notice-ack').check()
+    await page.getByTestId('credential-submit').click()
+    await page.getByTestId('claude-code-input').fill('good-code#good-state')
+    await page.getByTestId('claude-code-submit').click()
+    await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
+    await page.getByRole('dialog', { name: '계정 추가' }).getByRole('button', { name: '닫기' }).click()
+    await expect(page.getByTestId('my-credentials')).toContainText('내 Claude')
+    // AI answers them now: no line above the box
+    await page.goto('/')
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
+  })
+
+  test('a guest with their own sign-in connects it from the line above the box', async ({ page }) => {
+    await guestIn(page, { kind: 'project', name: '견적 준비' }, { mode: 'own' })
+    await page.goto('/projects')
+    await page.getByText('견적 준비').first().click()
+    await page.getByTestId('ai-access-banner').getByTestId('ai-access-button').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByTestId('kind-anthropic-oauth')).toBeVisible()
+    await expect(dialog.getByTestId('credential-password')).toHaveCount(0)
+  })
+
+  test('a guest with AI off who opens Settings by its address: no 트리나 list behind it', async ({ page }) => {
+    await guestIn(page, { kind: 'room', id: GROUP })
+    await page.goto('/settings')
+    await expect(page.getByTestId('settings-content')).toBeVisible()
+    await expect(page.getByTestId('new-chat')).toHaveCount(0)
+    await expect(page.getByTestId('nav-search')).toHaveCount(0)
+    await expect(page.locator('a[href="/settings/providers"]')).toHaveCount(0)
+  })
+
   test('a guest in a room: only that room (no everyone room), no 프로젝트 or 파일, Settings has only their own sections', async ({ page }) => {
     await guestIn(page, { kind: 'room', id: GROUP })
     await expect(page.getByTestId('rail-files')).toHaveCount(0)

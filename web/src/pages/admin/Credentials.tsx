@@ -14,7 +14,8 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isAdmin, isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMe, useMeStrict } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, SignInLinks, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
@@ -343,6 +344,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
 }) {
   const t = useT()
   const locale = useLocale()
+  // a guest's own account: no word about the company's or the team's keys (only their own answers them, lib/guests.ts)
+  const guest = isGuestMe(useMe())
   const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? initialKind ?? null)
   const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
@@ -497,7 +500,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
           : <ChatgptProgress l={login} personal={personal} />)
         : (
           <div className="space-y-4">
-            {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
+            {personal && <p className="text-sm text-muted">{t(guest ? 'credentials.personalFirstGuest' : 'credentials.personalFirst')}</p>}
             {!personal && !sharedSubscriptions && kinds.some((k) => SUBSCRIPTION.has(k)) && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
             {!replace && (!initialKind || otherWays) && (
               <fieldset className="space-y-2">
@@ -512,7 +515,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                       <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null); setMove(null) }} data-testid={`kind-${k}`} />
                       <span>
                         <span className="font-medium">{via ? t('credentials.kind.gateway', { label: via.label }) : t(`credentials.kind.${k}` as MessageKey)}</span>
-                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
+                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t((guest && (k === 'anthropic-api-key' || k === 'openai-api-key') ? `credentials.kind.${k}.descGuest` : `credentials.kind.${k}.desc`) as MessageKey)}</span>
                       </span>
                     </label>
                   )
@@ -716,11 +719,13 @@ export function MyCredentials() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const state = useLoad(() => api.call(API.myCredentials))
   const [adding, setAdding] = useState<Family | null>(null)
+  // a guest with their own sign-in: only their own account answers them, never the team's (lib/guests.ts)
+  const guest = isGuestMe(useMe())
   return (
     <Loadable state={state}>
       {(d) => (
         // a phone: Settings' bar says "Providers", so the card has no frame and its title is for screen readers
-        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t('settings.credentials.desc')}>
+        <Card flat title={<span className="max-md:sr-only">{t('settings.providers')}</span>} desc={t(guest ? 'settings.credentials.descGuest' : 'settings.credentials.desc')}>
           <div className="space-y-5" data-testid="my-providers">
             {(['claude', 'codex'] as const).map((fam) => {
               const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))

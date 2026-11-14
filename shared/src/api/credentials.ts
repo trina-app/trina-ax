@@ -71,6 +71,11 @@ export const CredentialsResponse = z.object({
   /** server.json engine.anthropicGateway: Claude API keys are that gateway's keys (any format of the safe shape);
    * absent or null = Anthropic's */
   anthropicGateway: z.object({ label: z.string() }).nullable().optional(),
+  /** present when a guest's AI (Team AI or their own sign-in) cannot answer on this server, and why: 'host_sign_in' =
+   * the AI engines run on this server's own Claude / ChatGPT sign-in (engine.authMode other than managed), which a
+   * guest never uses (docs/DECISIONS.md "Guests: only what they were invited to"). The guest invite and "change AI"
+   * dialogs say so; absent = guests' AI works here. */
+  guestAiUnavailable: z.enum(['host_sign_in']).optional(),
 })
 export type CredentialsResponse = z.infer<typeof CredentialsResponse>
 const Label = z.string().trim().min(1).max(60)
