@@ -32,7 +32,8 @@
 // room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
 // everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
+import { cardLinks, keptAfterEdit, snapshotOf, snapshotOut, prepareLinkPreviews, readStored, seesLinked, snapshotAllowed, snapshotsAtSend, wipeSnapshotsOf, writeStored } from './link-previews'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -47,7 +48,7 @@ import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  dmPeerGone, lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  dmPeerGone, lastSeqFor, MENTIONS_SQL, refsOf, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -91,11 +92,15 @@ export interface SharedAnswerMark { at: number; cut: boolean; people: number; co
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
 /** what send() takes from the request besides its body: the person's language for its refusals */
-export interface SendOptions { locale?: Locale }
+export interface SendOptions { locale?: Locale; /** the web app's "Show message" (SendRoomMessageBody.showMessages, the send route only: never an AI, app or connector send) */ showMessages?: string[] }
+/** "Who here cannot see that message?" (POST …/message-links/audience): a burst of LINK_AUDIENCE_BURST, then one a second
+ * (per person; the composer asks once per changed set of links). */
+export const LINK_AUDIENCE_BURST = 30
 
 export class Rooms {
   private lastSync = 0
   private sendBudget = new Map<string, { tokens: number; at: number }>()
+  private audienceBudget = new Map<string, { tokens: number; at: number }>()
   /** the sending budget's clock (tests fix it) */
   clock: () => number = () => Date.now()
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
@@ -133,9 +138,11 @@ export class Rooms {
   /** `notices`: a new message's notices by recipient (notify()): each one's room.message says theirs (the desktop app
    * tells what the Inbox and push tell, docs/DECISIONS.md "Session markers"). */
   messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow, notices?: ReadonlyMap<string, RoomNoticeEvent>) {
+    // what the message links to: read once for everyone, decided for each member (rooms/link-previews.ts)
+    const links = prepareLinkPreviews(this.db, [row])
     this.fanout(row.room_id, (m) => {
       if (!canSee(this.db, row, m)) return null
-      const message = messagesOut(this.db, [row], m)[0]!
+      const message = messagesOut(this.db, [row], m, links)[0]!
       const notice = type === 'room.message' ? notices?.get(m.user_id) : undefined
       return type === 'room.message' ? { type, data: { roomId: row.room_id, message, ...(notice ? { notice } : {}) } } : { type, data: { roomId: row.room_id, message } }
     })
@@ -665,6 +672,8 @@ export class Rooms {
       const revoked = roomFilesOf(this.ctx).revokedTeamCopies(userId, roomId, fileIds)
       if (revoked.ids.length) fail('forbidden', tr('roomTeamFileNoAccess', o.locale ?? DEFAULT_LOCALE, { names: revoked.names.join(', ') }), { params: { reason: 'team_file_access', files: revoked.ids.join(',') } })
     }
+    // "Show message" (the web app's send only): snapshots built now from the originals with my own access
+    const snapshots = answer ? [] : snapshotsAtSend(this.db, b.body, o.showMessages, userId)
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom
@@ -673,9 +682,9 @@ export class Rooms {
       seq = (this.db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [now, roomId] : [roomId])) as { last_seq: number }).last_seq
       // what it brought in from elsewhere (a shared answer's scope; what an AI app had read: `carried`), for those who
       // join the room later (rooms/history.ts)
-      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope)
-        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null)
+      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope, link_previews)
+        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
+        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
       if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}) } })
@@ -743,7 +752,8 @@ export class Rooms {
     if (b.mentionsAll && !m.mentions_all) fail('validation', undefined, { fields: { 'body.mentionsAll': 'only a new message can mention everyone' } })
     if (b.mentionsAll && !roomMentionAllIn(b.body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
-    this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), m.id)
+    // a link the edit took out loses its removed mark and its snapshot (an edit never adds one: only a send asks)
+    this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ?, link_previews = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), keptAfterEdit(m.link_previews, b.body), m.id)
     const row = messageRow(this.db, roomId, messageId)!
     this.messageEvent('room.message.updated', row)
     return messagesOut(this.db, [row], me)[0]!
@@ -755,7 +765,9 @@ export class Rooms {
     const m = this.removable(roomId, messageId, userId, me)
     const now = nowIso()
     const noticed = this.db.transaction(() => {
-      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', mentions_all = 0, deleted_at = ? WHERE id = ?").run(now, m.id)
+      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', mentions_all = 0, deleted_at = ?, link_previews = NULL WHERE id = ?").run(now, m.id)
+      // the snapshots other messages hold of it lose its words ("Show message" never outlives a delete)
+      wipeSnapshotsOf(this.db, m.id)
       // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
@@ -862,6 +874,66 @@ export class Rooms {
       this.reactionsEvent(m)
     }
     return { reactions: reactionsOf(this.db, [m.id], me).get(m.id) ?? [] }
+  }
+
+  // ---------------- message links (rooms/link-previews.ts) ----------------
+  /** The composer's question before a send with message links into this room (or a thread of it): which links I can
+   * see that someone who would read my message cannot. Only yes per link, never who or how many; a link I cannot see,
+   * one that is not there and one everyone here sees are all left out alike. */
+  linkAudience(userId: string, roomId: string, b: { links: { roomId: string; messageId: string }[]; threadRootId?: string }): MessageLinkAudience {
+    const { me } = this.mine(userId, roomId)
+    this.takeAudienceToken(userId)
+    let readers = members(this.db, roomId).filter((m) => m.user_id !== userId)
+    if (b.threadRootId) {
+      const root = this.threadRootOf(roomId, b.threadRootId, me)
+      if (!root) return { items: [] }
+      readers = readers.filter((m) => canSee(this.db, root, m))
+    }
+    const items: MessageLinkAudience['items'] = []
+    const seen = new Set<string>()
+    for (const link of b.links) {
+      const id = link.messageId.toLowerCase()
+      if (seen.has(id)) continue
+      seen.add(id)
+      const m = messageRow(this.db, link.roomId.toLowerCase(), id)
+      const room = m ? roomRow(this.db, m.room_id) : null
+      const mine = m ? memberRow(this.db, m.room_id, userId) : null
+      if (!m || !room || !seesLinked(this.db, { roomId: link.roomId.toLowerCase(), rootId: null }, m, room, mine ?? undefined)) continue
+      const there = new Map(members(this.db, m.room_id).map((x) => [x.user_id, x]))
+      if (readers.every((r) => seesLinked(this.db, { roomId: m.room_id, rootId: null }, m, room, there.get(r.user_id)))) continue
+      const allowed = snapshotAllowed(m)
+      // what "Show message" would store, built as the send would (my own access now)
+      const snap = allowed ? snapshotOf(this.db, { roomId: m.room_id, messageId: m.id, rootId: null }, userId) : undefined
+      items.push({ messageId: m.id, someoneCannotSee: true, snapshotAllowed: !!snap, ...(snap ? { preview: snapshotOut(snap, refsOf(this.db, [snap.authorId, userId]), userId) } : {}) })
+    }
+    return { items }
+  }
+
+  /** "Remove preview" on my own message: that link's card goes for everyone (its snapshot's words are deleted). The
+   * message is not edited (no "edited" mark). A message that is not mine, an AI answer, an app's card, a shared answer, or
+   * a link it does not have: 404. */
+  hidePreview(userId: string, roomId: string, messageId: string, linkedId: string): RoomMessage {
+    const { me } = this.mine(userId, roomId)
+    const m = messageRow(this.db, roomId, messageId)
+    if (!m || !canSee(this.db, m, me) || m.author_kind !== 'user' || m.author_id !== userId || m.event || m.app_card || m.deleted_at || sharedAnswerOf(m)) return fail('not_found')
+    const id = linkedId.toLowerCase()
+    if (!cardLinks(m.body).some((l) => l.messageId === id)) return fail('not_found')
+    const s = readStored(m.link_previews)
+    const next = writeStored({ hidden: [...new Set([...(s.hidden ?? []), id])], snapshots: (s.snapshots ?? []).filter((x) => x.messageId !== id) })
+    this.db.query('UPDATE room_messages SET link_previews = ? WHERE id = ?').run(next, m.id)
+    const row = messageRow(this.db, roomId, messageId)!
+    this.messageEvent('room.message.updated', row)
+    return messagesOut(this.db, [row], me)[0]!
+  }
+
+  private takeAudienceToken(userId: string) {
+    const now = this.clock()
+    const b = this.audienceBudget.get(userId) ?? { tokens: LINK_AUDIENCE_BURST, at: now }
+    b.tokens = Math.min(LINK_AUDIENCE_BURST, b.tokens + (now - b.at) / 1000)
+    b.at = now
+    this.audienceBudget.set(userId, b)
+    if (b.tokens < 1) fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil(1 - b.tokens)) })
+    b.tokens -= 1
   }
 
   /** One token per new message (a resend of the same clientMessageId above costs none) and per reaction change; a

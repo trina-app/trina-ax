@@ -19,6 +19,7 @@ import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
+import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
@@ -51,6 +52,9 @@ export interface MessageRow {
    * as JSON (with the app's name and kind then), and whether it was posted quiet (no unread, no notice, not the list's
    * line); absent from rows made in code */
   app_id?: string | null; app_card?: string | null; app_quiet?: number
+  /** a person's message: the previews its sender removed and the snapshots they chose to show (migration 402,
+   * rooms/link-previews.ts); absent from rows made in code */
+  link_previews?: string | null
 }
 /** An event line as stored: user ids, never names (they are read when it is shown). */
 export type EventData =
@@ -62,7 +66,7 @@ export type EventData =
   | { type: 'joined' }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string; team_path?: string | null; team_stamp?: string | null }
 
-export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet'
+export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet, link_previews'
 /** Does the message on room_messages `m` mention the person `?` (picked by name, or "@전체" by someone else)? */
 export const MENTIONS_SQL = '(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) OR (m.mentions_all = 1 AND (m.author_id IS NULL OR m.author_id <> ?)))'
 
@@ -84,6 +88,8 @@ export const messageRow = (db: Database, roomId: string, id: string): MessageRow
 const pathChecks = new WeakMap<Database, (userId: string) => (rel: string) => boolean>()
 /** `check(userId)` gives one viewer's test for a list of messages (their access loaded once, each path once). */
 export function setRoomPathCheck(db: Database, check: (userId: string) => (rel: string) => boolean) { pathChecks.set(db, check) }
+/** One viewer's test of the team files they may open (none set: undefined, nothing opens). */
+export const pathCheckFor = (db: Database, userId: string): ((rel: string) => boolean) | undefined => pathChecks.get(db)?.(userId)
 
 
 /** The seq that decides who sees a message: its own, or for a thread reply its root's (a thread follows its root). */
@@ -208,11 +214,13 @@ export function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: P
 /** Messages as `viewer` sees them (all rows must be visible to them already, or listed by LIST_SQL). An old answer hidden
  * from them (rooms/history.ts), or anything in its thread, goes as one line: who and when, never its text, files,
  * sources, links, reactions or thread (RoomMessage.withheld). */
-export function messagesOut(db: Database, all: readonly MessageRow[], viewer: MemberRow): RoomMessage[] {
+/** `links`: the message links' previews (rooms/link-previews.ts): read here (default), shared by the caller (one live
+ * event to every member: prepareLinkPreviews once), or false for a reader that never shows them (search, the AI). */
+export function messagesOut(db: Database, all: readonly MessageRow[], viewer: MemberRow, links?: LinkPrep | null | false): RoomMessage[] {
   if (!all.length) return []
   const withheld = hiddenAmong(db, all, viewer)
   const rows = withheld.size ? all.filter((r) => !withheld.has(r.id)) : all
-  const out = rows.length ? shownOut(db, rows, viewer) : []
+  const out = rows.length ? shownOut(db, rows, viewer, links === false ? null : links === undefined ? prepareLinkPreviews(db, rows) : links) : []
   if (!withheld.size) return out
   const shown = new Map(out.map((m) => [m.id, m]))
   const people = refsOf(db, all.filter((r) => withheld.has(r.id)).flatMap((r) => [r.author_kind === 'ai' ? null : r.author_id, r.asked_by]))
@@ -237,7 +245,7 @@ function withheldOut(db: Database, r: MessageRow, viewer: MemberRow, people: Map
 }
 
 /** Messages as `viewer` sees them, none hidden from them. */
-function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow): RoomMessage[] {
+function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, links: LinkPrep | null): RoomMessage[] {
   const ids = rows.map((r) => r.id)
   const files = new Map<string, RoomFile[]>()
   for (const f of db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]) {
@@ -267,6 +275,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
   const opens = ai || rows.some((r) => sharedAnswerOf(r)) ? pathChecks.get(db)?.(viewer.user_id) : undefined
   // messages apps posted (rooms/apps): the app as it is now (or as it was, once removed) and its card
   const apps = appRefsOf(db, rows)
+  // the messages they link to, as this viewer may see them (rooms/link-previews.ts)
+  const previews = linkPreviewsFor(db, links, rows, viewer)
   return rows.map((r): RoomMessage => {
     const ev = events.get(r.id)
     if (r.event) {
@@ -312,6 +322,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       // the id the author's app sent it with, to the author only: a send whose answer was lost is matched to it
       ...(r.author_kind === 'user' && r.client_id && r.author_id === viewer.user_id ? { clientMessageId: r.client_id } : {}),
       ...appOut(apps, r),
+      ...(previews.get(r.id) ? { linkPreviews: previews.get(r.id)! } : {}),
     }
   })
 }
@@ -421,7 +432,7 @@ export function attachedLinksOf(scope: string | null, answerPart: string, fileId
 }
 
 /** The team files an AI answer names that this viewer may open now. */
-function openableFor(check: ((rel: string) => boolean) | undefined, body: string): string[] {
+export function openableFor(check: ((rel: string) => boolean) | undefined, body: string): string[] {
   if (!check) return []
   return answerFilePaths(body).filter((p) => { try { return check(p) } catch { return false } })
 }

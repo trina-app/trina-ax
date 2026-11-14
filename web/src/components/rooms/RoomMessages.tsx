@@ -31,7 +31,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
@@ -73,6 +73,9 @@ import { AppSender } from './apps/AppSender'
 import { appPlainText, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
 import { GuestTagFor } from '../GuestTag'
+import { copyLinkOf } from '../../lib/messageLinks'
+import { MessageLinkCard } from './MessageLinkCard'
+import { MessageLinkPreviews, usePlaceLabel } from './MessageLinkChip'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -377,6 +380,18 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
     setPress((n) => n + 1)
   })
   const { copy } = useCopy()
+  const copyLink = async () => {
+    // the team address when there is one: a link copied in the desktop app on the office network opens for the others too
+    await copy(copyLinkOf(roomId, m.id, m.threadRootId, me?.team.address, location.origin))
+    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
+  }
+  const placeLabel = usePlaceLabel()
+  const previews = !deleted && !editing ? m.linkPreviews ?? [] : []
+  // (a removed one stays a chip: no card)
+  const cards = previews.filter((p) => !p.removed)
+  const removePreview = (linked: string) => void useRooms.getState().hidePreview(roomId, m.id, linked)
+  // "Remove preview": my own message (not an AI answer, an app's card or a shared answer)
+  const mayRemovePreview = mine && !ai && !app && !m.sharedAnswer
   const copyText = async () => {
     // an app's message: its card's plain words (its body escapes Markdown marks for older apps)
     await copy(app ? appPlainText(m) : m.body)
@@ -396,7 +411,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
   const moreItems: MenuItem[] = [
     ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
+    // the message's address (docs/DECISIONS.md "Message links and their previews"): pasted elsewhere, it shows as a card
+    ...(m.visibility === 'room' && !m.event ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'message-copy-link' }] : []),
     ...(mine && !ai && !m.sharedAnswer ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
+    ...(mayRemovePreview ? cards.map((p) => ({ label: cards.length > 1 ? `${t('rooms.link.removePreview')} · ${placeLabel(p)}` : t('rooms.link.removePreview'), icon: <X size={14} aria-hidden />, onSelect: () => removePreview(p.messageId), testId: 'message-remove-preview' })) : []),
     ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
   ]
   return (
@@ -436,7 +454,13 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className={clsx('text-reading leading-reading text-faint', WORDS)}>{t('rooms.deleted')}</p>
       ) : (
         <>
-          {text && <PersonMarkdown text={text} mentions={marks} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} after={meta} />}
+          {text && (
+            <MessageLinkPreviews.Provider value={previews.length ? previews : null}>
+              <PersonMarkdown text={text} mentions={marks} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} after={meta} />
+            </MessageLinkPreviews.Provider>
+          )}
+          {/* the messages it links to, as this viewer may see them (MessageLinkCard.tsx) */}
+          {cards.map((p) => <MessageLinkCard key={p.messageId} p={p} nested={previews} onRemove={mayRemovePreview ? () => removePreview(p.messageId) : undefined} />)}
           {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} attached={attached} />}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}

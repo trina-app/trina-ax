@@ -325,6 +325,83 @@ export const RoomEventLine = z.discriminatedUnion('type', [
 ])
 export type RoomEventLine = z.infer<typeof RoomEventLine>
 
+/** Message links (docs/DECISIONS.md "Message links and their previews"): the address of a room's message as "Copy link"
+ * gives it, `https://<host>/rooms/<room>?m=<message>`, a thread reply `https://<host>/rooms/<room>/t/<root>?m=<reply>`.
+ * Pure: the server reads ids from a message's text on any host (the ids decide: another team's names nothing here), the
+ * web draws a chip only for its own origin or the team address. */
+export interface MessageLinkRef { roomId: string; messageId: string; rootId: string | null; host: string; href: string }
+/** At most this many message links of one message get a card; a message with more links than this (of any kind) gets
+ * none (Slack's rule). */
+export const MESSAGE_LINK_PREVIEWS_MAX = 5
+/** A snapshot's (and a card's) text, at most this many characters. */
+export const MESSAGE_LINK_TEXT_MAX = 4000
+const U7 = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}'
+const MESSAGE_LINK_RE = new RegExp(`https?://([A-Za-z0-9.-]+(?::\\d{1,5})?)/rooms/(${U7})(?:/t/(${U7}))?/?\\?([A-Za-z0-9\\-._~%&=+,;:!?*'(]*)`, 'g')
+/** One address as a message link, or null (another path, not uuid v7 ids, `//` or `/api/`). */
+export function parseMessageLink(href: string): MessageLinkRef | null {
+  const first = parseMessageLinks(href)[0]
+  return first && href.startsWith(first.href) && !/\s/.test(href) ? first : null
+}
+/** The message links in a text, in order, each message once (the first link to it). */
+export function parseMessageLinks(text: string): MessageLinkRef[] {
+  if (!text || !text.includes('/rooms/')) return []
+  const out: MessageLinkRef[] = []
+  const seen = new Set<string>()
+  for (const m of text.matchAll(MESSAGE_LINK_RE)) {
+    // not inside a word or another address ("xhttps://…")
+    const before = m.index ? text[m.index - 1]! : ''
+    if (before && /[A-Za-z0-9._\-/@]/.test(before)) continue
+    const query = (m[4] ?? '').replace(/[.,:;!?'*_~([{]+$/, '').split('#')[0]!
+    let id: string | null = null
+    for (const part of query.split('&')) {
+      const [k, v] = part.split('=')
+      if (k === 'm' && v && new RegExp(`^${U7}$`).test(v)) { id = v; break }
+    }
+    if (!id) continue
+    const messageId = id.toLowerCase()
+    if (seen.has(messageId)) continue
+    seen.add(messageId)
+    const rootId = m[3] ? m[3].toLowerCase() : null
+    const end = (m[0].length - (m[4] ?? '').length) + (m[4] ?? '').replace(/[.,:;!?'*_~([{]+$/, '').length
+    out.push({ roomId: m[2]!.toLowerCase(), messageId, rootId: rootId && rootId !== messageId ? rootId : null, host: m[1]!.toLowerCase(), href: m[0].slice(0, end) })
+  }
+  return out
+}
+/** How many web addresses a text holds (any kind): more than MESSAGE_LINK_PREVIEWS_MAX and no message link gets a card. */
+export const linkCount = (text: string): number => (text.match(/(?<![A-Za-z0-9._\-/@])(?:https?:\/\/|www\.)/gi) ?? []).length
+
+/** A linked message as one viewer may see it under the message that links to it (RoomMessage.linkPreviews), decided by
+ * the server for that viewer: live (they can see the original now; its conversation as they name it) or a snapshot the
+ * sender chose to show ("Show message": sharedBy, the place without anyone's name). A link they may not see and that has
+ * no snapshot has no entry at all, the same as a link to nothing. */
+export const RoomLinkPreview = z.object({
+  roomId: Uuid7,
+  messageId: Uuid7,
+  /** a thread reply: its thread's first message */
+  rootId: Uuid7.nullable(),
+  /** where it was said: live, the room as this viewer names it (its own name or the group's, the other people); a
+   * snapshot, only its kind (and a team room's name as the sender saw it), never who is in a DM or group chat */
+  place: z.object({ kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef) }),
+  author: UserRef.nullable(),
+  authorKind: z.enum(['user', 'ai']),
+  /** a message an app posted: the app (its text is plain) */
+  app: RoomAppRef.optional(),
+  mentions: z.array(UserId),
+  createdAt: IsoTime,
+  editedAt: IsoTime.nullable(),
+  /** the original was deleted: no text, no files */
+  deleted: z.boolean(),
+  /** its text (at most MESSAGE_LINK_TEXT_MAX characters); an AI answer's team-file links: `openable` as on the message */
+  body: z.string(),
+  openable: z.array(z.string()).optional(),
+  files: z.object({ count: z.number().int().nonnegative(), first: z.object({ name: z.string(), kind: z.string() }).optional() }),
+  /** a snapshot ("Show message"): who chose to show it (null: an account that is gone) */
+  sharedBy: UserRef.nullable().optional(),
+  /** the sender removed its card ("Remove preview"): the link stays a chip, no card (body '', no files) */
+  removed: z.literal(true).optional(),
+})
+export type RoomLinkPreview = z.infer<typeof RoomLinkPreview>
+
 export const RoomMessage = z.object({
   id: Uuid7,
   roomId: Uuid7,
@@ -396,6 +473,9 @@ export const RoomMessage = z.object({
    * was lost is matched to its message when that comes another way (the live event, a replay, a page read again).
    * Only ever on the viewer's own messages */
   clientMessageId: z.string().optional(),
+  /** the messages this one links to that this viewer may see (or that its sender chose to show), in link order, at most
+   * MESSAGE_LINK_PREVIEWS_MAX; absent: none (older servers never send it) */
+  linkPreviews: z.array(RoomLinkPreview).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 
@@ -611,6 +691,10 @@ export const SendRoomMessageBody = z.object({
   fileIds: z.array(Uuid7).max(ROOM_FILES_MAX).default([]),
   /** client-made id: sending the same one again (after a reconnect) returns the first message */
   clientMessageId: z.string().min(8).max(64),
+  /** "Show message": the linked messages (of links in the body) whose snapshot goes with it, for readers who cannot see
+   * them (docs/DECISIONS.md "Message links and their previews"). The server builds each from the original with my own
+   * access now; one I cannot see, or that is not a person's message, is dropped without a word */
+  showMessages: z.array(Uuid7).max(MESSAGE_LINK_PREVIEWS_MAX).optional(),
 }).strict().refine((b) => b.body.trim().length > 0 || b.fileIds.length > 0, { message: 'empty message', path: ['body'] })
 export const EditRoomMessageBody = z.object({
   body: z.string().min(1).max(ROOM_MESSAGE_MAX),
@@ -618,6 +702,22 @@ export const EditRoomMessageBody = z.object({
   /** the message keeps its "@전체" (only a send adds it: an edit notifies nobody, so it cannot add it, 400) */
   mentionsAll: z.boolean().optional(),
 }).strict()
+/** The composer's question before a send with message links: for which of them must I choose "Only show link" or "Show
+ * message"? `threadRootId`: the box is a reply in that thread (who sees the thread reads it). */
+export const MessageLinkAudienceBody = z.object({
+  links: z.array(z.object({ roomId: Uuid7, messageId: Uuid7 }).strict()).min(1).max(MESSAGE_LINK_PREVIEWS_MAX),
+  threadRootId: Uuid7.optional(),
+}).strict()
+/** Only the links I can see that someone who would read my message cannot (no names, no counts); `snapshotAllowed`: a
+ * person's own message ("Show message" is offered), not an AI answer, an app's card or a shared answer. Any other link
+ * (one I cannot see, one that is not there, one everyone here sees) is simply absent. */
+export const MessageLinkAudience = z.object({ items: z.array(z.object({
+  messageId: Uuid7, someoneCannotSee: z.literal(true), snapshotAllowed: z.boolean(),
+  /** with snapshotAllowed: the card exactly as "Show message" would store it (what the box shows before I send) */
+  preview: RoomLinkPreview.optional(),
+})) })
+export type MessageLinkAudience = z.infer<typeof MessageLinkAudience>
+export const HideLinkPreviewBody = z.object({ linkedMessageId: Uuid7 }).strict()
 export const MarkRoomReadBody = z.object({ seq: z.number().int().nonnegative() }).strict()
 /** my position and badge after a read; mentioned: an unread message or followed reply still mentions me (older servers
  * omit it) */
@@ -718,6 +818,8 @@ export const ROOMS = {
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
   reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: `Put a reaction (any one emoji) on a message I can see, or take mine off. A message carries at most ${ROOM_REACTION_EMOJI_MAX} different emoji: a new one past that is refused (409, reason reactions_full). Never notifies.` }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
+  roomMessageLinkAudience: endpoint({ method: 'POST', path: '/api/rooms/:id/message-links/audience', auth: 'user', owner: 'B', body: MessageLinkAudienceBody, response: MessageLinkAudience, summary: 'Before sending message links into a room I am in: the links I can see that someone who would read my message cannot (yes/no only, never who or how many), and whether "Show message" may go with each. Anything else is left out, the same for a message that is not there. Rate limited (429).' }),
+  hideRoomLinkPreview: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/hide-preview', auth: 'user', owner: 'B', body: HideLinkPreviewBody, response: RoomMessage, summary: 'Remove the preview of one message link from my own message, for everyone (its snapshot is deleted). The message is not marked edited.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),

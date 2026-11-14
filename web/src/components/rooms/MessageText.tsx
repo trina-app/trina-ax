@@ -13,6 +13,8 @@ import { classifyLink } from '../../lib/markdown'
 import { mobileApp } from '../../lib/mobile'
 import { openTeamFile } from '../../lib/sidePanel'
 import { addressPieces, linkParts } from '../../lib/textLinks'
+import { messagePath, ownMessageLink } from '../../lib/messageLinks'
+import { CHIP, MessageLinkChipBody, useLinkHosts, useMessageLinkPreviews } from './MessageLinkChip'
 import { useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { useCopy } from '../ui'
@@ -44,9 +46,15 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
   const { copy } = useCopy()
   // the last touch on it: when it went down, and whether it was held long enough to open the message's menu
   const press = useRef({ down: 0, long: false })
+  // a link to a message of this team that the server gave this viewer a preview of: a chip with the place's name
+  // (MessageLinkChip.tsx), opened in the app by its path (also a link on the team address while this page runs on another)
+  const previews = useMessageLinkPreviews()
+  const hosts = useLinkHosts()
+  const own = text !== undefined && previews?.length ? ownMessageLink(href, hosts, origin()) : null
+  const preview = own ? previews!.find((p) => p.messageId === own.messageId) : undefined
   const l = classifyLink(href, origin())
   // (classifyLink gives no path that starts with "//": the router would open that as another site, in this tab)
-  if (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href))) return <>{children ?? text}</>
+  if (!preview && (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href)))) return <>{children ?? text}</>
   // (a <wbr> breaks a line even where white-space is nowrap)
   const words: ReactNode = children !== undefined ? children : oneLine || text === undefined ? text : addressPieces(text).map((piece, i) => (
     <Fragment key={i}>
@@ -54,7 +62,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
       {piece}
     </Fragment>
   ))
-  const own = {
+  const props = {
     className: LINK,
     'data-testid': 'room-link',
     onPointerDown: (e: PointerEvent) => {
@@ -77,9 +85,16 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
     e.preventDefault()
     return true
   }
+  if (preview)
+    return (
+      <Link to={messagePath(preview)} {...props} className={CHIP} data-testid="message-link-chip" onClick={(e) => void held(e)}>
+        <MessageLinkChipBody preview={preview} />
+      </Link>
+    )
+  if (l.kind === 'blocked') return <>{children ?? text}</>
   if (l.kind === 'app')
     return (
-      <Link to={l.href} {...own} onClick={(e) => void held(e)}>
+      <Link to={l.href} {...props} onClick={(e) => void held(e)}>
         {words}
       </Link>
     )
@@ -87,7 +102,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
     return (
       <a
         href={href}
-        {...own}
+        {...props}
         onClick={(e) => {
           if (held(e) || ownClick(e)) return
           e.preventDefault()
@@ -103,7 +118,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
       target="_blank"
       rel="noopener noreferrer nofollow"
       referrerPolicy="no-referrer"
-      {...own}
+      {...props}
       onClick={(e) => {
         if (held(e) || !l.href.startsWith('http:') || !mobileApp()) return
         e.preventDefault()

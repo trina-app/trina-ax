@@ -27984,3 +27984,49 @@ part. The picker groups, guides, logos and the Slack words in the web app come i
 - Tests: tests/unit/b-room-apps-presets.test.ts (incl. the quote-injection fixture), b-room-app-signatures.test.ts;
   tests/security/lib/room-apps-cases.ts (no_signing, preset fixed).
 - Version impact: **minor**.
+
+## Message links and their previews — 메시지 링크 미리보기 (feat/message-link-previews, 2026-11-15, the owner, plan docs/AGENTS/plan/20261114-1705-message-link-previews.md)
+
+The owner asked for Slack's behaviour: copy a message's link, paste it, and the message shows under it as a card that
+opens it; for people who may not see it, "the same way as Slack". Read as the same behaviour and structure, in our own
+words and components.
+
+- **Copy link** in a message's ⋮ menu and long-press sheet: `/rooms/<room>?m=<message>` (a reply
+  `/rooms/<room>/t/<root>?m=<reply>`) on the team address (GET /api/me team.address) when there is one, else this page's
+  origin: in the desktop app on an office network the page is a LAN address others cannot open.
+- **Previews are decided on the server, per viewer, per read**, inside `messagesOut` (rooms/link-previews.ts), so every
+  list and the live event give the same answer: the viewer's member row of the original's room, the room not archived,
+  the DM still open to them (guests), `canSee` (where they see the room from, hidden old answers and their threads,
+  private previews), the link's room and thread its own. The place is named as the viewer names it, never stored.
+  Batched per read: the linked rows, rooms, files, people and apps once (once per live event for all members), the
+  viewer's member rows in one query; at most 100 linked messages per read, 5 cards per message, none when a message has
+  more than 5 links of any kind (Slack's rule).
+- **No trace for no access**: a link the viewer may not see, one to nothing and another team's all give a message with
+  no `linkPreviews` field; the web leaves the address the plain link it was, and the room opens on its usual "can't be
+  found". The web draws a chip only for its own host or the team address.
+- **Show message (Slack's private-link prompt)**: when the box holds links some reader of the room or thread cannot see,
+  the composer asks `POST /api/rooms/:id/message-links/audience` (yes per link only, never names or counts; a link the
+  sender cannot see answers exactly as one that is not there; 30 then one a second per person) and shows one line with
+  **Only show link** (default) / **Show message**. Show message is a person's explicit, per-link consent: the server
+  builds a frozen snapshot from the original with the sender's own access at send time (`showMessages` on the web send
+  only; never an AI, an app, the Team AX connector or an import). This does not contradict "Nothing read is sent wider":
+  that rule binds what an AI does for a person; a person who can read a message choosing to show it after a warning is
+  the same human-consent pattern as "대화방에 보내기" and the widening cards.
+- **A snapshot's boundaries**: only a person's own message (never an AI answer, an app's card or a shared answer: those
+  carry team-file links and what they read, and have their own way to a room); text at most 4,000 characters; files as a
+  count and the first name (no ids, no contents); mentions as ids (names read when shown; they notify nobody); a DM or
+  group chat by its kind only ("Direct message", "Group chat"), a team room by its name as the sender saw it; marked
+  "Shared by". Its words are wiped when the original is deleted, when the sender removes the preview, when an edit takes
+  the link out and when the message holding it is deleted. An edit never makes one (it notifies nobody and cannot widen).
+- **Remove preview**: `POST /api/rooms/:id/messages/:messageId/hide-preview`, the author of a person's message only (404
+  otherwise, as for a message that is not theirs), not through the edit route (no "(edited)").
+- Push, the rooms list's line, search and every AI read (rooms/reader.ts) get the typed text only (the address holds
+  ids, no name or content); they never read previews or snapshots (`messagesOut(…, false)`).
+- Storage: migration 402 `room_messages.link_previews` (JSON: removed previews and snapshots; ids, never names).
+- Step 0 (2026-11-15, Slack test workspace, read only): the ⋮ menu has **Copy link**; a pasted message link in the box
+  turns into the conversation's name ("<me> with <them>" for a DM) with a preview card ("Direct message" as its label)
+  that the writer can remove with "Remove link preview" before sending. No "Show message" prompt appeared there (every
+  reader could see the message); the non-member view could not be checked with one account, so the plan's behaviour
+  stands.
+- Not in v1: AI chat messages and `/c/<id>` links, links to a whole room, Forward, a per-person "no previews" setting,
+  Slack's one-hour repeat rule, thumbnails in a card, live updates of cards in other rooms, other websites' previews.

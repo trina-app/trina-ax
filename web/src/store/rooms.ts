@@ -68,6 +68,8 @@ export interface PendingSend {
   threadRootId: string | null
   /** a reply also sent to the room */
   alsoInRoom: boolean
+  /** "Show message" for these linked messages (SendRoomMessageBody.showMessages) */
+  showMessages?: string[]
   state: 'sending' | 'failed'
   error?: string
   createdAt: string
@@ -355,7 +357,7 @@ const myRef = () => {
   return s.kind === 'signed-in' ? { id: s.me.user.id, name: s.me.user.name } : null
 }
 
-export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
+export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean; showMessages?: string[] }
 
 interface RoomsState extends RoomsData {
   kept: Record<string, KeptTimeline>
@@ -413,6 +415,8 @@ interface RoomsState extends RoomsData {
    * Never rejects: false when it failed and nothing newer of it was made since (the box can open again with the text) */
   edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<boolean>
   remove: (roomId: string, messageId: string) => Promise<void>
+  /** "Remove preview" on my own message: that link's card goes for everyone (a failure says so in a toast) */
+  hidePreview: (roomId: string, messageId: string, linkedMessageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
@@ -783,7 +787,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
   const post = async (roomId: string, p: PendingSend) => {
     try {
-      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
+      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}), ...(p.showMessages?.length ? { showMessages: p.showMessages } : {}) } })
       goneElsewhere.delete(p.clientMessageId)
       patchMessages((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
@@ -1113,7 +1117,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     send(roomId, input) {
-      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
+      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, ...(input.showMessages?.length ? { showMessages: input.showMessages } : {}), state: 'sending', createdAt: new Date().toISOString() }
       setPending(roomId, (list) => [...list, p])
       void post(roomId, p)
       // sent from a window around an older message: back to the newest, where it goes
@@ -1162,8 +1166,21 @@ export const useRooms = create<RoomsState>((set, get) => {
       // the room.message.updated event says the same; show it at once
       const m = findMessage(get(), roomId, messageId)
       if (m) {
-        const { reactions: _r, ...rest } = m
+        const { reactions: _r, linkPreviews: _l, ...rest } = m
         patchMessages((s) => withUpdatedMessage(s, roomId, { ...rest, body: '', files: [], mentions: [], deletedAt: new Date().toISOString() }))
+      }
+    },
+
+    async hidePreview(roomId, messageId, linkedMessageId) {
+      const m = findMessage(get(), roomId, messageId)
+      // gone from the screen at once; the server's message (and its room.message.updated) says the same
+      if (m?.linkPreviews) patchMessages((s) => withUpdatedMessage(s, roomId, { ...m, linkPreviews: m.linkPreviews!.map((p) => (p.messageId === linkedMessageId ? { ...p, removed: true as const, body: '', files: { count: 0 } } : p)) }))
+      try {
+        const next = await api.call(API.hideRoomLinkPreview, { params: { id: roomId, messageId }, body: { linkedMessageId } })
+        patchMessages((s) => withUpdatedMessage(s, roomId, next))
+      } catch (e) {
+        if (m) patchMessages((s) => withUpdatedMessage(s, roomId, m))
+        toast({ level: 'error', text: errorText(e, currentLocale(), t('error.network')) })
       }
     },
 

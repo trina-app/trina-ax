@@ -124,6 +124,18 @@ many replies a thread has; **Also send to the room** puts a reply in the room to
 
 ![A thread open beside the room: the first message and its replies, with a box to reply](../images/chats/thread.webp "A thread")
 
+#### Link to a message
+
+**Copy link** in a message's **⋯** menu (on a phone, press and hold the message) copies its address. Paste it in any
+room, group conversation, direct message or thread: it shows as the conversation's name, and the message shows under it
+as a card with who wrote it, when, its words and its files. Click the card to open the message.
+
+Each person sees the card only if they can see that message. For everyone else the link stays a plain link, and opening
+it says the conversation can't be found. When some people in the conversation can't see the message, the box says so
+before you send: **Only show link** (the default) sends just the link; **Show message** shows them a copy of the message,
+marked as shared by you. A copy goes away if the original is deleted. To take a card off your own message, point at it
+and click **✕** (or choose **Remove preview** in the message's menu).
+
 ![Chats on a phone: Mentions & threads, team rooms and direct messages, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
 
 ## Projects

@@ -57,6 +57,7 @@ import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
+import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
 
 interface Upload {
   key: number
@@ -289,6 +290,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const ready = files.filter((f) => f.status === 'done')
   const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX && !voice.busy
 
+  // links to messages some readers here cannot see: Slack's "Only show link" / "Show message" (MessageLinkChoice.tsx)
+  const linkChoice = useLinkChoice(roomId, threadRootId, text)
   const all = mention.mentionsAll()
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
@@ -304,7 +307,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setAsking(false)
     // "stopped" before the message, so nobody sees it arrive under "… is typing"
     typing.stop()
-    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
+    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom, ...(linkChoice.showMessages.length ? { showMessages: linkChoice.showMessages } : {}) })
+    linkChoice.reset()
     setText('')
     setFiles([])
     mention.reset()
@@ -440,6 +444,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             </div>
           </div>
         )}
+        {!voice.recording && <MessageLinkChoice choice={linkChoice} />}
         {files.length > 0 && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
           // pictures are one pane of the image viewer (← →)

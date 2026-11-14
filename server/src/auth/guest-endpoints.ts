@@ -63,6 +63,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.markRoomThreadRead,
   API.reactRoomMessage,
   API.editRoomMessage,
+  API.roomMessageLinkAudience,
+  API.hideRoomLinkPreview,
   API.deleteRoomMessage,
   API.markRoomRead,
   API.listRoomMembers,
