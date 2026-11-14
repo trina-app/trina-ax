@@ -156,7 +156,7 @@ test('keyboard: Tab reaches the bar and shows it, each button is named, Esc clos
   // my own message: copy, edit, delete
   await page.keyboard.press('Enter')
   await expect(page.getByRole('menu')).toBeVisible()
-  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사', '수정', '삭제'])
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사', '링크 복사', '수정', '삭제'])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(more).toBeFocused()
@@ -165,9 +165,9 @@ test('keyboard: Tab reaches the bar and shows it, each button is named, Esc clos
     await page.keyboard.press('Shift+Tab')
     await expect(page.locator(':focus')).toHaveAttribute('aria-label', name)
   }
-  // someone else's message: copy only
+  // someone else's message: copy and its link only
   const theirs = page.getByTestId('room-message').nth(1)
   await theirs.hover()
   await theirs.getByTestId('message-more').click()
-  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사'])
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['복사', '링크 복사'])
 })

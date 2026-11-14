@@ -418,7 +418,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
     const view = roomOut(db, r.room, r.me)
     const title = titleOf(view)
     const rows = top.filter((h) => h.mine === r).map((h) => h.row)
-    for (const m of messagesOut(db, rows, r.me)) shown.set(m.id, messageText({ ...m, body: excerpt(m.body, words) }, userId, tz, { room: title, roomId: r.room.id }))
+    for (const m of messagesOut(db, rows, r.me, false)) shown.set(m.id, messageText({ ...m, body: excerpt(m.body, words) }, userId, tz, { room: title, roomId: r.room.id }))
     seen.set(r.room.id, Math.min(...rows.map((x) => seenSeq(x))))
   }
   const parts: string[] = []
@@ -490,7 +490,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   }
   const more = rows.length > limit
   const page = rows.slice(0, limit)
-  const out = messagesOut(db, page, me)
+  const out = messagesOut(db, page, me, false)
   // newest first until the result is full; a deleted root whose replies I cannot see is nothing to me
   const parts: string[] = []
   const used: MessageRow[] = []
@@ -505,7 +505,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
     total += t.length
   }
   parts.reverse()
-  const rootText = root ? messageText(messagesOut(db, [root], me)[0]!, userId, tz) : ''
+  const rootText = root ? messageText(messagesOut(db, [root], me, false)[0]!, userId, tz) : ''
   const oldest = used.at(-1)
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')

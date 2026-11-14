@@ -57,7 +57,11 @@ export const roomsRoutes: RouteModule = {
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
-    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale') }))
+    kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
+    // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's
+    // "someone here can't see that message" question, and the sender's "Remove preview"
+    kit.handle(API.roomMessageLinkAudience, ({ auth, params, body }) => rooms.linkAudience(auth.user.id, params.id, body))
+    kit.handle(API.hideRoomLinkPreview, ({ auth, params, body }) => rooms.hidePreview(auth.user.id, params.id, params.messageId, body.linkedMessageId))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
