@@ -38,7 +38,7 @@ and translate it; translate `assets/*.en.md` to `*.<locale>.md`; copy `source/ba
    do?" ① Three file reads, then what Steepling does, Mina's job, this week (Monday's launch), and Sara, Leo and
    Daniel as "People to know". Then Sara's DM arrives.
 2. **Sara's DM** with the project card.
-3. **Project**: Leo's banner, one suggestion: "Make a new background with Higgsfield". ② Two Higgsfield steps (the
+3. **Project**: Leo's banner, one suggestion: "Follow our brand guide and make a new background with Higgsfield". ② Two Higgsfield steps (the
    hero photo, then the square and story from the same shot), then in the answer: before (Leo's) and after, the
    square and the story, three captions. Five files are saved: web banner 1200×628, Instagram square 1080×1080 and
    story 1080×1920, captions, the Higgsfield photo. Then "Send to #Marketing".

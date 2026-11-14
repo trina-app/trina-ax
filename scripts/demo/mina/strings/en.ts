@@ -92,7 +92,7 @@ export const en = {
       },
     },
     banner: {
-      prompt: 'Make a new background with Higgsfield',
+      prompt: 'Follow our brand guide and make a new background with Higgsfield',
       text: [
         'Shot it with Higgsfield: our green pouch and an iced Yuzu Ginger by a frosted window. The square and the story come from the same shot, so the pouch matches everywhere.',
         '',
