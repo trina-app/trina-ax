@@ -112,6 +112,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'team_file_refs.user_id': 'a team file attached in a chat: goes with that chat',
   'chat_connection_urls.user_id': 'an address used in a chat: goes with that chat',
   'project_leavers.user_id': 'that they left a project: keeps them from being added back by an old rule',
+  'guests.invited_by': 'who invited a guest: the guest\'s row must not go with the inviter\'s account (the id then names the deleted account)',
 }
 
 /** Component A's rows (auth module init): sign-ins, sign-in networks, the person's own notices and settings. Their
@@ -126,6 +127,8 @@ export function registerAccountsCleanup(ctx: AppContext): void {
       'member_welcome.user_id', 'group_member_since.user_id',
       'account_deletion_notices.user_id', 'account_deletion_due_notices.user_id', 'reset_link_notices.user_id', 'handover_notices.user_id',
       'hosting_notices.user_id', 'credential_change_notices.user_id', 'team_join_notices.user_id',
+      // a deleted guest's place and AI choice (docs/DECISIONS.md "Guests: only what they were invited to")
+      'guests.user_id',
     ],
   })
 }

@@ -542,6 +542,10 @@ export const SPECS: Record<string, Spec> = {
   endPendingConnections: { build: (c) => c.post('/api/admin/handover/end-pending', { transferId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
   listInvites: { build: (c) => c.get('/api/admin/invites'), scope: 'byLevel' },
   createInvite: { build: (c) => c.post('/api/admin/invites', { role: 'member', groupIds: [] }), scope: 'byLevel' },
+  // guests (docs/DECISIONS.md "Guests: only what they were invited to"): convert / AI of an unknown account (the guest
+  // invite is in rooms-cases.ts)
+  convertGuest: { build: (c) => c.post('/api/admin/users/nobody-here/convert-guest'), scope: 'byLevel', allowNotFound: true },
+  updateGuestAi: { build: (c) => c.patch('/api/admin/users/nobody-here/guest-ai', { mode: 'none' }), scope: 'byLevel', allowNotFound: true },
   revokeInvite: { build: (c, w) => c.del(`/api/admin/invites/${w.ids.invite}`), scope: 'byLevel' },
   listGroups: { build: (c) => c.get('/api/admin/groups'), scope: 'byLevel' },
   createGroup: { build: (c) => c.post('/api/admin/groups', { name: 'g' + Math.random().toString(36).slice(2, 6), memberIds: [] }), scope: 'byLevel' },
