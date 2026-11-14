@@ -90,9 +90,12 @@ type updater struct {
 	busy      int
 	busyWith  string
 	// say: an administrator's wait, which tells on stderr how many answers it waits for
-	say       bool
-	deferred  bool
-	turnedOff bool
+	say bool
+	// adminUntil: the end of an unscheduled run's wait (an administrator's `mycel-ctl update`, the dev server's timer):
+	// one deadline for the root files and the app together, so the two waits are never maxWait each
+	adminUntil time.Time
+	deferred   bool
+	turnedOff  bool
 	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
 	// that one, so a release published while the gate waited for a quiet moment waits for the next check's own gate
 	gateVersion string
@@ -135,7 +138,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	onlyRoot := fs.Bool("only-if-needs-root", false, "do nothing unless the release changes root files (the update timer)")
 	scheduled := fs.Bool("scheduled", false, "the update timer: only inside the team's update window (team time zone), when it is this server's turn in a release's staged roll-out, and only when no answer runs; waits for a quiet moment instead of interrupting answers")
 	asJSON := fs.Bool("json", false, "JSON output")
-	maxWait := fs.Int("max-wait", 600, "seconds to wait for running turns before replacing root files")
+	maxWait := fs.Int("max-wait", -1, "seconds to wait for running turns before replacing root files or restarting the app (answers still running then stop and can be sent again); default 1800, 600 on a hosted server")
 	healthWait := fs.Int("health-timeout", 180, "seconds to wait for the new version's /api/health")
 	var extra multiFlag
 	fs.Var(&extra, "pubkey", "extra release public key (base64 Ed25519; key rotation and tests)")
@@ -184,6 +187,14 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	in, err := loadInstall(e)
 	if err != nil {
 		return finish(1, err)
+	}
+	if *maxWait < 0 {
+		// a hosted server's control plane gives the whole update command 1800 s (shared/src/cloud-protocol
+		// tenant-commands.ts), so its wait stays the old 600 s; a self-installed server waits up to 30 minutes
+		*maxWait = 1800
+		if in.Hosted {
+			*maxWait = 600
+		}
 	}
 	u := &updater{e: e, in: in, keys: append(append([]string{}, bundle.ReleaseKeys...), extra...), maxWait: time.Duration(*maxWait) * time.Second,
 		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res, scheduled: *scheduled}
@@ -1224,9 +1235,12 @@ func copyFile(src, dest string) error {
 // quietBy and then gives up (false) instead, unless force.
 func (u *updater) waitForTurns() bool {
 	if !u.scheduled {
+		if u.adminUntil.IsZero() {
+			u.adminUntil = u.e.now().Add(u.maxWait)
+		}
 		u.say = true
 		defer func() { u.say = false }()
-		u.waitQuiet(u.e.now().Add(u.maxWait))
+		u.waitQuiet(u.adminUntil)
 		return true
 	}
 	return (u.waitQuiet(u.quietBy) || u.force) && !u.turnedOff
@@ -1235,6 +1249,12 @@ func (u *updater) waitForTurns() bool {
 // waitQuiet asks the launcher until it runs no turn and the server runs no maintenance (true) or the deadline passes
 // (false; u.busy and u.busyWith are the last answers).
 func (u *updater) waitQuiet(deadline time.Time) bool {
+	marked := false
+	defer func() {
+		if marked {
+			_ = os.Remove(u.e.root(updateWaitingFile))
+		}
+	}()
 	for i := 0; ; i++ {
 		if i > 0 && i%12 == 0 && u.timerTurnedOff() { // about once a minute
 			u.turnedOff = true
@@ -1247,6 +1267,11 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		}
 		if err == nil && n == 0 && m == "" {
 			return true
+		}
+		if !marked {
+			// the server reads it (server/src/system/update-wait.ts): it starts no scheduled run and no long
+			// foreground command meanwhile, and Admin says what the update waits for
+			marked = markUpdateWaiting(u.e, u.e.now(), deadline) == nil
 		}
 		if u.say && err == nil && (n != u.busy || m != u.busyWith || i == 0) {
 			// an administrator's update: what it waits for, on stderr (stdout stays the result, also with --json)
@@ -1263,6 +1288,15 @@ func (u *updater) waitQuiet(deadline time.Time) bool {
 		}
 		u.sleep(schedulePoll)
 	}
+}
+
+// updateWaitingFile (root/, read by the server account like root/VERSION): an update waits for running work to end
+// before the server restarts, until `until`. Removed when the wait ends; the server ignores one whose until passed.
+const updateWaitingFile = "update-waiting.json"
+
+func markUpdateWaiting(e *env, now, until time.Time) error {
+	b, _ := json.Marshal(map[string]string{"since": now.UTC().Format(time.RFC3339), "until": until.UTC().Format(time.RFC3339)})
+	return writeRootFile(e.root(updateWaitingFile), append(b, '\n'), 0o644)
 }
 
 // launcherLiveTurns asks the launcher how many turns run. The launcher answers only the server account (peer
@@ -1414,7 +1448,10 @@ func (u *updater) updateApp(dir, v string) error {
 			return err
 		}
 	}
-	if u.scheduled && !u.waitForTurns() {
+	// every run waits for the running answers before the server restarts (an administrator's and the dev server's
+	// timer too, which runs this without --scheduled: an app-only update used to restart at once and cut a render off
+	// mid-way); a scheduled run that found no quiet moment leaves the update for later
+	if !u.waitForTurns() {
 		// root files may be new already; the app (a server restart) waits like the rest
 		return u.deferUpdate(v, "the app not switched yet")
 	}

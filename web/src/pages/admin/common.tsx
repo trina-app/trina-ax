@@ -381,12 +381,24 @@ export function useReauthCall() {
  * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
  * selected for another try (QA TC-221: restore closed the dialog and the owner started over).
  */
-export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
+/** `alt`: a second way to go on with the same password (the update's "Update now anyway" beside "Wait, then update") */
+export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (password: string) => Promise<string | null | void> }; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
   const t = useT()
   const [pw, setPw] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const go = async (confirmWith: (password: string) => Promise<string | null | void>) => {
+    setBusy(true)
+    setError(null)
+    const refused = await confirmWith(pw)
+    setBusy(false)
+    if (refused) {
+      setError(refused)
+      input.current?.focus()
+      input.current?.select()
+    }
+  }
   return (
     <Modal
       open
@@ -397,22 +409,17 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
+          {alt && (
+            <Button variant="secondary" disabled={!pw || busy} data-testid={alt.testId} onClick={() => void go(alt.onConfirm)}>
+              {alt.label}
+            </Button>
+          )}
           <Button
             variant={danger ? 'danger' : 'primary'}
             busy={busy}
             disabled={!pw}
             data-testid="reauth-confirm"
-            onClick={async () => {
-              setBusy(true)
-              setError(null)
-              const refused = await onConfirm(pw)
-              setBusy(false)
-              if (refused) {
-                setError(refused)
-                input.current?.focus()
-                input.current?.select()
-              }
-            }}
+            onClick={() => void go(onConfirm)}
           >
             {confirm}
           </Button>

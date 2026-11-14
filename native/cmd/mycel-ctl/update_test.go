@@ -742,3 +742,115 @@ func TestInstallScriptRetiresBoxRunner(t *testing.T) {
 		}
 	})
 }
+
+// The app's switch waits too (the dev server's timer runs `mycel-ctl update` without --scheduled for every
+// dev build) waits for the running answers before it restarts the server, as root files did already: an app-only
+// update used to restart at once and cut a render off mid-way. While it waits, root/update-waiting.json tells the
+// server (it starts no scheduled run meanwhile, server/src/system/update-wait.ts); it is gone afterwards.
+func TestAppOnlyUpdateWaitsForRunningAnswers(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	systemdRunDir = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := base64.StdEncoding.EncodeToString(pub)
+	marker := filepath.Join(tb.base, "root", updateWaitingFile)
+	// the root files' wait finds it quiet; answers start after it, before the app's switch
+	left := []int{0, 2, 2, 1}
+	polls, sawMarker, switchedWhileBusy := 0, false, false
+	updateHooks(t, tb, func(v string) {
+		switchedWhileBusy = len(left) > 0
+		os.Remove(filepath.Join(tb.base, "app/current"))
+		os.Symlink("versions/"+v, filepath.Join(tb.base, "app/current"))
+		tb.health.Store(v)
+	})
+	prev := updateTestHook
+	updateTestHook = func(u *updater) {
+		prev(u)
+		u.liveTurns = func() (int, error) {
+			polls++
+			if len(left) == 0 {
+				return 0, nil
+			}
+			n := left[0]
+			left = left[1:]
+			return n, nil
+		}
+		u.sleep = func(time.Duration) {
+			if b, err := os.ReadFile(marker); err == nil && strings.Contains(string(b), `"until"`) {
+				sawMarker = true
+			}
+		}
+	}
+	arch := filepath.Join(t.TempDir(), "a.tar.zst")
+	mkArchive(t, signedBundle(t, "0.2.0", priv, "new launcher"), arch, nil)
+	code, out, errs := tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	var r UpdateResult
+	if err := json.Unmarshal([]byte(out), &r); err != nil || code != 0 || r.Result != "ok" || !r.AppUpdated {
+		t.Fatalf("%d %q %s", code, out, errs)
+	}
+	if switchedWhileBusy || polls < 5 {
+		t.Fatalf("switched before the answers ended (polls %d)", polls)
+	}
+	if !strings.Contains(errs, "waiting for 2 running answer(s)") || !strings.Contains(errs, "waiting for 1 running answer(s)") {
+		t.Fatalf("stderr: %q", errs)
+	}
+	if !sawMarker {
+		t.Fatal("no root/update-waiting.json while the update waited")
+	}
+	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+		t.Fatalf("root/update-waiting.json left after the wait: %v", err)
+	}
+}
+
+// An unscheduled run waits at most --max-wait in all: root files and the app share one deadline, and the answers still
+// running then are stopped for the update (they can be sent again).
+func TestUnscheduledUpdateSharesOneDeadline(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	systemdRunDir = filepath.Join(t.TempDir(), "none")
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := base64.StdEncoding.EncodeToString(pub)
+	updateHooks(t, tb, func(v string) {
+		os.Remove(filepath.Join(tb.base, "app/current"))
+		os.Symlink("versions/"+v, filepath.Join(tb.base, "app/current"))
+		tb.health.Store(v)
+	})
+	clock := time.Now()
+	prev := updateTestHook
+	updateTestHook = func(u *updater) {
+		prev(u)
+		u.e.now = func() time.Time { return clock }
+		u.liveTurns = func() (int, error) { return 1, nil } // never quiet
+		u.sleep = func(d time.Duration) { clock = clock.Add(d) }
+	}
+	run := func(name string, args ...string) time.Duration {
+		start := clock
+		arch := filepath.Join(t.TempDir(), name+".tar.zst")
+		mkArchive(t, signedBundle(t, name, priv, "launcher "+name), arch, nil)
+		code, out, errs := tb.ctl("", append([]string{"update", "--bundle", arch, "--pubkey", k, "--json"}, args...)...)
+		var r UpdateResult
+		if err := json.Unmarshal([]byte(out), &r); err != nil || code != 0 || !r.AppUpdated || !r.RootUpdated {
+			t.Fatalf("%s: %d %q %s", name, code, out, errs)
+		}
+		return clock.Sub(start)
+	}
+	if w := run("0.2.0", "--max-wait", "60"); w < 60*time.Second || w > 70*time.Second {
+		t.Fatalf("waited %v in all, want about --max-wait (60 s) once", w)
+	}
+	// the default: 30 minutes on a self-installed server
+	if w := run("0.3.0"); w < 30*time.Minute || w > 31*time.Minute {
+		t.Fatalf("default wait %v, want 30 minutes", w)
+	}
+	// a hosted server: 600 s, inside the 1800 s its control plane gives the whole command
+	ij := filepath.Join(tb.base, "root/install.json")
+	b, err := os.ReadFile(ij)
+	must(t, err)
+	var m map[string]any
+	must(t, json.Unmarshal(b, &m))
+	m["hosted"] = true
+	b, _ = json.Marshal(m)
+	must(t, os.WriteFile(ij, b, 0o644))
+	if w := run("0.4.0"); w < 10*time.Minute || w > 11*time.Minute {
+		t.Fatalf("hosted default wait %v, want 10 minutes", w)
+	}
+}

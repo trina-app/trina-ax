@@ -22,6 +22,7 @@ import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } f
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
+import { beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
@@ -1175,6 +1176,25 @@ describe('the storage rule before each command', () => {
   test('where the rule is not enforced the command runs', async () => {
     configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
     expect((await alice().call({ command: 'echo hi' })).isError).toBeUndefined()
+  })
+})
+
+describe('an update waits for running work (system/update-wait.ts)', () => {
+  test('a long foreground command is refused while an update waits; a short one and a job (it runs through the restart) go', async () => {
+    beginUpdateWait(new Date(), new Date(Date.now() + 60_000))
+    try {
+      const long = await alice({ project: null, chat: chatPlain }).call({ command: 'npx remotion render', timeout_sec: 1800 })
+      expect(long.isError).toBe(true)
+      expect(out(long)).toContain('a Trina update is waiting for running tasks to finish')
+      expect(out(long)).toContain('job=true')
+      expect(runs.size).toBe(0)
+      expect((await alice({ project: null, chat: chatPlain }).call({ command: 'echo short' })).isError).toBeUndefined()
+      const job = await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })
+      expect(out(job)).toContain('Started as job render')
+    } finally { endUpdateWait() }
+    // no update waiting: the long command runs
+    for (const r of runs.values()) if (r.state === 'active') { r.state = 'gone'; r.resolve({ code: 0, signal: null }) }
+    expect(out(await alice({ project: null, chat: chatPlain2 }).call({ command: 'echo long', timeout_sec: 1800 }))).not.toContain('update is waiting')
   })
 })
 

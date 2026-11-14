@@ -1,5 +1,6 @@
 // One update run, shared by the owner's "update now" (routes/system.ts) and a Linux self-host's automatic update
-// (system/ops.ts autoUpdateTick): wait for running answers (up to 10 minutes; what still runs then is interrupted),
+// (system/ops.ts autoUpdateTick): wait for running answers (up to 30 minutes, none when the owner chose "Update now
+// anyway"; what still runs then is interrupted and says so, with Try again; system/update-wait.ts),
 // back up the DB, bring the version in, switch app/current and restart. The bootstrap health-checks the new version
 // and rolls back to the previous one when it does not come up (native/cmd/mycel-bootstrap). Component G.
 import type { Database } from 'bun:sqlite'
@@ -8,16 +9,18 @@ import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
 import { zonedDay, zonedParts, zonedToUtc } from './time-zone'
+import { beginUpdateWait, endUpdateWait } from './update-wait'
 import { UpdateError, compareVersions, inRollout, releaseNeedsRoot, type ReleaseFeed, type UpdateManager } from './update'
 import type { z } from 'zod'
 
-export const UPDATE_WAIT_MS = 10 * 60_000
+/** the longest an update waits for running work before it restarts the server (mycel-ctl's --max-wait default too) */
+export const UPDATE_WAIT_MS = 30 * 60_000
 /** a version the bootstrap rolled back (or an automatic try of it) is not tried again automatically for this long */
 export const AUTO_HOLD_MS = 7 * 86_400_000
 /** the team's update window when Admin > Settings has none (team time zone) */
 export const DEFAULT_UPDATE_WINDOW = '03:00-05:00'
 
-const waitingTurns = (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai`, ja: `${String(n) + "件の実行中の回答"}の完了を待機中`, es: `Esperando a que termine ${enPlural(n, "respuesta en curso", "respuestas en curso")}` })
+export const waitingTasks = (n: number) => ({ ko: `업데이트가 진행 중인 작업 ${n}개가 끝나기를 기다리고 있어요`, en: `An update is waiting for ${enPlural(n, 'running task', 'running tasks')} to finish`, id: `Pembaruan menunggu ${n} tugas yang sedang berjalan selesai`, ja: `更新は実行中のタスク${n}件の完了を待っています`, es: `Una actualización espera a que ${n === 1 ? 'termine 1 tarea en curso' : `terminen ${n} tareas en curso`}` })
 const restarting = { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." }
 
 export interface RunUpdateDeps {
@@ -30,16 +33,23 @@ export interface RunUpdateDeps {
   progress?: (fraction: number | null, message: string | null) => void
   sleep?: (ms: number) => Promise<void>
   waitMs?: number
+  /** the owner chose "Update now anyway": no wait (what runs is stopped and says so) */
+  force?: boolean
 }
 
 export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: boolean; rollback: boolean }): Promise<{ fromVersion: string; toVersion: string; rolledBack: boolean }> {
   const progress = d.progress ?? (() => {})
   const sleep = d.sleep ?? ((ms: number) => Bun.sleep(ms))
-  // 1) let running answers finish
-  const deadline = Date.now() + (d.waitMs ?? UPDATE_WAIT_MS)
-  for (let n = d.running(); n > 0 && Date.now() < deadline; n = d.running()) {
-    progress(null, tr(d.locale, waitingTurns(n)))
-    await sleep(2000)
+  // 1) let running work finish; meanwhile no scheduled run or long foreground command starts (system/update-wait.ts)
+  const deadline = Date.now() + (d.force ? 0 : d.waitMs ?? UPDATE_WAIT_MS)
+  if (d.running() > 0 && Date.now() < deadline) {
+    beginUpdateWait(new Date(), new Date(deadline))
+    try {
+      for (let n = d.running(); n > 0 && Date.now() < deadline; n = d.running()) {
+        progress(null, tr(d.locale, waitingTasks(n)))
+        await sleep(2000)
+      }
+    } finally { endUpdateWait() }
   }
   // 2) DB backup (an update never rolls the DB back by itself)
   progress(0.2, stepText(d.locale, 'backup'))

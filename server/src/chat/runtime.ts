@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
@@ -63,6 +64,20 @@ const UPDATE_HOLD_MS = 120_000
 const LAUNCHER_HOLD_MAX_MS = 10 * 60_000
 /** settings key: the server stopped answers for an update (shutdown); the next start's recovery reads and clears it */
 export const STOPPED_FOR_UPDATE = 'chat.stoppedForUpdate'
+
+/** An answer a stop left streaming: its steps still running become stopped (Step.stopped; status 'error' for older
+ * apps). Returns how many. A stored list that does not read is left as it is. */
+export function stopRunningSteps(db: Database, messageId: string, now: string): number {
+  const row = db.query("SELECT steps FROM messages WHERE id = ? AND status = 'streaming'").get(messageId) as { steps: string | null } | null
+  if (!row?.steps) return 0
+  let steps: { status?: string; stopped?: true; endedAt?: string | null }[]
+  try { steps = JSON.parse(row.steps) } catch { return 0 }
+  if (!Array.isArray(steps)) return 0
+  let n = 0
+  for (const st of steps) if (st && st.status === 'running') { st.status = 'error'; st.stopped = true; st.endedAt = now; n++ }
+  if (n) db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+  return n
+}
 /** how often a quarantined turn slot (termination unconfirmed) looks whether its engine is gone (probeQuarantined) */
 export const QUARANTINE_PROBE_MS = 2000
 /** a claim that throws (its transaction rolled back) is tried this many times before its turn fails */
@@ -1105,7 +1120,12 @@ export class ChatRuntime {
     this.db.transaction(() => { for (const t of running) {
       const locale = this.userLocale(t.user_id)
       this.db.query("UPDATE turns SET status = 'interrupted', ended_at = ?, error = 'interrupted' WHERE id = ?").run(now, t.id)
-      if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(why, locale)), now, t.message_id)
+      if (t.message_id) {
+        // a step still running when the process went (a command, a render): stopped, not failed, and the line says so
+        const cutSteps = stopRunningSteps(this.db, t.message_id, now)
+        const reason = why === 'updating' && cutSteps ? 'updating_step' : why
+        this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError(reason, locale)), now, t.message_id)
+      }
       this.db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(now, t.id)
     } })()
     // Invalid users/chats/messages never survive a restart as runnable work.

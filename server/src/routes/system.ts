@@ -23,6 +23,7 @@ import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
+import { updateWaitingFor } from '../system/update-wait'
 import { teamDefaultLocale } from '../admin/settings'
 import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
@@ -153,7 +154,8 @@ export const systemRoutes: RouteModule = {
       }
       // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
       const turnAt = ops().rolloutTurnAt()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}) }
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}),
+        running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
     })
 
     // what a release left for an admin to do (system/after-update.ts)
@@ -181,7 +183,7 @@ export const systemRoutes: RouteModule = {
         kind: 'update', userId: auth.user.id,
         run: async (h) => {
           try {
-            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m) },
+            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m), force: !!body.force },
               target!, { staged, rollback: !!body.rollback })
           } catch (e) {
             if (e instanceof DownloadStalled) throw new JobFailure('unavailable', M.updateStalled)

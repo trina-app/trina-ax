@@ -744,7 +744,7 @@ function Update() {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.updateStatus))
-  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
+  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, running: state.data?.running, onDone: () => void state.reload() })
   const setAsk = install.ask
   // a phone: what is done on the server computer (its command, its installer) says so, without the command (QA TC-270)
   const phone = useMediaQuery(PHONE)
@@ -761,6 +761,12 @@ function Update() {
                 {u.current} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
                 {u.lastCheckedAt && <span className="block text-xs text-faint">{t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
               </Row>
+              {u.waiting && (
+                // an update (this server's own, or root's `mycel-ctl update`) waits for running tasks before the restart
+                <Row label={t('system.row.status')} long>
+                  <span className="font-medium" data-testid="update-waiting">{t('system.updateWaiting', { count: u.running ?? 0, time: formatDateTime(u.waiting.until, locale) })}</span>
+                </Row>
+              )}
               {u.managed ? (
                 // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
                 <Row label={t('system.row.status')} long>
