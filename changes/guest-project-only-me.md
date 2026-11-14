@@ -1,0 +1,1 @@
+- **Projects**, a project page that is open when a guest joins now also stops saying "Only me": the box under the question, the Members line and the list at the left show the people who see it, not only the faces and "Includes 1 guest".

@@ -738,6 +738,19 @@ function ProjectPage() {
     projectEdits.current++
     setP(next)
   }
+  // someone joined or left (a guest accepted): who sees it is not "Only me" any more, in the box, on the members line and
+  // in the list at the left: the project is read again with the people (a read that was started before an edit made
+  // here does not undo it)
+  useEffect(() => projectPeopleChanged.on((id) => {
+    if (id !== projectId) return
+    const from = projectEdits.current
+    api.call(API.getProject, { params: { id }, query: { manage: '1' } }).then((x) => {
+      if (projectEdits.current !== from || shownP.current?.id !== id) return
+      const fresh = keepPendingProject(x, shownP.current)
+      setP(fresh)
+      useProjects.getState().put(fresh)
+    }, () => {})
+  }), [projectId])
   /** the chats' changes made since a read started (a row's rename, an event): made again on its answer, numbered */
   const chatEdits = useRef<{ n: number; f: (cur: Chat[]) => Chat[] }[]>([])
   const chatEditCount = useRef(0)
