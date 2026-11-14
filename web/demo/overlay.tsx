@@ -176,7 +176,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   // the one control that glows: the step's suggested prompts when they are up; else its control, there or anywhere it
   // is on screen (a toast that takes the visitor there); in the room of a side-chat step, the ✦ button; else the guide
   const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
-  const control = !step || end || suggest.length ? null
+  const control = !step || end || suggest.length || working ? null
     // the AI's card waits: the card is the thing to answer
     : here && cardOpen ? '[data-testid="ask-card"]'
     : here ? step.highlight ?? null
@@ -199,6 +199,9 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   }, [glowSelector])
 
   useDecorations(server)
+  // a ring drawn over the glowing control too: it stays whatever the app does to the element's own classes
+  const ringEl = glowSelector ? [...document.querySelectorAll(glowSelector)].reverse().find(visible) : undefined
+  const ring = ringEl?.getBoundingClientRect()
 
   const pick = async (a: DemoAnswer) => {
     if (!step || sending) return
@@ -228,7 +231,9 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
     }
     if (el) {
       el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      el.click()
+      // a row that holds the control (Home's card row): its button
+      const target = el.matches('button, a, [role="button"]') ? el : el.querySelector<HTMLElement>('button, a, [role="button"]') ?? el
+      target.click()
       return
     }
     // the step's prompts: the line sends the first (the buttons stay for the other choice)
@@ -265,6 +270,10 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           )
         })}
       </div>
+      {ring && ring.width > 0 && (
+        <span className="demo-ring" data-testid="demo-ring" aria-hidden
+          style={{ left: ring.left - 5, top: ring.top - 5, width: ring.width + 10, height: ring.height + 10 }} />
+      )}
       <AnswerExtras server={server} />
       {end && <EndCard server={server} signupUrl={signupUrl} />}
     </>

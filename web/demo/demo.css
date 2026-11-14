@@ -109,8 +109,17 @@
   0%, 100% { outline-color: var(--c-accent); box-shadow: 0 0 0 0 rgb(232 82 26 / 0.35); }
   50% { outline-color: transparent; box-shadow: 0 0 0 8px rgb(232 82 26 / 0); }
 }
+.demo-ring {
+  position: fixed;
+  z-index: 57;
+  border: 2px solid var(--c-accent);
+  border-radius: 14px;
+  pointer-events: none;
+  animation: demo-ring 1.6s ease-in-out infinite;
+}
+@keyframes demo-ring { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) {
-  .demo-glow { animation: none; }
+  .demo-glow, .demo-ring { animation: none; }
 }
 
 /* message toasts, top right */

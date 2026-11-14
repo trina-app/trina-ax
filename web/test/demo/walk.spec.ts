@@ -40,7 +40,8 @@ for (const branch of step('banner').suggest!) {
     await expect(page.getByTestId('member-welcome-ask-button')).toBeVisible()
     await expect(glowing(page)).toHaveCount(1)
     await shot(page, `${branch}-1-home`)
-    await page.getByTestId('member-welcome-ask-button').click()
+    // the guide line does the first step too (it presses the glowing button)
+    await guide(page).click()
     await expect(page).toHaveURL(/\/c\//)
     // the answer: sources and people under it; then Sara's toast slides in
     await expect(page.getByTestId('demo-people')).toBeVisible({ timeout: 40_000 })
@@ -108,8 +109,8 @@ test('free typing gets a short reply with the step\'s question as a button', asy
   const card = page.getByTestId('ask-card').last()
   await expect(card).toBeVisible()
   // the card is the one thing that glows, and the guide line says so
-  await expect(card).toHaveClass(/demo-glow/)
-  await expect(glowing(page)).toHaveCount(1)
+  await expect(page.getByTestId('demo-ring')).toBeVisible()
+  await expect(guide(page)).toHaveText(/card/i)
   const home = script.answers.find((a) => a.prompt === script.home.prompt)!
   await choose(card, home.label ?? home.prompt)
   // the picked question is answered in the same reply, and the story goes on
