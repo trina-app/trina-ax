@@ -95,7 +95,13 @@ test.describe('computer', () => {
     await expect(side.getByTestId('guest-no-ai')).toHaveCount(0)
     // Settings › AI accounts: their own Claude sign-in, in place
     await page.goto('/settings/providers')
+    // only their own account answers them: no word of team or company accounts
+    await expect(page.getByText('내 질문에는 내 계정만 써요. 여기서 Claude나 ChatGPT 계정을 연결해 주세요.')).toBeVisible()
     await page.getByTestId('my-credential-add-claude').click()
+    const add = page.getByRole('dialog', { name: '계정 추가' })
+    await expect(add).toContainText('내 구독이나 내 API 키를 연결하세요. 내 질문에만 쓰여요.')
+    await expect(add).not.toContainText('회사')
+    await expect(add).not.toContainText('팀 사용')
     await page.getByTestId('kind-anthropic-oauth').check()
     await page.getByTestId('credential-label').fill('내 Claude')
     await page.getByTestId('plan-notice-ack').check()

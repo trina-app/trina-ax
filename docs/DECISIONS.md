@@ -27874,7 +27874,9 @@ Builds on "Guests: only what they were invited to" and "Guest invites, phase 2".
 - **Screens:** the line above the box ("You have no AI to use. Connect your own…" with **Connect my AI**) on Ask
   Trina, their project and, for a guest, the room's ✦ side chat; a failed answer for want of AI says the same with the
   button (not "ask the person who invited you"); Settings › AI accounts says "Your questions use only your own account"
-  for a guest (no team accounts behind theirs).
+  for a guest (no team accounts behind theirs), and its Add account dialog drops the company key and "made for team
+  use" words for a guest (`credentials.personalFirstGuest`, `credentials.kind.*-api-key.descGuest`). An `own` guest may
+  add their own API key too, as a member may (coordinator, 2026-11-14).
 - **Settings opened by its address** by a guest whose AI is off showed 트리나's list behind the dialog (the page under it
   is Home's): a place a guest does not have (`useGuestHidden`) has no list panel.
 - Version impact: **patch** (no API shape change).
