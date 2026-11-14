@@ -17,7 +17,7 @@
 // serviceOf): the picker's groups with "Needs: …", their guides (PresetSteps), switches, signing and warnings.
 import clsx from 'clsx'
 import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, Info, PauseCircle, Plus } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
@@ -100,8 +100,16 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : [start])
   const pickerPlace = useRef<PickerPlace>({ more: null, scroll: 0 })
   const close = () => useRoomApps.getState().close()
-  const reload = useCallback(() => useRoomApps.getState().load(roomId).then(() => setError(null), (e) => setError(errorText(e, locale, t('error.network')))), [roomId, locale, t])
-  useEffect(() => { void reload() }, [reload])
+  // the list once when the dialog opens (and for another room); after that only useLive polls, while an app waits.
+  // Keyed on the room only: the error's words are read when it fails, never a reason to load again (QA TC-2481: an
+  // effect keyed on a new function each render loaded the list ~1,000 times a second)
+  const words = useRef({ locale, t })
+  words.current = { locale, t }
+  useEffect(() => {
+    let live = true
+    useRoomApps.getState().load(roomId).then(() => { if (live) setError(null) }, (e) => { if (live) setError(errorText(e, words.current.locale, words.current.t('error.network'))) })
+    return () => { live = false }
+  }, [roomId])
   // "auto": the list when the room has apps, else the picker
   const view: View | null = stack.at(-1) ?? (list ? (list.items.length ? { view: 'list' } : { view: 'pick' }) : null)
   const go = (v: View) => setStack((s) => [...(s.length || !view ? s : [view]), v])

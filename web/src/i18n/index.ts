@@ -1,5 +1,6 @@
 // All six app dictionaries share keys and placeholders (bun run check:i18n).
 // Account choice wins, then team default, then English. Browser detection is only for first-run setup.
+import { useCallback } from 'react'
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
@@ -226,9 +227,11 @@ export const useLocaleStore = create<LocaleState>((set) => ({
 export const currentLocale = () => useLocaleStore.getState().locale
 export const t = (key: MessageKey, params?: Params) => translate(currentLocale(), key, params)
 
-/** t() bound to the current locale; re-renders when the language changes. */
+/** t() bound to the current locale; re-renders when the language changes. The same function until the language
+ * changes, so it can sit in a hook's dependencies: a new one on every render re-ran such an effect after every render
+ * (the apps dialog's list load looped, ~1,000 requests a second; QA TC-2481). */
 export function useT() {
   const locale = useLocaleStore((s) => s.locale)
-  return (key: MessageKey, params?: Params) => translate(locale, key, params)
+  return useCallback((key: MessageKey, params?: Params) => translate(locale, key, params), [locale])
 }
 export const useLocale = () => useLocaleStore((s) => s.locale)
