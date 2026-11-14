@@ -14,12 +14,13 @@
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
-import { useCanStartChat } from '../components/GuestView'
+import { useCanStartChat, useGuestHidden } from '../components/GuestView'
+import { guestPlacePath, meGuest } from '../lib/guests'
 import clsx from 'clsx'
 import { ListHeading, ListIcon, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
@@ -56,8 +57,15 @@ export default function Rooms() {
   // and stays on the list, and a chat opened from it takes that entry, so Back from the chat comes back to the list
   const [params, setParams] = useSearchParams()
   const [picking, setPicking] = useState(false)
-  // the start hint: a guest only with someone of their place to talk to (components/GuestView.tsx)
+  // the start hint and "or start a new one with +": not a guest's (components/GuestView.tsx)
   const canStart = useCanStartChat()
+  // a guest opens their one place (Slack's single-channel guests): on a computer a guest in a room gets their room
+  // itself, not "pick one"; a guest in a project with no conversation (no 대화 place) gets their project
+  const me = useMe()
+  const guestPlace = meGuest(me)?.place
+  const guestRoom = guestPlace?.kind === 'room' ? guestPlace.id : undefined
+  const noChats = useGuestHidden().has('chats')
+  const guestHome = guestPlacePath(me)
   const asked = params.has('new')
   useEffect(() => {
     if (!asked) return
@@ -77,6 +85,8 @@ export default function Rooms() {
   const folders = useFolders('rooms', !computer)
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
+  if (noChats && guestHome) return <Navigate to={guestHome} replace />
+  if (computer && guestRoom && !asked) return <Navigate to={`/rooms/${guestRoom}`} replace />
   if (computer)
     return (
       <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page" data-rail="">

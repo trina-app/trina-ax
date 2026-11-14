@@ -550,7 +550,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
               </span>
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
-              {!quoted && (
+              {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
+              {!quoted && !guestNoAi && (
                 <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
                   {chip && (
                     <button type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(chip === 'forms' ? 'roomApps.askForms' : 'roomApps.askToday'))}

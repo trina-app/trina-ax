@@ -5,7 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { inviteGuest, type GuestPlaceView } from '../lib/guests'
+import { guestPlacePath, inviteGuest, type GuestPlaceView } from '../lib/guests'
 import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -323,7 +323,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
+    <AuthFrame title={t('auth.signIn')} sub={reason === 'removed' ? <span data-testid="login-removed">{t('auth.guestRemoved', { team: (status.kind === 'signed-out' && status.team) || '' })}</span> : reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -708,7 +708,8 @@ export function AcceptInvite() {
     void run(async () => {
       const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
-      navigate('/', { replace: true })
+      // a guest opens straight into their one place (components/GuestView.tsx)
+      navigate(guestPlacePath(r.me) ?? '/', { replace: true })
     })
   if (info === null)
     return (

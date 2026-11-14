@@ -31,6 +31,7 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -133,6 +134,11 @@ function Profile() {
   const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
+  // who sees the profile, and the role line: a guest is seen only by the people of their one place and is in no group
+  // (lib/guests.ts), so no "No groups" for them
+  const guestPlace = meGuest(me)?.place
+  const visible = !isGuestMe(me) ? t('profile.visible') : guestPlace?.name ? t('profile.visibleGuest', { place: guestPlace.name }) : t('profile.visibleGuestSome')
+  const groupsLine = me.groups.map((g) => g.name).join(', ') || (isGuestMe(me) ? '' : t('settings.noGroups'))
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)
   const setTheme = useSession((s) => s.setTheme)
@@ -202,7 +208,7 @@ function Profile() {
               />
               {/* the hints under the group: the email's and who sees what */}
               <PhoneSection className="mb-0">
-                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {t('profile.visible')}</span>} testId="profile-fields">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {visible}</span>} testId="profile-fields">
                   <PhoneField label={t('auth.name')} id={`${ids}-name`}>
                     <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
                   </PhoneField>
@@ -245,7 +251,7 @@ function Profile() {
           <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
-          <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
+          <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
           )}
           <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
@@ -271,7 +277,7 @@ function Profile() {
           <PhoneSection className="mb-0">
             <PhoneListGroup testId="profile-account">
               <PhoneListRow title={t('auth.username')} badge={<span className="max-w-[60%] truncate text-sm text-muted" data-testid="profile-username">{me.user.username}</span>} />
-              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}</span>} />
+              <PhoneListRow title={t('settings.role')} badge={<span className="max-w-[60%] text-right text-sm text-muted" data-testid="profile-role">{t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}</span>} />
             </PhoneListGroup>
           </PhoneSection>
         ) : (
@@ -285,11 +291,11 @@ function Profile() {
             {/* phones: the role in words, not a badge */}
             {phone ? (
               <span className="block text-sm text-muted md:text-right">
-                {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                {t(`role.${me.user.role}`)}{groupsLine && ` · ${groupsLine}`}
               </span>
             ) : (
               <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted md:justify-end">
-                <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+                <Badge>{t(`role.${me.user.role}`)}</Badge>{groupsLine && ` · ${groupsLine}`}
               </span>
             )}
           </Row>

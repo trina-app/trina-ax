@@ -1117,7 +1117,8 @@ function ProjectPage() {
                       <Plus size={14} aria-hidden /> {t('projects.page.writeInstructions')}
                     </Button>
                   </EmptySideBox>
-                ) : !outside && (
+                ) : !outside && !aiOff && (
+                  // (a guest with no AI: the instructions are for the AI only, so none here; components/GuestView.tsx)
                   <DisclosureRow
                     testId="project-instructions"
                     icon={<ScrollText size={16} />}
