@@ -208,7 +208,7 @@ function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow 
 /** A used-up "block" budget of this person stops the turn before it is queued (tab 5 "사용 한도 도달"). */
 function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
   const b = budgetBlock(ctx.db, userId, locale)
-  if (b) fail('budget_exceeded', b.message)
+  if (b) fail('budget_exceeded', b.message, { params: { resetsAt: b.resetsAt } })
 }
 
 /** One turn at a time per chat. A shared chat busy with someone else's question: 409 shared_chat_busy, naming them

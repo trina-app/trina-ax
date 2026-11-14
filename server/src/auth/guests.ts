@@ -72,8 +72,37 @@ export function placePeople(db: Database, guestId: string, rules?: RuleSet): Set
   return out.has(guestId) ? out : new Set()
 }
 
+/** inPlace for a guest who may be switched off (placePeople counts active accounts only): could a removed guest come
+ * back, still being a member of the group chat or a person of the project's folder? Asked when an admin switches them
+ * on (admin/users.ts), for Admin's row (placeOut) and when their project is restored (admin/guests.ts). */
+export function inPlaceEvenIfOff(db: Database, guestId: string, rules?: RuleSet): boolean {
+  const place = guestPlace(db, guestId)
+  if (!place) return false
+  if (place.kind === 'room') {
+    return !!db.query("SELECT 1 FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.id = ? AND r.kind = 'group' AND r.archived_at IS NULL").get(guestId, place.id)
+  }
+  const folder = projectFolder(db, place.id)
+  if (!folder) return false
+  const me = db.query(`SELECT id, name, ${roleSql()} AS role FROM users WHERE id = ? AND deleted_at IS NULL`).get(guestId) as { id: string; name: string; role: Principal['role'] } | null
+  return !!me && atLeast((rules ?? RuleSet.fromDb(db)).access({ ...me, groups: [] }, folder.split('/')), 'read')
+}
+
 /** The guest is still in their one place (a group chat member, or reads the project's folder). */
 export const inPlace = (db: Database, guestId: string, rules?: RuleSet): boolean => placePeople(db, guestId, rules).has(guestId)
+
+/** Why a guest is not in their one place now, or null while they are (User.guest.placeOut): 'trashed' = their project
+ * is in the trash (restoring it brings them back: admin/guests.ts returnGuestsWithPlace), 'gone' = the group chat was
+ * closed or the project deleted for good, 'left' = the place is there but they are out of it (taken out, left). */
+export function placeOut(db: Database, userId: string, rules?: RuleSet): 'left' | 'trashed' | 'gone' | null {
+  const place = guestPlace(db, userId)
+  if (!place) return 'gone'
+  if (place.kind === 'room') {
+    if (!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind = 'group' AND archived_at IS NULL").get(place.id)) return 'gone'
+  } else if (!projectFolder(db, place.id)) {
+    return db.query('SELECT 1 FROM projects WHERE id = ? AND trashed_with IS NOT NULL').get(place.id) ? 'trashed' : 'gone'
+  }
+  return inPlaceEvenIfOff(db, userId, rules) ? null : 'left'
+}
 
 /**
  * May `viewerId` see or reach `otherId` (people list, avatars, presence, DMs, adding to a group chat, the AI's people
@@ -171,8 +200,21 @@ export function placeName(db: Database, place: GuestPlace): string {
 }
 
 /** Me.guest / User.guest: the guest's one place with its name, and their AI; undefined for anyone else. */
-export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice } | undefined {
-  const place = guestPlace(db, userId)
-  if (!place) return undefined
-  return { place: { ...place, name: placeName(db, place) }, ai: guestAiChoice(db, userId) }
+export function guestDetail(db: Database, userId: string): { place: GuestPlace & { name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } | undefined {
+  const r = guestRow(db, userId)
+  if (!r) return undefined
+  const place: GuestPlace = { kind: r.place_kind, id: r.place_id }
+  const ai = guestAiChoice(db, userId)
+  // only for a removed guest (an active guest is in their place: the server switches off one who is not), so the people
+  // list and Me do not read the folder rules for it
+  const off = !!db.query("SELECT 1 FROM users WHERE id = ? AND status <> 'active'").get(userId)
+  const out = off ? placeOut(db, userId) : null
+  // Team AI picked, but its team AI account was deleted since (guests.team_credential_id is set NULL with it): No AI in
+  // effect, and the screens say AI can't answer now (the guest) and that the account is gone (Admin)
+  const gone = r.ai === 'team' && ai.mode === 'none' && !teamCredentialLive(db, userId)
+  return { place: { ...place, name: placeName(db, place) }, ai, ...(out ? { placeOut: out } : {}), ...(gone ? { teamAiGone: true as const } : {}) }
+}
+/** The guest's team AI account is still there and still a team one. */
+function teamCredentialLive(db: Database, userId: string): boolean {
+  return !!db.query('SELECT 1 FROM guests g JOIN engine_credentials c ON c.id = g.team_credential_id AND c.owner_user_id IS NULL WHERE g.user_id = ?').get(userId)
 }

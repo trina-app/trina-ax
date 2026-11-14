@@ -5,7 +5,9 @@
 // - their scheduled tasks that a due run paused while it was in the trash (chat/schedules.ts runDue
 //   `schedule.project_gone`), never a task the person turned off themselves (QA TC-1014);
 // - its shared chats come back into their open chat lists, as they left them with `chat.updated` 'deleted' when it went
-//   to the trash (routes/chats.ts deleteProject; QA TC-1015).
+//   to the trash (routes/chats.ts deleteProject; QA TC-1015);
+// - its guests whom the trash switched off, while they are still in it and no admin switched them by hand since
+//   (admin/guests.ts returnGuestsWithPlace; QA TC-2239).
 // Never throws: the restore is done already.
 import type { AppContext } from '../context'
 import { getChatRuntime } from './runtime'
@@ -13,6 +15,12 @@ import { Audiences } from './shared'
 
 export function projectsRestored(ctx: AppContext, projectIds: readonly string[], o: { by: string; trashedAt: string | null }): void {
   if (!projectIds.length) return
+  try {
+    // required lazily: admin/guests reaches admin/users, which imports the chat runtime
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { returnGuestsWithPlace } = require('../admin/guests') as typeof import('../admin/guests')
+    returnGuestsWithPlace(ctx, projectIds.map((id) => ({ kind: 'project' as const, id })), o.by)
+  } catch (e) { ctx.log.warn('guests not switched on with their project', { err: e }) }
   let rt: ReturnType<typeof getChatRuntime>
   try { rt = getChatRuntime(ctx) } catch { return }
   const aud = new Audiences(ctx.db, ctx.files)

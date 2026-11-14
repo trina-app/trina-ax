@@ -18,7 +18,7 @@ import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
-import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, type GuestInviteFields } from './guest-invites'
+import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, placeAlive, type GuestInviteFields } from './guest-invites'
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
@@ -362,30 +362,58 @@ function inviteByToken(db: Database, token: string): InviteRow | null {
  * nothing makes one (there is no server-Mac invite), so it can only come from a damaged or edited database.
  */
 function inviteValid(db: Database, r: InviteRow, now: number): boolean {
-  if (r.used_at || r.revoked_at || Date.parse(r.expires_at) <= now) return false
-  if (r.created_by === null) return false
+  return inviteDeadReason(db, r, now) === null
+}
+
+type DeadReason = NonNullable<InviteInfo['reason']>
+/** Whether the maker could still make this invite now: null when yes, else why not (a guest link's place gone first,
+ * then the maker: left the room, lost the project, demoted while the AI choice is 'team', switched off or deleted). */
+function makerReason(db: Database, r: InviteRow): DeadReason | null {
+  if (r.created_by === null) return 'inviter_gone'
   // a guest invite: its maker may still open that place now (a member who left the group chat, a creator who lost the
   // project, an admin demoted while the AI choice is 'team': the link stops)
-  if (r.role === 'guest') { const place = guestPlaceOf(r); return !!place && inviteMakerOk(db, r.created_by, place, parseGuestAi(r.guest_ai)) }
+  if (r.role === 'guest') {
+    const place = guestPlaceOf(r)
+    if (!place || !placeAlive(db, place)) return 'place_gone'
+    return inviteMakerOk(db, r.created_by, place, parseGuestAi(r.guest_ai)) ? null : 'inviter_gone'
+  }
   const by = getUser(db, r.created_by)
-  if (!by || by.status !== 'active') return false
-  if (by.role === 'owner') return true
-  if (by.role === 'admin') return r.role === 'member'
-  return false
+  if (!by || by.status !== 'active') return 'inviter_gone'
+  if (by.role === 'owner') return null
+  if (by.role === 'admin' && r.role === 'member') return null
+  return 'inviter_gone'
+}
+/** Why an invite does not work now, or null while it does (InviteInfo.reason). Used first; a link turned off because
+ * its maker can no longer invite (switching an account off or demoting it revokes its links) says that, not "turned
+ * off"; the place of a guest link, then its maker, before the date. */
+function inviteDeadReason(db: Database, r: InviteRow, now: number): DeadReason | null {
+  if (r.used_at) return 'used'
+  if (r.revoked_at) return makerReason(db, r) ?? 'revoked'
+  if (Date.parse(r.expires_at) <= now) return 'expired'
+  return makerReason(db, r)
+}
+const DEAD_MESSAGE = { expired: 'inviteExpired', used: 'inviteUsedUp', revoked: 'inviteRevoked', inviter_gone: 'inviteInviterGone', place_gone: 'invitePlaceGone' } as const
+/** 410 gone with the true reason (InviteInfo.reason in params.reason) */
+function failDead(db: Database, r: InviteRow, now: number, locale: Locale): never {
+  const fresh = (db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r.id) as InviteRow | null) ?? r
+  const reason = inviteDeadReason(db, fresh, now)
+  if (!reason) fail('gone', msg('linkInvalid', locale))
+  return fail('gone', msg(DEAD_MESSAGE[reason!], locale), { params: { reason: reason! } })
 }
 
 export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): InviteInfo {
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  const valid = inviteValid(ctx.db, r!, authOf(ctx).now())
+  const dead = inviteDeadReason(ctx.db, r!, authOf(ctx).now())
+  const valid = dead === null
   // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
   const full = valid && (r!.role === 'guest' ? guestsFull(ctx.db) : seatsFull(ctx.db))
   const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -394,7 +422,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  if (!inviteValid(ctx.db, r!, a.now())) fail('gone', msg('linkInvalid', locale))
+  if (!inviteValid(ctx.db, r!, a.now())) failDead(ctx.db, r!, a.now(), locale)
   if (r!.role === 'guest') return acceptGuestInvite(c, ctx, r!, b)
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   checkNewPassword(b.password, b.username, locale, 'body.password')
@@ -425,7 +453,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     if (e instanceof UsernameTaken) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
     throw e
   }
-  if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
+  if (ok! === 'gone') failDead(ctx.db, r!, a.now(), locale)
   ensurePersonalFolder(ctx.files.fx.root, id)
   // who invited them, for their welcome card on Home; first, so the template notice below waits for Connected apps
   // (onboarding/member-welcome.ts)
@@ -445,12 +473,12 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
 class UsernameTaken extends Error {}
 
 /** GET /api/guest-invites/limit: the plan's guest cap now, read before the invite dialog shows its form (a guest never
- * gets here: the endpoint is off their list). The owner and admins also learn whether every seat is taken ("Make team
- * member" needs one) and the plan page. */
+ * gets here: the endpoint is off their list). The owner and admins also learn how many guests are active now (Admin ›
+ * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one) and the plan page. */
 export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
   const role = c.get('auth')!.user.role
   const url = planManageUrl()
-  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}) }
+  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}) }
 }
 
 /** The plan's guests are all taken (no plan file: never). */
@@ -512,7 +540,7 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     if (e instanceof UsernameTaken) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
     throw e
   }
-  if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
+  if (ok! === 'gone') failDead(ctx.db, r, a.now(), locale)
   ensurePersonalFolder(ctx.files.fx.root, id)
   if (line) roomsOf(ctx).announceAdded(place!.id, [id], line)
   if (before) afterAccessChange(ctx, before, { actor: r.created_by, target: projectFolder(ctx.db, place!.id), via: 'guest' })

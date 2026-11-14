@@ -78,7 +78,16 @@ export type GuestAiChoice = z.infer<typeof GuestAiChoice>
 /** A guest's place with its name, as screens show it (Me.guest, User.guest). */
 export const GuestPlaceNamed = GuestPlace.extend({ name: z.string() })
 /** A guest's details: their one place and their AI (Me.guest for the guest, User.guest for admins). */
-export const GuestDetail = z.object({ place: GuestPlaceNamed, ai: GuestAiChoice })
+export const GuestDetail = z.object({
+  place: GuestPlaceNamed, ai: GuestAiChoice,
+  /** a removed guest (account off) who is not in their place now: 'left' = taken out of it or left it, 'trashed' = the
+   * project is in the trash (restoring it brings them back), 'gone' = the room was closed or the project deleted for
+   * good. Absent for an active guest and for a removed one who could be switched back on */
+  placeOut: z.enum(['left', 'trashed', 'gone']).optional(),
+  /** Team AI was picked for them, but that team AI account was deleted since: `ai` reads No AI, and the guest is told
+   * that AI can't answer them now (not that it is off) */
+  teamAiGone: z.literal(true).optional(),
+})
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
 export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es', 'zh'])

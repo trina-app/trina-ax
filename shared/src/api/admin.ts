@@ -112,6 +112,9 @@ export const CreateGuestInviteBody = z.object({
 export const GuestInviteLimit = z.object({
   full: z.boolean(),
   limit: z.number().int().nonnegative().nullable(),
+  /** the owner and admins: the active guests now (removed ones do not count), for Admin's "N of M guests"; absent from
+   * an older server. Can be above `limit` after the plan was lowered: nobody is removed, only new invites wait */
+  used: z.number().int().nonnegative().optional(),
   seatsFull: z.boolean().optional(),
   manageUrl: z.string().optional(),
 })

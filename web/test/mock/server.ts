@@ -373,7 +373,7 @@ export class MockServer {
   rooms: Room[] = []
   /** guests (docs/DECISIONS.md "Guests: only what they were invited to"; like server/src/auth/guests.ts, short): each
    * one's one place and AI. A guest is a user with role 'guest'. POST /__test/guest makes one, a guest invite another */
-  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null }>()
+  guests = new Map<string, { place: { kind: 'room' | 'project'; id: string }; ai: GuestAiChoice; invitedBy: string | null; out?: 'left' | 'trashed' | 'gone'; teamAiGone?: boolean }>()
   /** POST /__test/guest-limit {guests?: number | null, seatsFull?: boolean}: the plan's guest cap (null: none, a self-hosted
    * server) and whether every seat is taken (making a guest a member is then refused, 409 seat_limit) */
   guestCap: number | null = null
@@ -1483,11 +1483,14 @@ export class MockServer {
     for (const u of this.users) if (pr && this.access(pr.folderPath, u) !== 'none') out.add(u.id)
     return out
   }
-  /** Me.guest and User.guest: a guest's place by name and AI (left out when the place is gone). */
-  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice } } {
+  /** Me.guest and User.guest: a guest's place by name and AI; for a removed guest why they are not in it (placeOut, as
+   * POST /__test/guest {out} sets it; a deleted place keeps no name), and a Team AI whose account was deleted. */
+  guestDetail(u: User): { guest?: { place: { kind: 'room' | 'project'; id: string; name: string }; ai: GuestAiChoice; placeOut?: 'left' | 'trashed' | 'gone'; teamAiGone?: true } } {
     const g = this.guests.get(u.id)
-    const place = g && this.guestPlaceNamed(g.place)
-    return g && place ? { guest: { place, ai: g.ai } } : {}
+    if (!g) return {}
+    const out = u.status !== 'active' ? g.out : undefined
+    const place = this.guestPlaceNamed(g.place) ?? (out ? { ...g.place, name: out === 'gone' ? '' : String((this.projects.find((x) => x.id === g.place.id) ?? this.rooms.find((x) => x.id === g.place.id))?.name ?? '') } : null)
+    return place ? { guest: { place, ai: g.teamAiGone ? { mode: 'none' } : g.ai, ...(out ? { placeOut: out } : {}), ...(g.teamAiGone ? { teamAiGone: true as const } : {}) } } : {}
   }
   /** Refuse one more guest over the plan's cap (409 plan_limit reason guest_limit, like assertGuestFree). */
   assertGuestFree() {
@@ -2173,6 +2176,8 @@ export class MockServer {
         assistant.error = { code: text.code, message: text.ko, ...(fixture[1] ? {} : { params: { reason } }) }
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
+      // the monthly limit used up (server/src/admin/budgets.ts budgetBlock): when it resets, 00:00 KST on Dec 1
+      else if (fixture?.[2] === 'budget') assistant.error = { code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요. 12월 1일 0시부터 다시 쓸 수 있어요.', params: { resetsAt: '2026-11-30T15:00:00.000Z' } }
     }
     if (/sources/i.test(prompt)) {
       // like server/src/files/sources.ts: what the answer read or saw passages of, a sub-agent's read marked; one file
@@ -2435,11 +2440,17 @@ export class MockServer {
       // a guest invite names its place (InviteInfo.guestPlace)
       const place = (i as { guestPlace?: { kind: 'room' | 'project'; id: string } }).guestPlace
       const named = place ? this.guestPlaceNamed(place) : null
+      // why it does not work (InviteInfo.reason), as POST /__test/invite-reason sets it; used = used
+      const reason = (i as { deadReason?: string }).deadReason ?? (i!.usedAt ? 'used' : undefined)
+      if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
       return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
       if (!i) fail('gone', 410)
+      // a reason set after the page was opened (its maker lost access meanwhile): 410 with it, like the server
+      const late = (i as { lateReason?: string }).lateReason
+      if (late) { (i as { deadReason?: string }).deadReason = late; throw new Fail('gone', 410, 'This link no longer works.', undefined, { reason: late }) }
       if (i!.role === 'guest') this.assertGuestFree()
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       i!.usedAt = now()
@@ -2650,7 +2661,7 @@ export class MockServer {
     guestInviteLimit: (c) => {
       const used = this.users.filter((u) => u.role === 'guest' && u.status === 'active').length
       const staff = c.user.role === 'owner' || c.user.role === 'admin'
-      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
+      return { full: this.guestCap !== null && used >= this.guestCap, limit: this.guestCap, ...(staff ? { used, seatsFull: this.seatsFull, manageUrl: 'https://plans.example.com/acme' } : {}) }
     },
     updateGuestAi: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -2663,7 +2674,9 @@ export class MockServer {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role !== 'guest') fail('conflict', 409)
       if (this.seatsFull) throw new Fail('plan_limit', 409, 'Every seat is taken.', undefined, { reason: 'seat_limit' })
+      // like the server: the guest AI and its limit end, and a removed guest is switched on with it
       u.role = 'member'
+      u.status = 'active'
       this.guests.delete(u.id)
       return u
     },
@@ -3477,6 +3490,9 @@ export class MockServer {
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {
+      // a removed guest switched on with nothing to bring them back to (admin/users.ts: 409 guest_no_place, placeOut)
+      const gOut = c.body.status === 'active' ? this.guests.get(c.params.id)?.out : undefined
+      if (gOut) throw new Fail('conflict', 409, "Their room or project is gone, so there's nothing to bring them back to.", undefined, { reason: 'guest_no_place', placeOut: gOut })
       const { locale, ...rest } = c.body
       const u = Object.assign(this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
       if (locale !== undefined) u.localeChoice = locale
@@ -5812,6 +5828,11 @@ export class MockServer {
       const placeId = pl.kind === 'project' ? (this.projects.find((x) => x.id === pl.id || x.name === pl.name) ?? fail('validation', 400, 'no such project')).id : String(pl.id)
       const u = this.addUser({ id, username: id, name: String(body.name ?? 'Gina'), role: 'guest', groupIds: [], localeChoice: (body.locale as Locale | undefined) ?? null }, `${id} password 1`)
       this.makeGuest(u, { kind: pl.kind, id: placeId }, (body.ai as GuestAiChoice | undefined) ?? { mode: 'none' }, String(body.invitedBy ?? 'olga'))
+      // a removed guest (status disabled) and why they are not in their place; a Team AI whose account was deleted
+      if (body.status === 'disabled') u.status = 'disabled'
+      const g = this.guests.get(u.id)!
+      if (body.out === 'left' || body.out === 'trashed' || body.out === 'gone') g.out = body.out
+      if (body.teamAiGone === true) g.teamAiGone = true
       return Response.json({ id: u.id })
     }
     // a team AI account (an API key, checked), for the guest invite's Team AI choice
@@ -5819,6 +5840,13 @@ export class MockServer {
       const id = uuidv7()
       this.credentials.push({ id, kind: 'anthropic-api-key', label: String(body.label ?? 'Team Claude'), scope: 'team', owner: null, assignments: [], priority: this.credentials.length, disabled: false, state: 'ok', detail: null, hint: 'abcd', planType: null, expiresAt: null, limitedUntil: null, checkedAt: now(), lastUsedAt: null, spendLimit: { usd: null, tokens: null, action: 'warn' }, month: { usd: 0, tokens: 0, requests: 0 }, createdAt: now() })
       return Response.json({ id })
+    }
+    // POST /__test/invite-reason {token, reason, late?}: why an invite link does not work (InviteInfo.reason); late: only
+    // once it is accepted (its maker lost access while the form was filled in: the accept is 410 with the reason)
+    else if (p === '/__test/invite-reason') {
+      const i = this.invites.find((x) => x.token === body.token) ?? fail('not_found', 404)
+      if (body.late) (i as { lateReason?: string }).lateReason = String(body.reason)
+      else (i as { deadReason?: string }).deadReason = String(body.reason)
     }
     else if (p === '/__test/guest-limit') {
       if ('guests' in body) this.guestCap = typeof body.guests === 'number' ? body.guests : null

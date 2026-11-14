@@ -24,7 +24,7 @@ import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
-import { formatSize } from '../../lib/format'
+import { formatResetDay, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -673,10 +673,13 @@ export function AssistantMessage({
   const role = guest ? undefined : myRole
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
-  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? 'guest.aiLimit' as const : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
+  // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
+  const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
+  const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
   const errText = m.error
-    ? said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
+    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)

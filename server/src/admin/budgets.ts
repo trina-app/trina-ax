@@ -111,20 +111,31 @@ export function periodEnd(period: Budget['period'], now: Date, tz: string): Date
  * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
  * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
  */
-export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string } | null {
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string } | null {
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
+  const end = periodEnd(hit.budget.period, now, tz)
   // 24-hour time: the limit ends at midnight, which "오전 12:00" / "12:00 AM" can read as noon (QA TC-215)
-  const at = limitResetText(periodEnd(hit.budget.period, now, tz), locale, tz)
+  const at = limitResetText(end, locale, tz)
   const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
-  const message = {
+  // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
+  // were invited to"); the same date
+  const guest = !!(db.query('SELECT guest FROM users WHERE id = ?').get(userId) as { guest: number } | null)?.guest
+  const message = guest ? {
+    ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
+    en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask the person who invited you if you need more.`,
+    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundangmu jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
+    zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
+  }[locale] : {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
     id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
     zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请联系管理员。`,
   }[locale]
-  return { budget: hit.budget, message }
+  // resetsAt: when the limit starts again (the start of the next period in the team's time zone), for screens that
+  // word it themselves (a guest's "It resets on Dec 1": web components/chat/Messages.tsx)
+  return { budget: hit.budget, message, resetsAt: end.toISOString() }
 }
 
 // ---------------- usage ----------------

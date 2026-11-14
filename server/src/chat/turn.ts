@@ -1307,7 +1307,7 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
-    else if (ev.type === 'budget') this.proxyError = { code: 'budget_exceeded', message: budgetBlock(this.rt.db, this.spec.userId, L)?.message ?? tr('errBudget', L) }
+    else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: { resetsAt: b.resetsAt } } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
     } else {
@@ -1387,7 +1387,7 @@ export class TurnExec {
     let b: ReturnType<typeof budgetBlock> = null
     try { b = budgetBlock(this.rt.db, this.spec.userId, this.spec.locale) } catch (e) { this.rt.log.warn('budget check failed', { err: e, turn: this.id }); return }
     if (!b) return
-    this.budgetHit = { code: 'budget_exceeded', message: b.message }
+    this.budgetHit = { code: 'budget_exceeded', message: b.message, params: { resetsAt: b.resetsAt } }
     this.proxyError ??= this.budgetHit
     this.rt.log.info('answer stopped: budget used up', { turn: this.id, budget: b.budget.id })
     this.halt()

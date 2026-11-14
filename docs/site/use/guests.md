@@ -44,7 +44,7 @@ below in [A guest's AI](#a-guests-ai).
 
 #### Copy the link and send it yourself
 **Create link** makes a link for this one person. Trina doesn't send an email: choose **Copy link** and send it to
-them yourself, by email or in a chat. The link works once.
+them yourself, by email or in a chat. The link works once, for 7 days; the dialog shows the date and time it stops.
 
 ![The link for Dana Cole, with Copy link and Done: It works once. Send it to them yourself, by email or chat.](../images/guests/invite-link.webp "The guest's link")
 :::
@@ -54,7 +54,8 @@ The link also shows in **Admin › Members & invites**, under **Guests**, with t
 ## What the guest sees
 
 The link opens a page that says who invited them and the one chat or project they will join. They choose a username
-and a password, and they're in.
+and a password, and they're in. If the link no longer works, the page says why: it expired, it was already used, it
+was turned off, the person who made it can no longer invite them, or the chat or project is gone.
 
 ![The invite page: Olga invited you to Acme, You'll join only the 'Quote prep' chat room, then Name, Username and Password](../images/guests/invite-page.webp "The page the guest opens")
 
@@ -76,7 +77,8 @@ an add list, a guest who is already somewhere else shows where they are, and you
 If the person needs more than one place, an owner or admin can choose **Make team member** (see below).
 
 If a guest leaves, is taken out, or their chat or project is closed, they can no longer sign in, the same as when
-they are removed.
+they are removed. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
+admin switched them on or off in the meantime. Renaming the chat or project changes nothing for them.
 
 ## A guest's AI
 
@@ -86,7 +88,9 @@ they are removed.
 | **Team AI** | They use one of the team's AI accounts, up to a monthly amount in US dollars that you set. | The owner and admins |
 | **Their own sign-in** | They connect their own Claude or ChatGPT account in **Settings › AI accounts** and use that. | Anyone who invites |
 
-Guests can't use the AI credit of a free trial.
+Guests can't use the AI credit of a free trial. A guest who uses up their monthly amount is told the day it starts
+again. If the team AI account a guest uses is deleted, the guest reads that AI can't answer them now, and their row in
+**Admin › Members & invites** says the account was removed: choose **Change AI** to pick another one.
 
 :::note
 If your team runs Trina AX on an office Mac that was installed without an administrator password, guests can't use
@@ -105,8 +109,11 @@ Guests don't take seats. Each plan allows a number of guests at a time:
 | Business | 100 |
 | Your own server (self-hosted) | No limit |
 
-When the plan is full, the invite dialog says so before you fill anything in. Removing a guest you no longer need
-frees a place.
+**Admin › Members & invites** shows how many guests you have next to **Guests**, for example "3 of 10 guests". When the
+plan is full, the invite dialog says so before you fill anything in. Removing a guest you no longer need frees a place.
+
+If your plan changes to one with fewer guests than you have, nobody is removed: every guest keeps working. The count
+turns orange with a short note, and new invites wait until you remove guests or change the plan.
 
 ## Manage guests (owners and admins)
 
@@ -119,6 +126,11 @@ The **⋯** menu of a guest has:
 
 - **Change AI**: pick No AI, Team AI or their own sign-in again.
 - **Make team member**: they become a normal member and take one seat. They stay where they are, and you can add
-  them to more chats and projects. Their AI then follows the team's settings, like any member's.
+  them to more chats and projects. Their guest AI and monthly amount end: their AI then follows the team's settings,
+  like any member's. A removed guest made a team member can sign in again.
 - **Remove guest**: their account is switched off and they can't sign in any more. Their messages and files stay
   with the team. Removed guests are hidden behind **Show removed**.
+
+The **⋯** menu of a removed guest has **Switch back on** while their chat or project is still there for them, then
+**Make team member** and **Delete**. When there is nothing to bring them back to, their row says why (they left, their
+project is in the trash, or the chat or project is gone): invite them again or make them a team member.

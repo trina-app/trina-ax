@@ -149,6 +149,10 @@ export const InviteInfo = z.object({
   expiresAt: IsoTime,
   /** false when expired, used or revoked (the page shows why instead of the form) */
   valid: z.boolean(),
+  /** why a link does not work (only while `valid` is false; absent from an older server): expired, already used, turned
+   * off by hand, its maker can no longer invite (left, switched off, lost the room or project), or the room or project
+   * of a guest link is gone. Only the reason: nothing about the team, the maker or the place */
+  reason: z.enum(['expired', 'used', 'revoked', 'inviter_gone', 'place_gone']).optional(),
   /** who made the invite ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
   inviterName: z.string().nullable().optional(),

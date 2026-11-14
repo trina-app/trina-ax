@@ -40,7 +40,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, inPlace } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, placeOut } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -156,7 +156,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // enabling a disabled account takes a seat again (system/limits.ts; disabled accounts do not count)
     if (b.status === 'active' && target.status !== 'active') {
       if (target.role === 'guest') {
-        if (!inPlace(ctx.db, id)) fail('conflict', undefined, { params: { reason: 'guest_no_place' } })
+        // nothing to bring them back to: said plainly, with why (User.guest.placeOut), never a bare 409
+        const out = placeOut(ctx.db, id)
+        if (out) fail('conflict', msg(out === 'trashed' ? 'guestNoPlaceTrashed' : out === 'left' ? 'guestNoPlaceLeft' : 'guestNoPlaceGone', locale), { params: { reason: 'guest_no_place', placeOut: out } })
         assertGuestFree(ctx.db, locale)
       } else assertSeatFree(ctx.db, locale)
     }
@@ -168,6 +170,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
+    // a guest switched on or off by hand (also "off" again while the server had them off): an admin decided, so a
+    // restored place never switches them on by itself (admin/guests.ts returnGuestsWithPlace)
+    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL WHERE user_id = ?').run(id)
     // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
