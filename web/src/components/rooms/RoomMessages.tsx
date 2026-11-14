@@ -67,6 +67,10 @@ import { useFileMenu } from '../FileMenu'
 import type { SideSeed } from './SideChatPanel'
 import { dismissKeyboard } from '../../lib/viewport'
 import { useRoomTitle } from './RoomIcon'
+import { AppCardView, AppQuietLine, AppReplyLines, AppTile } from './apps/AppParts'
+import { AppSender } from './apps/AppSender'
+import { appPlainText } from '../../lib/roomApps'
+import { mayManageApps } from '../../store/roomApps'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -206,7 +210,8 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2" data-testid="room-run-head">
-                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
+                  {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
+                  {first.app ? <AppSender roomId={roomId} app={first.app} /> : <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>}
                   {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="-ml-1 self-center text-sm select-none" />}
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
@@ -295,6 +300,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
+  if (m.app) return <AppTile kind={m.app.kind} name={m.app.name} size={32} className="mt-0.5" />
   if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
   return user ? <Avatar user={user} size={32} className="mt-0.5 select-none" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
@@ -332,8 +338,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const deleted = !!m.deletedAt
   const ai = m.authorKind === 'ai'
   const me = useMe()
-  // an earlier AI answer: the person who asked puts it away; an owner or admin any answer they see
-  const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
+  const app = m.app ?? null
+  const room = useRooms((s) => (app ? s.rooms.find((r) => r.id === roomId) ?? null : null))
+  // an earlier AI answer: the person who asked puts it away; an owner or admin any answer they see; an app's message:
+  // whoever manages the room's apps (the server's rooms/service.ts removable)
+  const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin')) || (!!app && mayManageApps(room, me))
   // an answer sent from someone's own AI chat: their note before `at`, the answer after it
   const shared = !ai && !deleted ? m.sharedAnswer ?? null : null
   const openable = useMemo(() => (ai || shared ? new Set(m.openable ?? []) : undefined), [ai, shared, m.openable])
@@ -366,11 +375,12 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   })
   const { copy } = useCopy()
   const copyText = async () => {
-    await copy(m.body)
+    // an app's message: its card's plain words (its body escapes Markdown marks for older apps)
+    await copy(app ? appPlainText(m) : m.body)
     toast({ level: 'success', text: t('rooms.copied') })
   }
   const del = async () => {
-    const ok = await confirmDialog({ title: t('rooms.deleteTitle'), body: t('rooms.deleteBody'), confirm: t('common.delete'), danger: true })
+    const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body: t('rooms.deleteBody'), confirm: t('common.delete'), danger: true })
     if (!ok) return
     await useRooms
       .getState()
@@ -393,6 +403,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
+      data-app={app ? app.kind : undefined}
       data-visibility={m.visibility}
       {...(menuOn ? { ...longPress, onPointerDown: (e: React.PointerEvent) => !(e.target as Element).closest?.('[data-own-menu]') && longPress.onPointerDown(e) } : {})}
     >
@@ -412,6 +423,14 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
       <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
+      ) : app && !deleted ? (
+        // an app's card: plain text, its one checked link (never Markdown, never links found in its words); a reply in
+        // its thread as short lines; a quiet one (and the paused line) as one short line
+        m.appCard ? (
+          variant === 'reply' && !m.alsoInRoom ? <AppReplyLines card={m.appCard} />
+            : app.quiet && !app.example ? <AppQuietLine app={app} card={m.appCard} />
+            : <AppCardView app={app} card={m.appCard} />
+        ) : <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)}>{appPlainText(m)}</p>
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} onAgain={onEditAgain} />
       ) : deleted ? (

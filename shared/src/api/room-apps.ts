@@ -101,6 +101,9 @@ export const RoomAppRef = z.object({
   kind: RoomAppKind,
   quiet: z.literal(true).optional(),
   example: z.literal(true).optional(),
+  /** who added it, for the sender's popover ("Set up by Mina"; members: "Ask Mina to change what shows here"): null
+   * once they left the team or the app was removed. Older servers omit it */
+  by: UserRef.nullable().optional(),
 })
 export type RoomAppRef = z.infer<typeof RoomAppRef>
 

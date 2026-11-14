@@ -52,6 +52,7 @@ import { afterJoinSet, afterJoinTarget, clearAfterJoin, readJoinToken } from './
 import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
+import { RoomAppsHost } from './components/rooms/apps/AppsHost'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -385,6 +386,7 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <RoomAppsHost />
         <ShareChatHost />
         <WideningDraftHost />
         <StatusDialogHost />

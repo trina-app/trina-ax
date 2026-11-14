@@ -586,7 +586,9 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
   const mine = rows.filter((r) => r.app_card)
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
-  const live = new Map(ids.length ? (db.query(`SELECT id, name, kind FROM room_apps WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; kind: RoomAppKind }[]).map((a) => [a.id, a]) : [])
+  // with who added it while they are in the team (the sender's popover: "Set up by …")
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, a.name, a.kind, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; name: string; kind: RoomAppKind; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
@@ -594,6 +596,7 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
     const kind = (now?.kind ?? stored.app.kind) as RoomAppKind
     out.set(r.id, {
       id: now ? now.id : null, name: now?.name ?? stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
+      by: now?.by_id && now.by_name ? { id: now.by_id, name: now.by_name } : null,
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })
   }
