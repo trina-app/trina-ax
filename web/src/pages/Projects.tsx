@@ -370,7 +370,10 @@ function ProjectCardLines({ project: p }: { project: Project }) {
   const t = useT()
   const who = whoSeesProject(t, p, 'projects.whoMembers')
   const hidden = p.member === false
-  const about = !hidden && p.instructions ? firstParagraph(p.instructions) : ''
+  // a guest whose invite gives them no AI: the instructions are for the AI only, so the card has no line for them either
+  // (their page has none; useGuestAiOff is the page's own test: Team AI that cannot answer yet keeps its instructions)
+  const noAiGuest = useGuestAiOff()
+  const about = !hidden && !noAiGuest && p.instructions ? firstParagraph(p.instructions) : ''
   const none = hidden ? (
     p.inTrash ? null : (
       <>
@@ -390,7 +393,7 @@ function ProjectCardLines({ project: p }: { project: Project }) {
         </span>
       )}
       {/* 'block' would cancel line-clamp's display */}
-      <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>
+      {!noAiGuest && <span className={`mt-2 line-clamp-2 min-h-[2lh] text-sm ${about ? 'text-muted' : 'text-faint'}`} data-testid="project-card-about">{about || none}</span>}
     </>
   )
 }
