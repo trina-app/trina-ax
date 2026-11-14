@@ -13,8 +13,10 @@ no text in the pictures).
 | Path | What |
 |---|---|
 | `index.ts` | default export: `buildScript(en, 'en')`, the `DemoScript` the build plays |
+| `index.ko.ts` | the Korean story, `buildScript(ko, 'ko')`: built with `DEMO_LOCALE=ko`, served at /demo/ko/ |
 | `story.ts` | the structure: ids, rooms, triggers, steps, file paths, timing. No words of its own |
 | `strings/en.ts` | every word: names, prompts, answers, captions, messages, toasts, email, guide lines and nudges, end card |
+| `strings/ko.ts` | the same in Korean (Slack-style office Korean, not word for word); `assets/*.ko.*` its pictures and team files, `source/banners/copy.ko.json` its banner words (headline in Noto Serif KR) |
 | `assets/*.en.*` | what is English: Leo's draft, the campaign banner, square and story, team files, skills |
 | `assets/higgsfield-photo.jpg`, `assets/avatar-*.jpg` | the same in every language: the Higgsfield photo, the profile photos (fictional people, 512×512) |
 | `source/` | how the pictures are made: the Higgsfield photos (`photos/`), templates, `banners/copy.en.json` (their words), `render.mjs`; the demo never reads it |

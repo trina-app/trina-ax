@@ -6,8 +6,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { en as enWords } from '../../src/i18n/en'
+import { ko as koWords } from '../../src/i18n/ko'
 import type { DemoScript } from '../../demo/script'
 import { contentFile } from '../../demo/vite'
+import { demoWord } from '../../demo/words'
 
 const loaded = (await import(contentFile())) as { default: DemoScript | { default: DemoScript } }
 // (Playwright's loader may wrap the default export once more)
@@ -15,6 +18,12 @@ const script = ('default' in loaded.default ? loaded.default.default : loaded.de
 const shots = process.env.DEMO_SHOTS
 const step = (id: string) => script.guide.find((s) => s.id === id)!
 const answer = (id: string) => script.answers.find((a) => a.id === id)!
+// the story's language: the demo's own words, the app's own words (the everyone room's name), the story's messages
+const L = script.locale
+const appWord = (key: 'rooms.all') => (L === 'ko' ? koWords[key] : enWords[key])
+const said = (id: string) => script.events.find((e) => e.id === id)!.text!.slice(0, 12)
+/** a content line with {time} as a pattern (the real elapsed time) */
+const timed = (line: string) => new RegExp(line.split('{time}').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\d+:\\d\\d'))
 
 // (the demo's start: the base it is served under, DEMO_BASE, is in the config's baseURL)
 const START = './'
@@ -48,7 +57,7 @@ async function follow(page: Page, text?: string) {
   await guide(page).click()
 }
 
-const PRESS_SEND = 'Press send →'
+const PRESS_SEND = demoWord('pressSend', L)
 /** A step's prompt: typed into the real box by itself on arrival (one prompt) or by its button (a choice), then sent with
  * the real send button (by hand) or the guide line ("Press send →"). Checks the box holds the prompt, the ring is on
  * send, and the box was never focused (no phone keyboard). */
@@ -102,7 +111,7 @@ for (const { branch, byGuide } of runs) {
     const leoChat = script.projects[0]!.chats![0]!.title
     await expect(page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first()).toBeVisible()
     await expect(ring(page)).toBeVisible()
-    if (byGuide) await follow(page, `Open “${leoChat}” →`)
+    if (byGuide) await follow(page, demoWord('openChat', L).replace('{title}', leoChat))
     else await page.locator('a[href^="/c/"]:visible').filter({ hasText: leoChat }).first().click()
     await expect(page.locator('[data-testid="assistant-message"] img[src*="/api/files/download"]').first()).toBeVisible()
     // ② the step's prompt: its choice buttons in the guide line, or (one prompt) the guide line itself
@@ -153,18 +162,18 @@ for (const { branch, byGuide } of runs) {
     // ⑤ Chris's reply in the room, then the CEO's shoutout in #Everyone: its unread row, or the guide line, takes the
     // visitor there; the team's reactions pile up on it and Sara welcomes Mina
     await expect(guide(page)).toHaveText(step('everyone').text, { timeout: 60_000 })
-    const everyone = page.locator('a[href^="/rooms/"]:visible').filter({ hasText: script.groups.find((g) => g.id === script.rooms.find((r) => r.id === 'all')!.group)?.name ?? 'Everyone' }).first()
+    const everyone = page.locator('a[href^="/rooms/"]:visible').filter({ hasText: script.groups.find((g) => g.id === script.rooms.find((r) => r.id === 'all')!.group)?.name ?? appWord('rooms.all') }).first()
     if (!byGuide && await everyone.isVisible().catch(() => false)) await everyone.click()
     else await guide(page).click()
-    const shout = page.locator('[data-testid="room-message"]').filter({ hasText: 'Shoutout' }).last()
+    const shout = page.locator('[data-testid="room-message"]').filter({ hasText: said('ceo-shoutout') }).last()
     await expect(shout).toBeVisible()
     for (const emoji of ['🎉', '🔥', '👏', '🙌']) await expect(shout.getByText(emoji).first()).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator('[data-testid="room-message"]').filter({ hasText: 'Welcome to the team' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid="room-message"]').filter({ hasText: said('sara-welcome') })).toBeVisible({ timeout: 20_000 })
     // the end popup (the app's own Modal): the real time, the recap, the plans link in a new tab, then Look around
     const popup = page.getByRole('dialog')
     await expect(popup.getByTestId('demo-popup')).toBeVisible({ timeout: 40_000 })
     await expect(popup).toContainText(script.end.popup!.title)
-    await expect(popup.getByTestId('demo-popup')).toContainText(/shipped in \d+:\d\d\./)
+    await expect(popup.getByTestId('demo-popup')).toContainText(timed(script.end.popup!.line))
     for (const r of script.end.popup!.recap ?? []) await expect(popup).toContainText(r)
     await shot(page, `${branch}-9-popup`)
     const [plans] = await Promise.all([page.context().waitForEvent('page'), popup.getByTestId('demo-popup-signup').click()])
@@ -175,7 +184,7 @@ for (const { branch, byGuide } of runs) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     // after it: the guide line's end line (the real time, what it usually takes, the plans link) is the way back
     await expect(page.getByTestId('demo-end')).toBeVisible()
-    await expect(page.getByTestId('demo-end')).toContainText(/shipped in \d+:\d\d \(usually ~2 days\)/)
+    await expect(page.getByTestId('demo-end')).toContainText(timed(`${script.end.title} (${script.end.contrast})`))
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('href', script.end.signup.url)
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('target', '_blank')
     await shot(page, `${branch}-9-end`)
@@ -232,7 +241,7 @@ test('Stop while the guide line\'s prompt streams: the guide line sends it again
   await expect(page).toHaveURL(/\/rooms\//)
   await follow(page, step('project').text)
   const leoChat = script.projects[0]!.chats![0]!.title
-  await follow(page, `Open “${leoChat}” →`)
+  await follow(page, demoWord('openChat', L).replace('{title}', leoChat))
   await follow(page, PRESS_SEND)
   await expect(page.getByTestId('stop').first()).toBeVisible({ timeout: 20_000 })
   await page.getByTestId('stop').first().click()
@@ -255,10 +264,44 @@ test('reduced motion: the prompt is filled at once and the ring on send stands s
   await expect(page).toHaveURL(/\/rooms\//)
   await follow(page, step('project').text)
   const leoChat = script.projects[0]!.chats![0]!.title
-  await follow(page, `Open “${leoChat}” →`)
+  await follow(page, demoWord('openChat', L).replace('{title}', leoChat))
   await expect(page.locator('[data-testid="composer-input"]:visible').last()).toHaveValue(answer(step('banner').suggest![0]!).prompt, { timeout: 2000 })
   await expect(guide(page)).toHaveText(PRESS_SEND)
   expect(await ring(page).evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
+})
+
+// DEMO_OTHER: the other language's demo on the same server (test/demo/serve.ts DEMO_MOUNTS), e.g. /demo/ko/ for /demo/
+test('the other language\'s demo next to this one: its own worker, its link in the guide line', async ({ page, context }) => {
+  const other = process.env.DEMO_OTHER
+  test.skip(!other, 'one demo served')
+  await page.goto(START)
+  await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
+  const mine = new URL(page.url()).pathname
+  const own = (p: Page, base: string) => expect.poll(() => p.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''), { timeout: 10_000 }).toBe(new URL(`${base}sw.js`, p.url()).href)
+  // a picture through the page's worker: the visitor's photo, as an <img> asks for it
+  const pictures = (p: Page) => expect.poll(() => p.evaluate((id) => new Promise<number>((done) => {
+    const img = new Image()
+    img.onload = () => done(img.naturalWidth)
+    img.onerror = () => done(0)
+    img.src = `/api/people/${id}/avatar?t=${Date.now()}`
+  }), script.visitor), { timeout: 10_000 }).toBeGreaterThan(0)
+  await own(page, mine)
+  // the other demo in a second tab of the same browser: held by its own worker (the narrower scope wins), pictures on both
+  const second = await context.newPage()
+  await second.goto(other!)
+  await expect(second.getByTestId('member-welcome-title')).toBeVisible()
+  await own(second, other!)
+  await pictures(second)
+  await pictures(page)
+  // this tab again, after the other demo started: still this demo, with its own worker (tabs share no session)
+  await page.reload()
+  await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
+  await own(page, mine)
+  // the guide line's language link goes there
+  await page.locator(`[data-testid="demo-langs"] a[href="${other}"]`).click()
+  await expect(page).toHaveURL(new RegExp(`${other!.replace(/\//g, '\\/')}$`))
+  await expect(page.getByTestId('member-welcome-title')).toBeVisible()
+  await own(page, other!)
 })
 
 test('a picture downloads and opens on its own (under a base path too)', async ({ page, context }, info) => {

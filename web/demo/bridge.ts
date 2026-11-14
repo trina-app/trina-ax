@@ -86,10 +86,14 @@ export function installBridge(ready: Promise<DemoServer>) {
 export async function startWorker(): Promise<void> {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return
   try {
-    await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
-    if (navigator.serviceWorker.controller) return
+    const mine = new URL(`${import.meta.env.BASE_URL}sw.js`, location.href).href
+    await navigator.serviceWorker.register(mine, { scope: import.meta.env.BASE_URL })
+    // this demo's own worker: another language's demo above this one (/demo/ over /demo/ko/) may hold the page until
+    // ours takes it (the narrower scope wins)
+    if (navigator.serviceWorker.controller?.scriptURL === mine) return
     await new Promise<void>((done) => {
-      navigator.serviceWorker.addEventListener('controllerchange', () => done(), { once: true })
+      const check = () => { if (navigator.serviceWorker.controller?.scriptURL === mine) done() }
+      navigator.serviceWorker.addEventListener('controllerchange', check)
       setTimeout(done, 4000)
     })
   } catch { /* pictures fall back to their placeholders */ }
