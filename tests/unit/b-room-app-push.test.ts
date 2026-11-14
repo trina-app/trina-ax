@@ -1,4 +1,4 @@
-// The push for an app's "paused" notice (docs/DECISIONS.md "Apps posting in rooms", "Paused push"; migration 351
+// The push for an app's "paused" notice (docs/DECISIONS.md "Apps posting in rooms", "Paused push"; migration 352
 // room_app_push_deliveries; server/src/rooms/apps/notice.ts roomAppPushWanted / roomAppPushPath): a paused app makes a
 // delivery for the person told, with push on, through the normal pipeline; the push carries ids and the code only and
 // opens the app's room; once the app is resumed or removed it is no longer wanted and nothing is sent.
@@ -108,6 +108,22 @@ test('out of the room: no longer wanted, no path', async () => {
     await settle()
     const { notice } = await pausedApp(owner, all, ownerId)
     h.ctx.db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(all, ownerId)
+    expect(roomAppPushWanted(h.ctx, notice.id)).toBe(false)
+    expect(roomAppPushPath(h.ctx, notice.id)).toBeNull()
+    await ph.p.tick()
+    expect(ph.sent).toHaveLength(0)
+  } finally { await ph.p.stop() }
+})
+
+test('no longer an owner or admin (still in the team room): no longer wanted, no path, nothing is pushed', async () => {
+  const { owner, ownerId, all } = await setup()
+  const ph = phone(ownerId)
+  try {
+    await settle()
+    const { notice } = await pausedApp(owner, all, ownerId)
+    expect(roomAppPushWanted(h.ctx, notice.id)).toBe(true)
+    // made a member, still in the everyone room: managing its apps is over, so is the push
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = ?").run(ownerId)
     expect(roomAppPushWanted(h.ctx, notice.id)).toBe(false)
     expect(roomAppPushPath(h.ctx, notice.id)).toBeNull()
     await ph.p.tick()
