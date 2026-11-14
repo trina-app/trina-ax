@@ -2342,6 +2342,8 @@ export const en: Record<MessageKey, string> = {
   'audit.act.user.delete': 'Removed a member',
   'audit.act.user.reset_password': 'Issued a temporary password',
   'audit.act.user.reset_link': 'Made a password reset link',
+  "audit.act.user.convert_guest": "Made a guest a team member",
+  "audit.act.user.guest_ai": "Changed a guest's AI",
   'audit.act.owner.transfer': 'Handed over ownership',
   'audit.act.invite.create': 'Created an invite link',
   'audit.act.invite.revoke': 'Revoked an invite link',

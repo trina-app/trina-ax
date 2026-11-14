@@ -2304,6 +2304,8 @@ export const es: Record<MessageKey, string> = {
   'audit.act.user.delete': "Eliminó un miembro",
   'audit.act.user.reset_password': "Emitió una contraseña temporal",
   'audit.act.user.reset_link': "Creó un enlace para restablecer contraseña",
+  "audit.act.user.convert_guest": "Hizo miembro del equipo a un invitado",
+  "audit.act.user.guest_ai": "Cambió la IA de un invitado",
   'audit.act.owner.transfer': "Transfirió la propiedad",
   'audit.act.invite.create': "Creó un enlace de invitación",
   'audit.act.invite.revoke': "Revocó un enlace de invitación",

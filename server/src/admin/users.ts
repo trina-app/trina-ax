@@ -625,7 +625,10 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
 export function disableAccount(ctx: AppContext, id: string, actorId: string | null, why: string): boolean {
   let done = false
   ctx.db.transaction(() => {
-    if (ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ? AND status = 'active' AND deleted_at IS NULL").run(id).changes !== 1) return
+    // read first, then write: `changes` of an UPDATE on users counts the safe-ops trigger's write too on some Bun
+    // versions (1.3.12 answers 2), so it cannot tell whether this row changed
+    if (!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id)) return
+    ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(id)
     revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
     ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
     audit(ctx.db, { actor: actorId, action: 'user.update', target: id, detail: { status: 'disabled', why } })

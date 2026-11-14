@@ -2342,6 +2342,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.user.delete': 'Mengeluarkan anggota',
   'audit.act.user.reset_password': 'Membuat kata sandi sementara',
   'audit.act.user.reset_link': 'Membuat tautan reset kata sandi',
+  "audit.act.user.convert_guest": "Menjadikan tamu anggota tim",
+  "audit.act.user.guest_ai": "Mengubah AI tamu",
   'audit.act.owner.transfer': 'Mengalihkan kepemilikan',
   'audit.act.invite.create': 'Membuat tautan undangan',
   'audit.act.invite.revoke': 'Mencabut tautan undangan',

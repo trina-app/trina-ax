@@ -2300,6 +2300,8 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.user.delete": "移除了成员",
   "audit.act.user.reset_password": "发放了临时密码",
   "audit.act.user.reset_link": "生成了密码重置链接",
+  "audit.act.user.convert_guest": "将访客设为团队成员",
+  "audit.act.user.guest_ai": "更改了访客的 AI",
   "audit.act.owner.transfer": "移交了所有权",
   "audit.act.invite.create": "创建了邀请链接",
   "audit.act.invite.revoke": "撤销了邀请链接",

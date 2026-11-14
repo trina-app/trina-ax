@@ -2341,6 +2341,8 @@ export const ko = {
   'audit.act.user.delete': '팀원 내보냄',
   'audit.act.user.reset_password': '임시 비밀번호 발급',
   'audit.act.user.reset_link': '비밀번호 재설정 링크 발급',
+  "audit.act.user.convert_guest": "게스트를 팀원으로 바꿈",
+  "audit.act.user.guest_ai": "게스트의 AI를 바꿈",
   'audit.act.owner.transfer': '팀장 넘김',
   'audit.act.invite.create': '초대 링크 만듦',
   'audit.act.invite.revoke': '초대 링크 취소',
