@@ -27667,7 +27667,7 @@ guides, "Apps posting here") are phase 2.
   minute, read back at start, never later than now): a stopped EC2 instance wakes with a fresh boot, and a clock
   that started at boot would make every wake (a backup, a schedule, a bot) cost a full idle limit of running time.
   Use: a signed-in request (session middleware; every chunk of an upload is one), a connector call with a live token
-  (`/mcp`) or an upload through a live upload link, an open realtime connection (web, desktop, mobile), a running or queued answer, a queued or
+  (`/mcp`) or an upload through a live upload link, a running or queued answer, a queued or
   running background job, a backup in progress, and (new here) a dev environment job that waits or runs
   (`dev_env_runs` kind `job`) count as use. A dev environment *server* (a preview) does not: one left running would
   keep a trial team awake for ever; it stops with the server and is started again from the chat. Requests nobody
@@ -27685,7 +27685,7 @@ guides, "Apps posting here") are phase 2.
   own Ed25519 wake key, its own signing domain), once per team per 10 s, 30 a minute in all, 5 s timeout. The control
   plane answers waking, awake, busy or unknown; the relay does not decide. Only a person wakes a team (`mayWake`): a
   real browser's page load (`Sec-Fetch-Mode: navigate`, which crawlers and link previews do not send), or a request
-  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), and a WebSocket; never HEAD,
+  with a cookie or an `Authorization` header (a signed-in page, the apps, the connector), never HEAD,
   OPTIONS or `/robots.txt`, `/favicon.ico` and the like. Anything else gets the offline page and no wake, so a scanner
   or an uptime check cannot keep an idle trial running. Over the relay's own 30-a-minute budget the visitor still gets
   the waking page (it reloads and asks again).
@@ -27694,7 +27694,7 @@ guides, "Apps posting here") are phase 2.
   (the control plane answers 20 for a stopped EC2 instance; the first branch reloaded every 3 s, which for a
   one-minute boot was 20 reloads and wake calls). The page does not echo the address, so an OAuth callback's `code`
   never goes into HTML. Everything else (desktop and phone apps, API, webhooks) waits up to `RELAY_WAKE_HOLD_MS` (20 s)
-  and gets a retryable 503 `team_waking` with the control plane's Retry-After (1-30 s); WebSockets close 1013. busy is
+  and gets a retryable 503 `team_waking` with the control plane's Retry-After (1-30 s); WebSockets close 1013 and never wake (an open app is no use, see below). busy is
   shown at once; unknown or an error shows the cloud offline page as before. No `RELAY_WAKE_URL` = off.
 - Not ported: the relay client's time-jump reconnect (first branch, `server/src/relay-client/time-jump.ts`). A trial
   team's server is stopped and started (a fresh boot that connects at once), not suspended to disk.
@@ -27839,3 +27839,15 @@ shared with people and groups, and files attached before the share stayed visibl
   on); the line under the chips says "Everyone who sees this chat can open it" (`chat.share.uploadLine`, 6 languages).
 - **Numbering.** Migration 400: component B's 200–299 is full (298, 299), and 400–499 is B's second range.
 - Version impact: **minor**.
+
+## Trial auto-stop tuning (owner decisions 2026-11-14, delegated to the coordinator)
+
+- **An open app is not use (hosted free teams too: the server does not know the team's kind).** An open web, desktop or phone connection with nothing happening does not keep a hosted
+  server awake (`activityFacts` no longer touches the clock for open connections; `sleepableBy` ignores them). What
+  counts is real use: a signed-in request (also one on an open connection), a message or answer, an upload, a connector
+  call, a job, a schedule. The number of open connections is still reported in `status.json`.
+- **A WebSocket never wakes a stopped team.** An app that reconnects on its own would wake the team after every stop.
+  The socket is closed 1013; the next real request wakes it ("Starting your team…" or a retryable 503 `team_waking`).
+- The trial idle limits (2 h in the day, 30 min at night) are the control plane's (`CP_SLEEP_TRIAL_IDLE_MIN`,
+  `CP_SLEEP_TRIAL_IDLE_NIGHT_MIN`).
+

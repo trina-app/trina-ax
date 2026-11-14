@@ -57,7 +57,7 @@ Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loo
 | | `RELAY_SENTRY_DSN`, `RELAY_SENTRY_ENV` | (off), production | error reports and the timers' check-ins to the operators' Sentry project ([deploy/README.md](deploy/README.md#error-reports-and-check-ins)) |
 | | `RELAY_WAKE_URL` | | F2 sleep: the control plane base URL (`https://cp.trina.app`; http only to loopback or a Tailscale address). Unset = off: a sleeping team gets the offline page |
 | | `RELAY_WAKE_KEY_FILE`, `RELAY_WAKE_KEY_ID` | | the relay's Ed25519 wake key (PEM PKCS#8) and its id; the control plane pins the public key |
-| | `RELAY_WAKE_HOLD_MS`, `RELAY_WAKE_PAGE_MS` | 20000, 2500 | a request for a sleeping team waits this long for it (API / WebSocket; browser page loads) |
+| | `RELAY_WAKE_HOLD_MS`, `RELAY_WAKE_PAGE_MS` | 20000, 2500 | a request for a sleeping team waits this long for it (API calls; browser page loads). A WebSocket never wakes a team: it is closed 1013 |
 
 SIGTERM: stop accepting, GOAWAY(restart) to team servers (they reconnect at once), 1012 to browser WebSockets (they
 resume), wait for running HTTP streams up to `RELAY_GRACE_MS`. On Linux the listener uses `reusePort`, so a new
