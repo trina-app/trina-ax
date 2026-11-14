@@ -171,9 +171,14 @@ describe('TC-359: the refresh host\'s tunnel ends at the refresh terminator', ()
     const s = tls.connect({ socket: raw, servername: REFRESH_HOST, ca: term.caPem })
     await new Promise((r, j) => { s.once('secureConnect', r); s.once('error', j) })
     s.write(`${method} ${p} HTTP/1.1\r\nHost: ${REFRESH_HOST}\r\nContent-Type: ${ct}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
+    // the whole answer (headers + Content-Length bytes); Bun 1.3.12 does not close after "Connection: close"
     let b = ''
-    s.on('data', (d) => { b += d })
-    await new Promise((r) => s.on('close', r))
+    await new Promise<void>((r) => {
+      const done = () => { const i = b.indexOf('\r\n\r\n'); const n = Number(/content-length: *(\d+)/i.exec(b)?.[1] ?? NaN); return i >= 0 && Buffer.byteLength(b.slice(i + 4)) >= n }
+      s.on('data', (d) => { b += d; if (done()) r() })
+      s.on('close', () => r())
+    })
+    s.destroy()
     return b
   }
 
