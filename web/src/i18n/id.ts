@@ -4170,6 +4170,8 @@ export const id: Record<MessageKey, string> = {
   "notifications.mutedRoomsDesc": "Nyalakan lagi di sini, atau pilih tingkat untuk masing-masing.",
   "notifications.chatAnswers": "Jawaban obrolan AI",
   "notifications.chatAnswersDesc": "Saat jawaban yang Anda minta selesai atau Trina menunggu Anda, dan Anda tidak sedang membuka obrolan itu.",
+  "notifications.chatShares": "Obrolan yang dibagikan ke saya",
+  "notifications.chatSharesDesc": "Notifikasi di ponsel atau browser saat seseorang membagikan obrolan dengan Anda secara langsung. Yang dibagikan lewat grup hanya muncul di Aktivitas.",
   "notifications.section.phone": "Ponsel",
   "notifications.phoneAway": "Notifikasi ponsel hanya saat saya tidak di depan Trina",
   "notifications.phoneAwayDesc": "Selama Anda memakai Trina, notifikasi muncul di sana, bukan di ponsel. Ponsel Anda menerimanya saat Anda tidak memakai Trina di komputer. Mati: ponsel Anda juga langsung menerimanya.",

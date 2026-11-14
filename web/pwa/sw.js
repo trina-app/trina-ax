@@ -59,7 +59,9 @@ let pushEpoch = 0
 const pushPending = new Set()
 // chat.answer_done: an answer in my own AI chat needs me ("AI answers"); a click opens that chat (its id from the signed-in
 // fetch of the notice, never from the payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers' }
+// chat.shared: someone shared a chat with me by name ("Chats shared with me"); the title is who shared it and a click opens
+// the chat, both from the signed-in fetch of the notice (never the chat's title, never from the payload)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -178,19 +180,22 @@ self.addEventListener('push', event => {
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
       // can no longer open lands on the start page (the Inbox never lists these notices)
-      const chatId = !roomId && payload.code === 'chat.answer_done' && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
+      const chatId = !roomId && (payload.code === 'chat.answer_done' || payload.code === 'chat.shared') && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
       // (the person's "show message preview" is on, a message the whole room sees), else the generic line
-      const shownTitle = (roomId && roomTitle(item.room?.label)) || title
+      // no longer shared with me (gone): the generic line, no name
+      const sharer = payload.code === 'chat.shared' && item.chatShared?.gone !== true ? roomTitle(item.chatShared?.name) : ''
+      const sharedBy = sharer && typeof settings.messages?.chatSharedBy === 'string' ? settings.messages.chatSharedBy.slice(0, 200) : ''
+      const shownTitle = (roomId && roomTitle(item.room?.label)) || (sharedBy && sharer) || title
       const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
       // "Mark as read" (Chrome, Edge, Android; Safari shows no buttons): the message's place in its room, from the same
       // signed-in fetch; the label in the person's language from /api/push
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
