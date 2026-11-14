@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import type { RoomLinkPreview } from '@mycel/shared/api'
 import { formatDateTime } from '../../lib/format'
 import { messagePath } from '../../lib/messageLinks'
-import { unescapeAppBody } from '../../lib/roomApps'
+import { serviceOf, unescapeAppBody } from '../../lib/roomApps'
 import type { MessageMention } from '../../lib/messageMarkdown'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf } from '../../store/people'
@@ -27,7 +27,7 @@ const LONG_PRESS_MS = 500
 
 function CardFace({ p }: { p: RoomLinkPreview }) {
   const user = useAvatarOf(p.author)
-  if (p.app) return <AppTile kind={p.app.kind} size="title" />
+  if (p.app) return <AppTile service={serviceOf(p.app)} size="title" />
   if (p.authorKind === 'ai') return <AiFace size={22} />
   return user ? <Avatar user={user} size={24} className="select-none" /> : <span aria-hidden className="size-6 shrink-0 rounded-full bg-hover" />
 }
