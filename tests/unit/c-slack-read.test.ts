@@ -281,6 +281,27 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
     expect(await waitFor(() => fake.of('auth.test').length > n)).toBe(true)
   })
 
+  test('Slack refuses the own app\'s bot token at a read: Admin says so, not "Connected" (QA TC-1203)', async () => {
+    const chat = chatOf('alice')
+    const tools = toolsOf('alice', chat)
+    expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'connected', lastError: null })
+    try {
+      // another error is not a refused token: Admin stays "Connected"
+      fake.failNext['conversations.history'] = { error: 'internal_error' }
+      await tools.slack_read_channel!.call({ channel: C }, toolCtx('alice', chat))
+      expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ state: 'connected', lastError: null })
+      fake.failNext['conversations.history'] = { error: 'token_revoked' }
+      const r = await tools.slack_read_channel!.call({ channel: C }, toolCtx('alice', chat))
+      expect(r.isError).toBe(true)
+      expect(textOf(r)).toContain('Admin › Connected apps › Slack')
+      expect((await call('dana', 'GET', '/api/admin/slack')).json).toMatchObject({ mode: 'own', state: 'error', lastError: 'bot_refused', tokens: true })
+      expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.bot_token_refused'").get() as { n: number }).n).toBe(1)
+    } finally {
+      // the rest of this file reads with the same tokens (as after Replace tokens)
+      h.ctx.db.query('UPDATE slack_config SET last_error = NULL').run()
+    }
+  })
+
   test('text helpers: Slack markup in words, at most the size given, the first message and the newest kept', () => {
     expect(slackPlain('<@U0MIN> see <#C0OPS|ops> <!here> &lt;b&gt; <mailto:a@b.example|mail>', new Map([['U0MIN', 'Min']]))).toBe('@Min see #ops @here ‹b> mail (mailto:a@b.example)')
     const msgs = Array.from({ length: 40 }, (_, i) => ({ ts: `1700000000.${String(i).padStart(6, '0')}`, user: 'U1', text: `message ${i} ${'x'.repeat(100)}` }))

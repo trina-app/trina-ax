@@ -1117,9 +1117,9 @@ export class SlackConnector {
     this.refresh()
   }
 
-  /** A post Slack refused because the bot token no longer works: with the official app that is the same as Slack's
-   * own "removed" event (the hosting service may not have heard yet). */
-  private tokenRefused(e: unknown, bot?: string) {
+  /** A post (or a read, read.ts) Slack refused because the bot token no longer works: with the official app that is the
+   * same as Slack's own "removed" event (the hosting service may not have heard yet). Any other error: nothing. */
+  tokenRefused(e: unknown, bot?: string) {
     if (!(e instanceof SlackApiError) || !TOKEN_GONE.has(e.code)) return
     const cfg = this.config()
     // only the token saved now: a post made with an older one (the workspace removed and added the official app again
