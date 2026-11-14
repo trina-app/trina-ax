@@ -1,6 +1,6 @@
 ---
 title: Apps in rooms
-description: Let Sentry, GitHub, Google Forms or any other service post updates into a room, as cards everyone in the room sees.
+description: Let Sentry, GitHub, Google Forms, Stripe, Jira, HubSpot or any other service post updates into a room, as cards everyone in the room sees.
 ---
 
 A room can get updates from the services your team already uses: new **Google Forms** responses, errors from
@@ -13,8 +13,8 @@ status line changes as things move on.
 
 1. Open the room, then **⋯ › Add an app**.
 2. Pick a service. They are grouped: **Forms** (Google Forms, Typeform, Tally, Jotform), **Payments & orders**
-   (Stripe, Shopify), **Work** (Notion, Zendesk) and **For developers** (GitHub, Sentry). **Other app**, last, takes
-   anything else. A service that needs a plan or a role says so on its row (for example *Needs: a paid Notion plan*).
+   (Stripe, Shopify), **Work** (Notion, Zendesk, Jira, HubSpot) and **For developers** (GitHub, Sentry). **Show more
+   services** opens a few more (Toss Payments, Channel Talk, PortOne). **Other app**, last, takes anything else. A service that needs a plan or a role says so on its row (for example *Needs: a paid Notion plan*).
    An Other app gets a name first (for example *Backup alerts*): its messages show under that name.
 3. Press **Copy** next to the Webhook URL (Google Forms: **Copy code**) and follow the numbered steps in that service.
    Nothing is added to the room until you copy, so you can look first and close the guide.
@@ -52,8 +52,8 @@ Google Forms has nothing to paste a URL into, so Trina gives you a short script 
 
 ### Forms, payments and work tools
 
-Typeform, Tally, Jotform, Stripe, Shopify, Notion and Zendesk each have their own guide with the steps in that service,
-named the way it names them. In short:
+Typeform, Tally, Jotform, Stripe, Shopify, Notion, Zendesk, Jira and HubSpot each have their own guide with the steps
+in that service, named the way it names them. In short:
 
 - **Typeform**: the form's **Connect › Webhooks › Add a webhook**, paste, save and turn it on.
 - **Tally**: the form's **Integrations › Webhooks › Connect**, paste into **Endpoint URL**.
@@ -65,12 +65,39 @@ named the way it names them. In short:
 - **Notion** (paid plan): the database's **Automations**, action **Send webhook**; tick at least the title and Status.
 - **Zendesk** (Team plan or higher, admin): create a webhook, then a trigger that sends the body the guide gives you
   (**Copy body**, in that step).
+- **Jira** (space admin): the space's **Space settings › Automation › Create flow**, trigger **Work item created**,
+  action **Send web request** with the body the guide gives you (**Copy body**). Optional second and third flows for
+  **Work item transitioned** and **Work item commented** put status changes and comments into the work item's thread
+  ([Jira automation actions](https://support.atlassian.com/cloud-automation/docs/jira-automation-actions/)).
+- **HubSpot** (Data Hub Professional or Enterprise): a deal-based workflow with the action **Data ops › Send a
+  webhook**, **Customize request body** with the keys the guide lists; optionally one for contacts and one for tickets
+  ([HubSpot workflows](https://knowledge.hubspot.com/workflows/how-do-i-use-webhooks-with-hubspot-workflows)). A
+  contact shows its name and company, never its email or phone.
 
 Form answers show in the room as they were given, email addresses too; uploaded files show only their name. Payment
 and order cards show a customer's name (and city for Shopify), never their email, phone or card.
 
 Stripe, Shopify, Zendesk, Typeform and Tally can sign what they send. **Optional: make it safer** in the guide takes the
-service's signing secret (or gives you one to paste there); after that only signed messages are shown.
+service's signing secret (or gives you one to paste there); after that only signed messages are shown. Jira and HubSpot
+can't sign: their Webhook URL is the only key, so keep it private.
+
+### More services
+
+**Show more services** in the picker opens services used mostly in Korea. The same list shows for everyone.
+
+- **Toss Payments**: the developer center's **웹훅 › 웹훅 등록하기** (Webhooks › Register webhook), paste the Webhook URL and tick
+  **PAYMENT_STATUS_CHANGED** ([Toss Payments webhooks](https://docs.tosspayments.com/guides/v2/webhook)). Cards show
+  the amount, the order's name and the payment method; never a card number, account or phone. Optional: the
+  developer center's security key (**API 키 › 보안 키**, API keys › Security key).
+- **Channel Talk**: **Settings › Webhook › Create new webhook**, paste the Webhook URL and turn on chat and message
+  notifications ([Channel Talk webhooks](https://developers.channel.io/en/articles/Webhook-events-7bd9b8e2)). A new
+  chat shows the customer's name and first message; their later messages (and, if you turn it on, your team's
+  replies) go into its thread. The team's own group chats are never shown. Optional: the webhook's token.
+- **PortOne** (V2): **결제 연동 › 연동 관리 › 결제알림(Webhook) 관리** (Payment integration › Integration settings ›
+  Payment notifications), webhook version **결제모듈 V2** (Payment module V2), paste the Webhook URL
+  ([PortOne webhooks](https://developers.portone.io/opi/ko/integration/webhook/readme-v2)). PortOne sends only the
+  payment's id and state, so its cards show no amount or name. Optional: the webhook secret (**웹훅 시크릿 발급**,
+  Issue webhook secret).
 
 ### Other apps
 

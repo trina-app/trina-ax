@@ -12,7 +12,8 @@ description: 让 Sentry、GitHub、Google Forms 或其他任何服务把更新�
 
 1. 打开群聊，然后选择 **⋯ › 添加应用**。
 2. 选择一个服务。服务分组列出：**表单**（Google 表单、Typeform、Tally、Jotform）、**付款与订单**（Stripe、Shopify）、
-   **工作**（Notion、Zendesk）和 **开发者**（GitHub、Sentry）。最后的 **其他应用** 可以接入其他任何服务。需要特定方案或角色
+   **工作**（Notion、Zendesk、Jira、HubSpot）和 **开发者**（GitHub、Sentry）。**显示更多服务** 会打开另外几个（Toss
+   Payments、Channel Talk、PortOne）。最后的 **其他应用** 可以接入其他任何服务。需要特定方案或角色
    的服务会在它那一行写明（例如 *需要：Notion 付费方案*）。其他应用要先起个名字（例如 *备份通知*），它的消息会以这个名字显示。
 3. 按 Webhook URL 旁边的 **复制**（Google 表单为 **复制代码**），然后按照该服务中的编号步骤操作。在你复制之前，群聊里不会
    添加任何东西，所以你可以先看看，再关闭指南。
@@ -47,7 +48,7 @@ Google 表单没有可以粘贴网址的地方，所以 Trina 会给你一段用
 
 ### 表单、付款和工作工具
 
-Typeform、Tally、Jotform、Stripe、Shopify、Notion 和 Zendesk 各有自己的指南，步骤用的是该服务自己的界面名称。简单来说：
+Typeform、Tally、Jotform、Stripe、Shopify、Notion、Zendesk、Jira 和 HubSpot 各有自己的指南，步骤用的是该服务自己的界面名称。简单来说：
 
 - **Typeform**：在表单的 **Connect › Webhooks › Add a webhook** 中粘贴、保存并打开。
 - **Tally**：在表单的 **Integrations › Webhooks › Connect** 中，粘贴到 **Endpoint URL**。
@@ -58,12 +59,29 @@ Typeform、Tally、Jotform、Stripe、Shopify、Notion 和 Zendesk 各有自己�
   creation** 创建；也可以再为 Order payment、Order cancellation 和 Refund create 各创建一个。
 - **Notion**（付费方案）：数据库的 **Automations**，操作选 **Send webhook**；至少勾选标题和 Status。
 - **Zendesk**（Team 方案或更高，管理员）：先创建 webhook，再创建一个触发器，发送指南给出的正文（**复制正文** 就在那一步里）。
+- **Jira**（空间管理员）：空间的 **Space settings › Automation › Create flow**，触发器 **Work item created**，操作 **Send
+  web request**，正文用指南给出的（**复制正文**）。可以再为 **Work item transitioned** 和 **Work item commented** 各建一个
+  流程，状态变化和评论会进入工作项的话题。
+- **HubSpot**（Data Hub Professional 或 Enterprise）：基于交易的工作流，操作 **Data ops › Send a webhook**，选择
+  **Customize request body** 并添加指南列出的键；也可以为联系人和工单各建一个。联系人只显示姓名和公司，从不显示邮箱或电话。
 
 表单回答会按原样显示在群聊里，包括电子邮件地址；上传的文件只显示文件名。付款和订单卡片只显示客户的名字（Shopify 还显示城市），
 从不显示邮箱、电话或银行卡。
 
 Stripe、Shopify、Zendesk、Typeform 和 Tally 可以为发送的内容签名。指南中的 **可选：提高安全性** 用来填入该服务的签名密钥
-（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。
+（或给你一个密钥粘贴到服务里）；之后只显示签名过的消息。Jira 和 HubSpot 无法签名，Webhook URL 是唯一的钥匙，请妥善保管。
+
+### 更多服务
+
+选择器中的 **显示更多服务** 会打开主要在韩国使用的服务，所有人看到的列表都一样。
+
+- **Toss Payments**：开发者中心的 **웹훅 › 웹훅 등록하기**（Webhooks › Register webhook），粘贴 Webhook URL 并勾选
+  **PAYMENT_STATUS_CHANGED**。卡片显示金额、订单名称和付款方式，从不显示卡号、账户或电话。可选：开发者中心的安全密钥
+  （**API 키 › 보안 키**）。
+- **Channel Talk**：**Settings › Webhook › Create new webhook**，粘贴 Webhook URL 并打开会话和消息通知。新会话显示客户的
+  名字和第一条消息，之后的消息（以及打开后团队的回复）进入它的话题。团队自己的群聊从不显示。可选：webhook 的令牌。
+- **PortOne**（V2）：**결제 연동 › 연동 관리 › 결제알림(Webhook) 관리**，webhook 版本选 **결제모듈 V2**（Payment module
+  V2），粘贴 Webhook URL。PortOne 只发送付款编号和状态，所以卡片不显示金额或姓名。可选：webhook 密钥（**웹훅 시크릿 발급**）。
 
 ### 其他应用
 

@@ -14,7 +14,7 @@ import { Badge } from '../../ui'
  * mark is drawn in those. Google Forms has none: Google asks for permission before its product icons are used, so it
  * gets a plain form icon, as Other gets a plain app icon. Shopify (written permission first), Tally and Jotform (no
  * mark we may copy) and Typeform (its only one-colour file is the wordmark, unreadable at this size) get their initials
- * on the same tile. */
+ * on the same tile, as do Jira, HubSpot, Toss Payments, Channel Talk and PortOne (docs/THIRD-PARTY-NOTICES.md). */
 export const APP_LOGOS: Partial<Record<AppService, string>> = {
   sentry: '/icons/room-apps/sentry.svg',
   github: '/icons/room-apps/github.svg',
@@ -25,7 +25,11 @@ export const APP_LOGOS: Partial<Record<AppService, string>> = {
 /** A mark drawn in its brand's colours instead of the text colour (light, dark). */
 const LOGO_TINT: Partial<Record<AppService, string>> = { stripe: 'text-[#635BFF] dark:text-white' }
 /** The services shown by their initial: no mark we may use. */
-export const APP_INITIALS: Partial<Record<AppService, string>> = { shopify: 'S', typeform: 'Tf', tally: 'T', jotform: 'J' }
+export const APP_INITIALS: Partial<Record<AppService, string>> = {
+  shopify: 'S', typeform: 'Tf', tally: 'T', jotform: 'J',
+  // phase 4: no mark we may copy without the owner's written permission (Atlassian, HubSpot) or none in a free set
+  jira: 'Ji', hubspot: 'H', toss_payments: 'TP', channel_talk: 'CT', portone: 'PO',
+}
 
 /** The sizes an app's mark comes in: beside a dialog's title, in a list row, as a sender's face (a person's picture). */
 export const APP_TILE_SIZES = { title: 24, row: 28, face: 32 } as const

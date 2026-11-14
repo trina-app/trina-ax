@@ -9,10 +9,14 @@ import { notion } from './notion'
 import { shopify } from './shopify'
 import { stripe } from './stripe'
 import { zendesk } from './zendesk'
+import { jira } from './jira'
+import { hubspot } from './hubspot'
+import { channelTalk, portonePreset, tossPayments } from './regional'
 
 export type { PresetDef } from './common'
 export const PRESETS: Record<RoomAppPreset, PresetDef> = {
   notion, typeform: typeformPreset, tally: tallyPreset, jotform: jotformPreset, stripe, shopify, zendesk,
+  jira, hubspot, toss_payments: tossPayments, channel_talk: channelTalk, portone: portonePreset,
 }
 /** The row's preset when this build knows it; null for none; 'unknown' for one written by a newer build. */
 export function presetOf(v: string | null | undefined): RoomAppPreset | null | 'unknown' {

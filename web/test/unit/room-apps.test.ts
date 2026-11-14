@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { DICTS } from '../../src/i18n'
 import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, RoomAppPreset } from '@mycel/shared/api'
-import { appChip, appPlainText, appStatus, isPreset, kindOf, MAKE_BODY, needsOf, notSetUp, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, unescapeAppBody } from '../../src/lib/roomApps'
+import { appChip, appPlainText, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
@@ -35,15 +35,19 @@ test('the apps screens use Slack\'s words in every language: "Webhook URL" with 
 test('presets: the picker\'s groups, Other last, no email row, the service of an app, the shared contracts', () => {
   const picked = PICKER_GROUPS.flatMap((g) => g.items)
   expect(PICKER_GROUPS.map((g) => g.key)).toEqual(['forms', 'payments', 'work', 'developers'])
-  expect(picked).toEqual(['google_forms', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'notion', 'zendesk', 'github', 'sentry'])
-  // every preset this build knows is in a group; Other comes after them (the divider), Email not before P2
-  expect([...RoomAppPreset.options].sort()).toEqual(picked.filter(isPreset).sort())
+  expect(picked).toEqual(['google_forms', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'notion', 'zendesk', 'jira', 'hubspot', 'github', 'sentry'])
+  // "Show more services": the regional ones, folded, the same for everyone
+  expect(MORE_SERVICES).toEqual(['toss_payments', 'channel_talk', 'portone'])
+  // every preset this build knows is in a group or under "Show more services"; Other comes after them (the divider),
+  // Email not before P2
+  expect([...RoomAppPreset.options].sort()).toEqual([...picked, ...MORE_SERVICES].filter(isPreset).sort())
   expect(picked).not.toContain('other')
   expect(picked).not.toContain('email' as never)
   expect(serviceOf({ kind: 'other', preset: 'stripe' })).toBe('stripe')
   expect(serviceOf({ kind: 'other' })).toBe('other')
   // a preset a newer server knows and this build doesn't shows as a plain Other app
-  expect(serviceOf({ kind: 'other', preset: 'toss_payments' })).toBe('other')
+  expect(serviceOf({ kind: 'other', preset: 'email' })).toBe('other')
+  expect(serviceOf({ kind: 'other', preset: 'toss_payments' })).toBe('toss_payments')
   expect(serviceOf({ kind: 'sentry', preset: 'stripe' })).toBe('sentry')
   expect(kindOf('zendesk')).toBe('other')
   expect(kindOf('github')).toBe('github')
@@ -57,6 +61,13 @@ test('presets: the picker\'s groups, Other last, no email row, the service of an
   expect(signingOf('other')).toBe('none')
   // the optional events of the guides: only those can say "Not set up in Shopify", and only when the server says
   expect(switchesOf('shopify').filter((s) => s.optional).map((s) => s.key)).toEqual(['paid', 'cancelled', 'refund', 'fulfilled'])
+  expect(switchesOf('jira').filter((s) => s.optional).map((s) => s.key)).toEqual(['transitioned', 'commented'])
+  expect(switchesOf('hubspot').filter((s) => s.optional).map((s) => s.key)).toEqual(['contact', 'ticket'])
+  // HubSpot's rows name the object first and the record id; Jira, HubSpot sign nothing, the regional services paste
+  for (const rows of Object.values(HUBSPOT_ROWS)) expect(rows.slice(0, 2).map((r) => r[0])).toEqual(['object', 'id'])
+  expect(['jira', 'hubspot'].map((p) => signingOf(p as never))).toEqual(['none', 'none'])
+  expect(['toss_payments', 'channel_talk', 'portone'].map((p) => signingOf(p as never))).toEqual(['paste', 'paste', 'paste'])
+  expect(TOSS_EVENTS).toEqual(['PAYMENT_STATUS_CHANGED'])
   expect([...notSetUp('shopify', {})]).toEqual([])
   expect([...notSetUp('shopify', { eventsSeen: ['order', 'paid'] })]).toEqual(['cancelled', 'refund', 'fulfilled'])
   expect([...notSetUp('stripe', { eventsSeen: [] })]).toEqual([])
@@ -70,7 +81,7 @@ test('presets: the picker\'s groups, Other last, no email row, the service of an
 })
 
 test('every service has its words in every language: name, the picker\'s line, the example card, its switches', () => {
-  const services = [...PICKER_GROUPS.flatMap((g) => g.items), 'other'] as const
+  const services = [...PICKER_GROUPS.flatMap((g) => g.items), ...MORE_SERVICES, 'other'] as const
   for (const [locale, dict] of Object.entries(DICTS)) {
     const d = dict as Record<string, string>
     for (const s of services) {
@@ -78,6 +89,10 @@ test('every service has its words in every language: name, the picker\'s line, t
       for (const w of switchesOf(s)) expect({ locale, s, w: w.key, ok: !!d[`roomApps.switch.${s}.${w.key}`] }).toEqual({ locale, s, w: w.key, ok: true })
       const n = needsOf(s)
       if (n) expect(d[`roomApps.needs.${n}`]).toBeTruthy()
+      // a preset that signs: how to get its secret, the field's name (pasted ones) and the refused line
+      if (isPreset(s) && signingOf(s) !== 'none') {
+        for (const k of [`roomApps.saferPreset.${s}`, `roomApps.refusedSecret.${s}`, ...(signingOf(s) === 'paste' ? [`roomApps.secretName.${s}`] : [])]) expect({ locale, k, ok: !!d[k] }).toEqual({ locale, k, ok: true })
+      }
     }
   }
 })

@@ -1,12 +1,13 @@
 // The numbered steps of the presets' guides (plan docs/AGENTS/plan/20261114-1522-room-apps-presets-email.md "Guide per
-// preset"): Notion, Typeform, Tally, Jotform, Stripe, Shopify and Zendesk, written with each service's own screen labels
+// preset"): Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot, Toss Payments, Channel Talk and
+// PortOne, written with each service's own screen labels
 // (roomApps.vendorLabel.*, checked against the live services in QA TC-1634). What is ticked in the service shows as
 // chips in its step (Stripe), a body to paste has its Copy inside the step where it is pasted (Zendesk), and optional
 // steps say so (Shopify's other events, Zendesk's second trigger). Other app's "Don't see your app?" with the Zapier and
 // Make how-tos is here too. The Webhook URL and its Copy stay at the top of the guide (AppsDialog).
-import { roomAppZendeskBody, type RoomApp } from '@mycel/shared/api'
+import { roomAppJiraBody, roomAppZendeskBody, type RoomApp } from '@mycel/shared/api'
 import { useT } from '../../../i18n'
-import { FORM_SERVICES, MAKE_BODY, STRIPE_EVENTS, switchesOf, type RoomAppPresetId } from '../../../lib/roomApps'
+import { FORM_SERVICES, HUBSPOT_ROWS, MAKE_BODY, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, type RoomAppPresetId } from '../../../lib/roomApps'
 import { Chips, CopyBody, Fold, Step, useVendor } from './GuideParts'
 
 export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: RoomApp | null }) {
@@ -66,7 +67,82 @@ export function PresetSteps({ preset, app }: { preset: RoomAppPresetId; app: Roo
         <CopyBody body={roomAppZendeskBody('updated')} testId="apps-copy-body-updated" />
       </Step>
     </>
+    case 'jira': return <>
+      <Step n={1}><p>{t('roomApps.jira1', { settings: v('jiraSettings'), automation: v('jiraAutomation'), create: v('jiraCreate') })}</p></Step>
+      <Step n={2}><p>{t('roomApps.jira2', { created: v('jiraCreated') })}</p></Step>
+      <Step n={3}>
+        <p>{t('roomApps.jira3', { send: v('jiraSend'), url: v('jiraUrl'), method: v('jiraMethod'), body: v('jiraBody'), custom: v('jiraCustom') })}</p>
+        <CopyBody body={roomAppJiraBody('created')} testId="apps-copy-body" />
+        <p className="text-xs text-muted">{t('roomApps.zendeskBodyNote')}</p>
+      </Step>
+      <Step n={4}><p>{t('roomApps.jira4', { turnOn: v('jiraTurnOn') })}</p></Step>
+      <Step n={5} optional>
+        <p>{t('roomApps.jira5', { transitioned: v('jiraTransitioned') })}</p>
+        <CopyBody body={roomAppJiraBody('transitioned')} testId="apps-copy-body-transitioned" />
+      </Step>
+      <Step n={6} optional>
+        <p>{t('roomApps.jira6', { commented: v('jiraCommented') })}</p>
+        <CopyBody body={roomAppJiraBody('commented')} testId="apps-copy-body-commented" />
+      </Step>
+    </>
+    case 'hubspot': return <>
+      <Step n={1}><p>{t('roomApps.hubspot1', { path: v('hubspotPath'), create: v('hubspotCreate'), deal: v('hubspotDealBased') })}</p></Step>
+      <Step n={2}><p>{t('roomApps.hubspot2', { dataOps: v('hubspotDataOps'), send: v('hubspotSend'), method: v('hubspotMethod'), url: v('hubspotUrl') })}</p></Step>
+      <Step n={3}>
+        <p>{t('roomApps.hubspot3', { customize: v('hubspotCustomize') })}</p>
+        <KeyRows rows={HUBSPOT_ROWS.deal} testId="apps-hubspot-deal" />
+        <p className="text-xs text-muted">{t('roomApps.hubspotPrivacy')}</p>
+      </Step>
+      <Step n={4}><p>{t('roomApps.hubspot4', { turnOn: v('hubspotTurnOn') })}</p></Step>
+      <Step n={5} optional>
+        <p>{t('roomApps.hubspot5', { contact: v('hubspotContactBased') })}</p>
+        <KeyRows rows={HUBSPOT_ROWS.contact} testId="apps-hubspot-contact" />
+      </Step>
+      <Step n={6} optional>
+        <p>{t('roomApps.hubspot6', { ticket: v('hubspotTicketBased') })}</p>
+        <KeyRows rows={HUBSPOT_ROWS.ticket} testId="apps-hubspot-ticket" />
+      </Step>
+    </>
+    case 'toss_payments': return <>
+      <Step n={1}><p>{t('roomApps.toss1', { path: v('tossPath'), add: v('tossAdd') })}</p></Step>
+      <Step n={2}>
+        <p>{t('roomApps.toss2', { url: v('tossUrl') })}</p>
+        <Chips items={TOSS_EVENTS} testId="apps-toss-events" />
+      </Step>
+      <Step n={3}><p>{t('roomApps.toss3', { save: v('tossSave') })}</p></Step>
+    </>
+    case 'channel_talk': return <>
+      <Step n={1}><p>{t('roomApps.channel1', { path: v('channelPath'), create: v('channelCreate') })}</p></Step>
+      <Step n={2}>
+        <p>{t('roomApps.channel2', { url: v('channelUrl'), types: v('channelTypes') })}</p>
+        {/* Channel Talk's one option for customer chats (their messages come with it; group chats are a separate option, left off) */}
+        <Chips items={[t('roomApps.vendorLabel.channelTypeChat')]} testId="apps-channel-types" />
+      </Step>
+      <Step n={3}><p>{t('roomApps.channel3', { save: v('channelSave') })}</p></Step>
+    </>
+    case 'portone': return <>
+      <Step n={1}><p>{t('roomApps.portone1', { path: v('portonePath') })}</p></Step>
+      <Step n={2}><p>{t('roomApps.portone2', { version: v('portoneVersion'), url: v('portoneUrl'), save: v('portoneSave') })}</p></Step>
+      <Step n={3}><p>{t('roomApps.portone3', { test: v('portoneTest') })}</p></Step>
+    </>
   }
+}
+
+/** HubSpot's "Customize request body" rows: the key to type on the left, the property (or the static value) on the
+ * right. */
+function KeyRows({ rows, testId }: { rows: readonly (readonly [string, string, 'static' | 'property'])[]; testId: string }) {
+  const t = useT()
+  const v = useVendor()
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1" data-testid={testId}>
+      {rows.map(([k, f, how]) => (
+        <div key={k} className="contents">
+          <dt className="font-mono text-code-sm text-ink">{k}</dt>
+          <dd className="min-w-0 text-muted">{how === 'static' ? t('roomApps.hubspotStatic', { value: f, add: v('hubspotAddStatic') }) : v(f)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 /** Other app's "Don't see your app?": a field for a Slack, Discord or JANDI webhook URL takes this one; neither: Zapier

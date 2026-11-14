@@ -13,7 +13,8 @@
 //   4. the content type (415), then the body: the raw bytes, at most 256 KiB (GitHub 1 MiB; a preset its own; 413),
 //      within 10 s (408).
 //   5. the signature when a secret is set (signatures.ts: GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
-//      Sentry-Hook-Signature "<hex>", a preset its service's scheme; constant time; 401; Tally's signed createdAt older
+//      Sentry-Hook-Signature "<hex>", a preset its service's scheme (Channel Talk: its ?token= on the URL); constant
+//      time; 401; Tally's signed createdAt older
 //      than 2 days: 401). Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
 //      card carries `unverified` when it names someone; the app's settings say "Not signed" once (owner decision 9:
 //      optional for both; no "(unverified)" after each name since the 2026-11-14 review).
@@ -90,6 +91,11 @@ async function formFields(raw: Uint8Array, contentType: string, full: string): P
   } catch { return null }
 }
 
+/** The request's query (Channel Talk's ?token=); never logged (http/middleware.ts loggablePath). */
+function queryOf(req: Request): URLSearchParams {
+  try { return new URL(req.url).searchParams } catch { return new URLSearchParams() }
+}
+
 export interface InboundInfo { ip: string | null; /** came through the server's own public address with a country or network list (the /in/ exemption): the stricter unknown-token limit */ strict?: boolean }
 
 export async function roomAppInbound(ctx: AppContext, req: Request, token: string, info: InboundInfo): Promise<Response> {
@@ -138,7 +144,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     // the preset's scheme (fixed at create); a preset that cannot sign never has a secret (setSecret refuses), and one
     // that has it anyway is refused. Part 1's kinds as before: GitHub's header, else Sentry's
     const sig = preset ? preset.signature : row.kind === 'github' ? { scheme: 'hex-body' as const, header: 'x-hub-signature-256', prefix: 'sha256=' } : { scheme: 'hex-body' as const, header: 'sentry-hook-signature' }
-    const r = secret !== 'broken' && sig ? verifySignature(sig.scheme, { secret: secret.secret, raw, headers: req.headers, now, header: sig.header, prefix: sig.prefix }) : { ok: false as const }
+    const r = secret !== 'broken' && sig ? verifySignature(sig.scheme, { secret: secret.secret, raw, headers: req.headers, now, header: sig.header, prefix: sig.prefix, query: queryOf(req) }) : { ok: false as const }
     if (!r.ok) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
     // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
     if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
