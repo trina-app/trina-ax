@@ -84,7 +84,7 @@ do not take seats. Each row says where the guest is and which AI they have. Its 
 their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
 guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)).
 
-![Admin › Members & invites › Guests: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
+![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
 
 ## The team's AI settings
 

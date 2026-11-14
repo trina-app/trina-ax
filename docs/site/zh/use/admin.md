@@ -76,7 +76,7 @@ Claude Code 和 Codex 下方是团队用来回答的账号，按尝试的顺序�
 
 **管理 › 成员与邀请** 的最后是 **访客**：来自团队之外的人，每人只在一个群聊或一个项目中，不占席位。每一行会说明访客在哪里、用哪种 AI。它的 **⋯** 菜单中有 **更改 AI**（不用 AI、用自己的账号登录，或带每月额度的团队 AI 账号）、**设为团队成员** 和 **移除访客**。成员可以自己从群聊或项目中邀请访客（[访客](chats-and-projects.md#访客)）。
 
-![管理 › 成员与邀请 › 访客：Morgan Reyes，在 Launch email 聊天室中，不用 AI](../../images/zh/admin/guests.webp "访客")
+![手机上的管理 › 成员与邀请 › 访客：Morgan Reyes，在 Launch email 聊天室中，不用 AI](../../images/zh/admin/guests.webp "访客")
 
 ## 团队的 AI 设置
 

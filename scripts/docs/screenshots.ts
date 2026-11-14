@@ -212,7 +212,8 @@ const SHOTS: Shot[] = [
   { file: 'admin/engines', set: 'acme', path: '/admin/engines', crop: 'main' },
   { file: 'admin/engines-open', set: 'acme', path: '/admin/engines', prepare: click('[data-testid="engine-open"]'), crop: '[data-testid="engine-card"]', pad: 16 },
   { file: 'admin/activity-log', set: 'acme', path: '/admin/audit', crop: 'main' },
-  { file: 'admin/guests', set: 'acme', path: '/admin/members', prepare: scrollTo('[data-testid="guests-section"]'), crop: '[data-testid="guests-section"]', pad: 16 },
+  // on a phone: the one-row section stays readable at every width the docs show it
+  { file: 'admin/guests', set: 'acme', path: '/admin/members', phone: true, prepare: scrollTo('[data-testid="guests-section"]'), crop: '[data-testid="guests-section"]', pad: 8 },
   // Your account and search
   { file: 'settings/account-menu', set: 'acme', path: '/', as: JORDAN, prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]' },
   { file: 'settings/settings', set: 'acme', path: '/settings/profile', as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },

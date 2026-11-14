@@ -59,18 +59,23 @@ async function main() {
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trina-docs-reshoot-'))
   const [acmePort, relayPort, quickPort] = [await freePort(), await freePort(), await freePort()]
   console.log(`[reshoot] logs in ${logDir}`)
-  const acme = start('the Acme demo', ['scripts/demo/company/start.ts', '--local', '--port', String(acmePort), '--relay-port', String(relayPort), '--data', acmeData], /\[acme\] ready/, path.join(logDir, 'acme.log'))
-  const quick = start('the quickstart demo', ['scripts/demo/start.ts', '--port', String(quickPort), '--data', quickData], /\[demo\] Ready/, path.join(logDir, 'quickstart.log'))
+  const servers: ReturnType<typeof start>[] = []
   const stop = async () => {
-    for (const s of [acme, quick]) { s.child.kill('SIGTERM') }
-    await Promise.all([acme.child.exited, quick.child.exited])
+    for (const s of servers) s.child.kill('SIGTERM')
+    await Promise.all(servers.map((s) => s.child.exited))
     for (const d of [acmeData, quickData]) fs.rmSync(d, { recursive: true, force: true })
     console.log('[reshoot] both servers stopped, their data folders deleted')
   }
   process.on('SIGINT', () => void stop().then(() => process.exit(130)))
   const failed: string[] = []
   try {
-    await Promise.all([acme.up, quick.up])
+    // one after the other: each server builds the web app when its sources changed, and two builds at once collide
+    const acme = start('the Acme demo', ['scripts/demo/company/start.ts', '--local', '--port', String(acmePort), '--relay-port', String(relayPort), '--data', acmeData], /\[acme\] ready/, path.join(logDir, 'acme.log'))
+    servers.push(acme)
+    await acme.up
+    const quick = start('the quickstart demo', ['scripts/demo/start.ts', '--port', String(quickPort), '--data', quickData], /\[demo\] Ready/, path.join(logDir, 'quickstart.log'))
+    servers.push(quick)
+    await quick.up
     const acmeUrl = `http://127.0.0.1:${acmePort}`, quickUrl = `http://127.0.0.1:${quickPort}`
     console.log(`[reshoot] Acme on ${acmeUrl}, the quickstart demo on ${quickUrl}; filling Acme (real AI answers, a few minutes)`)
     const ownerPassword = fs.readFileSync(path.join(acmeData, 'owner-password'), 'utf8').trim()
@@ -81,7 +86,7 @@ async function main() {
     }
     if (keep) {
       console.log(`[reshoot] --keep: Acme ${acmeUrl} (jordan / teamax-demo-1, owner acme-admin), quickstart ${quickUrl} (alice / teamax-demo-1). Ctrl-C stops them.`)
-      await Promise.race([acme.child.exited, quick.child.exited])
+      await Promise.race(servers.map((s) => s.child.exited))
     }
   } finally {
     await stop()
