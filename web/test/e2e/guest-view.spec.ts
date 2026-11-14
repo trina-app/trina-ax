@@ -28,10 +28,10 @@ async function signInGuest(page: Page, id = 'gina') {
 
 const TEAM_AI: GuestAiChoice = { mode: 'team', credentialId: 'c1', limitUsd: 20 }
 
-async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind: 'project'; name: string }, ai: GuestAiChoice = { mode: 'none' }) {
+async function guestIn(page: Page, place: { kind: 'room'; id: string } | { kind: 'project'; name: string; instructions?: string }, ai: GuestAiChoice = { mode: 'none' }) {
   await reset(page)
   expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
-  if (place.kind === 'project') expect((await page.request.post('/__test/project', { data: { name: place.name, by: 'bob' } })).ok()).toBeTruthy()
+  if (place.kind === 'project') expect((await page.request.post('/__test/project', { data: { name: place.name, by: 'bob', instructions: place.instructions } })).ok()).toBeTruthy()
   expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place, ai } })).ok()).toBeTruthy()
   await signInGuest(page)
 }
@@ -40,7 +40,7 @@ test.describe('computer', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
   test('a guest in a project with AI off lands on the project: no 트리나 or 파일, one quiet line, files and members', async ({ page }) => {
-    await guestIn(page, { kind: 'project', name: '견적 준비' })
+    await guestIn(page, { kind: 'project', name: '견적 준비', instructions: 'Answer briefly and politely.' })
     // AI off: no Ask Trina at all; their one place opens
     await expect(page).toHaveURL(/\/projects\/[^/]+$/)
     await expect(page.getByTestId('rail')).toBeVisible()
@@ -63,6 +63,10 @@ test.describe('computer', () => {
     }
     await page.goto('/projects')
     await expect(page.getByTestId('project-new')).toHaveCount(0)
+    // the Projects list leaves out what the project page leaves out: the instructions (the AI's) and the team's chat count
+    await expect(page.getByTestId('project-card-about')).toHaveCount(0)
+    await expect(page.getByText('Answer briefly and politely.')).toHaveCount(0)
+    await expect(page.getByTestId('projects-panel-row')).not.toContainText(/chat|대화/)
     await page.getByText('견적 준비').first().click()
     await expect(page.getByTestId('guest-no-ai')).toBeVisible()
     await expect(page.getByTestId('guest-project-note')).toHaveCount(0)

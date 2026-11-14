@@ -1,0 +1,1 @@
+- A guest whose AI is off no longer sees the project's instructions or the team's chat count on the Projects list. Their project page already left them out; the list card and the side list still showed them.
