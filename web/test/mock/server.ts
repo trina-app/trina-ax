@@ -6148,7 +6148,7 @@ export class MockServer {
       const keptThrough = removed.filter((x) => x.subjectType === 'user' && after.includes(x.subjectId)).map((x) => ({
         name: this.users.find((u) => u.id === x.subjectId)?.name ?? '',
         groups: afterGroups.filter((g) => g.memberIds.includes(x.subjectId) && (c.user.role !== 'member' || g.memberIds.includes(c.user.id))).map((g) => g.name),
-      }))
+      })).filter((k) => k.groups.length)
       const k = `ok:${key(wanted)}`
       const ask = this.peopleConfirm
       if (gained.length && ask && c.body.confirmKey !== k) {

@@ -5330,7 +5330,6 @@ export const ja: Record<MessageKey, string> = {
   "chat.notFoundWhy": "作成した人だけが見られるチャットか、削除されたチャットか、自分がメンバーではないプロジェクトのチャットかもしれません。リンクを送った人に、あなたと共有してもらってください。",
   "chat.goneDraft": "ここで入力していた内容は下に残っています。コピーして自分のチャットで使えます。",
   "chat.share.keepsThrough": "{name}さんは{groups}のメンバーなので、引き続き見られます。",
-  "chat.share.keepsThroughGroup": "{name}さんはリストのグループのメンバーなので、引き続き見られます。",
   "chat.share.sharedToMeAlone": "{name}さんがあなたと共有したチャットです。今はほかの人は見られません。",
   "chat.linkCopiedOnlyMe": "このチャットを開けるのは自分だけです。リンクを送った相手は開けません。",
   "chat.linkShareAction": "プロジェクトのメンバーと共有",

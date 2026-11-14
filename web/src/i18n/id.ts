@@ -5374,7 +5374,6 @@ export const id: Record<MessageKey, string> = {
   "chat.notFoundWhy": "Mungkin ini obrolan yang hanya bisa dilihat pembuatnya, sudah dihapus, atau milik proyek yang Anda bukan anggotanya. Minta orang yang mengirim tautan untuk membagikannya dengan Anda.",
   "chat.goneDraft": "Yang sedang Anda ketik di sini masih ada di bawah. Salin untuk dipakai di obrolan Anda sendiri.",
   "chat.share.keepsThrough": "{name} tetap punya akses lewat {groups}.",
-  "chat.share.keepsThroughGroup": "{name} tetap punya akses lewat grup di daftar ini.",
   "chat.share.sharedToMeAlone": "Dibagikan kepada Anda oleh {name}. Saat ini tidak ada orang lain yang bisa melihatnya.",
   "chat.linkCopiedOnlyMe": "Hanya Anda yang bisa membuka obrolan ini. Orang yang Anda kirimi tautan tidak bisa.",
   "chat.linkShareAction": "Bagikan dengan anggota proyek",

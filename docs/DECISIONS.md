@@ -28147,13 +28147,15 @@ migration `404_b_chat_audience_past.sql`, `shared/src/api/{entities,chats}.ts`, 
   the person who sent the link to share it with you."
 - **Typed text is kept.** The box's draft is stored per chat (lib/localData.ts); the "no longer shared" page shows it
   with Copy, never drops it (TC-2032).
-- **Related fixes in the same PR.** The share check counts only earlier uploads that will be copied (`readEarlier`, the
-  rule `copyEarlier` uses: TC-2022); a computer upload a viewer may not open is left out of their message instead of a
+- **Related fixes in the same PR.** The share check counts only earlier uploads that will be copied (the rule `copyEarlier`
+  uses: TC-2022), reading a file only when its state says it may have changed (a picture, another size, written since
+  it was attached), at most 100 MB a check, with the verdict kept by path, inode, size and mtime for the save; a computer upload a viewer may not open is left out of their message instead of a
   nameless "0 B" tile (team references still say "unavailable"); an upload whose picture metadata the server cut out
   answers `Attachment.receivedSize` (the bytes it received, checked whole before the cut), which the sender's
   whole-file check uses (TC-2023; the chunked path checks the sha256 before the cut already). `ChatAudienceRow.inGroups`
   (the listed groups a listed person is in: creator and admins only, only groups the viewer is in, admins any) and
-  `keptThrough` on a save say who keeps access through a group when taken out by name (TC-2264). The footer of a
+  `keptThrough` on a save say who keeps access through a group when taken out by name (TC-2264); someone kept only
+  through groups the creator is not in is not mentioned (that would tell group membership). The footer of a
   recipient whose chat nobody else sees now (its creator's account off) says who shared it, not "Only you" (TC-2263).
 - Tests: tests/security/people-shared-chats.test.ts (the reason for former members, identical 404 for outsiders, a
   deleted chat, a group left and deleted), tests/unit/b-chat-files.test.ts (GPS photo on both upload paths, the count,

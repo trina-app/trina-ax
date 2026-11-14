@@ -5330,7 +5330,6 @@ export const es: Record<MessageKey, string> = {
   "chat.notFoundWhy": "Puede ser un chat que solo ve quien lo creó, puede haberse eliminado o puede ser de un proyecto del que no eres miembro. Pide a quien te envió el enlace que lo comparta contigo.",
   "chat.goneDraft": "Lo que estaba escribiendo aquí se guardó abajo. Cópielo para usarlo en un chat propio.",
   "chat.share.keepsThrough": "{name} sigue teniendo acceso a través de {groups}.",
-  "chat.share.keepsThroughGroup": "{name} sigue teniendo acceso a través de un grupo de la lista.",
   "chat.share.sharedToMeAlone": "{name} compartió este chat con usted. Ahora nadie más puede verlo.",
   "chat.linkCopiedOnlyMe": "Solo tú puedes abrir este chat. Las personas a las que envíes el enlace no pueden.",
   "chat.linkShareAction": "Compartir con los miembros del proyecto",

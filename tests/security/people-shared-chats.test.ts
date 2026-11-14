@@ -228,4 +228,17 @@ describe('the reason for people who were in it', () => {
     await plain404('bob', id2)
     await plain404('dana', id2)
   })
+
+  test('kept through a group the creator is not in: nothing says so (no group membership told)', async () => {
+    const g = await h.api('dana').call(API.createGroup, { body: { name: 'Sec Other Group', memberIds: ['alice', 'carol'] } })
+    const id = await newChat('other group')
+    await share(id, [{ subjectType: 'user', subjectId: 'carol' }, { subjectType: 'group', subjectId: g.id }])
+    // alice leaves the group; its row stays in the chat (carol still sees it through the group)
+    await h.api('dana').call(API.updateGroup, { params: { id: g.id }, body: { memberIds: ['carol'] } })
+    expect((await h.api('alice').call(API.getChatAudience, { params: { id } })).subjects.find((s) => s.subjectId === 'carol')?.inGroups).toBeUndefined()
+    const saved = await share(id, [{ subjectType: 'group', subjectId: g.id }])
+    expect(saved.keptThrough).toBeUndefined()
+    expect(JSON.stringify(saved)).not.toContain('keptThrough')
+    expect((await read('carol', id)).status).toBe(200)
+  })
 })

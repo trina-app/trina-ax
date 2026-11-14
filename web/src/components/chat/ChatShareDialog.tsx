@@ -159,7 +159,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
       if (r.filesNotCopied) toast({ level: 'warn', text: t('chat.share.filesNotCopied', { n: r.filesNotCopied }) })
       // someone taken out by name who still sees it through a group (QA TC-2264)
-      for (const k of r.keptThrough ?? []) toast({ level: 'info', text: k.groups.length ? t('chat.share.keepsThrough', { name: k.name, groups: k.groups.join(t('rooms.nameSep')) }) : t('chat.share.keepsThroughGroup', { name: k.name }) })
+      for (const k of r.keptThrough ?? []) toast({ level: 'info', text: t('chat.share.keepsThrough', { name: k.name, groups: k.groups.join(t('rooms.nameSep')) }) })
       setAudience(r.audience)
       onClose()
     } catch (e) {

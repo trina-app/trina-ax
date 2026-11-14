@@ -341,9 +341,9 @@ export const PutChatAudienceResult = z.discriminatedUnion('status', [
    * computer uploads in it could not be shared with it (too large, no storage room, changed since): still mine alone */
   z.object({
     status: z.literal('saved'), chat: Chat, audience: ChatAudience, filesNotCopied: z.number().int().positive().optional(),
-    /** people taken out by name who still see it through a group listed (QA TC-2264): their name and those groups' names
-     * (only groups I am in, admins any; [] when none of them is one of mine) */
-    keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()) })).optional(),
+    /** people taken out by name who still see it through a group listed (QA TC-2264): their name and those groups' names.
+     * Only through groups I am in (admins any); someone kept only through other groups is not listed */
+    keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()).min(1) })).optional(),
   }),
   /** nothing changed yet: the check for the people who would start to see it. `added`: how many people (never who);
    * `provenance`: its answers carry content from places some of them cannot open (null: none); `memories`: an answer

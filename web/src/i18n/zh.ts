@@ -5300,7 +5300,6 @@ export const zh: Record<MessageKey, string> = {
   "chat.notFoundWhy": "这可能是只有创建者才能看到的对话，可能已被删除，也可能属于你不是成员的项目。请让发送链接的人把它共享给你。",
   "chat.goneDraft": "你在这里输入的内容保留在下面。复制后可以在你自己的对话中使用。",
   "chat.share.keepsThrough": "{name} 仍可通过 {groups} 查看。",
-  "chat.share.keepsThroughGroup": "{name} 仍可通过列表中的群组查看。",
   "chat.share.sharedToMeAlone": "{name} 与你共享了此对话。目前没有其他人能看到它。",
   "chat.linkCopiedOnlyMe": "只有你能打开这个对话。你发送链接的人无法打开。",
   "chat.linkShareAction": "共享给项目成员",

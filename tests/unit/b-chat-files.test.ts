@@ -215,6 +215,27 @@ describe('a file from the computer in a chat shared with people', () => {
     expect((await lastMessage('alice', c)).attachments.map((a) => a.name)).toEqual(['kept.txt', 'edited-later.txt'])
   })
 
+  test('the check reads a file only when its state says it may have changed: an edit of the same size is still caught', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const same = await upload('alice', c, 'same-size.txt', 'abcdefgh')
+    await ask('alice', c, `same\n${fake({ say: 'ok' })}`, [same.body.id])
+    const p = path.join(h.team, ...same.body.path.split('/'))
+    const later = new Date(Date.now() + 5000)
+    // written since but the same bytes again: counted (read, its verdict kept)
+    fs.writeFileSync(p, 'abcdefgh')
+    fs.utimesSync(p, later, later)
+    expect(await put('alice', c, [bob])).toMatchObject({ status: 'confirm', earlierFiles: 1 })
+    // edited to other bytes of the same size: read again (another state), not counted; the save says it did not go
+    fs.writeFileSync(p, 'ABCDEFGH')
+    const later2 = new Date(Date.now() + 9000)
+    fs.utimesSync(p, later2, later2)
+    const asked = await put('alice', c, [bob])
+    if (asked.status === 'confirm') expect(asked.earlierFiles).toBeUndefined()
+    const saved = asked.status === 'confirm' ? await put('alice', c, [bob], asked.confirmKey) : asked
+    expect(saved.status === 'saved' && saved.filesNotCopied).toBe(1)
+    expect((await lastMessage('bob', c)).attachments).toEqual([])
+  })
+
   test('a photo with GPS: the upload says how many bytes arrived before the place was cut out, on both upload paths (QA TC-2023)', async () => {
     const photo = fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/portrait-o1.jpg'))
     const id = await sharedChat('gps')

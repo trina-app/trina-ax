@@ -322,15 +322,16 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         for (const id of newPeople) n.chatShared(id, String(auditId), r.id, userId, named.has(id), at)
       } catch (e) { ctx.log.warn('chat share notices failed', { err: e }) }
     }
-    // people taken out by name who still see it through a group listed: the creator is told which (QA TC-2264), the
-    // groups only by the names of their own (admins: any)
+    // people taken out by name who still see it through a group listed: the creator is told which (QA TC-2264), only
+    // through groups they are in themselves (admins: any). Through none of those: nothing is said (that would tell them
+    // who is in a group they are not in)
     const afterGroups = after.filter((s) => s.type === 'group').map((s) => s.id)
     const keptThrough = removed.filter((s) => s.type === 'user' && afterPeople.has(s.id)).map((s) => {
       const name = (db.query('SELECT name FROM users WHERE id = ?').get(s.id) as { name: string } | null)?.name ?? ''
       const groups = groupsOfIn(db, s.id, afterGroups.filter((g) => isAdmin(me.role) || me.groups.includes(g)))
         .map((g) => (db.query('SELECT name FROM groups WHERE id = ?').get(g) as { name: string } | null)?.name).filter((n): n is string => !!n)
       return { name, groups }
-    }).filter((k) => k.name)
+    }).filter((k) => k.name && k.groups.length)
     const out = rt.store.chatRow(r.id)!
     return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }), ...(filesNotCopied ? { filesNotCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
   }

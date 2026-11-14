@@ -5374,7 +5374,6 @@ export const en: Record<MessageKey, string> = {
   "chat.notFoundWhy": "It may be a chat only its creator can see, it may have been deleted, or it may belong to a project you're not a member of. Ask the person who sent the link to share it with you.",
   "chat.goneDraft": "What you were typing here is kept below. Copy it to use it in a chat of your own.",
   "chat.share.keepsThrough": "{name} keeps access through {groups}.",
-  "chat.share.keepsThroughGroup": "{name} keeps access through a group in the list.",
   "chat.share.sharedToMeAlone": "Shared with you by {name}. Nobody else can see it right now.",
   "chat.linkCopiedOnlyMe": "Only you can open this chat. People you send the link to can't.",
   "chat.linkShareAction": "Share with project members",
