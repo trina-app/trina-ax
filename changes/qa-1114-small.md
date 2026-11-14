@@ -1,0 +1,1 @@
+- A connection's full name now shows on a phone (it wraps instead of ending in "..." next to a status), the room message box has the same corner and side space as the AI chat's, and the sharing check says plainly who cannot open some of what the chat used.

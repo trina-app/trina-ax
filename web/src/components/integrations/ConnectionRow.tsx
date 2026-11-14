@@ -31,7 +31,7 @@ export function ConnectionRow({ logo, name, badge, line, lineTone, wrap, more, e
   /** one line under the name: what it does, the account, who asked; cut to one line */
   line?: ReactNode
   lineTone?: 'muted' | 'warn'
-  /** the name and the line wrap instead of being cut (what a connection may do: every word counts) */
+  /** the name and the line wrap instead of being cut (a phone's name always wraps, QA TC-1549: a status at the right left it no room) (what a connection may do: every word counts) */
   wrap?: boolean
   /** more lines under that one, only when they say something (a connection's expiry, what it lacks) */
   more?: ReactNode
@@ -55,7 +55,7 @@ export function ConnectionRow({ logo, name, badge, line, lineTone, wrap, more, e
       {logo}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={clsx(wrap ? 'break-words' : 'truncate', 'min-w-0 text-row font-medium')}>{name}</span>
+          <span className={clsx(wrap ? 'break-words' : 'truncate max-md:break-words max-md:whitespace-normal', 'min-w-0 text-row font-medium')}>{name}</span>
           {badge}
         </span>
         {line && <span className={clsx('mt-0.5 block text-xs', wrap ? 'break-words' : 'truncate', lineTone === 'warn' ? 'text-warn' : 'text-muted')} data-testid={testId ? `${testId}-line` : undefined}>{line}</span>}
