@@ -4183,6 +4183,7 @@ export const ko = {
   "rooms.info.leave": "대화방 나가기",
   "rooms.info.leaveTitle": "이 대화방에서 나갈까요?",
   "rooms.info.leaveBody": "나가면 이 대화의 메시지와 파일을 더 볼 수 없어요. 다시 초대받으면 그때부터 보여요.",
+  "rooms.info.leaveBodyGuest": "나가면 이 팀의 계정이 없어져요. 다시 초대받기 전에는 로그인할 수 없어요. 이 대화의 메시지와 파일도 더 볼 수 없어요.",
   "rooms.info.manager": "방장",
   "rooms.info.remove": "내보내기",
   "rooms.info.removeTitle": "{name}님을 내보낼까요?",

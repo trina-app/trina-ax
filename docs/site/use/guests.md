@@ -49,7 +49,7 @@ them yourself, by email or in a chat. The link works once.
 ![The link for Dana Cole, with Copy link and Done: It works once. Send it to them yourself, by email or chat.](../images/guests/invite-link.webp "The guest's link")
 :::
 
-The link also shows in **Admin › Members & invites**, under **Guests**, with the person's name, until it is used.
+The link also shows in **Admin › Members & invites**, under **Invite links**, tagged **Guest**, with the person's name, until it is used.
 
 ## What the guest sees
 
@@ -64,7 +64,7 @@ things, such as their profile and notifications.
 
 ![A guest's view: the Chats list shows only the Quote prep group conversation, and the bar on the left has only Chats and Activity](../images/guests/guest-room.webp "What a guest sees")
 
-In a project, the project's members can see the chats a guest has there. The guest is told this on the project's page.
+In a project, the project's members can see the chats a guest has there. A guest who can use AI is told this on the project's page.
 
 ## One place only
 

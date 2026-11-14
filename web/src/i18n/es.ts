@@ -4140,6 +4140,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.info.leave": "Salir del chat",
   "rooms.info.leaveTitle": "¿Salir de este chat?",
   "rooms.info.leaveBody": "Dejará de ver los mensajes y archivos de este chat. Si le invitan de nuevo, los verá desde ese momento.",
+  "rooms.info.leaveBodyGuest": "Al salir, tu cuenta en este equipo se cierra: no podrás iniciar sesión hasta que te inviten de nuevo. Tampoco verás los mensajes y archivos de este chat.",
   "rooms.info.manager": "Administra",
   "rooms.info.remove": "Sacar del chat",
   "rooms.info.removeTitle": "¿Sacar a {name}?",

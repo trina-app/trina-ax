@@ -4184,6 +4184,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.info.leave": "Keluar dari obrolan",
   "rooms.info.leaveTitle": "Keluar dari obrolan ini?",
   "rooms.info.leaveBody": "Anda tidak akan melihat pesan dan berkas obrolan ini lagi. Jika diundang lagi, Anda melihatnya mulai saat itu.",
+  "rooms.info.leaveBodyGuest": "Jika Anda keluar, akun Anda di tim ini berakhir: Anda tidak bisa masuk lagi sebelum diundang kembali. Anda juga tidak akan melihat pesan dan berkas obrolan ini.",
   "rooms.info.manager": "Pengelola",
   "rooms.info.remove": "Keluarkan dari obrolan",
   "rooms.info.removeTitle": "Keluarkan {name}?",

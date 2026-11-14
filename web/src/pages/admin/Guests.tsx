@@ -21,6 +21,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { ListRow } from '../../components/list/List'
 import { Button, Modal, confirmDialog } from '../../components/ui'
+import { formatMonthDay } from '../../lib/format'
 import { aiChoiceReady, ConvertGuestDialog, GuestAiChoices, guestErrorText, useTeamConnections } from '../../components/GuestInvite'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { OneLine, useAction } from './common'
@@ -33,7 +34,7 @@ function aiWords(t: ReturnType<typeof useT>, ai: GuestAiChoice | null, connectio
   return [t('guest.ai.team'), label, `$${ai.limitUsd}`].filter(Boolean).join(' · ')
 }
 
-export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete }: {
+export function GuestsSection({ guests, filtered = false, connections, focusId, onChanged, onDelete, deletionRequested = [], deletionDue = {} }: {
   guests: User[]
   /** the page's search narrowed `guests`: "No match" instead of "No guests yet" */
   filtered?: boolean
@@ -43,8 +44,12 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   onChanged: () => Promise<void> | void
   /** delete a removed guest's account for good (Members' own delete, with its confirm or password) */
   onDelete: (u: User) => void
+  /** ids who asked to delete their account, and when it happens (GET /api/admin/users): said in the row, like the red mark of a member */
+  deletionRequested?: readonly string[]
+  deletionDue?: Record<string, string>
 }) {
   const t = useT()
+  const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
   const [aiFor, setAiFor] = useState<User | null>(null)
@@ -64,6 +69,8 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
     if (!(await confirmDialog({ title: t('guest.admin.removeTitle', { name: u.name }), body: t('guest.admin.removeBody'), confirm: t('guest.admin.remove'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: 'disabled' } }), t('guest.admin.removed', { name: u.name }))) await onChanged()
   }
+  // who asked to delete their account (the member row's red mark, as words in the second line: a phone row has no room for a badge)
+  const asked = (u: User) => !deletionRequested.includes(u.id) ? null : deletionDue[u.id] ? t('accountDeletion.badgeDue', { date: formatMonthDay(deletionDue[u.id]!, locale) }) : t('accountDeletion.badge')
   const items = (u: User): MemberMenuItem[] => u.status === 'active'
     ? [
         { label: t('guest.admin.changeAi'), icon: <Bot size={14} aria-hidden />, onSelect: () => setAiFor(u), testId: `guest-ai-${u.username}` },
@@ -87,7 +94,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
           {sorted.map((u) => {
             const g = userGuest(u)
             const where = g?.place?.name ? t(g.place.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: g.place.name }) : null
-            const meta = [where, aiWords(t, g?.ai ?? null, connections), u.status === 'disabled' ? t('members.disabled') : null].filter(Boolean).join(' · ')
+            const meta = [where, aiWords(t, g?.ai ?? null, connections), u.status === 'disabled' ? t('members.disabled') : null, asked(u)].filter(Boolean).join(' · ')
             return (
               <ListRow
                 key={u.id}
