@@ -47,7 +47,7 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 ![Admin › AI accounts: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "AI accounts")
 
 #### Invite the team
-Start with a small pilot group, then confirm roles and folder access.
+Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
 
 #### Add a first skill
 Copy a starter skill and review its result against the sources. [Read about skills](team-skills.md).
@@ -77,7 +77,16 @@ Click an engine's name to open its details: how it signs in, every model, when i
 and for the owner and admins the API engine form. Click an account's name for who uses it, this month's use and when it
 was last used. The **⋯** menu of an account has Check again, Move up / down, rename, replace, switch off and delete.
 
-![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
+![The Claude Code row opened: its accounts with Add account, how it signs in, its version and models, when it was last checked, and Check again](../images/admin/engines-open.webp "An engine opened")
+
+## Guests
+
+**Admin › Members & invites** ends with **Guests**: people from outside the team, each in one room or one project, who
+do not take seats. Each row says where the guest is and which AI they have. Its **⋯** menu has **Change AI** (no AI,
+their own sign-in, or a team AI account with a monthly limit), **Make team member** and **Remove guest**. Members invite
+guests themselves from a group conversation or a project ([Guests](chats-and-projects.md#guests)).
+
+![Admin › Members & invites › Guests on a phone: Morgan Reyes, in the room Launch email, with No AI](../images/admin/guests.webp "Guests")
 
 ## Connected apps
 
@@ -114,6 +123,6 @@ From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI en
 
 ## System
 
-**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Storage counts the files of deleted chats and rooms in **Team files** ("Includes 120 MB from deleted chats and rooms, removed after 30 days"): they are kept 30 days so they can be brought back. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
+**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Storage counts the files of deleted chats and rooms in **Team files** ("Includes 120 MB from deleted chats and rooms, removed after 30 days"): they are kept 30 days so they can be brought back. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates. To keep a small disk from filling, backups leave out folders that are rebuilt automatically, and caches nobody used for 14 days are cleared. Your own files are never touched. When an update waits for running tasks to finish, System says so; it offers **Wait, then update** or **Update now anyway**.
 
 ![Admin on a phone: one list of the admin areas, with the five tabs at the bottom](../images/admin/admin-phone.webp "Admin on a phone")

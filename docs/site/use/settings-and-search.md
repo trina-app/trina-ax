@@ -1,6 +1,6 @@
 ---
 title: Settings and search
-description: Your account menu, the Settings window, and ⌘K search across chats, conversations and people, messages, projects, files, skills and more.
+description: Your account menu, the Settings window, notifications, deleting your account, and ⌘K search across chats, conversations and people, messages, projects, files, skills and more.
 ---
 
 Everything about your own account is one click away: your photo at the bottom of the bar on the left.
@@ -9,7 +9,7 @@ Everything about your own account is one click away: your photo at the bottom of
 
 Click your photo at the bottom of the bar on the left. On a phone, open the **Me** tab.
 
-![The account menu: your name, email and role, then Show me as away, your status, Settings and Sign out](../images/settings/account-menu.webp "The account menu")
+![The account menu: your name, username and role, then Show me as away, Set your status, Settings and Sign out](../images/settings/account-menu.webp "The account menu")
 
 | Item | Does |
 |---|---|
@@ -34,7 +34,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 
 | Group | Sections |
 |---|---|
-| **Account** | Profile, Security & devices, Browser, Usage, Memory |
+| **Account** | Profile, Security & devices, Usage, Memory, Allowed for Trina (and Browser, see below) |
 | **Connections** | Connectors, AI accounts (when the team lets members add their own accounts), Use from other AI apps |
 | **App** | Notifications, Apps, About |
 
@@ -50,21 +50,47 @@ listed services. Open one to connect it, see what the AI may do with it, or disc
 Pick a section on the left, or type in **Search settings**.
 
 #### Change what you need
-Profile, language, theme (light, dark or the system's, in Profile), your default engine, notifications and more.
+Profile, language (English, 한국어, Bahasa Indonesia, 日本語, Español or 简体中文), theme (light, dark or the system's, in Profile), your default engine, notifications and more.
 
 #### Close it
 Press **Esc** or choose **✕**. You are back where you were.
 :::
 
-![The Settings window: sections on the left, the Profile section on the right with name, email, username and language](../images/settings/settings.webp "The Settings window")
+![The Settings window: sections on the left, the Profile section on the right with photo, name, job title, email, username, role, Delete account and language](../images/settings/settings.webp "The Settings window")
 
-**Browser** has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in rooms. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or room message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
+**Allowed for Trina** lists what you picked **Always allow** for on a confirmation card, and the room folders you
+allowed new files in. Delete one and you are asked again next time.
+
+**Browser** (in the desktop app, and on the web while **Allow all websites** is on) has **Allow all websites**. When it is on, the AI opens public websites without asking when you ask it, in your chats and in rooms. Scheduled tasks still ask. Addresses with long hard-to-read strings or a long query still ask, but that catches obvious tokens only: a hidden instruction in a document, page or room message can make the AI send anything it can read to any site. You can also turn it on from an address card ("Allow all websites (turn off in Settings)"). In the desktop app the same switch covers the app's own browser, which asks once more in its own window. The section is there while your team allows it.
 
 On a phone, Settings fills the screen. The section list comes first, and **←** goes back to it.
 
 ![The Me tab on a phone: your name, Activity, your status, then the Settings sections](../images/settings/me-phone.webp "The Me tab on a phone")
 
 ![Settings on a phone: the Profile section full screen, with a back arrow and a close button](../images/settings/settings-phone.webp "Settings on a phone")
+
+## Notifications
+
+**Settings › Notifications** chooses what reaches you: messages in conversations (direct and group conversations and
+mentions, every new message, or nothing), replies in your threads, **Do not disturb** hours, scheduled tasks,
+connections, team skills and **Chats shared with me**. Under **Phone**, **Phone notifications only when I'm away** keeps
+your phone quiet while you use Trina on a computer. **This device** has the sound and, in a browser, **Browser
+notifications**.
+
+For the owner and admins, **Phone › Phone notifications** chooses where the whole team's phone notifications go:
+**Trina AX push (default)**, **Off**, or **Custom**, the address of your own push service for your own build of the
+phone app. Notifications on a phone never hold file or conversation content.
+
+![Settings › Notifications for the owner: the Phone section with Phone notifications only when I'm away and Phone notifications set to Trina AX push (default), then This device](../images/settings/notifications.webp "Notifications")
+
+## Delete your account
+
+**Settings › Profile › Delete account** deletes your account in this team 7 days after you ask, with your password. The
+page says the date, what is deleted, what moves to the team owner's archive and what stays with the team. Until then you
+can keep using your account and press **Keep my account**. The team owner and the admins are told; they can delete it
+sooner but cannot stop it. The owner's own account cannot be deleted here: hand the team over first.
+
+![Settings › Profile › Delete account: the date it will be deleted, what is deleted, what moves to an archive, what stays with the team, and a Delete my account button](../images/settings/delete-account.webp "Delete account")
 
 ## Search with ⌘K
 
