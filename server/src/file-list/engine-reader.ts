@@ -164,10 +164,14 @@ export class EngineReader implements Reader {
           tokenKind = c.kind === 'anthropic-api-key' ? 'api-key' : 'oauth'
           proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools })
           unsubscribe = core.proxy!.subscribe(turn.id, onProxy)
-        } else if (tunnelPort !== null) proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, tools })
+        } else if (tunnelPort !== null) {
+          // office own-login: the proxy's checked HTTP path (TC-359); a refusal ends the call like in managed mode
+          proxyToken = issueProxyToken(this.ctx.db, turn.id, owner, { ttlMs: READER_TIMEOUT_MS + 60_000, family: 'anthropic', tools })
+          unsubscribe = core.proxy!.subscribe(turn.id, onProxy)
+        }
         const message = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n'
         lr = buildClaudeReaderLaunch({ turnId: turn.id, chatDir, token, systemPrompt, message, model: this.model!, timeoutMs: READER_TIMEOUT_MS, proxyToken, tokenKind,
-          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}) }, conf)
+          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}) }, conf)
       } else {
         const conf = this.pick.conf
         let proxy: { port: number; token: string } | undefined

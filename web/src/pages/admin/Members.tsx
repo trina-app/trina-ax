@@ -55,6 +55,7 @@ import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { AdminBarActions, BarAdd, BarMore } from './barActions'
+import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
@@ -1023,6 +1024,9 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
             busy={busy}
             onClick={async () => {
               setBusy(true)
+              // groups taken off where the folder conversion added this person by name: that access stays, said first
+              const leaving = user.groupIds.filter((g) => !groupIds.includes(g)).map((groupId) => ({ userId: user.id, groupId }))
+              if (!(await confirmOriginKept(leaving, { title: t('groups.originTitle'), confirm: t('common.save') }))) { setBusy(false); return }
               const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}), ...(language !== (user.localeChoice ?? '') ? { locale: language || null } : {}) } }))
               setBusy(false)
               // an admin made a member could see the team invite link: suggest replacing it

@@ -20,7 +20,7 @@ import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser,
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
-import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, resetEngineSessions } from './folders'
+import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, originKeepers, resetEngineSessions } from './folders'
 import { forgetUserName, stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { MY_PROFILE_CHANGED } from '../auth/profiles'
@@ -164,6 +164,11 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // null = follow the team default again
     if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
+      // groups they join or leave that the folder access conversion named for them: they keep that access by name
+      // (C1-A; the web asks before saving: POST /api/admin/groups/origin-check)
+      const had = new Set((ctx.db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(id) as { group_id: string }[]).map((g) => g.group_id))
+      const kept = originKeepers(ctx.db, [...[...had].filter((g) => !groups.includes(g)), ...groups.filter((g) => !had.has(g))].map((groupId) => ({ userId: id, groupId })))
+      if (kept.length) changed.originKept = kept.map((k) => ({ path: k.path, access: k.access }))
       ctx.db.query('DELETE FROM group_members WHERE user_id = ?').run(id)
       const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
       for (const g of groups) add.run(g, id)

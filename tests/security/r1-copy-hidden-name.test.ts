@@ -12,13 +12,14 @@ import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { componentC } from '../../server/src/team-files/component'
 
 let A: CApp
-const hidden = [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'carol', access: 'write' }]
+// (Limit access, naming only carol: docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+const hidden = [{ subjectType: 'user', subjectId: 'carol', access: 'write' }]
 beforeAll(async () => {
   A = await makeCApp('sec-r1-copy-hidden-name')
   fs.writeFileSync(path.join(A.team, 'shared', 'plan.md'), 'visible plan\n')
   fs.mkdirSync(path.join(A.team, 'shared', 'drafts'))
   for (const p of ['shared/plan (2).md', 'shared/drafts (2)']) {
-    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: p, create: true, rules: hidden }) })
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: p, create: true, limited: true, rules: hidden }) })
     expect(r.status).toBeLessThan(300)
   }
 })

@@ -166,6 +166,11 @@ describe('launcher: managed Codex placeholder login (S-3)', () => {
     for await (const ev of h.events) { if (ev.ev === 'stdout') out += Buffer.from(ev.b64, 'base64').toString(); if (ev.ev === 'error') err = ev.message }
     return { out: out.trim(), err, chatDir }
   }
+  test('ANTHROPIC_BASE_URL is only ever the proxy of --proxy-port: asked for without a model token (office own-login, TC-359) it is set, never another address', async () => {
+    const show = ['-c', 'echo "base=${ANTHROPIC_BASE_URL-}"']
+    expect((await run(null, { args: show, env: { ANTHROPIC_BASE_URL: 'http://evil.example:80' } })).out).toBe('base=http://127.0.0.1:45678')
+    expect((await run(null, { args: show })).out).toBe('base=')
+  })
   test('a placeholder login is written (0600), the refresh address is the proxy, key variables are dropped, nothing stays', async () => {
     const auth = chatgpt()
     const r = await run(auth, { env: { OPENAI_API_KEY: 'sk-leak', CODEX_API_KEY: 'sk-leak2', CODEX_ACCESS_TOKEN: 'at-leak', CODEX_REFRESH_TOKEN_URL_OVERRIDE: 'https://evil.example/token' } })

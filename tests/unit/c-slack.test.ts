@@ -261,6 +261,14 @@ describe('linking', () => {
     expect((await call('erin', 'POST', '/api/slack/link/cancel', { token: mt })).status).toBe(204)
     expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: mt })).status).toBe(404)
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE slack_user_id IN ('U0BOB','U0MALLORY')").get()).toEqual({ n: 0 })
+    // asking again at once: the cancelled link holds nothing back, a new one is offered (not "use the link sent a moment ago")
+    const had = linksTo('U0MALLORY').length
+    skew = linkClock + 5_000 // (the clock of the link above: only seconds have passed)
+    mention('U0MALLORY', 'again')
+    const again = await waitFor(() => { const all = linksTo('U0MALLORY'); return all.length > had ? all.at(-1) : null })
+    skew = 0
+    expect(again && linkTokenFrom(again)).toBeTruthy()
+    expect(linkTokenFrom(again!)).not.toBe(mt)
   })
 
   test('a person of another workspace (Slack Connect) is never offered a link', async () => {

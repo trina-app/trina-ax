@@ -106,6 +106,9 @@ export const FolderRule = z.object({
   access: Access,
   updatedBy: UserRef.nullable(),
   updatedAt: IsoTime,
+  /** a person rule the one-time conversion to additive access wrote ("Added when folders changed"; docs/DECISIONS.md
+   * "Folder access adds up like Google Drive (P2)"). Saving it with the same access keeps the mark. Absent: not one */
+  byConversion: z.boolean().optional(),
 })
 export type FolderRule = z.infer<typeof FolderRule>
 /** folders: a folder that carries rules. path: actual on-disk names, no trailing slash, '' = team root. */
@@ -126,6 +129,9 @@ export const Folder = z.object({
   /** a hash of the folder's rules as they are now (the same rules in any order give the same hash): a save sends it
    * back as `expectedHash`, and the server answers 409 when another admin changed them first. Absent: an older server */
   rulesHash: z.string().optional(),
+  /** Limit access: nothing from the folders above reaches it, only its own rules (and the owner and admins, outside
+   * projects). Access otherwise adds up from the folders above. Absent: an older server */
+  limited: z.boolean().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 

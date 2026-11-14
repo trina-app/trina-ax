@@ -56,11 +56,12 @@ beforeAll(async () => {
 })
 afterAll(async () => { await h?.close() })
 
-const restricted = () => [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: hr.id, access: 'write' }]
+// a restricted folder: Limit access with only hr named (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+const restricted = () => [{ subjectType: 'user', subjectId: hr.id, access: 'write' }]
 
 describe('files.changed for a restricted folder', () => {
   test('renaming and trashing a folder hidden from mallory sends her nothing that names it', async () => {
-    await owner.call('POST', '/api/admin/folders', { path: 'shared/Layoffs-2027-plan', create: true, rules: restricted() })
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/Layoffs-2027-plan', create: true, limited: true, rules: restricted() })
     await hr.client.call('PUT', '/api/files/content', { path: 'shared/Layoffs-2027-plan/list.md', content: 'names', baseSha256: null })
     // she cannot see it
     expect((await mallory.client.try('GET', '/api/files/tree?path=' + encodeURIComponent('shared/Layoffs-2027-plan'))).status).toBe(404)
@@ -88,7 +89,7 @@ describe('files.changed for a restricted folder', () => {
   })
 
   test('control: a file moved out of the hidden folder into shared/ arrives as a create', async () => {
-    await owner.call('POST', '/api/admin/folders', { path: 'shared/Board-room', create: true, rules: restricted() })
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/Board-room', create: true, limited: true, rules: restricted() })
     await hr.client.call('PUT', '/api/files/content', { path: 'shared/Board-room/memo.md', content: 'x', baseSha256: null })
     mal.clear()
     await hr.client.call('POST', '/api/files/move', { from: 'shared/Board-room/memo.md', to: 'shared/memo.md' })
@@ -101,7 +102,7 @@ describe('files.changed for a restricted folder', () => {
 describe('access_changed notice', () => {
   test('creating a restricted folder does not tell members it is hidden from what it is called', async () => {
     mal.clear()
-    await owner.call('POST', '/api/admin/folders', { path: 'shared/Acquisition-Target-X', create: true, rules: restricted() })
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/Acquisition-Target-X', create: true, limited: true, rules: restricted() })
     expect(mal.text()).not.toContain('Acquisition')
     // hrlead gained access: told about it
     expect(mal.of('notice')).toEqual([])
@@ -110,17 +111,17 @@ describe('access_changed notice', () => {
   test('putting rules on a hidden folder never names it to people who could not see it', async () => {
     const f = (await owner.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'shared/Acquisition-Target-X')
     mal.clear()
-    await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: hr.id, access: 'read' }] })
+    await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { limited: true, rules: [{ subjectType: 'user', subjectId: hr.id, access: 'read' }] })
     expect(mal.text()).not.toContain('Acquisition')
   })
 
   test('control: losing a folder she could see, or gaining one, still names it', async () => {
     await owner.call('POST', '/api/files/mkdir', { path: 'shared/Design' })
     mal.clear()
-    const created = await owner.call('POST', '/api/admin/folders', { path: 'shared/Design', create: false, rules: restricted() })
+    const created = await owner.call('POST', '/api/admin/folders', { path: 'shared/Design', create: false, limited: true, rules: restricted() })
     expect(mal.of('notice').map((n) => [n.data.code, n.data.message])).toEqual([['access_changed', 'shared/Design']])
     mal.clear()
-    await owner.call('PUT', `/api/admin/folders/${created.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] })
+    await owner.call('PUT', `/api/admin/folders/${created.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }], limited: false })
     expect(mal.of('notice').map((n) => [n.data.code, n.data.message])).toEqual([['access_changed', 'shared/Design']])
   })
 })

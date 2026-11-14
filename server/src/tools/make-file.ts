@@ -28,6 +28,7 @@
 //   colours and backgrounds, merged cells, `@page` size and margins, page breaks), never rewritten as Markdown
 //   (files/html-pdf.ts: no network, no scripts, the page's pictures, stylesheets and fonts read with the person's
 //   access). The page and every file it used are the PDF's sources, as for images above.
+import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -502,15 +503,16 @@ export class MakeFile {
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
-      s.rows.forEach((row, ri) =>
-        ws.addRow(row.map((v, ci) => {
-          if (ri === 0) return v
-          const cv = cellValue(v)
-          if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
-          if (typeof cv === 'object') formulas++
-          return cv
-        })),
-      )
+      // the values first, then the results of the simple formulas (formula-values.ts) so a preview shows numbers
+      const grid = s.rows.map((row, ri) => row.map((v, ci) => {
+        if (ri === 0) return v
+        const cv = cellValue(v)
+        if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
+        if (typeof cv === 'object') formulas++
+        return cv
+      }))
+      addFormulaResults(grid)
+      for (const row of grid) ws.addRow(row)
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
         const cols = Math.max(...s.rows.map((r) => r.length))

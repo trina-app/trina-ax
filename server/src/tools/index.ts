@@ -80,7 +80,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
-        'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' : '') +
+        'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' : 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. ') +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
       'the result states the real slide and notes counts: report those, never other numbers. ' +
       'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +

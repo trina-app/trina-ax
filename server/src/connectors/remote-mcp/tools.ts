@@ -49,7 +49,8 @@ export class RemoteTools {
   private policy(user: string) {
     return hash(JSON.stringify({
       user: this.ctx.files.principal(user),
-      rules: this.ctx.db.query('SELECT f.id,f.path,r.subject_type,r.subject_id,r.access FROM folder_rules r JOIN folders f ON f.id=r.folder_id ORDER BY f.id,r.subject_type,r.subject_id,r.access').all(),
+      // every folder row with its limit (a limited folder with no rules counts) and its rules
+      rules: this.ctx.db.query('SELECT f.id,f.path,f.limited,r.subject_type,r.subject_id,r.access FROM folders f LEFT JOIN folder_rules r ON r.folder_id=f.id ORDER BY f.id,r.subject_type,r.subject_id,r.access').all(),
     }))
   }
   /**

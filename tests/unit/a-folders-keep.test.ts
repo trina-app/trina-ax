@@ -11,7 +11,8 @@ import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../server/src/a
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
-const SKILLS_DEFAULT = [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }]
+// (the managed marker role admin: write is kept by the server; the API takes no role rules)
+const SKILLS_DEFAULT = [everyone('read')]
 
 describe('which rows are kept (folder-keep.ts, also the mock server\'s)', () => {
   test('shared/ and skills/ as the volume compares names; subfolders and look-alikes are ordinary', () => {
@@ -78,7 +79,7 @@ describe('folder rows that stay', () => {
       const d = await admin.try('DELETE', `/api/admin/folders/${id}`)
       expect(d.status, p).toBe(409)
       expect(d.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))
-      expect(d.body.error.message).toContain('"모두: 열 수 없음"')
+      expect(d.body.error.message).toContain('액세스 제한')
       const put = await owner.try('PUT', `/api/admin/folders/${id}/rules`, { rules: [] })
       expect(put.status, p).toBe(400)
       expect(put.body.error.message).toBe(msg('teamFolderKeepsRules', 'ko'))
@@ -93,14 +94,14 @@ describe('folder rows that stay', () => {
     await admin.call('PATCH', '/api/me', { locale: 'en' })
     expect((await admin.try('DELETE', `/api/admin/folders/${rowId('shared')}`)).body.error.message).toBe(msg('teamFolderKeepsRules', 'en'))
     await admin.call('PATCH', '/api/me', { locale: null })
-    // what the message says works: "Everyone: No access" leaves skills/ to the owner and admins
-    await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: [everyone('none')] })
+    // what the message says works: Limit access with no rules leaves skills/ to the owner and admins
+    await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: [], limited: true })
     expect(access(alice.id, 'skills/rules.md')).toBe('none')
     expect(access('adam', 'skills/rules.md')).toBe('write')
-    await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: SKILLS_DEFAULT })
+    await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: SKILLS_DEFAULT, limited: false })
     expect(access(alice.id, 'skills/rules.md')).toBe('read')
     // a subfolder of skills/ is an ordinary row: it falls back to skills/
-    const sub = await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [everyone('none')] })
+    const sub = await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [], limited: true })
     expect((await admin.try('DELETE', `/api/admin/folders/${sub.id}`)).status).toBe(204)
     expect(access(alice.id, 'skills/finance/close.md')).toBe('read')
   })
@@ -229,7 +230,8 @@ describe('folder rows that stay', () => {
     // takes its place (it changes nobody's access)
     await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: [{ subjectType: 'group', subjectId: sales, access: 'write' }] })
     await admin.call('PUT', '/api/admin/skill-managers', { subjectType: 'group', subjectId: sales, path: 'skills', enabled: false })
-    expect(rulesAt('skills')).toEqual([{ subjectType: 'role', subjectId: 'admin', access: 'write' }])
+    expect(rulesAt('skills')).toEqual([])
+    expect(h.ctx.db.query("SELECT subject_type, subject_id, access FROM folder_rules WHERE folder_id = ?").all(rowId('skills')!)).toEqual([{ subject_type: 'role', subject_id: 'admin', access: 'write' }])
     await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: SKILLS_DEFAULT })
     // a subfolder made only for a manager goes again when it is turned off (dropFolderRow)
     await admin.call('PUT', '/api/admin/skill-managers', { subjectType: 'user', subjectId: bob.id, path: 'skills/hr', enabled: true })

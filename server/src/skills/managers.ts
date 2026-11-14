@@ -17,7 +17,7 @@ import { badSegment } from '../policy/names'
 import { audit } from '../admin/audit'
 import { isTeamDefaultFolder } from '../admin/folder-keep'
 import {
-  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, replaceRules, resolveFolderPath, rulesOf,
+  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, writeFolderAccess, hasAccessSettings, resolveFolderPath, rulesOf,
 } from '../admin/folders'
 import { groupOfFolder, groupSkillRoots, type GroupSkillRoot } from '../chat/skills'
 import { SKILLS_DIR } from './guard'
@@ -157,14 +157,14 @@ export function setSkillManager(ctx: AppContext, actor: string, b: { subjectType
     if (b.enabled) next.push({ subjectType: b.subjectType, subjectId: b.subjectId, access: 'write' } as never)
     const had = old.find(mine)
     if (b.enabled ? had?.access === 'write' : !had) return false
-    // skills/ keeps at least one rule (stage 1, as PUT .../rules refuses none): the last one going leaves "admins: write"
-    // in its place, which changes nobody's access (the owner and admins write everywhere before any rule; no member is
-    // named by it, so members fall through to the folder above exactly as with no rules)
-    if (!next.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) next.push({ subjectType: 'role', subjectId: 'admin', access: 'write' } as never)
-    replaceRules(db, row.id, next, actor)
+    // skills/ keeps at least one rule (stage 1, as PUT .../rules refuses none): the last one going leaves the managed
+    // marker "admins: write" in its place, which changes nobody's access (the owner and admins write everywhere before
+    // any rule; no member is named by it). `limited` is not sent: the folder keeps its limit
+    const team = !next.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)
+    writeFolderAccess(db, row.id, { rules: next.filter((r) => r.access !== 'none'), ...(team ? { managed: true } : {}) }, actor)
     audit(db, { actor, action: 'folder.rules', target: p, detail: { before: old, after: next, via: 'skill_managers' } })
     audit(db, { actor, action: 'skills.manager', target: p, detail: { subjectType: b.subjectType, subjectId: b.subjectId, enabled: b.enabled } })
-    if (!next.length && p !== SKILLS_DIR && !db.query('SELECT 1 FROM groups WHERE folder_id = ?').get(row.id) && !db.query('SELECT 1 FROM projects WHERE folder_path = ?').get(p)) dropFolderRow(db, row.id)
+    if (!next.length && p !== SKILLS_DIR && !hasAccessSettings(db, row.id) && !db.query('SELECT 1 FROM groups WHERE folder_id = ?').get(row.id) && !db.query('SELECT 1 FROM projects WHERE folder_path = ?').get(p)) dropFolderRow(db, row.id)
     return true
   })()
   if (changed) afterAccessChange(ctx, before, { actor, target: p, created: created ? [p] : [] })

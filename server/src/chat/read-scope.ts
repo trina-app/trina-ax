@@ -41,6 +41,7 @@
 import type { Database } from 'bun:sqlite'
 import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { newId } from '../db'
+import { writeFolderAccess } from '../admin/folders'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
@@ -57,7 +58,7 @@ const placeKey = (s: ReadSource) => (s.type === 'user' ? `user:${s.id}` : key(s)
 export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource {
   const segs = rel.split('/').filter(Boolean)
   if (segs[0] === 'users' && segs.length >= 2) return { type: 'user', id: segs[1]! }
-  const ruled = new Set(rules.ruleFolders())
+  const ruled = new Set(rules.boundaryFolders())
   // in the members-only zone the owner's and admins' access changes at projects/<name> too (docs/DECISIONS.md "Project
   // contents only for members"): a read there is never keyed to projects/ or the root, where admins read everything
   const zone = inProjectZone(segs)
@@ -75,6 +76,8 @@ export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource 
     const id = newId()
     db.query('INSERT OR IGNORE INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, top, new Date().toISOString())
     const made = db.query('SELECT id FROM folders WHERE path = ?').get(top) as { id: string } | null
+    // a project's folder is limited (invariant 5): a row made here is one
+    if (made?.id === id) writeFolderAccess(db, id, { rules: [], limited: true }, null)
     return made ? { type: 'folder', id: made.id } : { type: 'folder', id }
   }
   return { type: 'root' }

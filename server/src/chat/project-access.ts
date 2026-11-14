@@ -1,8 +1,8 @@
 // Who sees a team project (docs/DECISIONS.md "Projects live only in projects/"). A team project's folder is
 // projects/<name>; who sees the project is who can read that folder, so its "participants" are the folder's rules: each
-// participant (a group or a person) and the creator get write, everyone else none (the floor, so an admin's root
-// "everyone: read" cannot open it). The project's edit screen and Admin › Folder permissions both write those rules,
-// through the same path (replaceRules with the rules hash check, captureState / afterAccessChange, the audit).
+// participant (a group or a person) and the creator get write. The folder is always limited (docs/DECISIONS.md "Folder
+// access adds up like Google Drive (P2)"), so an admin's root "everyone: read" cannot open it. The project's edit screen and Admin › Folder permissions both write those rules,
+// through the same path (writeFolderAccess with the rules hash check, captureState / afterAccessChange, the audit).
 // Rules the project screen does not change (read-only people or groups, roles, an everyone rule other than the floor,
 // rules on folders inside it) stay as they are and are shown read-only. A person's own "no access" rule that a
 // project_leavers row backs is a leaver's exception (docs/DECISIONS.md "Leaving a project"): it belongs to the project,
@@ -16,8 +16,8 @@ import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
 import { hiddenEntry, badSegment } from '../policy/names'
-import { rulesHash, withRules } from '../admin/access-edit'
-import { afterAccessChange, captureState, ensureFolderRow, getFolderByPath, isProjectsFolder, replaceRules, resolveFolderPath, rulesOf, validateRules } from '../admin/folders'
+import { rulesHash } from '../admin/access-edit'
+import { afterAccessChange, captureState, ensureFolderRow, getFolderByPath, isProjectsFolder, resolveFolderPath, rulesOf, setProjectException, validateRules, writeFolderAccess } from '../admin/folders'
 import { getTeamSettings } from '../admin/settings'
 import { audit } from '../admin/audit'
 import { activePrincipals, Audiences } from './shared'
@@ -28,7 +28,11 @@ import { skillsUnder } from '../skills/switch-on'
 
 const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
-const FLOOR: FolderRuleInput = { subjectType: 'everyone', subjectId: null, access: 'none' } as FolderRuleInput
+
+/** A project folder's rules as `next` says them (participantRules), in a rule set: the folder limited, its grants, and
+ * exactly the project exceptions `next` holds (a person's own "no access"). */
+export const withProjectRules = (rules: RuleSet, folder: string, next: readonly FolderRuleInput[]): RuleSet =>
+  rules.replacing(folder, { rules: next.filter((x) => x.access !== 'none'), limited: true, exceptions: next.filter((x) => x.subjectType === 'user' && x.access === 'none' && x.subjectId).map((x) => x.subjectId!) })
 
 export { isProjectsFolder }
 
@@ -68,6 +72,7 @@ export function checkParticipants(db: Database, p: Principal, list: readonly Pro
 
 /** A participant rule: write for a group or a person. Everything else on the folder is an "other" rule. */
 const isParticipantRule = (r: FolderRuleInput) => (r.subjectType === 'group' || r.subjectType === 'user') && r.access === 'write'
+/** The legacy marker (everyone: none): never in rulesOf any more, kept out of "other" rules anyway. */
 const isFloor = (r: FolderRuleInput) => r.subjectType === 'everyone' && r.access === 'none'
 /** A leaver's exception: a person's own "no access" on the project folder that a project_leavers row backs (they left
  * it; a person's rule decides before a group's, policy/access.ts). Part of the project's members, not an "other" rule.
@@ -85,8 +90,8 @@ function creatorOf(db: Database, r: Pick<ProjectRow, 'created_by'>): string | nu
 
 /**
  * The folder's rules after a change of participants: the participants and the creator write, the rules the project
- * screen does not change as they are, the leavers' exceptions (isException) of people not named here, and the floor
- * when the folder has no everyone rule of its own. A leaver named here loses their exception: added back by name, they
+ * screen does not change as they are, and the leavers' exceptions (isException) of people not named here (the folder
+ * itself is limited when saved: writeFolderAccess, withProjectRules). A leaver named here loses their exception: added back by name, they
  * write. Nothing else drops an exception (a group taken out, another group of theirs added: they stay out). The
  * creator's rule is not put back over a "no access" of theirs.
  */
@@ -106,11 +111,10 @@ export function participantRules(current: readonly FolderRuleInput[], participan
   for (const x of participants) add(x)
   out.push(...exceptions.filter((r) => !seen.has(key(r))))
   out.push(...other)
-  if (!other.some((r) => r.subjectType === 'everyone')) out.push(FLOOR)
   return out
 }
 
-/** The rules of a brand-new project folder: each participant and the creator write, everyone else none. */
+/** The rules of a brand-new project folder: each participant and the creator write (the folder is limited). */
 export const newProjectRules = (participants: readonly ProjectParticipant[], creator: string): FolderRuleInput[] => participantRules([], participants, creator)
 
 /**
@@ -230,7 +234,8 @@ export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): Pro
   // rules on folders inside it (an admin's sub-rules): shown, never changed here
   const hidden = new Set<string>()
   if (r.folder_path !== '') {
-    const below = db.query("SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE substr(f.path, 1, length(?) + 1) = ? || '/' ORDER BY f.path, r.subject_type, r.subject_id")
+    // (display only, without the markers: the legacy marker of a limited folder, the managed marker)
+    const below = db.query("SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE substr(f.path, 1, length(?) + 1) = ? || '/' AND NOT (r.subject_type = 'everyone' AND r.access = 'none') AND r.subject_type <> 'role' ORDER BY f.path, r.subject_type, r.subject_id")
       .all(r.folder_path, r.folder_path) as { path: string; subject_type: ProjectOtherRule['subjectType']; subject_id: string | null; access: ProjectOtherRule['access'] }[]
     const set = ctx.files.rules()
     for (const x of below) {
@@ -380,7 +385,7 @@ export function planAccess(ctx: AppContext, p: Principal, r: ProjectRow, partici
   const db = ctx.db
   const people = activePrincipals(db)
   const { current, next, rules } = proposed(ctx, r, p, participants, locale, removeRules)
-  const after = withRules(rules, r.folder_path, next)
+  const after = withProjectRules(rules, r.folder_path, next)
   const segs = segsOf(r.folder_path)
   const readers = (set: RuleSet) => people.filter((x) => atLeast(set.access(x, segs), 'read'))
   const sees = (set: RuleSet) => readers(set).map((x) => x.id).sort()
@@ -394,12 +399,12 @@ export function planAccess(ctx: AppContext, p: Principal, r: ProjectRow, partici
   // contents only for members"); whatTheySee counts only what the caller reads anyway
   const contentsHidden = !atLeast(rules.access(p, segs), 'read')
   const sharedChats = added.length && !contentsHidden ? (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n : 0
-  return { current, next, rulesHash: rulesHash(current), before, after: now, afterSplit: splitOf(after, nowReaders, segs), gained, lost, seen: contentsHidden ? none : seen, sharedChats, addsFloor: addsFloor(current, next), restoresCreator: restoresCreator(current, next, creatorOf(db, r)), contentsHidden }
+  return { current, next, rulesHash: rulesHash(current), before, after: now, afterSplit: splitOf(after, nowReaders, segs), gained, lost, seen: contentsHidden ? none : seen, sharedChats, addsFloor: !getFolderByPath(db, r.folder_path)?.limited, restoresCreator: restoresCreator(current, next, creatorOf(db, r)), contentsHidden }
 }
 
-/** The save writes the floor (everyone: none) on a folder that has no everyone rule now (one an older build made). */
-export const addsFloor = (current: readonly FolderRuleInput[], next: readonly FolderRuleInput[]): boolean =>
-  !current.some((x) => x.subjectType === 'everyone') && next.some(isFloor)
+/** The save limits a project folder that is not limited now (only an older build's, before the conversion). Kept for
+ * the API's `addsFloor`; the plan reads the folder row (planAccess). */
+export const addsFloor = (_current: readonly FolderRuleInput[], _next: readonly FolderRuleInput[]): boolean => false
 /** The save puts the creator's write rule back on a folder that has no rule of theirs now (taken away in Admin). */
 export const restoresCreator = (current: readonly FolderRuleInput[], next: readonly FolderRuleInput[], creator: string | null): boolean =>
   !!creator && !current.some((x) => x.subjectType === 'user' && x.subjectId === creator) && next.some((x) => x.subjectType === 'user' && x.subjectId === creator)
@@ -447,9 +452,9 @@ const RANK = { none: 0, read: 1, write: 2 } as const
 function assertRemovalNarrows(db: Database, rules: RuleSet, folder: string, now: readonly FolderRuleInput[], drop: ReadonlySet<string>, list: readonly ProjectParticipant[], next: readonly FolderRuleInput[], creator: string | null, leavers: ReadonlySet<string>, locale: Locale): void {
   const named = new Set(list.map(key))
   const keptForCheck = now.filter((c) => !(drop.has(key(c)) && named.has(key(c)) && !isParticipantRule(c) && !isFloor(c)))
-  const without = withRules(rules, folder, participantRules(keptForCheck, list, creator, leavers))
-  const with_ = withRules(rules, folder, next)
-  const places = [folder, ...rules.ruleFolders().filter((f) => f.startsWith(folder + '/'))].map(segsOf)
+  const without = withProjectRules(rules, folder, participantRules(keptForCheck, list, creator, leavers))
+  const with_ = withProjectRules(rules, folder, next)
+  const places = [folder, ...rules.boundaryFolders().filter((f) => f.startsWith(folder + '/'))].map(segsOf)
   for (const x of activePrincipals(db)) {
     for (const at of places) {
       if (RANK[with_.access(x, at)] > RANK[without.access(x, at)]) fail('conflict', tr('projectRuleRemoveWidens', locale), { fields: { 'body.removeRules': 'would let someone in' }, params: { reason: 'remove_widens' } })
@@ -459,7 +464,7 @@ function assertRemovalNarrows(db: Database, rules: RuleSet, folder: string, now:
 
 /**
  * PUT /api/projects/:id/participants: the project folder's rules, saved as Admin › Folder permissions saves them: the
- * rules hash the screen started from (409 rules_changed when someone changed them since), replaceRules, the audit, then
+ * rules hash the screen started from (409 rules_changed when someone changed them since), writeFolderAccess, the audit, then
  * afterAccessChange (fresh sessions, notices, shared chats dropped for whoever lost the project). People who saw the
  * project before hear it when someone gains it.
  */
@@ -470,11 +475,14 @@ export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, a
   const segs = segsOf(r.folder_path)
   const sawBefore = before.principals.filter((x) => atLeast(before.rules.access(x, segs), 'read')).map((x) => x.id)
   // the person who saves starts to read it themselves (Add me, or a group that holds them): said in the audit row
-  const self = !sawBefore.includes(p.id) && atLeast(withRules(before.rules, r.folder_path, next).access(p, segs), 'read')
+  const self = !sawBefore.includes(p.id) && atLeast(withProjectRules(before.rules, r.folder_path, next).access(p, segs), 'read')
   db.transaction(() => {
     const row = ensureFolderRow(db, r.folder_path)
     if (rulesHash(rulesOf(db, row.id)) !== body.expectedHash) fail('conflict', tr('projectAccessChanged', locale), { params: { reason: 'rules_changed' } })
-    replaceRules(db, row.id, next, actor.id)
+    writeFolderAccess(db, row.id, { rules: next.filter((x) => x.access !== 'none'), limited: true }, actor.id)
+    // a person's own "no access" the save leaves out (an admin's, taken out with ×; a leaver added back by name was
+    // replaced by their write rule already)
+    for (const x of current) if (x.subjectType === 'user' && x.access === 'none' && x.subjectId && !next.some((y) => y.subjectType === 'user' && y.subjectId === x.subjectId)) setProjectException(db, row.id, x.subjectId, false, actor.id)
     for (const id of back) db.query('DELETE FROM project_leavers WHERE project_id = ? AND user_id = ?').run(r.id, id)
     // the AI's change (chat/project-members.ts, after the person's yes on its card) says so, with its turn and chat
     audit(db, { actor: actor.id, action: 'folder.rules', target: r.folder_path, detail: { before: current, after: next, via: o.via ?? 'project', projectId: r.id, ...(self ? { self: true } : {}), ...(o.via ? { turnId: o.turnId ?? null, chatId: o.chatId ?? null } : {}) } })

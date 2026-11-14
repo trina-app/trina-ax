@@ -28,7 +28,7 @@ function layout(team: string, db: import('bun:sqlite').Database) {
   put('projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))
   put('shared/SKILL.md', md('shared'))
   const folder = 'f_skills_finance_' + newId()
-  db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'skills/finance')
+  db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(folder, 'skills/finance')
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'none')").run(newId(), folder)
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'read')").run(newId(), folder)
 }

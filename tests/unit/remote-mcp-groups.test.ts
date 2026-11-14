@@ -472,3 +472,21 @@ test('groups_list comes in pages and says when it is cut', async () => {
     expect(JSON.parse(text(await f.call(g.token, 'groups_list', { group: 'Beta' }))).groups[0].members).toHaveLength(2)
   } finally { Object.assign(GROUP_LIMITS, saved) }
 })
+
+test('people the folder access conversion named keep that access by name after a group change: the tools say so (C1-A, review 3 S5)', async () => {
+  const f = await setup('origin-kept')
+  const c = await f.connect(f.owner.cookie!, ALL)
+  const made = await f.call(c.token, 'group_create', { name: 'Design', members: ['reader'] })
+  expect(made.isError).toBeFalsy()
+  const design = (f.h.ctx.db.query("SELECT id FROM groups WHERE name = 'Design'").get() as { id: string }).id
+  fs.mkdirSync(path.join(f.h.ctx.files.fx.root, 'shared', 'design'), { recursive: true })
+  const row = f.h.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('0190a000-0000-7000-8000-00000000d001', 'shared/design', 1) RETURNING id").get() as { id: string }
+  f.h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('0190a000-0000-7000-8000-00000000d002', ?, 'everyone', NULL, 'none')").run(row.id)
+  f.h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, origin) VALUES ('0190a000-0000-7000-8000-00000000d003', ?, 'user', ?, 'write', ?)").run(row.id, f.reader.id, JSON.stringify({ v: 1, by: 'conversion', groups: [{ id: design, member: true }], base: null }))
+  const out = await f.call(c.token, 'group_update', { group: 'Design', remove: ['reader'] })
+  expect(text(out)).toContain('Kept by name')
+  expect(text(out)).toContain('"shared/design"')
+  expect(f.audits('group.update').at(-1)!.detail.originKept).toEqual([{ userId: f.reader.id, path: 'shared/design', access: 'write' }])
+  const gone = await f.call(c.token, 'group_delete', { group: 'Design' })
+  expect(text(gone)).not.toContain('Kept by name')
+})

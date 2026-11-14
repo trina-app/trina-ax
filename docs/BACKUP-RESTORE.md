@@ -113,6 +113,37 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
 
 6. While automatic updates are off, Admin › Home shows the newer version with an **Install now** button. Do not press it until the problem is fixed. When the problem is fixed, make a backup first. Then either install the new version once, now, with `sudo mycel-ctl update` (automatic updates stay off), or turn automatic updates back on with `sudo mycel-ctl auto-update on` (the new version is installed in the next update window).
 
+## Going back from the folder access update (reader level 7, Linux)
+
+The update that makes folder access add up like Google Drive (migration `121_a_folder_limited.sql`, docs/DECISIONS.md "Folder access adds up like Google Drive (P2)") converts every folder's rules once and raises the database's reader level to 7. An older version then refuses to start ("database needs schema reader level 7 … Restore the backup made before the update"), and Admin › System › Update › **Go back** refuses too. There is no automatic way back (M6-A). Use this runbook only when the team must run the version before that update again.
+
+Do **not** use `stage-restore` (or the section above) for this one. A staged copy is put back by whichever version starts next, and if that is the new version it migrates and converts the copy again; even when the older version puts it back, a database-only restore keeps the folder permissions as they are now, so it would get the converted rules read in the old way. Put the copy back by hand while the server is stopped.
+
+**Roll back soon.** Every later update makes its own pre-migrate copy and older copies are pruned with the backups, so the copy from before this update is not kept for ever.
+
+What you lose: everything written in Trina after the update (chats and messages, new accounts, settings, every folder permission change, Limit access, scheduled-task runs). Team files on disk stay as they are. Folders created or limited after the update have no settings of their own after the rollback: they follow the folder above, so an admin checks them in Folder permissions before people sign in again.
+
+Define `trina_admin` as in [Make a backup now](#make-a-backup-now) (default install: base `/var/lib/mycel`, service account `axserver`), then:
+
+1. Turn automatic updates off, so the new version is not installed again: `sudo mycel-ctl auto-update off`.
+2. Find the copy made just before the update: `trina_admin list-backups`. Take the newest entry with `"kind": "pre-migrate"` whose `createdAt` is the first start of the new version. Its file is `/var/lib/mycel/data/backups/<id>.db`. **Check it is from before the update** (install `sqlite3` if needed; do not go on without this check): `sqlite3 -readonly <file> "select count(*) from schema_migrations where name like '121_a_folder_limited%'"` must print `0`, and `sqlite3 -readonly <file> "pragma integrity_check"` must print `ok`. If the newest pre-migrate copy prints `1`, it was made by a later update: take the newest one that prints `0` (the newest loses the least).
+3. Check that the version you go back to is still staged: `ls /var/lib/mycel/app/versions/`. If it is not, stage its release first: `trina_admin stage-update <bundle.tar.zst>`.
+4. Stop the server: `sudo systemctl stop mycel-server`. Check that it is stopped (`systemctl is-active mycel-server` says `inactive`).
+5. Put the converted database aside (keep it until the team is sure) and the copy in its place, as the service account:
+
+   ```sh
+   cd /var/lib/mycel/data
+   for s in '' -wal -shm; do [ -e "app.db$s" ] && sudo -u axserver mv "app.db$s" "app.db.after-folder-update$s"; done
+   sudo -u axserver cp backups/<id>.db app.db && sudo -u axserver chmod 600 app.db
+   ```
+
+6. Point the app at the older version and start it: `trina_admin switch <old version>`, then `sudo systemctl start mycel-server`.
+7. Check: `curl -s http://127.0.0.1:47820/api/health` shows the older version and `"readerLevel": 6` (or lower). Sign in as an admin: Folder permissions shows the folders as they were before the update; open a folder that was closed then, as a member, and check it is still closed.
+
+When the problem is fixed, make a backup, then install the new version again (`sudo mycel-ctl update`): it converts the folder rules again from what is there then.
+
+**Rehearsed** 2026-11-14 on a copy of the QA-Acme test team (macOS, dev mode, not a Linux install): the version before the update (dev 404ccf46e) → this update (feat/folder-access-additive): converted, reader level 7, 13 folders limited, the same access for every person on all 22 team folders → the older version refused the converted database → steps 2, 4, 5 and the start with the older version → it started at reader level 6, no `limited` column and no conversion marker, and every person's access on all 22 folders equal to before the update. Not rehearsed: the Linux commands themselves (`mycel-ctl`, `systemctl`, `trina_admin switch`); they are the ones the section above uses.
+
 ## Office replacement and a new machine
 
 On a dedicated replacement Mac, install a compatible verified office ZIP and keep it private. Restore with `~/TeamAX/teamax restore-archive /path/to/trina.tar.zst.age`. It refuses a configured team unless `--replace` is explicitly supplied; that option replaces the active team's state and keeps old files beside it. The wrapper stops/restarts the office server. Reapply deployment settings and authorized AI connections. A new office CA requires clients to verify/trust the new fingerprint. Reconnect tunnels and clients to the intended address.

@@ -5,11 +5,12 @@
 // permission function itself (RuleSet.access / explain) on random worlds, and on the cases the plan names.
 import { describe, expect, test } from 'bun:test'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { editPreview, withRules } from '../../server/src/admin/access-edit'
+import { editPreview } from '../../server/src/admin/access-edit'
+import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 const NOBODY: Principal = { id: 'someone-new', name: 'New', role: 'member', groups: [] }
-type Row = ConstructorParameters<typeof RuleSet>[0][number]
+type Row = RuleRow
 const row = (path: string, subject_type: Row['subject_type'], subject_id: string | null, access: Access): Row => ({ path, subject_type, subject_id, access })
 const people: Principal[] = [
   { id: 'olga', name: 'Olga', role: 'owner', groups: [] },
@@ -18,7 +19,7 @@ const people: Principal[] = [
   { id: 'eve', name: 'Eve', role: 'member', groups: ['sales', 'leads'] },
 ]
 const preview = (rows: Row[], at: string, next: Parameters<typeof editPreview>[2] = []) =>
-  editPreview({ rules: new RuleSet(rows), people, groupName: (id) => id, personName: (id) => id }, at, next, { team: null })
+  editPreview({ rules: ruleWorld(rows), people, groupName: (id) => id, personName: (id) => id }, at, next, { team: null })
 
 describe('everyoneAbove: what the folder above gives everyone', () => {
   test('null at the team root (nothing is above it)', () => {
@@ -32,7 +33,8 @@ describe('everyoneAbove: what the folder above gives everyone', () => {
   test('the nearest everyone rule above, and the folder it is on', () => {
     const rows = [row('shared', 'everyone', null, 'read'), row('shared/sales', 'group', 'sales', 'write')]
     expect(preview(rows, 'shared/sales/quotes').everyoneAbove).toEqual({ access: 'read', folder: 'shared' })
-    expect(preview([...rows, row('shared/sales', 'everyone', null, 'none')], 'shared/sales/quotes').everyoneAbove).toEqual({ access: 'none', folder: 'shared/sales' })
+    // a limited folder on the way (its legacy marker): nothing from above it reaches, and no folder gives everyone anything
+    expect(preview([...rows, row('shared/sales', 'everyone', null, 'none')], 'shared/sales/quotes').everyoneAbove).toEqual({ access: 'none', folder: null })
     expect(preview([row('', 'everyone', null, 'write')], 'docs').everyoneAbove).toEqual({ access: 'write', folder: '' })
   })
 
@@ -75,7 +77,7 @@ describe('everyoneAbove: what the folder above gives everyone', () => {
       }
       const at = pick(['a', 'a/b', 'a/b/c', 'a/b/c/new', 'a/e', 'g/h', 'g'])
       const out = preview(rows, at)
-      const without = withRules(new RuleSet(rows), at, [])
+      const without = ruleWorld(rows).replacing(at, { rules: [], limited: false })
       const e = without.explain(NOBODY, segsOf(at))
       expect({ world, at, got: out.everyoneAbove }).toEqual({ world, at, got: { access: without.access(NOBODY, segsOf(at)), folder: e.reason.kind === 'rule' ? e.reason.folder : null } })
     }
@@ -84,8 +86,8 @@ describe('everyoneAbove: what the folder above gives everyone', () => {
 
 describe('latentMore: more access for someone the head count cannot see', () => {
   const off: Principal = { id: 'dave', name: 'Dave', role: 'member', groups: [] }
-  const run = (rows: Row[], at: string, next: Parameters<typeof editPreview>[2], uncounted: Principal[] = []) =>
-    editPreview({ rules: new RuleSet(rows), people, uncounted, groupName: (id) => id, personName: (id) => id }, at, next, { team: null })
+  const run = (rows: Row[], at: string, next: Parameters<typeof editPreview>[2], uncounted: Principal[] = [], limited?: boolean) =>
+    editPreview({ rules: ruleWorld(rows), people, uncounted, groupName: (id) => id, personName: (id) => id }, at, next, { team: null, limited })
   const every = (access: Access) => ({ subjectType: 'everyone' as const, subjectId: null, access })
 
   test('a switched-off person kept out above, then everyone may view here: not counted, but latent', () => {
@@ -102,16 +104,17 @@ describe('latentMore: more access for someone the head count cannot see', () => 
   })
 
   test('"only people added here" back to "same as above" where an empty group can edit above: latent', () => {
+    // ("same as above" is the limit taken away: limited false)
     const rows = [row('shared', 'group', 'empty', 'write'), row('shared/x', 'everyone', null, 'none')]
-    const out = run(rows, 'shared/x', [])
+    const out = run(rows, 'shared/x', [], [], false)
     expect(out.changes).toEqual([])
     expect(out.latentMore).toBe(true)
   })
 
-  test('an empty group\'s "can view" removed while everyone can edit: latent (its future members get edit)', () => {
+  test('an empty group\'s "can view" removed while everyone can edit: nothing latent (access adds up: everyone edits already)', () => {
     const rows = [row('shared/x', 'group', 'empty', 'read'), row('shared/x', 'everyone', null, 'write')]
     const out = run(rows, 'shared/x', [every('write')])
-    expect(out.latentMore).toBe(true)
+    expect(out.latentMore).toBe(false)
   })
 
   test('nothing latent: the same rules, or only less', () => {
@@ -131,7 +134,7 @@ describe('latentMore: more access for someone the head count cannot see', () => 
 describe('latentMore: someone who joins two groups later', () => {
   test('"G2: no access" here and nobody in both today; "G1: can view" added: a future member of both gets in', () => {
     const rows = [row('shared', 'everyone', null, 'none'), row('shared/x', 'group', 'g2', 'none')]
-    const out = editPreview({ rules: new RuleSet(rows), people, groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'group', subjectId: 'g2', access: 'none' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }], { team: null })
+    const out = editPreview({ rules: ruleWorld(rows), people, groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'group', subjectId: 'g2', access: 'none' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }], { team: null })
     expect(out.changes).toEqual([])
     expect(out.latentMore).toBe(true)
   })
@@ -141,7 +144,7 @@ describe('latent: who gains unseen, so the panel can name them', () => {
   test('people switched off by name, the groups whose future members gain, and whether whoever joins the team does', () => {
     const gina: Principal = { id: 'gina', name: 'Gina', role: 'member', groups: [] }
     const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
-    const run = (next: Parameters<typeof editPreview>[2]) => editPreview({ rules: new RuleSet(rows), people, uncounted: [gina], groupName: (id) => id.toUpperCase(), personName: (id) => id }, 'shared/x', next, { team: null })
+    const run = (next: Parameters<typeof editPreview>[2]) => editPreview({ rules: ruleWorld(rows), people, uncounted: [gina], groupName: (id) => id.toUpperCase(), personName: (id) => id }, 'shared/x', next, { team: null })
     // a group of nobody yet, added with "can view": only its future members gain
     expect(run([{ subjectType: 'group', subjectId: 'design', access: 'read' }]).latent).toEqual({ team: false, off: [], groups: [{ id: 'design', name: 'DESIGN', edit: false }], edit: { team: false, off: false, groups: false } })
     // everyone may view: whoever joins the team, and Gina when switched back on
@@ -155,7 +158,7 @@ describe('latent: who gains unseen, so the panel can name them', () => {
   test('whether they get edit or only view, for each of the three (QA TC-232: "open or edit" only for edit)', () => {
     const gina: Principal = { id: 'gina', name: 'Gina', role: 'member', groups: [] }
     const rows = [row('shared', 'everyone', null, 'none'), row('shared', 'user', 'gina', 'none')]
-    const run = (next: Parameters<typeof editPreview>[2], at = 'shared/x', more: Row[] = []) => editPreview({ rules: new RuleSet([...rows, ...more]), people, uncounted: [gina], groupName: (id) => id, personName: (id) => id }, at, next, { team: null }).latent
+    const run = (next: Parameters<typeof editPreview>[2], at = 'shared/x', more: Row[] = []) => editPreview({ rules: ruleWorld([...rows, ...more]), people, uncounted: [gina], groupName: (id) => id, personName: (id) => id }, at, next, { team: null }).latent
     // everyone may view: all three only view
     expect(run([{ subjectType: 'everyone', subjectId: null, access: 'read' }])?.edit).toEqual({ team: false, off: false, groups: false })
     // everyone may edit: whoever joins the team and Gina get edit; no group is named
@@ -164,15 +167,12 @@ describe('latent: who gains unseen, so the panel can name them', () => {
     const g = run([{ subjectType: 'group', subjectId: 'design', access: 'write' }, { subjectType: 'group', subjectId: 'ops', access: 'read' }])
     expect(g?.groups).toEqual([{ id: 'design', name: 'design', edit: true }, { id: 'ops', name: 'ops', edit: false }])
     expect(g?.edit).toEqual({ team: false, off: false, groups: true })
-    // someone in both gets edit because of design: ops is not said to give edit, and a group that gives nothing alone
-    // is not named for another group's gain
-    const both = run([{ subjectType: 'group', subjectId: 'g2', access: 'none' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }], 'shared/x', [row('shared/x', 'group', 'g2', 'none')])
+    // a group that gives nothing is not named for another group's gain (with access adding up, being in two groups never
+    // gives more than the wider of them alone, so no pair is ever named)
+    const both = run([{ subjectType: 'group', subjectId: 'g1', access: 'read' }], 'shared/x', [row('shared/x', 'group', 'g2', 'read')])
     expect(both?.groups).toEqual([{ id: 'g1', name: 'g1', edit: false }])
-    // only being in both gains (Leads keeps them out here, Sales edits above): said of both, as edit
-    const pair = run([], 'shared/x', [row('shared', 'group', 'sales2', 'write'), row('shared/x', 'group', 'leads2', 'none')])
-    expect(pair?.groups).toEqual([{ id: 'leads2', name: 'leads2', edit: true }, { id: 'sales2', name: 'sales2', edit: true }])
     // view only to someone who could view before is no gain; edit on top of view is
     const viewed = [row('shared/x', 'everyone', null, 'read')]
-    expect(editPreview({ rules: new RuleSet([...rows, ...viewed]), people, uncounted: [gina], groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'everyone', subjectId: null, access: 'write' }], { team: null }).latent?.edit).toEqual({ team: true, off: true, groups: false })
+    expect(editPreview({ rules: ruleWorld([...rows, ...viewed]), people, uncounted: [gina], groupName: (id) => id, personName: (id) => id }, 'shared/x', [{ subjectType: 'everyone', subjectId: null, access: 'write' }], { team: null }).latent?.edit).toEqual({ team: true, off: true, groups: false })
   })
 })

@@ -64,7 +64,10 @@ test('deleted/revoked sources remove notification deep links and stale logout se
     .run(aliceId,new Date().toISOString(),folder,`users/${aliceId}/reports`)
   notificationsOf(h.ctx).reconcile()
   expect((await alice.call('GET','/api/notifications')).items.find((x: any) => x.sourceId === 'source-result').chatId).toBe('own-result')
-  h.ctx.db.query("UPDATE folder_rules SET access='none' WHERE id='notif-rule'").run()
+  // her access taken away: the folder limited with no rules (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+  h.ctx.db.query("DELETE FROM folder_rules WHERE id='notif-rule'").run()
+  h.ctx.db.query("UPDATE folders SET limited=1 WHERE id='notif-src'").run()
+  h.ctx.db.query("INSERT INTO folder_rules(id,folder_id,subject_type,subject_id,access) VALUES('notif-cut','notif-src','everyone',NULL,'none')").run()
   expect((await alice.call('GET','/api/notifications')).items.find((x: any) => x.sourceId === 'source-result')).toMatchObject({ chatId: null, link: null })
   const oldCookie = alice.cookie!
   await alice.call('POST', '/api/auth/logout')

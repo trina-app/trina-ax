@@ -125,8 +125,9 @@ describe('auto-naming does not step around hidden names either', () => {
     fs.writeFileSync(path.join(A.team, DIR, 'plan'), 'visible\n')
     fs.mkdirSync(path.join(A.team, DIR, 'plan (2)'))
     fs.writeFileSync(path.join(A.team, DIR, 'plan (2)', 'x.md'), 'hidden\n')
-    A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_plan2', ?)").run(`${DIR}/plan (2)`)
-    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_plan2', 'f_plan2', 'group', 'marketing', 'none')").run()
+    // (limited, only finance: hidden from alice in marketing; before: "marketing: none")
+    A.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('f_plan2', ?, 1)").run(`${DIR}/plan (2)`)
+    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_plan2_all', 'f_plan2', 'everyone', NULL, 'none'), ('r_plan2', 'f_plan2', 'group', 'finance', 'write')").run()
   })
   const plans = () => fs.readdirSync(path.join(A.team, DIR)).filter((n) => n.startsWith('plan')).sort()
 
@@ -153,8 +154,9 @@ describe('auto-naming does not step around hidden names either', () => {
     expect(del.status).toBe(200)
     // meanwhile an admin makes a folder 'roster' that marketing may not see
     fs.mkdirSync(path.join(A.team, DIR, 'roster'))
-    A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_roster', ?)").run(`${DIR}/roster`)
-    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_roster', 'f_roster', 'group', 'marketing', 'none')").run()
+    // (limited, only finance: hidden from alice in marketing; before: "marketing: none")
+    A.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('f_roster', ?, 1)").run(`${DIR}/roster`)
+    A.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_roster_all', 'f_roster', 'everyone', NULL, 'none'), ('r_roster', 'f_roster', 'group', 'finance', 'write')").run()
     const r = await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'alice' })
     expect(r.status).toBe(404)
     expect(text(r)).not.toMatch(/roster/)

@@ -49,7 +49,7 @@ beforeAll(async () => {
   // permissions refuses every path at or under projects/<name> now: tests/lib/legacy-project.ts)
   legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo', [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('everyone', null, 'none')], 'adam')
   legacyProjectFolder(h.ctx.db, h.ctx.files.fx.root, 'projects/apollo/drafts', [rule('user', 'bob', 'write')], 'adam')
-  await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
+  await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', limited: true, rules: [rule('group', ops, 'read')] })
   // made as builds before "Projects live only in projects/" made them on existing folders (tests/lib/legacy-project.ts)
   legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Apollo', folderPath: 'projects/apollo' })
   legacyProject(h.ctx.db, h.ctx.files.fx.root, alice.id, { name: 'Alice-private-plan-7c1', folderPath: `users/${alice.id}` })
@@ -93,14 +93,16 @@ describe('one level', () => {
     // apollo is marked; its drafts (a rule folder inside the project) is not counted: nothing inside a team project is a
     // row (docs/DECISIONS.md "Project contents only for members")
     expect(child(top, 'projects')).toMatchObject({ rules: 0, folders: true, marked: 1, kinds: [] })
-    expect(child(top, 'skills')).toMatchObject({ rules: 2, marked: 1, kinds: ['rules'] })
+    // (the managed marker role admin: write is not a rule the answers count)
+    expect(child(top, 'skills')).toMatchObject({ rules: 1, marked: 1, kinds: ['rules'] })
     expect(child(top, 'groups')!.marked).toBe(2)
     const projects = await tree('projects')
     const apollo = child(projects, 'apollo')!
     expect(apollo.kinds).toEqual(['rules', 'project'])
     expect(apollo.projects).toEqual([expect.objectContaining({ name: 'Apollo' })])
     // a team project is one row: its folders inside (drafts) are neither said nor counted
-    expect(apollo).toMatchObject({ rules: 3, folders: false, marked: 0, restricted: true })
+    // (alice and Sales; its limit's legacy marker is not a rule the answers count)
+    expect(apollo).toMatchObject({ rules: 2, folders: false, marked: 0, restricted: true })
     // alice's personal project is not a team folder: never named
     expect(JSON.stringify(projects)).not.toContain('Alice-private-plan')
     const groups = await tree('groups')
@@ -120,7 +122,8 @@ describe('one level', () => {
     expect(by('group', sales)).toMatchObject({ access: 'read', count: 1, subject: { name: 'Sales' } }) // dora (carl is switched off)
     // bob, erik, and the owner and the admin: inside a team project they are members with their groups, and no rule
     // names them (docs/DECISIONS.md "Project contents only for members")
-    expect(by('everyone', null)).toMatchObject({ access: 'none', count: 4 })
+    // (apollo is limited: nothing from above reaches it, and nothing there names them)
+    expect(apollo.who.find((w) => w.reason === 'no-rule')).toMatchObject({ access: 'none', count: 4 })
     expect(apollo.who.find((w) => w.reason === 'owner-admin')).toBeUndefined()
     // most access first
     expect(apollo.who.map((w) => w.access)).toEqual(['write', 'read', 'none'])
@@ -190,7 +193,7 @@ describe('pages and opening the way down', () => {
   test('open=1 stays small in a wide team folder', async () => {
     const root = h.ctx.files.fx.root
     const made: string[] = []
-    for (let i = 0; i < 80; i++) made.push((await admin.call('POST', '/api/admin/folders', { path: `wide/w${String(i).padStart(2, '0')}/inner`, rules: [rule('role', 'member', 'read')] })).id)
+    for (let i = 0; i < 80; i++) made.push((await admin.call('POST', '/api/admin/folders', { path: `wide/w${String(i).padStart(2, '0')}/inner`, rules: [rule('everyone', null, 'read')] })).id)
     try {
       const r = await tree('', '&open=1')
       expect(r.levels.length).toBeLessThanOrEqual(OPEN_LEVELS)
@@ -276,7 +279,9 @@ describe('stage 4 review', () => {
   })
 
   test('the root rule for everyone is said only when it gives members access', async () => {
-    const shut = await admin.call('POST', '/api/admin/folders', { path: '', rules: [rule('everyone', null, 'read'), rule('role', 'member', 'none')] })
+    // (a limited root with no everyone rule: members get nothing there; access adds up, so a role "none" no longer
+    // takes an everyone rule back)
+    const shut = await admin.call('POST', '/api/admin/folders', { path: '', limited: true, rules: [] })
     try {
       const r = await tree('')
       expect(r.self.risks).toEqual([])

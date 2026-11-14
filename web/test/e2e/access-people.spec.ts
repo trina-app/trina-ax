@@ -17,7 +17,7 @@ const call = async (page: Page, method: 'post' | 'patch', url: string, data: unk
   expect(r.ok(), `${method} ${url}: ${r.status()}`).toBeTruthy()
   return r.json().catch(() => null)
 }
-const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
+const everyone = (access: 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
 
 /**
  * Bob (member, group 영업팀): shared (everyone writes), skills (everyone reads, Bob writes: a member who manages team
@@ -32,8 +32,8 @@ async function team(page: Page) {
   await call(page, 'post', '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
   await call(page, 'post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'user', subjectId: 'bob', access: 'write' }] })
   await call(page, 'post', '/api/admin/folders', { path: 'partners/apollo', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }] })
-  await call(page, 'post', '/api/admin/folders', { path: 'marketing', create: true, rules: [{ subjectType: 'role', subjectId: 'member', access: 'read' }] })
-  await call(page, 'post', '/api/admin/folders', { path: 'secret', create: true, rules: [everyone('none')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'marketing', create: true, rules: [everyone('read')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'secret', create: true, rules: [], limited: true })
   await call(page, 'post', '/api/admin/folders', { path: 'connected/nas', create: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
   await call(page, 'post', '/api/projects', { name: 'Apollo', folderPath: 'partners/apollo' })
   await call(page, 'post', '/api/admin/users', { username: 'dan', name: 'Dan', role: 'member', groupIds: [g.id], temporaryPassword: 'tiger4271x' })
@@ -78,7 +78,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(row(page, 'shared')).toHaveAttribute('data-level', 'write')
   await expect(reason('shared')).toHaveText('이 폴더의 규칙 · 모두: 고칠 수 있음')
   await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 부서: 고칠 수 있음')
-  await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 팀원 전체: 볼 수 있음')
+  await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 모두: 볼 수 있음')
   await expect(reason('partners/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 고칠 수 있음')
   await expect(row(page, 'partners/apollo')).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
   // shown only on the way to a folder below, and then what decided (no rule anywhere above: only the owner and admins)
@@ -103,7 +103,8 @@ test('by person: every team folder with its access and why, folded hidden folder
   // finance has a rule (재무팀: read) that is not for Bob; docs has none on the way up
   await expect(reason('finance')).toHaveText('이 폴더부터 위쪽 규칙은 이 사람에게 해당하지 않아요')
   await expect(reason('docs')).toHaveText('규칙이 없어 팀장과 관리자만 열 수 있어요')
-  await expect(reason('secret')).toHaveText('이 폴더의 규칙 · 모두: 열 수 없음')
+  // limited with nobody added (P2): only the owner and admins
+  await expect(reason('secret')).toHaveText(t['accessView.why.limitedHere'])
   await expect(row(page, 'docs')).toHaveAttribute('data-level', 'none')
 
   // no edit for a personal folder (rules there never apply)
@@ -157,7 +158,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await row(page, 'secret').getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'secret' }), exact: true }).click()
   await panel.getByTestId('sharing-general-select').selectOption('team')
   await expect(page.getByTestId('sharing-outcome')).toBeVisible()
-  const put = await page.request.put(`/api/admin/folders/${rid}/rules`, { headers: H, data: { rules: [everyone('none'), { subjectType: 'user', subjectId: 'bob', access: 'read' }] } })
+  const put = await page.request.put(`/api/admin/folders/${rid}/rules`, { headers: H, data: { rules: [{ subjectType: 'user', subjectId: 'bob', access: 'read' }] } })
   expect(put.ok()).toBeTruthy()
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-stale')).toContainText(t['folderAccess.staleKept'])

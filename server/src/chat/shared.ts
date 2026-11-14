@@ -17,7 +17,7 @@ import { PROJECT_COLS, SHARED_LATER, type ChatRow, type ChatStore, type MessageR
 import { composeMessage } from './turn'
 import { HISTORY_MAX_CHARS, historyBlock } from './prompt'
 import type { FileService } from '../files/service'
-import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, inPlace, RuleSet, splitOf, type Principal } from '../policy/access'
 import { isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
@@ -148,10 +148,7 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
   if (!p.trashed_with) return files.rules()
   const t = db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ?').get(p.trashed_with) as { original_path: string; storage_path: string } | null
   if (!t) return null
-  return new RuleSet(db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
-      THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-    FROM folder_rules r JOIN folders f ON f.id = r.folder_id
-    WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, t.original_path) as ConstructorParameters<typeof RuleSet>[0])
+  return RuleSet.fromDb(db, { mapPath: inPlace(t.storage_path, t.original_path) })
 }
 
 /** Would this account see the project, by its folder's rules: whatever its status (a disabled account counts as if it

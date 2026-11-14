@@ -26,7 +26,7 @@ import { accessEditable, assertMayCreateTeamProject, checkParticipants, isProjec
 import { badSegment, volumeKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
-import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
+import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, rulesOf, validateRules, writeFolderAccess } from '../admin/folders'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
@@ -784,7 +784,7 @@ export const chatsRoutes: RouteModule = {
       try {
         db.transaction(() => {
           const row = ensureFolderRow(db, made.path)
-          replaceRules(db, row.id, rules, auth.user.id)
+          writeFolderAccess(db, row.id, { rules, limited: true }, auth.user.id)
           insert(made.path, true)
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: made.path, rules } })
         })()
@@ -940,7 +940,12 @@ export const chatsRoutes: RouteModule = {
       // they saved: a build without these columns may have changed it); otherwise nobody (chat/runtime.ts projectTaints)
       const sole = r!.instructions_author === auth.user.id && r!.instructions_authored === r!.instructions
       const author = next.instructions === r!.instructions ? { by: r!.instructions_author, text: r!.instructions_authored } : sole ? { by: auth.user.id, text: next.instructions } : { by: null, text: null }
+      // a project's folder in projects/ is always limited (docs/DECISIONS.md "Folder access adds up like Google Drive
+      // (P2)", invariant 5): pointed at one that is not, it is limited in the same transaction (it only narrows)
+      const limitsFolder = repoint && isProjectsFolder(folder) && !(ctx.db.query('SELECT 1 FROM folders WHERE path = ? AND limited = 1').get(folder))
+      const accessBefore = limitsFolder ? captureState(ctx.db) : null
       const save = ctx.db.transaction(() => {
+        if (limitsFolder) { const row = ensureFolderRow(ctx.db, folder); writeFolderAccess(ctx.db, row.id, { rules: rulesOf(ctx.db, row.id).filter((x) => x.access !== 'none'), limited: true }, auth.user.id) }
         // one project per folder (the folder was checked for write above; an admin can read every team folder)
         if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
         // pointed at an existing folder, the project's folder is no longer one the server made for it (its rules are
@@ -971,6 +976,7 @@ export const chatsRoutes: RouteModule = {
         }
       })
       save()
+      if (accessBefore) afterAccessChange(ctx, accessBefore, { actor: auth.user.id, target: folder, via: 'project' })
       // pointed at a team folder (an admin, for a detached project, also a personal one's): it shares its new chats
       if (repoint) markTeamShares(ctx.db, auth.user.id, 'repointed', [r!.id])
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
@@ -1021,7 +1027,7 @@ export const chatsRoutes: RouteModule = {
       const free = () => assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, made.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
       let out: { files: number; bytes: number }
       try {
-        ctx.db.transaction(() => { replaceRules(ctx.db, ensureFolderRow(ctx.db, made.path).id, rules, auth.user.id) })()
+        ctx.db.transaction(() => { writeFolderAccess(ctx.db, ensureFolderRow(ctx.db, made.path).id, { rules, limited: true }, auth.user.id) })()
         free()
         out = await mapErrors(locale, () => componentC(ctx).files.moveFolderOnto(p.id, r!.folder_path, made.path, () => {
           // (the move pointed the project at made.path already, as a folder move does)
