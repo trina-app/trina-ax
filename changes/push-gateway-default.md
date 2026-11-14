@@ -1,1 +1,0 @@
-- Phone app notifications now work on self-hosted Trina team servers without a setting: they go through Trina's push service (`https://push.trina.app`), with generic text only. To turn them off, set `MYCEL_PUSH_GATEWAY=off`; to use your own gateway, set it to that address. Settings › Notifications says when they are off.

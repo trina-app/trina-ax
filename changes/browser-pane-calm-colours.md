@@ -1,1 +1,0 @@
-- Desktop app: the browser pane now follows the theme you pick in Settings (light or dark), not only your computer's. "Trina is using the browser" uses regular text and an ordinary Stop button, and the site question is an ordinary card with one orange button.

@@ -1,1 +1,0 @@
-- **Project page**: the instructions no longer show twice. The two-line copy under the project's name is gone; they show once, in **Instructions**.

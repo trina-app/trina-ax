@@ -1,4 +1,0 @@
-- A connected folder from a Mac share (Korean names written decomposed) is copied under composed names for its folders too, not only its files, so search and links find them.
-- Exporting the team's data (chats, memories, files) now shows in the activity log with who and what.
-- When the owner changes someone's role or groups, that person's open windows update at once: an admin who became a member loses the Admin area without reloading.
-- A file over 20 GB is refused at once in the chat's message box, with the file's name and the limit, before any checksum is made.
