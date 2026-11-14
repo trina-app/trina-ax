@@ -24,6 +24,7 @@ import type { Context } from 'hono'
 import { PRODUCT } from '@mycel/shared'
 import { REPO_ROOT } from '../app-config'
 import type { AppEnv } from '../http/env'
+import { fromOutside } from '../http/tunnel'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { downloadRoute } from './downloads'
@@ -51,7 +52,7 @@ export const webRoutes: RouteModule = {
       if (isNoticeIndex(opts.dist, new URL(c.req.url).pathname)) {
         const hc = c as unknown as Context<AppEnv>
         const info = hc.get('info')
-        if ((info.tunnel || info.via === 'relay') && !(await signedIn(hc, ctx))) {
+        if ((fromOutside(info) || info.via === 'relay') && !(await signedIn(hc, ctx))) {
           return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store' } })
         }
         const res = serveWeb(c.req.raw, opts)

@@ -296,7 +296,7 @@ PUBLIC=$(sed -n 's/^TEAMAX_PUBLIC_HOST=//p' "$PREFIX/config/office.env")
 cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
-명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | desktop
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | tailscale-address | desktop
 설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md${OFFICE_PDF:+ (PDF: 압축을 푼 폴더의 $OFFICE_PDF)}
 EOF
 if [ -n "$PUBLIC" ]; then

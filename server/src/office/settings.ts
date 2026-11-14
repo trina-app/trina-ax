@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PUBLIC_HOST_RE } from '../app-config'
 import { hostPort, type OfficeNames } from './tls'
+import { TS_NET_NAME, tailnetCertPaths } from './tailscale'
 import { PRODUCT, SourceCodeConfig } from '@mycel/shared'
 
 export const DEFAULT_LABEL = 'app.team-ax.office'
@@ -31,6 +32,8 @@ export const DEFAULT_LAN_PORT = 8443
 export const DEFAULT_PROXY_PORT_OFFICE = 47831
 /** plain-HTTP helper page with the CA certificate: lanPort - 1 by default, 0 = off */
 export const helperDefault = (lanPort: number) => lanPort - 1
+/** the Tailscale address's port: lanPort + 1 by default (443 is often taken by `tailscale serve` / Funnel) */
+export const tailscalePortDefault = (lanPort: number) => lanPort + 1
 /** unix socket paths are limited to 104 bytes on macOS; <runDir>/private/server.sock must fit */
 export const MAX_RUN_DIR = 80
 
@@ -62,6 +65,12 @@ export interface OfficeSettings {
   publicAllowFrom: string[]
   /** optional allow-list for the public address: countries (CF-IPCountry, e.g. KR; empty = anywhere) */
   publicCountries: string[]
+  /** the Tailscale address <machine>.<tailnet>.ts.net (server/src/office/tailscale.ts), null = none */
+  tailscaleHost: string | null
+  /** its TLS port, bound to the Mac's Tailscale IPv4 address only */
+  tailscalePort: number
+  /** the Tailscale CLI (null = look in the usual places) */
+  tailscaleBin: string | null
   /** Operator source offer, preserved when the supervisor regenerates server.json. */
   sourceCode?: SourceCodeConfig
 }
@@ -141,11 +150,14 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
     publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
     publicCountries: parseCountries(e.TEAMAX_PUBLIC_COUNTRIES),
+    tailscaleHost: parseTailscaleHost(e.TEAMAX_TAILSCALE_HOST),
+    tailscalePort: port(e.TEAMAX_TAILSCALE_PORT, tailscalePortDefault(lanPort), 'TEAMAX_TAILSCALE_PORT'),
+    tailscaleBin: e.TEAMAX_TAILSCALE_BIN || null,
     ...(sourceCode ? { sourceCode } : {}),
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{2,100}$/.test(s.label)) throw new Error(`TEAMAX_LABEL ${s.label} is not a launchd label`)
-  const ports = [s.appPort, s.lanPort, s.proxyPort, ...(s.helperPort ? [s.helperPort] : [])]
-  if (new Set(ports).size !== ports.length) throw new Error('TEAMAX_APP_PORT, TEAMAX_LAN_PORT, TEAMAX_PROXY_PORT and TEAMAX_HELPER_PORT must differ')
+  const ports = [s.appPort, s.lanPort, s.proxyPort, ...(s.helperPort ? [s.helperPort] : []), ...(s.tailscaleHost ? [s.tailscalePort] : [])]
+  if (new Set(ports).size !== ports.length) throw new Error(`TEAMAX_APP_PORT, TEAMAX_LAN_PORT, TEAMAX_PROXY_PORT, TEAMAX_HELPER_PORT${s.tailscaleHost ? ' and TEAMAX_TAILSCALE_PORT' : ''} must differ`)
   return s
 }
 
@@ -167,6 +179,16 @@ export function parsePublicHost(v: string | undefined): string | null {
   if (!t) return null
   t = t.replace(/^https:\/\//, '').replace(/\/+$/, '').replace(/\.$/, '')
   if (!PUBLIC_HOST_RE.test(t)) throw new Error(`TEAMAX_PUBLIC_HOST: ${v} is not an internet name such as app.example.com`)
+  return t
+}
+
+/** TEAMAX_TAILSCALE_HOST: '' = none, else the Mac's Tailscale name <machine>.<tailnet>.ts.net (lower-cased; a pasted
+ * https://…/ is reduced to the name). */
+export function parseTailscaleHost(v: string | undefined): string | null {
+  let t = (v ?? '').trim().toLowerCase()
+  if (!t) return null
+  t = t.replace(/^https:\/\//, '').replace(/\/+$/, '').replace(/\.$/, '')
+  if (!TS_NET_NAME.test(t)) throw new Error(`TEAMAX_TAILSCALE_HOST: ${v} is not a Tailscale name such as mac.tail1234.ts.net`)
   return t
 }
 
@@ -225,6 +247,10 @@ export function settingsText(s: OfficeSettings): string {
     '# optional: who may use the internet address (IPv4 CIDRs, two-letter countries); empty = anyone',
     line('TEAMAX_PUBLIC_ALLOW_FROM', s.publicAllowFrom.join(',')),
     line('TEAMAX_PUBLIC_COUNTRIES', s.publicCountries.join(',')),
+    '# Tailscale address <machine>.<tailnet>.ts.net for the devices of the tailnet (teamax tailscale-address on|off); empty = none',
+    line('TEAMAX_TAILSCALE_HOST', s.tailscaleHost),
+    line('TEAMAX_TAILSCALE_PORT', s.tailscaleHost ? s.tailscalePort : null),
+    line('TEAMAX_TAILSCALE_BIN', s.tailscaleBin),
     ...(s.sourceCode ? [
       '# operator source offer (docs/SOURCE-OFFER.md); this metadata does not verify publication or content',
       line('TEAMAX_SOURCE_REQUEST_EMAIL', s.sourceCode.requestEmail ?? null),
@@ -240,6 +266,10 @@ export const tunnelLabel = (s: Pick<OfficeSettings, 'label'>) => `${s.label}.tun
 
 /** https://<public host>, or null */
 export const publicOrigin = (s: Pick<OfficeSettings, 'publicHost'>) => s.publicHost ? `https://${s.publicHost}` : null
+
+/** https://<Tailscale name>[:port], or null */
+export const tailnetOrigin = (s: Pick<OfficeSettings, 'tailscaleHost' | 'tailscalePort'>) =>
+  s.tailscaleHost ? `https://${s.tailscaleHost}${s.tailscalePort === 443 ? '' : `:${s.tailscalePort}`}` : null
 
 /** The engine socket folder: <home>/data/run unless that is too long for a unix socket path. */
 export function runDirFor(s: OfficeSettings): string {
@@ -280,9 +310,11 @@ export function allowedPeers(s: Pick<OfficeSettings, 'allowFrom'>, subnets: [str
  * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet, and the
  * internet address (tunnel) when one is set: cloudflared delivers it to the loopback app port. Codex is
  * off (codexBin ''): the office's data goes to one AI provider, Anthropic, as the guide says. */
-export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [string, string][] = []) {
+export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [string, string][] = [], tailnetIp: string | null = null) {
   const p = officePaths(s.home)
   const origins = deskOrigins(names, s.lanPort)
+  const tsOrigin = tailnetOrigin(s)
+  const tsCert = tailnetCertPaths(p.tls)
   return {
     mode: 'dev' as const,
     office: true,
@@ -290,8 +322,11 @@ export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [st
     listen: { host: '127.0.0.1', port: s.appPort },
     tls: { host: '0.0.0.0', port: s.lanPort, certFile: path.join(p.tls, 'server.crt'), keyFile: path.join(p.tls, 'server.key') },
     // the internet address first: invite and reset links made on the Mac point there (no certificate to install)
-    publicOrigins: [...(s.publicHost ? [`https://${s.publicHost}`] : []), ...origins, `http://localhost:${s.appPort}`, `http://127.0.0.1:${s.appPort}`],
+    // then the Tailscale address: it works from anywhere on the tailnet with no certificate to install
+    publicOrigins: [...(s.publicHost ? [`https://${s.publicHost}`] : []), ...(tsOrigin ? [tsOrigin] : []), ...origins, `http://localhost:${s.appPort}`, `http://127.0.0.1:${s.appPort}`],
     tunnel: s.publicHost ? { host: s.publicHost, allowFrom: s.publicAllowFrom, countries: s.publicCountries } : null,
+    // the Tailscale listener: only on the Mac's Tailscale IPv4 address (bind null = Tailscale not up yet: no listener)
+    ...(s.tailscaleHost ? { tailnet: { host: s.tailscaleHost, port: s.tailscalePort, bind: tailnetIp, certFile: tsCert.crt, keyFile: tsCert.key } } : {}),
     allowedHosts: allowedHosts(names, s),
     allowedPeers: allowedPeers(s, subnets),
     teamRoot: p.team,

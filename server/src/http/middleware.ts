@@ -44,7 +44,7 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const requestId = uuidv7()
     c.set('requestId', requestId)
-    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct', port: c.env?.port ?? null, ...(c.env?.tunnel ? { tunnel: true } : {}) } as const
+    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct', port: c.env?.port ?? null, ...(c.env?.tunnel ? { tunnel: true } : {}), ...(c.env?.tailnet ? { tailnet: true } : {}) } as const
     c.set('info', info)
     c.set('log', ctx.log.child({ rid: requestId }))
     c.set('auth', null)
@@ -62,7 +62,9 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
     await next()
     setHeader(c, 'X-Content-Type-Options', 'nosniff')
     // the office public address is https only (Cloudflare's certificate): browsers stay on https for this name
-    if (c.get('info')?.tunnel) setHeader(c, 'Strict-Transport-Security', 'max-age=31536000')
+    // the Tailscale address too: a public certificate (Let's Encrypt), and the listener is TLS only
+    const info = c.get('info')
+    if (info?.tunnel || info?.tailnet) setHeader(c, 'Strict-Transport-Security', 'max-age=31536000')
     // OAuth callbacks carry one-use codes: retain an explicit, stricter route policy.
     if (c.res.headers.get('Referrer-Policy') !== 'no-referrer') setHeader(c, 'Referrer-Policy', 'same-origin')
     if (c.req.path.startsWith('/api/')) {
@@ -100,12 +102,31 @@ export function hostAllowed(host: string | null | undefined, allowed: readonly s
 
 /** The public origins a direct request may name (CSRF Origin, WebSocket Origin): with a Host allow-list (office
  * mode) only those of the listener's own port, so the office port never accepts http://localhost:<app port>. */
-export function originsFor(config: AppContext['config'], info: { via: string; port?: number | null; tunnel?: boolean }): string[] {
+export function originsFor(config: AppContext['config'], info: { via: string; port?: number | null; tunnel?: boolean; tailnet?: boolean }): string[] {
   // through the office public address only that address (never the LAN or localhost origins)
   if (info.via === 'direct' && info.tunnel && config.tunnel) return [`https://${config.tunnel.host}`]
+  // on the Tailscale listener only the Tailscale origin (on port 443 it has no port, so the port filter below would
+  // drop it); nothing at all when the config has no Tailscale address
+  if (info.via === 'direct' && info.tailnet) return config.tailnet ? [tailnetOriginOf(config.tailnet)] : []
   if (info.via !== 'direct' || info.port == null || !config.allowedHosts?.length) return config.publicOrigins
   return config.publicOrigins.filter((o) => { try { return portOf(new URL(o).host) === info.port } catch { return false } })
 }
+
+/** https://<Tailscale name>[:port] (no port for 443, as a browser writes the origin) */
+export function tailnetOriginOf(t: { host: string; port: number }): string {
+  return `https://${t.host}${t.port === 443 ? '' : `:${t.port}`}`
+}
+
+/** Host headers the Tailscale listener answers: <name>:<port>, and the bare <name> on 443 (browsers leave the default
+ * port out). Lower case, exact: no other name, no address. */
+export function tailnetHostAllowed(host: string | null | undefined, t: { host: string; port: number } | null | undefined): boolean {
+  if (!t || !host) return false
+  const h = host.toLowerCase()
+  return h === `${t.host}:${t.port}` || (t.port === 443 && h === t.host)
+}
+
+/** The Tailscale IPv4 range (100.64.0.0/10) */
+export const TAILNET_PEERS = ['100.64.0.0/10']
 
 const V4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
 const v4n = (ip: string) => { const m = V4.exec(ip); return m ? m.slice(1).reduce((n, o) => ((n << 8) | Number(o)) >>> 0, 0) : null }
@@ -138,8 +159,9 @@ export function inCidrs(ip: string | null | undefined, cidrs: readonly string[])
  * (socket peer: the loopback port or the office-network TLS port) with any other Host, a Host of the other
  * listener's port, or no Host at all gets 421. A web page whose name an attacker re-points at the office Mac (DNS
  * rebinding) still sends its own name as Host, so it never reaches the API or the cookies' origin. config.allowedPeers
- * keeps the office port to the office subnet (a VPN peer gets 403). Relayed requests are routed by the relay's own
- * host check.
+ * keeps the office port to the office subnet (a VPN peer gets 403). The office Tailscale listener (config.tailnet) has
+ * its own rule: tailnet peers (100.64.0.0/10) and Host <name>[:port] only. Relayed requests are routed by the relay's
+ * own host check.
  */
 export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
@@ -152,6 +174,14 @@ export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
         return c.redirect(c.req.url, 308) // c.req.url is already https://<host>/...
       }
       if (blocked) return c.text('Forbidden: this address is not open to your network\n', 403)
+      await next()
+      return
+    }
+    if (info.via === 'direct' && info.tailnet) {
+      // the office Tailscale listener (bound to the Tailscale address only): tailnet peers and its own name only. Not
+      // peerAllowed: that lets loopback through, and nothing on this listener is the Mac itself
+      if (!inCidrs(info.ip, TAILNET_PEERS)) return c.text('Forbidden: this address answers only the devices of the tailnet\n', 403)
+      if (!tailnetHostAllowed(c.req.header('host'), ctx.config.tailnet)) return c.text('Misdirected request: this server answers only on its own addresses\n', 421)
       await next()
       return
     }

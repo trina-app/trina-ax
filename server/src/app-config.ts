@@ -124,6 +124,17 @@ export const AppConfigFile = z.object({
     allowFrom: z.array(z.string().regex(/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/, 'tunnel.allowFrom: IPv4 CIDRs (a.b.c.d/n)')).default([]),
     countries: z.array(z.string().regex(/^[A-Z]{2}$/, 'tunnel.countries: two-letter country codes such as KR')).default([]),
   }).nullable().default(null),
+  /** the office Tailscale address (docs/OFFICE.md "Tailscale 주소", office/tailscale.ts): a TLS listener on bind:port (the
+   * Mac's Tailscale IPv4 address; null = Tailscale not up, no listener) with the tailnet's Let's Encrypt certificate.
+   * It answers only peers in 100.64.0.0/10 and only Host <host>[:port]; its requests count as from outside the office
+   * (no first-run setup, internet sign-in limits). null = none. */
+  tailnet: z.object({
+    host: z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){2}ts\.net$/, 'tailnet.host must be <machine>.<tailnet>.ts.net'),
+    port: z.number().int().min(1).max(65535),
+    bind: z.string().regex(/^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, 'tailnet.bind must be the Tailscale IPv4 address').nullable(),
+    certFile: z.string(),
+    keyFile: z.string(),
+  }).nullable().default(null),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
   publicOrigins: z.array(z.string()).default([]),
   /** app connectors (docs/INTEGRATIONS.md): people connect their own Claude to this server as a remote MCP server at
@@ -236,6 +247,8 @@ export interface AppConfig {
   office?: boolean
   /** see AppConfigFile.tunnel; absent or null = no public address */
   tunnel?: { host: string; allowFrom: string[]; countries: string[] } | null
+  /** see AppConfigFile.tailnet; absent or null = no Tailscale address */
+  tailnet?: { host: string; port: number; bind: string | null; certFile: string; keyFile: string } | null
   publicOrigins: string[]
   /** see AppConfigFile.appConnectors */
   appConnectors?: boolean
@@ -348,6 +361,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     allowedPeers: f.allowedPeers,
     office: f.office,
     tunnel: f.tunnel,
+    tailnet: f.tailnet ? { ...f.tailnet, certFile: abs(f.tailnet.certFile), keyFile: abs(f.tailnet.keyFile) } : null,
     publicOrigins: origins,
     appConnectors: f.appConnectors,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,

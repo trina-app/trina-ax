@@ -47,6 +47,8 @@ Without tunnel options, use the installer-provided local address to create the o
 
 An optional HTTPS internet address requires a domain and a separately provisioned Cloudflare Tunnel. With the prepared hostname/token file, add `--public-host team.example.com --tunnel-token-file /path/to/token-file` to the installer. Provisioning is an operator task, not automatic hosting signup. Protect the file and remove the transfer copy after installation. Later use `~/TeamAX/teamax public-address status`; changing the app port also requires updating the tunnel target. Do not use cache rules that cache authenticated downloads.
 
+An optional Tailscale address lets the devices of your tailnet open the server from anywhere (a phone on mobile data too), with a public Let's Encrypt certificate and no CA to install. Sign in the Tailscale app on the Mac, turn on MagicDNS and HTTPS Certificates in the Tailscale admin console, then run `~/TeamAX/teamax tailscale-address on`. See [Tailscale address](#tailscale-address-operator).
+
 After owner setup: **permissions → AI connection → invite the team → first skill → first backup**. Test two accounts' folder access, confirm the permitted Claude connection on this Mac, invite a small pilot, copy a [starter skill](../examples/README.md), and perform a [backup/restore drill](BACKUP-RESTORE.md). Local-login office mode uses this Mac's CLI connection; do not assume the managed Linux connection selector is active. Fresh team subscription-sharing settings are on, saved choices persist, and connection-level consent applies where managed connections are used. Software capability is not provider permission.
 
 ## Operate, upgrade and rollback
@@ -248,6 +250,32 @@ bun scripts/office/public-address.ts remove team.example.com \
 ```
 
 Removal can rotate a retained shared tunnel's secret; distribute any newly required token to its remaining connector. For suspected exposure use the operator command `rotate <hostname>` with the appropriate certificate and replace the office token. To disable public access, run `~/TeamAX/teamax public-address off` on the office Mac, then the removal command it prints on the operator Mac. The LAN path remains.
+
+### Tailscale address (operator)
+
+The Mac serves `https://<machine>.<tailnet>.ts.net:<port>` on a TLS port that is open only on its Tailscale IPv4 address (100.x). The certificate is the tailnet's Let's Encrypt certificate from `tailscale cert`, so devices on the tailnet open it with no warning and no CA install. No domain and no Cloudflare account are necessary.
+
+1. On the Mac, install the Tailscale app from https://tailscale.com/download/mac and sign in. Add the members' devices to the same tailnet.
+2. In the Tailscale admin console, **DNS** page, turn on **MagicDNS** and **HTTPS Certificates**.
+3. Run:
+
+```sh
+~/TeamAX/teamax tailscale-address on            # default port: office port + 1 (8443 -> 8444)
+~/TeamAX/teamax tailscale-address on --port 443 # only if `tailscale serve` / Funnel does not use 443 on this Mac
+~/TeamAX/teamax tailscale-address status
+~/TeamAX/teamax tailscale-address off
+```
+
+`on` reads the name from `tailscale status`, gets the certificate first (it changes nothing if that fails), writes the settings (`TEAMAX_TAILSCALE_HOST`, `TEAMAX_TAILSCALE_PORT`, `TEAMAX_TAILSCALE_BIN` in `config/office.env`) and restarts the server once. It refuses a port that `tailscale serve` or Funnel uses on this Mac: tailscaled takes the tailnet traffic for those ports. The supervisor calls `tailscale cert` again every 12 hours; tailscaled renews the certificate before it ends, and the server loads a new certificate within one minute without a restart. `office.log` warns when fewer than 7 days remain, when Tailscale is not connected, or when the Mac's Tailscale name changed.
+
+Security choices:
+
+- The first-run setup is refused on the Tailscale address, as on the public address. Before sign-in, `/api/health` gives only `ok` and the time. Sign-in failures use the internet limits. The activity log marks these sign-ins `tailnet`.
+- Every device on the tailnet reaches the sign-in page. Tailscale device approval and ACLs decide who that is. Remove a person who leaves from the tailnet and disable their account. Devices shared in from another tailnet, and devices behind a subnet router (by default they get the router's 100.x address), also count as tailnet peers.
+- Traffic goes inside Tailscale's WireGuard connection and TLS ends on the Mac. When a direct connection is not possible, a Tailscale relay (DERP) carries the packets, still encrypted end to end.
+- The listener binds to the Tailscale IPv4 address only, so the port does not exist on the office network. The server answers only peers in 100.64.0.0/10 and only Host `<name>:<port>` (403 and 421 otherwise). The office port still answers only the office subnet: do not add 100.64.0.0/10 to `TEAMAX_ALLOW_FROM` or set `TEAMAX_INCLUDE_VPN=1` for this.
+- Do not put `tailscale serve` in front of the app port. Requests through it come from 127.0.0.1, so the office-network check and the first-run setup refusal cannot see that they are remote.
+- The certificate goes into the public Certificate Transparency logs: the machine name and the tailnet name become public. Devices outside the tailnet still cannot connect.
 
 ### Troubleshooting reference and removal
 

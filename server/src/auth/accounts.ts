@@ -22,7 +22,7 @@ import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
-import { isLoopback } from '../http/tunnel'
+import { fromOutside, isLoopback } from '../http/tunnel'
 import { authOf } from './service'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
@@ -77,8 +77,8 @@ function checkNewPassword(pw: string, username: string | null, locale: Locale, f
 }
 
 /** how a sign-in reached the server, for the audit log: 'internet' through the office public address (http/tunnel.ts),
- * else the transport ('direct' = this Mac or the office LAN, 'relay') */
-export const viaOf = (info: { via: string; tunnel?: boolean }): string => info.tunnel ? 'internet' : info.via
+ * 'tailnet' on the office Tailscale address, else the transport ('direct' = this Mac or the office LAN, 'relay') */
+export const viaOf = (info: { via: string; tunnel?: boolean; tailnet?: boolean }): string => info.tunnel ? 'internet' : info.tailnet ? 'tailnet' : info.via
 
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
 function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
@@ -112,7 +112,7 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
 export function setupStatusFor(c: Context<AppEnv>, ctx: AppContext): ReturnType<typeof setupStatus> {
   const s = setupStatus(ctx)
   const info = c.get('info')
-  if (info.tunnel) return { ...s, needed: false }
+  if (fromOutside(info)) return { ...s, needed: false }
   return info.via === 'relay' ? withToken(c, ctx, s) : s
 }
 
@@ -165,7 +165,8 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
   // and after setup: a 409 "already set up" told the internet whether the team exists yet.
   const info = c.get('info')
-  if (info.tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  // The office Tailscale address the same: every device of the tailnet reaches it, from anywhere.
+  if (fromOutside(info)) fail('forbidden', msg('setupNotRemote', locale))
   // through the relay the token comes first: without it the answer is the same counted 403 before and after setup
   // (the token is spent at setup), so a POST with a made-up token does not tell the internet whether the team exists.
   // This server and the office network keep the 409 "already set up" first (installers and scripts read it).
@@ -192,7 +193,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const net = ip ? limitIp(ip) : null
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
-    : info.tunnel || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
+    : fromOutside(info) || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
   // A sign-in from the person's own network (`net` scope: the server Mac itself, or a network they signed in from
   // before) uses a higher per-IP limit (perNetIp) instead of perIp. Many people share one such address (everyone at
   // the Mac or on an SSH tunnel is 127.0.0.1, an office's desks share its public IP), so before, about 30 failed

@@ -22,6 +22,13 @@ export function isLoopback(ip: string | null | undefined): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip) || ip === '::1'
 }
 
+/** Did the request come from outside the office: through the office public address (Cloudflare Tunnel) or on the
+ * Tailscale listener? Such a request never makes the owner account (first-run setup), gets the signed-out health
+ * answer, and its sign-in failures use the internet limits. The relay is outside too; callers check via 'relay'. */
+export function fromOutside(info: { tunnel?: boolean; tailnet?: boolean }): boolean {
+  return !!(info.tunnel || info.tailnet)
+}
+
 /** CF-Connecting-IP when it is one valid IP address (IPv4-mapped IPv6 written as IPv4), else null */
 export function cfClientIp(v: string | null | undefined): string | null {
   const t = (v ?? '').trim()
@@ -48,15 +55,19 @@ export function tunnelRequest(cfg: Pick<AppConfig, 'tunnel' | 'listen'>, req: Re
   return { req: rewritten, ip: cfClientIp(req.headers.get('cf-connecting-ip')) ?? peer! }
 }
 
-/** Bun.serve's fetch for a direct listener: the socket peer and listener port, the tunnel rewrite (above). */
+/** Bun.serve's fetch for a direct listener: the socket peer and listener port, the tunnel rewrite (above).
+ * `o.tailnet`: this is the office Tailscale listener (main.ts): every request on it is marked tailnet, none is a
+ * tunnel request (the tunnel arrives on the loopback app port only). */
 export function directFetch(
   cfg: Pick<AppConfig, 'tunnel' | 'listen'>,
-  fetch: (req: Request, env: { ip: string | null; via: 'direct'; port: number; server: unknown; tunnel?: boolean; upgradeReq?: Request }) => Response | Promise<Response>,
+  fetch: (req: Request, env: { ip: string | null; via: 'direct'; port: number; server: unknown; tunnel?: boolean; tailnet?: boolean; upgradeReq?: Request }) => Response | Promise<Response>,
   peerIp: (addr: string | null | undefined) => string | null,
+  o: { tailnet?: boolean } = {},
 ) {
   return (req: Request, server: { requestIP(r: Request): { address: string } | null; port: number | undefined }) => {
     const peer = peerIp(server.requestIP(req)?.address)
     const port = server.port ?? 0
+    if (o.tailnet) return fetch(req, { ip: peer, via: 'direct', port, server, tailnet: true })
     const t = tunnelRequest(cfg, req, peer, port)
     if (t) return fetch(t.req, { ip: t.ip, via: 'direct', port, server, tunnel: true, upgradeReq: req })
     return fetch(req, { ip: peer, via: 'direct', port, server })

@@ -14,6 +14,8 @@ export interface AppBindings {
   server?: unknown
   /** direct: the request came through the office public address (http/tunnel.ts) */
   tunnel?: boolean
+  /** direct: the request came in on the office Tailscale listener (config.tailnet) */
+  tailnet?: boolean
   /** the request Bun.serve handed over, when app.fetch got a rewritten copy (tunnel: https URL); Bun upgrades only
    * its own request object to a WebSocket */
   upgradeReq?: Request
