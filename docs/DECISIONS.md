@@ -27765,3 +27765,62 @@ and the phone push are core.
   reader-level check is what keeps data safe whatever the order, so the naming is a separate decision.
 - Tests: native/cmd/mycel-ctl/readerlevel_test.go (Linux Docker); tests/unit/update-reader-gate.test.ts;
   tests/unit/g-update-auto.test.ts (hold and 409 through the app); web/test/unit/update-outcome.test.ts.
+
+
+## Files from the computer in a chat shared with people (feat/shared-chats-s6, 2026-11-14, product owner, QA TC-1413)
+
+Where: Team AX core (`server/src/chat/{chat-files,chat-file-tool,people-share,read-scope,shared,tools,turn}.ts`,
+`server/src/uploads/attachments.ts`, `server/src/routes/{chats,files}.ts`, migration `400_b_chat_files.sql`,
+`shared/src/api/{entities,chats}.ts`, `shared/src/tools.ts`; web `ComposerFiles`, `Messages`, `FileBody`, `FilePanel`).
+Plan: `docs/AGENTS/plan/20261114-shared-chats-everywhere.md` S6. Until now a file from the computer was refused in a chat
+shared with people and groups, and files attached before the share stayed visible to their sender only.
+
+- **The chat owns the file.** A computer upload into a people-shared chat is kept by the server in
+  `<team>/.system/chat-files/<chat id>/<file id>` (0700/0600) with a `chat_files` row (chat, sender, name, size, type,
+  sha256, preview; `copied_from` for a copy made at the share). `.system/` is closed to every person, the AI's file
+  tools and the owner's export, and it is in every backup of the team folder, as room files are; the plan said the data
+  directory, but there a restore of the team folder would lose the files of the chats it brings back. No folder rule
+  changes and nothing under `users/<id>/` is opened to anyone: the file is in no folder at all.
+- **Who opens it.** Only through the chat: `GET /api/chats/:id/files/:fileId` (`chatFor 'view'`: whoever sees the chat
+  now, its creator in the trash too; everyone else the 404 of a missing chat), and the attachment thumbnail by id through
+  the file's chat. A file not sent in a message yet is its sender's alone. A file on the download-only list goes only as
+  a download, as a room file. Removing someone, a group they leave, a disabled account or making the chat private again
+  takes the files away with the chat (the same check, nothing to revoke). In the message the attachment has
+  `source: 'chat'` and no team path; everyone who sees the chat sees it (`viewAs`). The files keep the people-shared
+  rule even if the chat later gets another audience (made private, then moved into a project and shared there): then
+  only its creator opens them and the others see the chip blanked (`seesChatFiles`, from the independent review).
+- **The AI.** Whoever runs a turn reads such a file with the new `chat_file` tool (offered where the chat is shared with
+  people or holds such files; in `SHARED_TOOLS`; not for sub-agents): as that person, while they see the chat, checked
+  again before the result goes out; text through the room-file extractors (a PDF's text layer, no OCR), a picture as an
+  image (the team's switch and the engine), nothing for a file on the download-only list. The message tells the AI the
+  file's id and name. What it read joins the chat's read scope as `{type: 'chat'}`, whose viewers are the chat's people
+  now, so saving it somewhere other people can read asks as any read does; a card names it "files sent in a shared
+  chat", never the chat's title or people.
+- **Earlier uploads.** At the first share of a private chat (and again after it was made private and shared again) the
+  creator's computer uploads in its messages are copied into the chat's files and the messages point to the copies
+  (`ChatFiles.copyEarlier`). The Share check counts them first: the confirm answer carries `earlierFiles` (in the key)
+  and asks even when nothing else would ("N files you attached will be visible to them", `chat.share.earlierFiles`).
+  The copy runs in the share request, read and written without blocking the server through one descriptor that follows
+  no link, each file at most 50 MB and checked against the team's storage (`assertStorageRoom`). Not copied, and so
+  still its sender's alone: a file gone, unreadable, edited or replaced since it was attached (another sha256), over
+  50 MB, without storage room, or a picture whose metadata cannot be cut out; the saved answer tells the creator how
+  many (`filesNotCopied`, `chat.share.filesNotCopied`). The originals stay in their folder. Not after the response: the
+  creator must be told what was not shared, and a 50 MB cap keeps the request short.
+- **Limits and storage.** At most 50 MB a file in such a chat, a chunked upload too (413 `chat_file_too_large` when the
+  session is made and again when it is placed; elsewhere a chunked attachment may be larger). The storage check as for
+  any upload; the bytes count in the team's storage (no per-person ledger exists; Admin › System counts them with the
+  team folder, as room files). A picture's metadata (the place it was taken, the camera) is cut out before others get
+  it, as in rooms (`uploads/metadata.ts` PHOTO), on upload and on the copy at the share (the sha256 check is on the
+  bytes as attached, before cleaning); a picture that cannot be cleaned is refused (upload) or not copied; one that can
+  be neither cleaned nor shown as it is goes as a plain file.
+- **Deleting.** Deleting a chat for good (trash purge) removes its rows (ON DELETE CASCADE) and its folder. ✕ on a chip
+  before sending removes that upload (`DELETE /api/attachments/:id`); uploads never sent go after a day. Nothing else is
+  deleted on a guess: the hourly sweep sets aside the folder of a chat that is gone (an account purge's chats) and a
+  file without its row (an hour old; a new file's time is set when it is placed) in `.system/chat-files-orphans/`, kept
+  30 days like room files' orphans, so a database restored from an older backup can be gone back from.
+- **Audit.** `chat.file_add` (the chat, size and kind; never the file's name) and `chat.files_copied` (counts: copied,
+  not copied).
+- **Composer.** The computer is offered in such a chat again (`Chat.shared.canUpload`, false while safe operations are
+  on); the line under the chips says "Everyone who sees this chat can open it" (`chat.share.uploadLine`, 6 languages).
+- **Numbering.** Migration 400: component B's 200–299 is full (298, 299), and 400–499 is B's second range.
+- Version impact: **minor**.

@@ -315,12 +315,14 @@ export type Chat = z.infer<typeof Chat>
  * messages.attachments[]: files the person attached. Uploads are stored in users/<id>/.attachments/<chatId>/;
  * team files (source 'team', POST /api/attachments/team-file) are references to a file in the team folder, not copies:
  * the server follows the file (moves, edits) and checks the person's read access again whenever it is shown or sent.
+ * In a chat shared with people and groups a file from the computer is kept with the chat (source 'chat', no team path:
+ * GET /api/chats/:id/files/:fileId, for everyone who sees the chat).
  */
 export const Attachment = z.object({
   id: Uuid7,
   name: z.string(),
   /** team-relative path: of the stored upload (users/<me>/.attachments/<chatId>/<name>), or where the referenced team
-   * file is now ('' when it is unavailable) */
+   * file is now ('' when it is unavailable, and for a chat's own file) */
   path: RelPath,
   size: z.number().int().nonnegative(),
   mime: z.string(),
@@ -328,8 +330,9 @@ export const Attachment = z.object({
   /** images: width/height for layout before the thumbnail loads */
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  /** 'team': a reference to a team-folder file (absent: an upload) */
-  source: z.enum(['upload', 'team']).optional(),
+  /** 'team': a reference to a team-folder file; 'chat': a file from the computer kept with a chat shared with people and
+   * groups (its people open it through the chat); absent: an upload */
+  source: z.enum(['upload', 'team', 'chat']).optional(),
   /** team references: sha256 of the content when it was attached */
   sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** team references: the content changed since it was attached (the AI gets the current version) */

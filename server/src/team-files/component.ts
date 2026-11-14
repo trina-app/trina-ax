@@ -2,6 +2,7 @@
 //   componentC(ctx).artifacts.apply(...)      B: artifact tool calls from the engine stream
 //   componentC(ctx).attachments.byIds(...)    B: attachments of a message being sent
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
+import { chatFilesOf } from '../chat/chat-files'
 import { sweepMedia } from '../integrations/connections/media'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -135,6 +136,8 @@ export function componentC(ctx: AppContext): ComponentC {
       run('jobs', () => jobs.sweep())
       run('thumbs', () => attachments.sweep())
       run('teamRefs', () => teamRefs.sweep())
+      // files kept with chats shared with people: unsent ones after a day, those of chats deleted for good
+      run('chatFiles', () => chatFilesOf(ctx).sweep())
       // transcripts of video and audio reads: 30 days, 200 MB (files/media.ts TranscriptCache)
       run('mediacache', () => ctx.files.transcripts.prune())
       // images and files connections returned inline, kept a day for save_url (integrations/connections/media.ts)
@@ -182,8 +185,9 @@ export function componentC(ctx: AppContext): ComponentC {
     get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids),
     lookup: (userId, chatId, ids) => attachments.lookup(userId, chatId, ids),
     view: (userId, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.view(userId, a) : a)),
-    // a shared chat's message for one viewer: references by the viewer's access, a computer upload only for its sender
-    viewAs: (viewer, author, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.viewAs(viewer, a) : author === viewer ? a : { ...unavailableAttachment(a.id), source: a.source })),
+    // a shared chat's message for one viewer: references by the viewer's access, a computer upload only for its sender, a
+    // file kept with a chat shared with people (chat/chat-files.ts) for everyone who sees the chat (the viewer does)
+    viewAs: (viewer, author, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.viewAs(viewer, a) : a.source === 'chat' || author === viewer ? a : { ...unavailableAttachment(a.id), source: a.source })),
     check: (userId, atts) => Promise.all(atts.map((a) => (a.source === 'team' ? teamRefs.check(userId, a) : a))),
   }
   ctx.files.events.on('hwp-invalidate', () => c.hwp.invalidate())

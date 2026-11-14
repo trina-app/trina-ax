@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
@@ -172,6 +173,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
+  // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
+  // see the chat; only where the chat holds such files or is shared with people
+  if (chatFileOffered(exec)) add(chatFileTool(exec))
   // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
   // (chat/post-to-room.ts): only in their own chat, never in a shared, confidential, draft or template
   // chat, a scheduled run or a question from Slack (postToRoomOff)

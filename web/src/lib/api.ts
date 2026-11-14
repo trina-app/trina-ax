@@ -163,6 +163,18 @@ export function roomFileUrl(roomId: string, fileId: string, query: { download?: 
   return api.url(API.roomFile, { params: { id: roomId, fileId }, query: query.thumb && !query.download && mediaKey ? { ...query, k: mediaKey } : query })
 }
 
+/** URL of a file from the computer kept with a chat shared with people (Attachment source 'chat'; checked on every read:
+ * whoever sees the chat now): `download` as an attachment, `thumb` an image's small preview. */
+export function chatFileUrl(chatId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
+  return api.url(API.chatFile, { params: { id: chatId, fileId }, query })
+}
+
+/** A chat file's bytes for the preview panel, never more than `max` (readBounded). */
+export async function fetchChatFileBlob(chatId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
+  const res = await api.call(API.chatFile, { params: { id: chatId, fileId }, signal })
+  return readBounded(res, max, o)
+}
+
 /** A room file's bytes for the preview panel, never more than `max` (readBounded; `truncate`: a text preview's start). */
 export async function fetchRoomFileBlob(roomId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
   const res = await api.call(API.roomFile, { params: { id: roomId, fileId }, signal })

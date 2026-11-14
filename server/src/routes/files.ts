@@ -35,6 +35,7 @@ import { getChatRuntime } from '../chat/runtime'
 import { deleteProjectForGood } from '../chat/project-delete'
 import { HttpError } from '../http/errors'
 import { openableTurnChats } from '../chat/version-chats'
+import { chatFilesOf } from '../chat/chat-files'
 import type { HistoryResponse } from '@mycel/shared/api'
 
 export const filesRoutes: RouteModule = {
@@ -251,7 +252,17 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
     // a chip taken out before sending: a computer upload into a shared chat goes to the trash (uploads/team-refs.ts discard)
-    kit.handle(API.discardAttachment, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.discard(auth.user.id, params.id)))
+    // (a file of a chat shared with people, chat/chat-files.ts: the caller's own unsent one goes, row and bytes)
+    kit.handle(API.discardAttachment, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
+      const files = chatFilesOf(ctx)
+      const own = files.row(params.id)
+      if (own) {
+        if (own.user_id !== auth.user.id) throw new HttpError('not_found')
+        files.discard(auth.user.id, params.id)
+        return { trashed: false }
+      }
+      return C.teamRefs.discard(auth.user.id, params.id)
+    }))
 
     // ---------------- chunked uploads ----------------
     kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))

@@ -491,3 +491,10 @@ export function cleanImage(b: Uint8Array, o: CleanOptions): Uint8Array | 'animat
     }
   } catch { return null }
 }
+
+/** GIF, BMP or SVG by its first bytes (and its name for SVG, which has none): pictures shown as they are. */
+export function plainPicture(b: Uint8Array, name: string): boolean {
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return true // GIF8
+  if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4d) return /\.bmp$/i.test(name) // BM
+  return /\.svg$/i.test(name) && /^\s*</.test(Buffer.from(b.subarray(0, 256)).toString('utf8').replace(/^\uFEFF/, ''))
+}

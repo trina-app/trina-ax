@@ -145,6 +145,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
       // the first share says with how many (when I may know it); any other save says it is saved
       const others = r.audience.count !== undefined ? r.audience.count - 1 : null
       toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved') })
+      // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
+      if (r.filesNotCopied) toast({ level: 'warn', text: t('chat.share.filesNotCopied', { n: r.filesNotCopied }) })
       setAudience(r.audience)
       onClose()
     } catch (e) {
@@ -258,6 +260,13 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false }: {
                       </>
                     )}
                   </span>
+                </p>
+              )}
+              {/* a quiet line of its own: a first share shows them the files I attached from my computer */}
+              {!!ask?.earlierFiles && (
+                <p className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-earlier-files">
+                  <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
+                  <span>{t('chat.share.earlierFiles', { n: ask.earlierFiles })}</span>
                 </p>
               )}
               {/* a quiet line of its own: not about the people, about my memories */}

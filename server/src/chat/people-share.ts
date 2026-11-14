@@ -17,9 +17,8 @@
 // First share of a private chat: people_shared_at set, the engine session forgotten (its instructions held the
 // memories), the earlier turns marked as before the share (their steps are their runner's: chat/store.ts viewSteps;
 // the rollback guard passes them: chat/people-guard.ts), every earlier answer recorded with the people who see it now
-// (chat/shared-answers.ts). A computer upload from before the share stays its sender's alone (Message attachments are
-// shown to their sender only in a shared chat); a chat-scoped file store for computer uploads comes later, so none are
-// taken in a people-shared chat yet (Chat.shared.canUpload false).
+// (chat/shared-answers.ts), and the creator's computer uploads in it copied to the chat's own files (chat/chat-files.ts
+// copyEarlier), which everyone in it sees; later computer uploads go there directly (Chat.shared.canUpload).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ChatAudience, Locale, PutChatAudienceResult } from '@mycel/shared/api'
@@ -46,6 +45,7 @@ import { wideningAnswers, type WideningResult, type WideningSubject } from './wi
 import { isPeopleRow, peopleAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
 import { tr } from './i18n'
 import { notificationsOf } from '../notifications/service'
+import { chatFilesOf } from './chat-files'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
@@ -153,7 +153,7 @@ export function chatWidening(ctx: AppContext, viewer: Principal, chat: ChatRow, 
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
   const rules = ctx.files.rules()
-  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, viewer.id)
   return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place })
@@ -226,18 +226,20 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       const use = chatUse(db, r.id)
       const prov = await provenanceChecker(ctx, userId, newPeople, use.answers).of([use], new Set())
       const memories = memoriesInPlay(db, r.id, userId)
+      // a first share also shows the creator's earlier computer uploads to them (copied: chat/chat-files.ts)
+      const earlierFiles = before.shared ? 0 : chatFilesOf(ctx).earlierUploads(r.id)
       const hiddenAnswers = chatWidening(ctx, me, r, wanted.map((s) => ({ subjectType: s.type, subjectId: s.id })), { limit: 0 }, locale).total
       // (from here on nothing waits: the state read now is the one saved)
       const now = stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found'))
       if (!same(now, before)) continue
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
       if (prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-      const key = confirmMac(ctx, { kind: 'chat.audience', v: 1, userId, chatId: r.id, subjects: wanted.map(subjectKey).sort(), newPeople, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, hiddenAnswers, messages: before.messages })
+      const key = confirmMac(ctx, { kind: 'chat.audience', v: 1, userId, chatId: r.id, subjects: wanted.map(subjectKey).sort(), newPeople, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, hiddenAnswers, earlierFiles, messages: before.messages })
       const people = prov.unknown ? newPeople.length : prov.missing.size
-      const applies = people > 0 || memories || hiddenAnswers > 0
+      const applies = people > 0 || memories || hiddenAnswers > 0 || earlierFiles > 0
       if ((applies || body.confirmKey !== undefined) && body.confirmKey !== key) {
         confirm = {
-          status: 'confirm', added: newPeople.length, memories, hiddenAnswers, confirmKey: key,
+          status: 'confirm', added: newPeople.length, memories, hiddenAnswers, confirmKey: key, ...(earlierFiles ? { earlierFiles } : {}),
           provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
           ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
         }
@@ -289,6 +291,12 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     if (first) fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
+    // the creator's earlier computer uploads: copied to the chat's own files so everyone in it sees them (S6). A copy
+    // that fails leaves that one its sender's alone, as before; the share stands
+    // (in this request, read and written without blocking the server, each at most 50 MB: the creator is told how many
+    // could not be shared, filesNotCopied)
+    let filesNotCopied = 0
+    if (first) { try { filesNotCopied = (await chatFilesOf(ctx).copyEarlier(r.id)).notCopied } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
     // the people who lost it: their windows drop it (its id alone, nothing of it)
     for (const id of lost) rt.hub.publish(id, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
     // everyone in it now hears the chat as they see it (the newly added get it as a new row of their list)
@@ -303,7 +311,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       } catch (e) { ctx.log.warn('chat share notices failed', { err: e }) }
     }
     const out = rt.store.chatRow(r.id)!
-    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }) }
+    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }), ...(filesNotCopied ? { filesNotCopied } : {}) }
   }
   return fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
 }

@@ -21,7 +21,9 @@ const OUT: Who[] = ['carol', 'dana']
 
 let h: Harness
 const ws: Partial<Record<Who, TestSocket>> = {}
-let chatId: string, questionId: string, answerId: string
+let chatId: string, questionId: string, answerId: string, chatFileId: string
+/** a 1×1 PNG */
+const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 let clock = Date.now()
 const SUBJECTS = [{ subjectType: 'user' as const, subjectId: 'bob' }, { subjectType: 'group' as const, subjectId: 'marketing' }]
 beforeAll(async () => {
@@ -35,6 +37,15 @@ beforeAll(async () => {
   let s = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: SUBJECTS } })
   if (s.status === 'confirm') s = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: SUBJECTS, confirmKey: s.confirmKey } })
   expect(s.status).toBe('saved')
+  // a file from the computer kept with the chat (chat/chat-files.ts), sent in a message: everyone in it opens it
+  const f = new FormData()
+  f.set('chatId', chatId)
+  f.set('file', new File([PNG], 'seal.png', { type: 'image/png' }))
+  const up = await h.req('alice', '/api/uploads', { method: 'POST', body: f })
+  expect(up.status).toBe(201)
+  chatFileId = ((await up.json()) as { id: string; source?: string }).id
+  const sent = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: `file ${CANARY}\n${fake({ say: 'seen' })}`, clientMessageId: cm(), attachmentIds: [chatFileId] } })
+  await ws.alice!.next('message.done', (x) => x.data.messageId === sent.assistantMessage.id, 30_000)
 })
 afterAll(async () => { for (const s of Object.values(ws)) s?.close(); await h.close() })
 
@@ -55,6 +66,10 @@ const reads = (): Row[] => [
   { route: 'GET /api/chats/:id/artifacts', run: (w) => hit(w, `/api/chats/${chatId}/artifacts`), allow: IN, deny: out404 },
   { route: 'GET /api/chats/:id/messages/:messageId/sources', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/sources`), allow: IN, deny: out404 },
   { route: 'GET /api/chats/:id/audience', run: (w) => hit(w, `/api/chats/${chatId}/audience`), allow: IN, deny: out404 },
+  // the chat's own file (S6): through the chat, and its thumbnail by id through the file's chat
+  { route: 'GET /api/chats/:id/files/:fileId', run: (w) => hit(w, `/api/chats/${chatId}/files/${chatFileId}`), allow: IN, deny: out404 },
+  { route: 'GET /api/chats/:id/files/:fileId?download=1', run: (w) => hit(w, `/api/chats/${chatId}/files/${chatFileId}?download=1`), allow: IN, deny: out404 },
+  { route: 'GET /api/uploads/:id/thumbnail (chat file)', run: (w) => hit(w, `/api/uploads/${chatFileId}/thumbnail`), allow: IN, deny: out404 },
   { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: IN, deny: out404 },
   { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, '/api/chats'); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: IN, deny: out404 },
   { route: 'GET /api/chats/groups', run: async (w) => { const r = await hit(w, '/api/chats/groups'); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: IN, deny: out404 },
@@ -72,8 +87,8 @@ const writes = (): Row[] => [
   { route: 'POST /api/chats/:id/messages/:messageId/edit', run: (w) => hit(w, `/api/chats/${chatId}/messages/${questionId}/edit`, J({ content: 'x', clientMessageId: cm(), attachmentIds: [] })), allow: ['alice'], deny: { bob: 403, erin: 403, ...out404 } },
   { route: 'POST /api/chats/:id/messages/:messageId/share-to-room', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/share-to-room`, J({ roomId: uuidv7(), note: '', clientMessageId: cm() })), allow: [], deny: { bob: 404, erin: 404, ...out404 } },
   { route: 'POST /api/attachments/team-file', run: (w) => hit(w, '/api/attachments/team-file', J({ chatId, path: 'shared/glossary.md' })), allow: IN, deny: out404 },
-  // a file from the computer is not taken in a people-shared chat yet (no chat-scoped store): refused for everyone
-  { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: [], deny: out404 },
+  // a file from the computer is kept with the chat (chat/chat-files.ts): everyone in it, nobody else
+  { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: IN, deny: out404 },
   { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: IN, deny: out404 },
   { route: 'POST /api/chats/:id/stop (idle)', run: (w) => hit(w, `/api/chats/${chatId}/stop`, J({})), allow: IN, deny: out404 },
   { route: 'POST /api/sharing/widening-answers (chat)', run: (w) => hit(w, '/api/sharing/widening-answers', J({ target: { kind: 'chat', chatId }, add: [{ subjectType: 'user', subjectId: 'carol' }] })), allow: ['alice'], deny: { bob: 403, erin: 403, ...out404 } },

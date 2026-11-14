@@ -393,8 +393,9 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
       // in the list of everyone in it, unless they hid it from their list
       mine: creator || !hiddenByMe(rt.db, viewer, r.id),
       canDelete: creator,
-      // a file from the computer is not taken here yet (chat-scoped storage comes later): team files only
-      canUpload: false,
+      // a file from the computer is kept with the chat (chat/chat-files.ts), for everyone in it; not while safe operations
+      // are on (the chat is read-only then)
+      canUpload: !safeOpsEnabled(),
     }
   }
   const project = rt.store.projectRow(r.project_id!)

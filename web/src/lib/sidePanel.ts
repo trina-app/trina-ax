@@ -4,11 +4,13 @@ import { useSyncExternalStore } from 'react'
 import type { SourceLoc } from '@mycel/shared/api'
 
 /** A file to preview: a team file (by path; `at`: the page, sheet or slide to open it at, from an answer's sources or
- * a link), a file sent in a team chat room (read through the room, its members only), or bytes we already have (a
+ * a link), a file sent in a team chat room (read through the room, its members only), a file from the computer kept with
+ * a chat shared with people (read through the chat, its people only), or bytes we already have (a
  * picked file before sending). */
 export type PreviewFile =
   | { source: 'team'; path: string; name: string; at?: SourceLoc }
   | { source: 'room'; roomId: string; fileId: string; name: string }
+  | { source: 'chat'; chatId: string; fileId: string; name: string }
   | { source: 'local'; name: string; blob: Blob }
 
 export type SidePanel =

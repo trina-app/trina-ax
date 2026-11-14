@@ -25,7 +25,7 @@
 // real disk of that size.
 //
 // What uses the space (Admin > System) is measured 5 minutes after start and then hourly, walking the folders with a
-// pause every 1000 entries: team (the team folder without .system), history (.system/history), trash (.system/trash),
+// pause every 1000 entries: team (the team folder without .system, with room files and chat files), history (.system/history), trash (.system/trash),
 // backups (.system/backups + data/backups), models (data/models), data (the rest of the server data), app (installed
 // versions), other (what is left: the engine folders the server account cannot read, the OS).
 import fs from 'node:fs'
@@ -320,7 +320,7 @@ export class StorageMonitor {
       const sys = path.join(t, '.system')
       const m: Measure = { ...ZERO }
       // the team's own files, and the files sent in its chat rooms (kept in .system/rooms, rooms/files.ts)
-      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms'))
+      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms')) + await treeBytes(path.join(sys, 'chat-files'))
       m.history = await treeBytes(path.join(sys, 'history'))
       m.trash = await treeBytes(path.join(sys, 'trash'))
       m.backups = await treeBytes(path.join(sys, 'backups')) + await treeBytes(path.join(d, 'backups'))

@@ -20,12 +20,12 @@ import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Ci
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
-import { fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
+import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
-import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
+import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
@@ -65,7 +65,7 @@ import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { EngineSheet } from './EngineSheet'
 import { Tooltip } from '../Tooltip'
 import { useViewerItem } from '../ImageViewer'
-import { attachmentItem } from '../../lib/imageViewer'
+import { attachmentItem, chatFileItem } from '../../lib/imageViewer'
 import { itemImage, teamFileLink } from '../../lib/fileMenu'
 import { useFileMenu } from '../FileMenu'
 
@@ -133,19 +133,25 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
   )
 }
 
-export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 'start' | 'end' }) {
+/** `chatId`: the chat the message is in (a file kept with a chat shared with people opens through it) */
+export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; align?: 'start' | 'end'; chatId?: string }) {
   const t = useT()
   const locale = useLocale()
   const [thumbFailed, setThumbFailed] = useState(false)
   // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
   const [thumbLoaded, setThumbLoaded] = useState(false)
   const team = a.source === 'team'
+  // a file from the computer kept with a chat shared with people: read through the chat, no team path (no link)
+  const kept = a.source === 'chat' && !!chatId
+  const item = (meta?: Parameters<typeof attachmentItem>[1]) => (kept ? chatFileItem(chatId!, a, meta) : attachmentItem(a, meta))
   // a picture opens the image viewer (the chat's other pictures by ← →), any other file the side panel
   const picture = a.kind === 'image' && !thumbFailed && !(team && a.unavailable)
-  const viewer = useViewerItem(picture ? (meta) => attachmentItem(a, meta) : null)
+  const viewer = useViewerItem(picture ? (meta) => item(meta) : null)
   // its right-click menu (components/FileMenu.tsx): 이미지 복사 (a picture), 링크 복사 (the team file), 내려받기; none
   // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
-  const fileMenu = useFileMenu(team && a.unavailable ? null : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
+  const fileMenu = useFileMenu(team && a.unavailable ? null : kept
+    ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -193,7 +199,7 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   // every attachment opens the file panel; a format without a viewer shows the notice and a download button there
   return (
     <>
-      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
+      <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={(e) => !fileMenu.guard(e) && (kept ? openFilePreview({ source: 'chat', chatId: chatId!, fileId: a.id, name: a.name }) : openTeamFile(a.path))} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag} {...fileMenu.bind}>
         {body}
       </button>
       {fileMenu.menu}
@@ -377,7 +383,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       {m.attachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
           {m.attachments.map((a) => (
-            <AttachmentView key={a.id} a={a} />
+            <AttachmentView key={a.id} a={a} chatId={chatId} />
           ))}
         </div>
       )}

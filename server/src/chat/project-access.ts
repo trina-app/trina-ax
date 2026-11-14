@@ -395,7 +395,7 @@ export function projectWidening(ctx: AppContext, p: Principal, r: ProjectRow, pa
       : (db.query('SELECT name FROM groups WHERE id = ?').get(x.subjectId) as { name: string } | null)?.name
     if (name) subjects.push({ key: `${x.subjectType}:${x.subjectId}`, name, people })
   }
-  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale) }
+  const words = { root: tr('scopeRoot', locale), mine: tr('sharedScopeMine', locale), room: tr('scopeRoom', locale), chat: tr('scopeChatFiles', locale) }
   // places in the Files screen's words, as the read card says them
   const place = (path: string) => placeWords(db, path, locale, p.id)
   const v = { ...wideningAnswers(db, { now: plan.rulesNow, after: plan.rulesAfter }, { kind: 'project', projectId: r.id }, gained, p, page, { subjects, words, place }), subjects }

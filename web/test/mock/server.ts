@@ -665,6 +665,7 @@ export class MockServer {
     this.deckThumbs = true
     this.deckTier = 'quick'
     this.allConfidential = false
+    this.peopleChats.clear()
     this.nextArtifact = null
     this.projects = []
     this.projectMembers.clear()
@@ -808,6 +809,9 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
+  /** POST /__test/people-chat {chatId}: chats shared with people and groups (Chat.shared.kind people); a file from the
+   * computer there is kept with the chat (server/src/chat/chat-files.ts: Attachment source 'chat', no team path) */
+  peopleChats = new Set<string>()
   /** POST /__test/artifact: what the next "artifact" answer writes */
   nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   /** a trash item the person sees and may restore (server trashVisible): write access to its original path, and never
@@ -3245,6 +3249,12 @@ export class MockServer {
       await this.uploadAnswer()
       return { status: 201, body: this.makeAttachment(c.body.chatId, c.body.name ?? c.file!.name, data, c.file!.type, c.user) }
     },
+    // a file kept with a chat shared with people (server/src/routes/chats.ts chatFile)
+    chatFile: (c) => {
+      const a = this.attachments.get(c.params.fileId!)
+      if (!a || a.source !== 'chat' || !(this.peopleChats.has(c.params.id!) || this.peopleShared.has(c.params.id!))) fail('not_found', 404)
+      return new Response(a!.data as unknown as BodyInit, { headers: { 'content-type': a!.mime, 'content-disposition': c.query.download ? 'attachment' : 'inline' } })
+    },
     attachmentThumbnail: (c) => {
       const a = this.attachments.get(c.params.id!) ?? fail('not_found', 404)
       return new Response(a.data as unknown as BodyInit, { headers: { 'content-type': a.mime } })
@@ -5338,6 +5348,14 @@ export class MockServer {
   }
 
   makeAttachment(chatId: string, name: string, data: Uint8Array, mime: string, user: User): Attachment {
+    if (this.peopleChats.has(chatId) || this.peopleShared.has(chatId)) {
+      // kept with the chat (server/src/chat/chat-files.ts): no team path
+      const k = mime || mimeOf(name) || 'application/octet-stream'
+      const kept: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: data.byteLength, mime: k, kind: k.startsWith('image/') ? 'image' : /\.(txt|md)$/i.test(name) ? 'text' : 'other', source: 'chat', data }
+      this.attachments.set(kept.id, kept)
+      const { data: _k, ...shown } = kept
+      return shown
+    }
     const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: `users/${user.id}/.attachments/${chatId}/${name}`, size: data.byteLength, mime: mime || 'application/octet-stream', kind: mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : 'other', data }
     this.attachments.set(a.id, a)
     this.putFile(a.path, data)
@@ -5598,6 +5616,13 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/people-chat') {
+      const chat = this.chats.find((x) => x.id === String(body.chatId))
+      if (!chat) return Response.json({ ok: false }, { status: 404 })
+      const by = this.users.find((u) => u.username === String(body.by ?? 'olga')) ?? this.users[0]!
+      this.peopleChats.add(chat.id)
+      chat.shared = { kind: 'people', by: { id: by.id, name: by.name }, audience: Number(body.audience ?? 3), answering: null, mine: true, canDelete: true, canUpload: true }
+    }
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
@@ -5739,8 +5764,10 @@ export class MockServer {
   peopleShared = new Map<string, { subjects: { subjectType: 'user' | 'group'; subjectId: string }[] }>()
   /** `${userId}:${chatId}`: hidden from that person's lists ("Hide from my list") */
   peopleHidden = new Set<string>()
-  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[] } | null = null
+  peopleConfirm: { hiddenAnswers?: number; memories?: boolean; people?: number; places?: AnswerSharePlace[]; earlierFiles?: number } | null = null
   peopleFail = 0
+  /** POST /__test/chat-share {filesNotCopied}: the next first share says this many earlier files could not go with it */
+  peopleNotCopied = 0
   readonly peopleSharedInstalled = this.installPeopleShared()
 
   /** everyone who sees a people-shared chat now: its creator, the active people listed and the active members of the
@@ -5796,6 +5823,7 @@ export class MockServer {
       this.peopleHidden = new Set()
       this.peopleConfirm = null
       this.peopleFail = 0
+      this.peopleNotCopied = 0
       baseReset(o)
     }
     // a people-shared chat's chat.updated without the chat (deleted, purged): to everyone who sees it
@@ -5811,8 +5839,9 @@ export class MockServer {
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
       if (p !== '/__test/chat-share') return baseControl(p, req)
-      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number }
+      const body = (await req.json().catch(() => ({}))) as { confirm?: MockServer['peopleConfirm']; fail?: number; filesNotCopied?: number }
       if (body.confirm !== undefined) this.peopleConfirm = body.confirm
+      if (body.filesNotCopied !== undefined) this.peopleNotCopied = body.filesNotCopied
       if (body.fail !== undefined) this.peopleFail = body.fail
       return Response.json({ ok: true })
     }
@@ -5925,7 +5954,7 @@ export class MockServer {
       const k = `ok:${key(wanted)}`
       const ask = this.peopleConfirm
       if (gained.length && ask && c.body.confirmKey !== k) {
-        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, confirmKey: k,
+        return { status: 'confirm', added: gained.length, memories: !!ask.memories, hiddenAnswers: ask.hiddenAnswers ?? 0, ...(!ps && ask.earlierFiles ? { earlierFiles: ask.earlierFiles } : {}), confirmKey: k,
           provenance: ask.people ? { people: ask.people, places: ask.places ?? [], otherPlaces: false } : null, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
       }
       // the people who lose it hear it is gone (its id alone), before the rows change
@@ -5943,7 +5972,9 @@ export class MockServer {
       const named = new Set(added.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
       for (const id of gained) this.note(id, { kind: 'chat_shared', chatId: chat.id, byId: c.user.id, named: named.has(id) })
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
-      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user) }
+      const notCopied = !ps ? this.peopleNotCopied : 0
+      if (!ps) this.peopleNotCopied = 0
+      return { status: 'saved', chat: this.sharedView(chat, c.user)!, audience: audienceOf(chat, c.user), ...(notCopied ? { filesNotCopied: notCopied } : {}) }
     }
     const hide = (c: Ctx, on: boolean) => {
       const chat = sees(c.params.id!, c.user)

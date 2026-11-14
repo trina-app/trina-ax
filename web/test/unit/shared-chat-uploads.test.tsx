@@ -69,6 +69,22 @@ describe('the line under the chips', () => {
   })
 })
 
+describe('the line under the chips in a chat shared with people', () => {
+  const lineOf = async (files: Pending[]) => {
+    const m = await mount(<SharedUploadLine files={files} audience={3} kind="people" />)
+    try { return m.find('shared-upload-line')?.textContent ?? null } finally { await m.unmount() }
+  }
+  test('a file kept with the chat: everyone who sees the chat can open it (no folder, no count)', async () => {
+    const line = translate('ko', 'chat.share.uploadLine')
+    expect(translate('en', 'chat.share.uploadLine')).toBe('Everyone who sees this chat can open it')
+    expect(await lineOf([chip({ attachment: att({ source: 'chat', path: '' }) })])).toBe(line)
+    expect(await lineOf([chip({ status: 'uploading' })])).toBe(line)
+    // nothing for team files only or a failed upload
+    expect(await lineOf([chip({ source: 'team', path: 'shared/a.md', attachment: att({ source: 'team', path: 'shared/a.md' }) })])).toBeNull()
+    expect(await lineOf([chip({ status: 'failed', error: 'x' })])).toBeNull()
+  })
+})
+
 describe('the box of a shared chat', () => {
   const open = async (draftId: string, shared: boolean, items: Pending[] = []): Promise<Mounted> => {
     writeStash('olga', draftId, items)

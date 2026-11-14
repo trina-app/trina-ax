@@ -72,7 +72,7 @@ export class UploadSessions {
     const db = this.ctx.db
     const open = (db.query('SELECT COUNT(*) AS n FROM upload_sessions WHERE user_id = ? AND result IS NULL AND expires_at > ?').get(userId, new Date().toISOString()) as { n: number }).n
     if (open >= MAX_OPEN_SESSIONS) fileError('rate_limited', 'tooManySessions')
-    this.checkTarget(userId, target, sha256)
+    this.checkTarget(userId, target, sha256, size)
     let free = Infinity
     try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
@@ -92,13 +92,13 @@ export class UploadSessions {
   }
 
   /** Early checks (complete checks again: rules may change during a long upload). */
-  private checkTarget(userId: string, t: UploadTarget, sha256: string) {
+  private checkTarget(userId: string, t: UploadTarget, sha256: string, size?: number) {
     if (t.kind === 'path') {
       const user = this.files.principal(userId)
       const r = authorize(this.files.fx, this.files.rules(), user, t.path, 'write', { mustExist: false })
       if (r.exists && (r.st!.isDirectory() || t.onExists === 'fail')) fileError('conflict', 'exists', { path: r.rel })
     } else if (t.kind === 'attachment') {
-      this.attachments.assertUploadChat(userId, t.chatId, sha256)
+      this.attachments.assertUploadChat(userId, t.chatId, sha256, size)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (isGuestUser(this.ctx.db, userId)) {

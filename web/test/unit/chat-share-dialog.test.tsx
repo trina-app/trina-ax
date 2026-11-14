@@ -16,6 +16,7 @@ import { ChatShareDialog } from '../../src/components/chat/ChatShareDialog'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const C1 = '01900000-0000-7000-8000-0000000000c1'
@@ -192,6 +193,28 @@ describe('the save model and every exit', () => {
     await m.click('chat-share-save')
     await m.until(() => closed === 1, 'shared', 2000)
     expect((sent.filter((x) => x.key === `PUT ${AUD}`).at(-1)!.body as { confirmKey?: string }).confirmKey).toBe('k1')
+    await m.unmount()
+  })
+
+  test('a first share: the files I attached will be visible to them (a quiet line, asked even alone); what could not go is said after', async () => {
+    const confirm: PutChatAudienceResult = { status: 'confirm', added: 1, memories: false, hiddenAnswers: 0, earlierFiles: 2, confirmKey: 'k2', provenance: null }
+    let closed = 0
+    routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'k2' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]), filesNotCopied: 1 }) : json(200, confirm))
+    useUi.setState({ toasts: [] })
+    const m = await open(() => closed++)
+    await addBob(m)
+    await m.click('chat-share-save')
+    const line = await m.until(() => m.find('chat-share-earlier-files'), 'the files line', 2000)
+    expect(line.textContent).toBe(en('chat.share.earlierFiles', { n: 2 }))
+    expect(en('chat.share.earlierFiles', { n: 2 })).toBe('2 files you attached will be visible to them.')
+    // no warning about the people, so the note is the whole one
+    expect(m.find('chat-share-warning')).toBeNull()
+    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
+    expect(m.get('chat-share-save').textContent).toBe(en('chat.share.shareAnyway'))
+    await m.click('chat-share-save')
+    await m.until(() => closed === 1, 'shared', 2000)
+    expect(useUi.getState().toasts.map((t) => [t.level, t.text])).toContainEqual(['warn', en('chat.share.filesNotCopied', { n: 1 })])
+    useUi.setState({ toasts: [] })
     await m.unmount()
   })
 
