@@ -187,7 +187,7 @@ export const ko = {
   'auth.logout': '로그아웃',
   "settings.logoutConfirm": "로그아웃할까요?",
   'auth.username': '아이디',
-  'auth.usernameHint': "로그인할 때 써요. 영문이나 숫자 2자 이상, 띄어쓰기 없이 써 주세요.",
+  'auth.usernameHint': "로그인할 때 써요. 영문이나 숫자 2자 이상, 띄어쓰기 없이 써 주세요. . _ - @ 도 쓸 수 있어요.",
   'auth.password': '비밀번호',
   'auth.passwordAgain': '비밀번호 확인',
   'auth.passwordRule': '비밀번호는 8자 이상이어야 해요.',

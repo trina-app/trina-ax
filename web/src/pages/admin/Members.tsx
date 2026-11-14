@@ -297,7 +297,10 @@ export default function Members() {
   })()
 
   // the team invite link's row (under Invite links): its details, Copy link only and its "…" (to change it or turn it off)
-  const link = teamLink.data?.link
+  // the Role filter's Guests: the guest links only (no team link, no member links)
+  const guestsOnly = roleFilter === 'guest'
+  const link = guestsOnly ? null : teamLink.data?.link
+  const listedInvites = guestsOnly ? openInvites?.filter((i) => i.role === 'guest') : openInvites
   const linkDetails = link && (
     <>
       {/* which groups everyone who joins is put in, in words (QA TC-458) */}
@@ -461,7 +464,7 @@ export default function Members() {
 
       {/* Invite links, quiet and only when there are any: the team link (copy, or "…" to change or turn it off in its
           popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
-      {(!!teamLink.data?.link || !!openInvites?.length) && (
+      {(!!link || !!listedInvites?.length) && (
         <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
           <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-title-sm font-semibold">
             {t('members.invites')}
@@ -487,9 +490,9 @@ export default function Members() {
                 {linkMenu}
               </div>
             ))}
-            {!!openInvites?.length && (
+            {!!listedInvites?.length && (
               <ul className="divide-y divide-line" data-testid="invite-list">
-                {openInvites.map((i) => {
+                {listedInvites.map((i) => {
                   const expired = Date.parse(i.expiresAt) < Date.now()
                   return (
                     <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">

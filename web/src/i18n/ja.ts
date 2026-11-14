@@ -184,7 +184,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.logout': "ログアウト",
   "settings.logoutConfirm": "ログアウトしますか？",
   'auth.username': "ユーザー名",
-  'auth.usernameHint': "サインインに使います。半角英数字2文字以上で、スペースは使えません。",
+  'auth.usernameHint': "サインインに使います。半角英数字2文字以上で、スペースは使えません。. _ - @ も使えます。",
   'auth.password': "パスワード",
   'auth.passwordAgain': "パスワードの確認",
   'auth.passwordRule': "パスワードは8文字以上で設定してください。",

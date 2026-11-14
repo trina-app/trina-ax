@@ -20,8 +20,9 @@ import { noPurchaseLinks } from '../lib/desktop'
 import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
-import { usePeopleList } from '../store/people'
+import { usePeople, usePeopleList } from '../store/people'
 import { Button, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { toast } from '../store/ui'
 import { ListRow } from './list/List'
 import { LocalLinkNote } from './LocalLinkNote'
 import { absoluteUrl } from './handover/LeadInvite'
@@ -71,7 +72,7 @@ export function GuestAiChoices({ value, onChange, admin, connections, legend = t
           return (
             <div key={m}>
               <label className={off ? 'flex cursor-not-allowed items-start gap-2.5 px-1 py-1.5' : 'flex cursor-pointer items-start gap-2.5 px-1 py-1.5'}>
-                <input type="radio" name={`${id}-ai`} value={m} checked={value.mode === m} disabled={off} onChange={() => pick(m)} className="mt-0.5 size-4 shrink-0 accent-accent disabled:opacity-50" data-testid={`guest-ai-${m}`} />
+                <input type="radio" name={`${id}-ai`} value={m} checked={value.mode === m} disabled={off} onChange={() => pick(m)} className="mt-0.5 size-4 shrink-0 accent-accent" data-testid={`guest-ai-${m}`} />
                 <span className="min-w-0">
                   <span className={off ? 'block text-sm text-muted' : 'block text-sm text-ink'}>{t(`guest.ai.${m}`)}</span>
                   <span className="block text-xs leading-5 text-muted">{hint[m]}</span>
@@ -318,14 +319,18 @@ export function elsewhereText(t: ReturnType<typeof useT>, place: GuestPlaceView)
   return place.name ? t(place.kind === 'room' ? 'guest.inRoom' : 'guest.inProject', { place: place.name }) : t('guest.onePlaceShort')
 }
 
-/** For the owner and admins, on a greyed-out guest's row: "Make team member", which opens the guest's row in Admin. */
-export function MakeMemberButton({ guestId }: { guestId: string }) {
+/** For the owner and admins, on a greyed-out guest's row: "Make team member", its dialog right here (the add list and
+ * its picks stay); once done the people list is read again, so the row can be ticked. */
+export function MakeMemberButton({ guest }: { guest: { id: string; name: string } }) {
   const t = useT()
-  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
   return (
-    <Button size="sm" onClick={() => navigate(guestAdminPath(guestId))} data-testid="guest-elsewhere-convert">
-      {t('guest.makeMember')}
-    </Button>
+    <>
+      <Button size="sm" onClick={() => setOpen(true)} data-testid="guest-elsewhere-convert">
+        {t('guest.makeMember')}
+      </Button>
+      {open && <ConvertGuestDialog guest={guest} onClose={() => setOpen(false)} onDone={() => usePeople.getState().load(true)} />}
+    </>
   )
 }
 
@@ -339,8 +344,68 @@ export function useGuestsElsewhere(here: { kind: PlaceKind; id: string }): Reado
     const m = new Map<string, { text: string; action?: ReactNode }>()
     for (const p of people ?? []) {
       const away = guestElsewhere(p, here)
-      if (away) m.set(`user:${p.id}`, { text: elsewhereText(t, away), ...(admin ? { action: <MakeMemberButton guestId={p.id} /> } : {}) })
+      if (away) m.set(`user:${p.id}`, { text: elsewhereText(t, away), ...(admin ? { action: <MakeMemberButton guest={p} /> } : {}) })
     }
     return m
   }, [people, here.kind, here.id, admin, t]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** "Make Alex a team member?" (Admin › Members › Guests, and a greyed-out guest's row in an add list): the seats are read first; with every seat taken it says so, with "See plans" (when the
+ * server names a plan page), and there is nothing to confirm. A refusal after Confirm (the last seat taken meanwhile)
+ * turns it into the same. */
+export function ConvertGuestDialog({ guest: user, onClose, onDone }: { guest: { id: string; name: string }; onClose: () => void; onDone: () => Promise<void> | void }) {
+  const t = useT()
+  const locale = useLocale()
+  const limit = useGuestLimit()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [refused, setRefused] = useState(false)
+  const full = refused || !!limit?.seatsFull
+  const plans = limit?.manageUrl
+  const convert = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.call(API.convertGuest, { params: { id: user.id } })
+      toast({ level: 'success', text: t('guest.admin.converted', { name: user.name }) })
+      onClose()
+      await onDone()
+    } catch (e) {
+      if (isApiError(e, 'plan_limit') && e.body.params?.reason === 'seat_limit') setRefused(true)
+      else setError(guestErrorText(e, locale, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title={t('guest.admin.convertTitle', { name: user.name })} width={440}
+      footer={full ? (
+        <>
+          <Button variant={plans ? 'ghost' : 'primary'} onClick={onClose}>{t('common.close')}</Button>
+          {plans && (
+            <a href={plans} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3.5 text-sm font-medium text-accent-ink hover:bg-accent-hover max-md:min-h-11" data-testid="guest-convert-plans">
+              {t('guest.seePlans')}
+            </a>
+          )}
+        </>
+      ) : (
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} disabled={limit === undefined} onClick={() => void convert()} data-testid="guest-convert-confirm">{t('guest.makeMember')}</Button>
+        </>
+      )}>
+      <div className="space-y-2 text-sm leading-6 break-keep" data-testid="guest-convert-dialog">
+        {limit === undefined ? <Skeleton lines={2} /> : full ? (
+          <p role="status" className="text-ink" data-testid="guest-convert-full">{t('guest.admin.seatsFull')}</p>
+        ) : (
+          <>
+            <p className="text-ink">{t('guest.admin.convertBody')}</p>
+            <p className="text-muted" data-testid="guest-convert-ai">{t('guest.admin.convertAi')}</p>
+          </>
+        )}
+        {error && <p role="alert" className="text-danger">{error}</p>}
+      </div>
+    </Modal>
+  )
 }

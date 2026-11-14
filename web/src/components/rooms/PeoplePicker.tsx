@@ -115,12 +115,14 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // a guest starts 1:1 chats only (a group chat would be a second place: the server refuses it)
   const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
   const over = picked.length > max
+  // a new group with a guest in it (ticked first, then someone else): the guest's one place is elsewhere already
+  const groupWithGuest = !inviting && picked.length >= 2 && picked.some((id) => personIsGuest(people?.find((p) => p.id === id)))
   const toggle = (id: string) => { setOnePlace(null); setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])) }
   const allIn = (ids: string[]) => ids.every((id) => picked.includes(id))
   const toggleGroup = (ids: string[]) => setPicked((l) => (allIn(ids) ? l.filter((x) => !ids.includes(x)) : [...l, ...ids.filter((x) => !l.includes(x))]))
 
   const go = async () => {
-    if (busy || !picked.length || over) return
+    if (busy || !picked.length || over || groupWithGuest) return
     setBusy(true)
     try {
       if (inviting) {
@@ -152,10 +154,10 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={ROOM_NAME_MAX} placeholder={t('rooms.picker.name')} className={inputCls} data-testid="picker-name" />
         </label>
       )}
-      <p className={clsx('mr-auto text-sm', over ? 'text-danger' : 'text-muted')} role={over ? 'alert' : undefined} data-testid="picker-count">
-        {over ? t('rooms.picker.tooMany', { max: ROOM_GROUP_MAX }) : picked.length > 0 ? t('rooms.picker.selected', { n: picked.length }) : ''}
+      <p className={clsx('mr-auto text-sm', over || groupWithGuest ? 'text-danger' : 'text-muted')} role={over || groupWithGuest ? 'alert' : undefined} data-testid="picker-count">
+        {over ? t('rooms.picker.tooMany', { max: ROOM_GROUP_MAX }) : groupWithGuest ? t('guest.onePlaceShort') : picked.length > 0 ? t('rooms.picker.selected', { n: picked.length }) : ''}
       </p>
-      <Button variant="primary" disabled={!picked.length || over} busy={busy} onClick={() => void go()} data-testid="picker-go">
+      <Button variant="primary" disabled={!picked.length || over || groupWithGuest} busy={busy} onClick={() => void go()} data-testid="picker-go">
         {action}
       </Button>
     </>
@@ -214,7 +216,8 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
               {shown.map((p) => {
                 // a group chat's add list: a guest in another place already cannot be added (a guest is in one place
                 // only): greyed out with where they are, no tick; the owner and admins get "Make team member"
-                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : null
+                // a new chat: a guest can be in a 1:1 chat, never in a new group, so once someone else is picked
+                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p) : null
                 if (away)
                   return (
                     <ListRow
@@ -223,7 +226,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                       icon={<Avatar user={p} size="fill" />}
                       name={<span className="flex min-w-0 items-baseline gap-1.5 text-muted"><span className="truncate">{p.name}</span><GuestTagFor userId={p.id} /></span>}
                       meta={<span className="block whitespace-normal break-keep">{elsewhereText(t, away)}</span>}
-                      actions={isAdmin(me) ? <MakeMemberButton guestId={p.id} /> : undefined}
+                      actions={isAdmin(me) ? <MakeMemberButton guest={p} /> : undefined}
                       li={{ 'data-testid': 'people-row-elsewhere' }}
                       testId="people-row"
                     />

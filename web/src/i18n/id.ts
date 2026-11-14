@@ -188,7 +188,7 @@ export const id: Record<MessageKey, string> = {
   'auth.logout': 'Keluar',
   "settings.logoutConfirm": "Keluar?",
   'auth.username': 'Nama pengguna',
-  'auth.usernameHint': "Dipakai untuk masuk: minimal 2 huruf Latin atau angka, tanpa spasi.",
+  'auth.usernameHint': "Dipakai untuk masuk: minimal 2 huruf Latin atau angka, tanpa spasi. Boleh juga . _ - @",
   'auth.password': 'Kata sandi',
   'auth.passwordAgain': 'Ulangi kata sandi',
   'auth.passwordRule': 'Kata sandi minimal 8 karakter.',

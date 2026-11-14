@@ -171,8 +171,42 @@ test('a guest already in another place is greyed out in the add list: where they
   const row = page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })
   await expect(row).toContainText("'다른 프로젝트' 프로젝트에 있어요")
   await expect(row.getByTestId('picker-tick')).toHaveCount(0)
+  // Make team member opens its dialog right here; once done, Gina can be ticked
   await row.getByTestId('guest-elsewhere-convert').click()
-  await expect(page).toHaveURL(/\/admin\/members\?member=gina/)
+  await expect(page.getByTestId('guest-convert-ai')).toBeVisible()
+  await page.getByTestId('guest-convert-confirm').click()
+  await expect(page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick')).toBeVisible()
+  await expect(page.getByTestId('people-row-elsewhere')).toHaveCount(0)
+})
+
+test('a new chat: a guest can be in a 1:1 chat, not a new group', async ({ page }) => {
+  await start(page, { username: 'bob', password: 'bob password 1' })
+  expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'room', id: GROUP } } })).ok()).toBeTruthy()
+  await page.goto('/rooms?new=1')
+  await expect(page.getByTestId('people-search')).toBeVisible()
+  // alone, Gina can be ticked for a 1:1 chat
+  await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').check()
+  await expect(page.getByTestId('picker-go')).toBeEnabled()
+  await page.getByTestId('people-row').filter({ hasText: 'Gina' }).getByTestId('picker-tick').uncheck()
+  // with someone else ticked first, Gina is greyed out
+  await page.getByTestId('people-row').filter({ hasText: 'Olga' }).getByTestId('picker-tick').check()
+  await expect(page.getByTestId('people-row-elsewhere').filter({ hasText: 'Gina' })).toContainText("'견적 준비' 방에 있어요")
+})
+
+test('a refused add (409 guest_one_place) still says why', async ({ page }) => {
+  // admins Dana and Eve are there to add
+  await reset(page, { withAdmin: true })
+  expect((await page.request.post('/__test/rooms', { data: { rooms: ROOMS } })).ok()).toBeTruthy()
+  await signIn(page)
+  // the server refuses (someone's place changed meanwhile, server/src/auth/guests.ts failOnePlace)
+  await page.route(`**/api/rooms/${GROUP}/members`, (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'conflict', message: 'x', params: { reason: 'guest_one_place', userId: 'someone-else' } } }) })
+    : route.fallback())
+  await openRoomAdd(page)
+  const row = page.getByTestId('people-row').first()
+  await row.getByTestId('picker-tick').check()
+  await page.getByTestId('picker-go').click()
+  await expect(page.getByTestId('guest-one-place')).toContainText('게스트는 방이나 프로젝트 한 곳에만 들어갈 수 있어요')
 })
 
 test("a project's members dialog: a guest of a room shows greyed out in the search, with no Add; a member sees no Make team member", async ({ page }) => {

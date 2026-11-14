@@ -184,7 +184,7 @@ export const es: Record<MessageKey, string> = {
   'auth.logout': "Cerrar sesión",
   "settings.logoutConfirm": "¿Cerrar sesión?",
   'auth.username': "Nombre de usuario",
-  'auth.usernameHint': "Lo usará para iniciar sesión: al menos 2 letras sin acentos o números, sin espacios.",
+  'auth.usernameHint': "Lo usará para iniciar sesión: al menos 2 letras sin acentos o números, sin espacios. También puede usar . _ - @",
   'auth.password': "Contraseña",
   'auth.passwordAgain': "Confirmar contraseña",
   'auth.passwordRule': "La contraseña debe tener al menos 8 caracteres.",

@@ -13,15 +13,15 @@ import clsx from 'clsx'
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Credential, GuestAiChoice, User } from '@mycel/shared/api'
-import { api, API, isApiError } from '../../lib/api'
+import { api, API } from '../../lib/api'
 import { userGuest } from '../../lib/guests'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { ListRow } from '../../components/list/List'
-import { Button, Modal, Skeleton, confirmDialog } from '../../components/ui'
-import { aiChoiceReady, GuestAiChoices, guestErrorText, useGuestLimit, useTeamConnections } from '../../components/GuestInvite'
+import { Button, Modal, confirmDialog } from '../../components/ui'
+import { aiChoiceReady, ConvertGuestDialog, GuestAiChoices, guestErrorText, useTeamConnections } from '../../components/GuestInvite'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { OneLine, useAction } from './common'
 
@@ -49,6 +49,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
   const act = useAction()
   const [aiFor, setAiFor] = useState<User | null>(null)
   const [converting, setConverting] = useState<User | null>(null)
+  const navigate = useNavigate()
   // removed guests (their account off) are out of sight until asked for; the one an inbox entry points at shows anyway
   const [showRemoved, setShowRemoved] = useState(false)
   const scrolled = useRef<string | null>(null)
@@ -109,7 +110,7 @@ export function GuestsSection({ guests, filtered = false, connections, focusId, 
         </Button>
       )}
       {aiFor && <GuestAiDialog user={aiFor} onClose={() => setAiFor(null)} onSaved={onChanged} />}
-      {converting && <ConvertDialog user={converting} onClose={() => setConverting(null)} onDone={onChanged} />}
+      {converting && <ConvertGuestDialog guest={converting} onClose={() => setConverting(null)} onDone={async () => { await onChanged(); navigate(`/admin/members?member=${encodeURIComponent(converting.id)}`, { replace: true }) }} />}
     </section>
   )
 }
@@ -145,69 +146,6 @@ function GuestAiDialog({ user, onClose, onSaved }: { user: User; onClose: () => 
         {/* the dialog's title says "AI for Alex": no second heading over the choices */}
         <GuestAiChoices value={ai} onChange={setAi} admin connections={connections} legend={false} />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-      </div>
-    </Modal>
-  )
-}
-
-/** "Make Alex a team member?": the seats are read first; with every seat taken it says so, with "See plans" (when the
- * server names a plan page), and there is nothing to confirm. A refusal after Confirm (the last seat taken meanwhile)
- * turns it into the same. */
-function ConvertDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => Promise<void> | void }) {
-  const t = useT()
-  const locale = useLocale()
-  const limit = useGuestLimit()
-  const navigate = useNavigate()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [refused, setRefused] = useState(false)
-  const full = refused || !!limit?.seatsFull
-  const plans = limit?.manageUrl
-  const convert = async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await api.call(API.convertGuest, { params: { id: user.id } })
-      toast({ level: 'success', text: t('guest.admin.converted', { name: user.name }) })
-      onClose()
-      await onDone()
-      // their row is in the members' list now
-      navigate(`/admin/members?member=${encodeURIComponent(user.id)}`, { replace: true })
-    } catch (e) {
-      if (isApiError(e, 'plan_limit') && e.body.params?.reason === 'seat_limit') setRefused(true)
-      else setError(guestErrorText(e, locale, t))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Modal open onClose={onClose} title={t('guest.admin.convertTitle', { name: user.name })} width={440}
-      footer={full ? (
-        <>
-          <Button variant={plans ? 'ghost' : 'primary'} onClick={onClose}>{t('common.close')}</Button>
-          {plans && (
-            <a href={plans} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3.5 text-sm font-medium text-accent-ink hover:bg-accent-hover max-md:min-h-11" data-testid="guest-convert-plans">
-              {t('guest.seePlans')}
-            </a>
-          )}
-        </>
-      ) : (
-        <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={limit === undefined} onClick={() => void convert()} data-testid="guest-convert-confirm">{t('guest.makeMember')}</Button>
-        </>
-      )}>
-      <div className="space-y-2 text-sm leading-6 break-keep" data-testid="guest-convert-dialog">
-        {limit === undefined ? <Skeleton lines={2} /> : full ? (
-          <p role="status" className="text-ink" data-testid="guest-convert-full">{t('guest.admin.seatsFull')}</p>
-        ) : (
-          <>
-            <p className="text-ink">{t('guest.admin.convertBody')}</p>
-            <p className="text-muted" data-testid="guest-convert-ai">{t('guest.admin.convertAi')}</p>
-          </>
-        )}
-        {error && <p role="alert" className="text-danger">{error}</p>}
       </div>
     </Modal>
   )

@@ -184,7 +184,7 @@ export const zh: Record<MessageKey, string> = {
   "auth.logout": "退出登录",
   "settings.logoutConfirm": "退出登录？",
   "auth.username": "用户名",
-  'auth.usernameHint': "用于登录：至少 2 个英文字母或数字，不能有空格。",
+  'auth.usernameHint': "用于登录：至少 2 个英文字母或数字，不能有空格。也可以使用 . _ - @",
   "auth.password": "密码",
   "auth.passwordAgain": "确认密码",
   "auth.passwordRule": "密码至少需要 8 个字符。",

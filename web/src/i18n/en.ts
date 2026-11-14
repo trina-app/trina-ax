@@ -188,7 +188,7 @@ export const en: Record<MessageKey, string> = {
   'auth.logout': 'Sign out',
   "settings.logoutConfirm": "Sign out?",
   'auth.username': 'Username',
-  'auth.usernameHint': "You'll use it to sign in: at least 2 English letters or numbers, no spaces.",
+  'auth.usernameHint': "You'll use it to sign in: at least 2 English letters or numbers, no spaces. You can also use . _ - @",
   'auth.password': 'Password',
   'auth.passwordAgain': 'Confirm password',
   'auth.passwordRule': 'Passwords need at least 8 characters.',
