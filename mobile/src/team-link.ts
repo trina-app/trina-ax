@@ -230,20 +230,23 @@ export interface WakeSteps {
   now: () => number
   /** how long to wait for a starting team: a boot is about a minute; 3 minutes, then "didn't start" */
   limitMs?: number
+  /** the person cancelled the wait (the phone's Cancel): no more asking */
+  stopped?: () => boolean
 }
 export const WAKE_LIMIT_MS = 180_000
 /**
  * Wake a team whose address check answered `mayBeAsleep`, and wait while it starts, asking again after the relay's
  * Retry-After (kept to 3-20 s, as the relay's own waking page). 'awake': the team answered (check it again);
  * 'notAsleep': the first answer was not "starting" (the team is off for another reason: say "cannot reach" as before);
- * 'timeout': it was starting but did not answer within the limit.
+ * 'timeout': it was starting but did not answer within the limit; 'cancelled': `stopped` said so.
  */
-export async function wakeTeam(s: WakeSteps): Promise<'awake' | 'notAsleep' | 'timeout'> {
+export async function wakeTeam(s: WakeSteps): Promise<'awake' | 'notAsleep' | 'timeout' | 'cancelled'> {
   const start = s.now()
   let starting = false
   for (;;) {
     let a: WakeAnswer = null
     try { a = await s.wake() } catch { a = null }
+    if (s.stopped?.()) return 'cancelled'
     const waking = !!a && relayAnswer(a.status, a.relayError) === 'waking'
     // the team server answered (its page, a sign-in redirect): no relay or gateway error
     if (a && a.status < 500) return 'awake'
@@ -252,6 +255,7 @@ export async function wakeTeam(s: WakeSteps): Promise<'awake' | 'notAsleep' | 't
     const after = Math.min(20, Math.max(3, a?.retryAfter ?? 5)) * 1000
     if (s.now() - start + after > (s.limitMs ?? WAKE_LIMIT_MS)) return 'timeout'
     await s.sleep(after)
+    if (s.stopped?.()) return 'cancelled'
   }
 }
 

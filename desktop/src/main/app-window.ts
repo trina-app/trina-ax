@@ -60,7 +60,7 @@ export interface WelcomeState {
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed'; message: string; host?: string; next?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -177,6 +177,8 @@ export class AppWindow {
   private linkError: string | null = null
   /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
   private waking = false
+  /** that wait, which Cancel stops (cancelWake, or No on ④) */
+  private wakeRun: { stopped: boolean } | null = null
   /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
    * browser's: the window gives the keyboard back there (settleKeys) */
   private keys?: { view: WebContentsView; inPane: boolean }
@@ -324,6 +326,7 @@ export class AppWindow {
     this.linkError = null
     const offer = this.linkGate.answer(yes, host, Date.now())
     if (!yes) {
+      this.cancelWake()
       this.sendWelcome()
       if (this.team && this.app) this.back()
       return null
@@ -354,6 +357,11 @@ export class AppWindow {
    * suspended team, a rename) are told apart. The first connect to an address the hosted service does not run asks once
    * (`confirmed` is the person's yes).
    */
+  /** Cancel while a sleeping trial team starts (up to 3 minutes): the wait stops and nothing is added. */
+  cancelWake() {
+    if (this.wakeRun) this.wakeRun.stopped = true
+  }
+
   async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
     this.linkError = null
     const p = parseTeamAddress(address)
@@ -361,6 +369,8 @@ export class AppWindow {
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
     const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
     let c
+    const run = { stopped: false }
+    this.wakeRun = run
     try {
       c = await checkTeam(p.origin, {
         health: fetchHealth,
@@ -371,15 +381,19 @@ export class AppWindow {
         },
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         now: Date.now,
+        stopped: () => run.stopped,
       })
     } catch {
       return fail('unreachable')
     } finally {
+      if (this.wakeRun === run) this.wakeRun = null
       if (this.waking) {
         this.waking = false
         this.sendWelcome()
       }
     }
+    // cancelled while the team started: nothing added, nothing said
+    if (run.stopped) return { ok: false, error: 'cancelled', message: '' }
     if (!c.ok) return fail(c.error)
     const origin = c.origin
     const known = this.teams.teams.find((x) => x.origin === origin)

@@ -34,8 +34,8 @@ describe('waiting for a team that is starting', () => {
     const c = fakeClock()
     let changes = 0
     const w = new WakeWait(() => changes++, c.clock)
-    w.update(true)
-    for (let i = 0; i < 35; i++) { c.advance(5_000); w.update(true) } // the page asks every 5 s
+    w.update('waking')
+    for (let i = 0; i < 35; i++) { c.advance(5_000); w.update('waking') } // the page asks every 5 s
     expect(w.gaveUp).toBe(false)
     c.advance(WAKE_GIVE_UP_MS - 35 * 5_000 - 1)
     expect(w.gaveUp).toBe(false)
@@ -43,7 +43,7 @@ describe('waiting for a team that is starting', () => {
     expect(w.gaveUp).toBe(true)
     expect(changes).toBe(1)
     // still "starting": it stays given up (no new timer)
-    w.update(true)
+    w.update('waking')
     c.advance(WAKE_GIVE_UP_MS * 2)
     expect(w.gaveUp).toBe(true)
     expect(changes).toBe(1)
@@ -51,13 +51,13 @@ describe('waiting for a team that is starting', () => {
   test('[Try again] waits 3 more minutes', () => {
     const c = fakeClock()
     const w = new WakeWait(() => {}, c.clock)
-    w.update(true)
+    w.update('waking')
     c.advance(WAKE_GIVE_UP_MS)
     expect(w.gaveUp).toBe(true)
     w.restart()
     expect(w.gaveUp).toBe(false)
     c.advance(WAKE_GIVE_UP_MS - 1)
-    w.update(true)
+    w.update('waking')
     expect(w.gaveUp).toBe(false)
     c.advance(1)
     expect(w.gaveUp).toBe(true)
@@ -65,17 +65,28 @@ describe('waiting for a team that is starting', () => {
   test('another answer (the team answered, another error) ends the wait; the next "starting" counts from zero', () => {
     const c = fakeClock()
     const w = new WakeWait(() => {}, c.clock)
-    w.update(true)
+    w.update('waking')
     c.advance(WAKE_GIVE_UP_MS - 10_000)
-    w.update(false)
+    w.update('other')
     c.advance(20_000)
     expect(w.gaveUp).toBe(false)
-    w.update(true)
+    w.update('waking')
     c.advance(WAKE_GIVE_UP_MS - 1)
     expect(w.gaveUp).toBe(false)
     c.advance(1)
     expect(w.gaveUp).toBe(true)
-    w.update(false)
+    w.update('other')
+    expect(w.gaveUp).toBe(false)
+  })
+  test('a failing start that alternates "starting" with connection errors (502, a dropped request) still ends', () => {
+    const c = fakeClock()
+    const w = new WakeWait(() => {}, c.clock)
+    for (let i = 0; i < 36; i++) { w.update(i % 2 ? 'connection' : 'waking'); c.advance(5_000) }
+    expect(w.gaveUp).toBe(true)
+    // a connection error does not end a given-up wait either; an answer does
+    w.update('connection')
+    expect(w.gaveUp).toBe(true)
+    w.update('other')
     expect(w.gaveUp).toBe(false)
   })
   test('the words, in all six languages', () => {

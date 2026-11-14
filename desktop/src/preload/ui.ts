@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('mycelUi', {
     openLink: (kind: 'signup' | 'docs') => ipcRenderer.send('ui:open-link', kind === 'signup' ? 'signup' : 'docs'),
     answerLink: (yes: boolean, host: string) => ipcRenderer.invoke('ui:link-answer', yes === true, String(host)),
     linkShown: (id: number) => ipcRenderer.send('ui:link-shown', Number(id)),
+    cancelWake: () => ipcRenderer.send('ui:cancel-wake'),
     open: (id: string) => ipcRenderer.send('ui:open-team', String(id)),
     remove: (id: string) => ipcRenderer.invoke('ui:remove-team', String(id)),
     back: () => ipcRenderer.send('ui:back'),

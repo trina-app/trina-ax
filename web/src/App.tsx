@@ -210,7 +210,8 @@ function CantReach({ hint, detail, waking }: { hint: string; detail: string; wak
   const t = useT()
   const load = useSession((s) => s.load)
   // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
-  const wake = useWakeWait(!!waking)
+  // (this page shows only for a connection that fails: an answer that is not "starting" is another connection error)
+  const wake = useWakeWait(waking ? 'waking' : 'connection')
   useEffect(() => {
     let asking = false
     const ask = () => {

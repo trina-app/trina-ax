@@ -94,6 +94,7 @@ async function submit(confirmed = false) {
     const r = await ui.welcome.add(draft, confirmed)
     if (r && !r.ok && r.error === 'confirmOutside') outside = { kind: 'outside', host: r.host ?? '', address: draft }
     else if (r && !r.ok && r.error === 'renamed' && r.next) outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
+    else if (r && !r.ok && r.error === 'cancelled') error = ''
     else if (r && !r.ok) error = r.message
     else if (r?.ok) draft = ''
   } catch {
@@ -114,6 +115,8 @@ function waking() {
         { class: 'waking', role: 'status', 'data-testid': 'team-waking' },
         h('p', { class: 'waking-title' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), tr('welcome.waking')),
         h('p', { class: 'waking-detail' }, tr('welcome.wakingDetail')),
+        // the wait lasts up to 3 minutes: it can be stopped (on ④ its own Cancel does it)
+        state.link ? null : h('button', { type: 'button', class: 'waking-cancel', 'data-testid': 'team-waking-cancel', onclick: () => ui.welcome.cancelWake() }, tr('welcome.cancel')),
       )
     : null
 }
@@ -240,6 +243,8 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
             try {
               const r = await ui.welcome.answerLink(true, link.host)
               // the team moved at its relay: its new address is asked on ① before anything is remembered
+              // Cancel on ④ while the team started: ④'s own no already took the screen back
+              if (r && !r.ok && r.error === 'cancelled') return
               if (r && !r.ok && r.error === 'renamed' && r.next) {
                 outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
                 draft = r.next

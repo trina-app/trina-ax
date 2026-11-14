@@ -216,6 +216,8 @@ function registerIpc() {
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
   // screen ④: the person's answer for the host it showed (AppWindow.answerLink)
   ipcMain.handle('ui:link-answer', (e, yes: unknown, host: unknown) => (fromShell(e) ? win!.answerLink(yes === true, String(host ?? '')) : null))
+  // Cancel while a sleeping trial team starts (AppWindow.cancelWake)
+  ipcMain.on('ui:cancel-wake', (e) => fromShell(e) && win!.cancelWake())
   ipcMain.on('ui:link-shown', (e, id: unknown) => fromShell(e) && typeof id === 'number' && win!.linkShown(id))
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
   ipcMain.on('ui:set-locale', (e, l: unknown) => fromShell(e) && setUiLocale(asUiLocale(l)))

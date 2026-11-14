@@ -147,6 +147,14 @@ describe('phone: the add-team check', () => {
     expect(await checkTeamWith({ fetch: fakeFetch({ '/api/health': [{ status: 404, headers: { 'x-relay-error': 'team_unknown' } }] }).fetch, ...clock() }, ORIGIN)).toEqual({ ok: false, reason: 'unknown' })
     expect(await checkTeamWith({ fetch: fakeFetch({ '/api/health': [{ status: 503, headers: { 'x-relay-error': 'team_offline' } }] }).fetch, ...clock() }, ORIGIN)).toEqual({ ok: false, reason: 'unreachable' })
   })
+  test('Cancel while the team starts: the wait stops ("cancelled"), no more page loads', async () => {
+    const c = clock()
+    const f = fakeFetch({ '/api/health': [offlineCloud], '/': [waking] })
+    const stop = new AbortController()
+    const r = await checkTeamWith({ fetch: f.fetch, onWaking: () => {}, ...c, sleep: async (ms) => { await c.sleep(ms); if (f.seen.filter((x) => x.path === '/').length === 2) stop.abort() }, signal: stop.signal }, ORIGIN, TEAM_DOMAIN)
+    expect(r).toEqual({ ok: false, reason: 'cancelled' })
+    expect(f.seen.filter((x) => x.path === '/').length).toBe(2)
+  })
   test('the words, in the phone\'s three languages', () => {
     expect(stringsFor('en').waking).toBe('Starting your team…')
     expect(stringsFor('en').wakeTimeout).toBe("Your team didn't start. Try again in a minute, or contact support.")

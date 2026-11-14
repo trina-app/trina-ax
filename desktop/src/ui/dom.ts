@@ -64,6 +64,8 @@ export interface MycelUi {
     answerLink(yes: boolean, host: string): Promise<AddTeamResult | null>
     /** ④ is on screen for this offer */
     linkShown(id: number): void
+    /** Cancel while a sleeping trial team starts: the add stops (its result is error 'cancelled') */
+    cancelWake(): void
     open(id: string): void
     remove(id: string): Promise<void>
     back(): void

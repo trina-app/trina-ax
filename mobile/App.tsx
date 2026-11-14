@@ -257,16 +257,22 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [waking, setWaking] = useState(false)
   const [view, setView] = useState<'main' | 'unknown' | 'none'>('main'), [ask, setAsk] = useState<Ask | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
+  // the wait for a starting team can be cancelled (it lasts up to 3 minutes): the box is free again at once
+  const stop = useRef<AbortController | null>(null)
+  function cancelWake() { stop.current?.abort(); stop.current = null; setWaking(false); setBusy(false) }
   async function submit() {
     if (busy) return
     const r = readTeamInput(value, service.teamDomain)
     if (!r.ok) { setError(inputError(t, r.error)); return }
     if (current === r.origin) { onSame?.({ origin: r.origin, entryPath: r.entryPath }); return }
     setBusy(true); setError(''); setAsk(null)
+    const mine = stop.current = new AbortController()
     try {
       // the name is checked only here, on the button, and only under the team domain
       // a sleeping trial team: "Starting your team…" while it starts, then on by itself (QA wake gap 1)
-      const c = await checkTeam(r.origin, service.teamDomain, () => setWaking(true))
+      const c = await checkTeam(r.origin, service.teamDomain, () => setWaking(true), mine.signal)
+      // cancelled meanwhile: nothing more (a later try has its own)
+      if (mine.signal.aborted) return
       setWaking(false)
       if (!c.ok) {
         setError(c.reason === 'unknown' ? fill(t.teamUnknown, { name: r.name ?? r.host }) : c.reason === 'suspended' ? t.suspended : c.reason === 'notTeam' ? t.notTeam : c.reason === 'wakeTimeout' ? t.wakeTimeout : t.unreachableSetup)
@@ -280,8 +286,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
       else if (c.renamed) setAsk({ kind: 'renamed', address, host: hostOf(c.origin), hosted })
       else if (!hosted) setAsk({ kind: 'outside', address, host: hostOf(c.origin), hosted })
       else if (!await onDone(address)) setError(t.stillSwitching)
-    } catch { setError(t.saveFailed) }
-    finally { setBusy(false); setWaking(false) }
+    } catch { if (!mine.signal.aborted) setError(t.saveFailed) }
+    finally { if (!mine.signal.aborted) { setBusy(false); setWaking(false) } if (stop.current === mine) stop.current = null }
   }
   async function yes(a: Ask) {
     setBusy(true)
@@ -332,6 +338,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'} accessibilityLabel={t.setupPlaceholder}
         keyboardType="url" returnKeyType="go" onSubmitEditing={() => void submit()} editable={!busy} testID="team-url" />
       {waking && <WakingNote />}
+      {waking && <Pressable style={s.link} onPress={cancelWake} testID="team-waking-cancel" accessibilityRole="button"><Text style={[s.linkText, { color: c.ink }]}>{t.cancel}</Text></Pressable>}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="setup-error">{error}</Text>}
       {ask ? <View style={[s.ask, { borderColor: c.field, backgroundColor: c.surface }]} testID="setup-ask" accessibilityViewIsModal>
         {ask.kind === 'switch' && current && <Text style={[s.askTitle, { color: c.ink }]}>{fill(t.switchTitle, { old: hostOf(current), new: ask.host })}</Text>}
@@ -376,7 +383,9 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   const i = useSafeAreaInsets(), c = useContext(Look)
   const switching = !!current && current !== offer.origin
   const host = moved ? hostOf(moved.origin) : offer.host
-  function no() { gate.answer(false, offer.host, Date.now()); onClose() }
+  // Cancel stays open while a starting team is waited for (up to 3 minutes): the wait stops with the sheet
+  const stop = useRef<AbortController | null>(null)
+  function no() { stop.current?.abort(); gate.answer(false, offer.host, Date.now()); onClose() }
   async function yes() {
     if (busy) return
     if (moved) {
@@ -391,8 +400,10 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
     const o = again ? gate.retry(offer.host) : gate.answer(true, offer.host, Date.now())
     if (!o) return
     setBusy(true); setError(''); setAgain(false)
+    const mine = stop.current = new AbortController()
     try {
-      const r = await checkTeam(o.origin, service.teamDomain, () => setWaking(true))
+      const r = await checkTeam(o.origin, service.teamDomain, () => setWaking(true), mine.signal)
+      if (mine.signal.aborted) return
       setWaking(false)
       if (!r.ok) {
         if (r.reason === 'unreachable' || r.reason === 'wakeTimeout') { setError(r.reason === 'wakeTimeout' ? t.wakeTimeout : t.linkUnreachable); setAgain(true); return }
@@ -424,7 +435,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       {waking && <WakingNote />}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
-        <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={no} disabled={busy} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+        <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && !waking && s.off]} onPress={no} disabled={busy && !waking} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy && !waking }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
         {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
           {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{again ? t.retry : switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>

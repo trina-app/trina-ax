@@ -97,8 +97,9 @@ export async function checkTeam(origin: string, io: TeamCheckIo): Promise<TeamCh
   if (!v.ok && 'error' in v && v.error === 'asleep') {
     const at = origin
     const w = await wakeTeam({ ...io, wake: () => io.wake(at) })
+    // (cancelled: the caller sees its own stop and adds nothing)
     if (w === 'timeout') return { ok: false, error: 'wakeTimeout' }
-    if (w === 'notAsleep') return { ok: false, error: 'unreachable' }
+    if (w === 'notAsleep' || w === 'cancelled') return { ok: false, error: 'unreachable' }
     v = healthVerdict(origin, await io.health(origin))
     // still not answering right after it answered the page: say so as before
     if (!v.ok && ('rename' in v || v.error === 'asleep')) return { ok: false, error: 'unreachable' }

@@ -301,7 +301,8 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
-  // a removed guest (store/session.ts): now, or on a later visit from this browser
+  // a removed guest (store/session.ts): now, or on a later visit from this browser. (A removed member's 'removed' has no
+  // team: the browser's guest memory is cleared at every sign-in, so it is never an earlier guest's; their line is below)
   const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
   // otherwise the line for why this page opened; a removed member gets "no longer a member" (TC-1974)
   const line = signedOutLine(reason)

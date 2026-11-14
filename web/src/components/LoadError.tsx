@@ -108,7 +108,7 @@ export function LoadError({ error, onRetry, text, soft, what, minor, className }
   const { tryNow, busy } = useAutoRetry(connection, onRetry)
   const waking = connection && isTeamWaking(error)
   // a start that failed: the relay keeps answering "starting"; after 3 minutes say so (QA wake gap 2)
-  const wake = useWakeWait(waking)
+  const wake = useWakeWait(waking ? 'waking' : connection ? 'connection' : 'other')
   if (connection && (banner || !speaks)) {
     // the banner on top, the message box's line or another place says it; this place waits for the connection, quietly
     return (

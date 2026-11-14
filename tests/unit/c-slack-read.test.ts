@@ -12,6 +12,7 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { slackOf } from '../../server/src/integrations/slack/service'
+import { SlackApiError } from '../../server/src/integrations/slack/api'
 import { askedContext, messageLines, messageRaw, slackPlain, slackReadProvider } from '../../server/src/integrations/slack/read'
 import { postCheck } from '../../server/src/integrations/slack/post-check'
 import { BOT_SCOPES, READ_BOT_SCOPES, slackManifest } from '../../server/src/integrations/slack/manifest'
@@ -299,6 +300,25 @@ describe('the AI\'s Slack tools: bot token, conversations the bot and the person
     } finally {
       // the rest of this file reads with the same tokens (as after Replace tokens)
       h.ctx.db.query('UPDATE slack_config SET last_error = NULL').run()
+    }
+  })
+
+  test('the official app: a refused read with a token that is no longer the saved one leaves the new install alone', () => {
+    const before = h.ctx.db.query('SELECT mode, secret_enc, key_version, install_id, last_error FROM slack_config WHERE id = 1').get() as Record<string, unknown>
+    h.ctx.db.query("UPDATE slack_config SET mode = 'official'").run()
+    try {
+      const s = slackOf(h.ctx)
+      const saved = s.botToken()
+      expect(saved).toBeTruthy()
+      // a read that started before the app was added again: its old token, refused now
+      s.tokenRefused(new SlackApiError('token_revoked'), 'xoxb-an-older-install')
+      expect((h.ctx.db.query('SELECT secret_enc FROM slack_config WHERE id = 1').get() as { secret_enc: unknown }).secret_enc).toBeTruthy()
+      // the saved token refused: the app is removed, as Slack's own event says
+      s.tokenRefused(new SlackApiError('token_revoked'), saved!)
+      expect(h.ctx.db.query('SELECT secret_enc, last_error FROM slack_config WHERE id = 1').get()).toEqual({ secret_enc: null, last_error: 'removed' })
+    } finally {
+      h.ctx.db.query('UPDATE slack_config SET mode = ?, secret_enc = ?, key_version = ?, install_id = ?, last_error = ? WHERE id = 1').run(before.mode as string, before.secret_enc as Uint8Array, before.key_version as number, (before.install_id ?? null) as string | null, (before.last_error ?? null) as string | null)
+      slackOf(h.ctx).refresh()
     }
   })
 

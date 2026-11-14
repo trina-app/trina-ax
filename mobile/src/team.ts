@@ -30,8 +30,8 @@ export async function saveTeamUrl(origin: string | null) {
 /** The add-team check (src/team-check.ts): a relay rename is followed once, a sleeping trial team is woken and
  * waited for; `onWaking` is told when it is starting. */
 export type { TeamCheck } from './team-check'
-export function checkTeam(origin: string, teamDomain: string | null = null, onWaking?: () => void): Promise<TeamCheck> {
-  return checkTeamWith({ fetch: fetch as unknown as CheckIo['fetch'], onWaking }, origin, teamDomain)
+export function checkTeam(origin: string, teamDomain: string | null = null, onWaking?: () => void, signal?: AbortSignal): Promise<TeamCheck> {
+  return checkTeamWith({ fetch: fetch as unknown as CheckIo['fetch'], onWaking, signal }, origin, teamDomain)
 }
 
 // the team whose last page padded itself (src/look.ts padding): its next launch starts edge to edge, with no jump

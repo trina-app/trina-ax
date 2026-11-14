@@ -14,10 +14,13 @@ export interface CheckIo {
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   limitMs?: number
+  /** the person's Cancel while the team is starting: the wait stops (reason 'cancelled', nothing to show) */
+  signal?: AbortSignal
 }
 /** How a team address answered: `origin` is the new address after a relay rename. Any other redirect is not a team
- * server. 'wakeTimeout': a sleeping team was starting but did not answer within 3 minutes. */
-export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'wakeTimeout' }
+ * server. 'wakeTimeout': a sleeping team was starting but did not answer within 3 minutes. 'cancelled': the person
+ * cancelled that wait. */
+export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'wakeTimeout' | 'cancelled' }
 
 export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: string | null = null): Promise<TeamCheck> {
   let renamed = false
@@ -38,7 +41,9 @@ export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: str
       sleep: io.sleep ?? (ms => new Promise(r => setTimeout(r, ms))),
       now: io.now ?? Date.now,
       limitMs: io.limitMs,
+      stopped: () => !!io.signal?.aborted,
     })
+    if (w === 'cancelled') return { ok: false, reason: 'cancelled' }
     if (w === 'timeout') return { ok: false, reason: 'wakeTimeout' }
     if (w === 'notAsleep') return { ok: false, reason: 'unreachable' }
     h = await health(io.fetch, origin)
