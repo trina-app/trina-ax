@@ -40,19 +40,32 @@ export function forgetJoinToken() {
   try { sessionStorage.removeItem(JOIN_TOKEN_KEY) } catch { /* storage blocked: nothing kept */ }
 }
 
-/** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
- * message says where the link leads; docs/DECISIONS.md "W3"), and the ONE skill to try together when the link names one
- * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"), on the product as the app
- * names it beside its AI ("트리나에서", tabs.ts namedProduct); `ownAi`: people who join
- * sign in to their own AI (the link's `memberAi` is `connect_own`), so the message says "본인 AI 계정이 필요해요" before
- * they hit it; `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the
- * person copying it (they are the one sending it). */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; made?: boolean; ownAi?: boolean }): string {
+/** The text a leader pastes into KakaoTalk, Slack or an email, a few short lines in their voice (owner 2026-11-14: the
+ * colleague should see who invites them, what the team is and what to do first): a hello from the person copying it
+ * (`name`) inviting to the team (`team`: the team's name, so the message says where the link leads; docs/DECISIONS.md
+ * "W3") on the product as the app names it beside its AI ("트리나에서", tabs.ts namedProduct); `about`: one line about
+ * the team from the welcome steps' company profile (its `oneLine`; nothing when empty, never a blank "About us:");
+ * one honest line on what the product is for (never a claim about files or tools the team may not have added); the ONE
+ * skill the link names, as set up for the team (several shared skills are never listed, docs/DECISIONS.md "W5"), else a
+ * plain first task; `ownAi`: people
+ * who join sign in to their own AI (the link's `memberAi` is `connect_own`), so it says "본인 AI 계정이 필요해요" before
+ * they hit it; the link alone on the last line. `made`: the team skill the lead just made ("Acme에 '견적서 쓰기' 스킬을
+ * 만들어 뒀어요…"). The person can edit it before copying (TeamLinkPanel); nothing is ever sent by itself. */
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; made?: boolean; ownAi?: boolean; about?: string | null }): string {
   // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
   if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
   const product = namedProduct(t)
-  if (o.skill) return t(o.ownAi ? 'teamLink.messageSkillOwnAi' : 'teamLink.messageSkill', { ...product, name: o.name, team: o.team, url: o.url, skill: o.skill })
-  return t(o.ownAi ? 'teamLink.messageOwnAi' : 'teamLink.message', { ...product, name: o.name, team: o.team, url: o.url })
+  const name = o.name.trim()
+  // one line: a profile line is short (PROFILE_LIMITS.oneLine), but its line breaks would split the message
+  const about = (o.about ?? '').replace(/\s+/g, ' ').trim()
+  return [
+    name ? t('teamLink.msg.hello', { ...product, name, team: o.team }) : t('teamLink.msg.helloNoName', { ...product, team: o.team }),
+    about && t('teamLink.msg.about', { about }),
+    t('teamLink.msg.what', product),
+    o.skill ? t('teamLink.msg.skill', { skill: o.skill }) : t('teamLink.msg.tryAny'),
+    o.ownAi && t('teamLink.msg.ownAi'),
+    t('teamLink.msg.join', { url: o.url }),
+  ].filter(Boolean).join('\n')
 }
 
 /** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */

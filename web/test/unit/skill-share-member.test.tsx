@@ -173,7 +173,7 @@ describe('a member and a team skill someone made', () => {
     const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
     expect(teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기', made: true })).toBe("Acme 영업에 '견적서 쓰기' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nu")
     // not made here: the usual invitation
-    expect(teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기' })).toContain('올가님이')
+    expect(teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기' })).toContain('안녕하세요, 올가입니다.')
   })
 
   test('the card names a team file, or a folder\'s newest file of the kind the run used', () => {
