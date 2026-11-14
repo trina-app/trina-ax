@@ -333,7 +333,7 @@ describe('calls', () => {
       const { updateTeamSettings } = await import('../../server/src/admin/settings')
       updateTeamSettings(A.ctx.db, { roomAlwaysAllow: false })
       try {
-        expect((await turn('alice', { scheduled: true }).call('team_gateask__create_task', { title: 'switch off' })).isError).toBe(true)
+        expect((await turn('alice', { scheduled: true }).call('team_gateask__create_task', { title: 'switch off' })).summary).toBe('team_gateask__create_task -> refused (nobody to ask)')
         expect(sent() - n0).toBe(1)
       } finally { updateTeamSettings(A.ctx.db, { roomAlwaysAllow: true }) }
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
@@ -344,7 +344,7 @@ describe('calls', () => {
       const n1 = sent()
       const seen = ask(false)
       const r = await turn('alice', { scheduled: true, roomsSeen: true, person: seen }).call('team_gateopen__create_task', { title: 'after a room' })
-      expect(r.isError).toBe(true)
+      expect(r.summary).toBe('team_gateopen__create_task -> refused (nobody to ask)')
       expect(sent() - n1).toBe(0)
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(open.id) }
   })

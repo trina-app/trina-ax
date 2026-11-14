@@ -219,7 +219,7 @@ describe('scheduled runs: delete_files, post_to_room, skill_files', () => {
     clear()
   })
 
-  test('alice\'s choice is not offered to carol in a side chat or after a room read either: carol is offered it, alice has it', () => {
+  test('the grant is read for the turn\'s own person only (a side chat and a room read use the same place): alice has it, carol is offered it', () => {
     clear()
     keepAlways(h.ctx.db, 'alice', 'room_change', null)
     expect(alwaysHere(place({ userId: 'alice' }), 'room_change')).toBe('on')
