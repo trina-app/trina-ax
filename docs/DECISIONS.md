@@ -27533,7 +27533,10 @@ guides, "Apps posting here") are phase 2.
   stops the old one at once. Unknown, rotated, removed and archived-room tokens answer the same `404 not_found`; any
   other method on `/in/*` too (never the web app's page). `loggablePath` hides the token.
 - **Order of work at /in/** (rooms/apps/inbound.ts): token lookup first (a live token is not counted with anonymous
-  traffic); a browser `Origin` → 403; the app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
+  traffic); a browser `Origin` → 403; the server refusing writes (full disk or plan, `storageRefusesWrites`, the rule
+  of `assertStorageRoom`) → `503 storage_full` with `Retry-After: 600` before the body, and the app's status line says
+  "the server's storage was full" (QA TC-2285: it answered 200 and posted the card while nothing could be saved); the
+  app's limits before the body (burst 30, then 1/s; 5,000 received a day) and
   for unknown tokens 30 a minute per client address (and 4× per /24 or IPv6 /48); content type (415); the raw body,
   256 KiB (GitHub 1 MiB, 413) within 10 s (408); the signature when a secret is set (401); parse (400); the switch
   (200, skipped); the caps (429); then one transaction writes the delivery row, the card or reply, the root's status,

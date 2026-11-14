@@ -168,8 +168,9 @@ export const RoomAppRef = z.object({
 })
 export type RoomAppRef = z.infer<typeof RoomAppRef>
 
-/** Why the last request was not shown: the signature did not match, the body was not one Trina can read, too big. */
-export const RoomAppRefusal = z.enum(['signature', 'format', 'too_big'])
+/** Why the last request was not shown: the signature did not match, the body was not one Trina can read, too big, the
+ * server's storage was full (answered 503 with Retry-After, so the service may send it again). */
+export const RoomAppRefusal = z.enum(['signature', 'format', 'too_big', 'storage_full'])
 export type RoomAppRefusal = z.infer<typeof RoomAppRefusal>
 
 /** One app as the people who manage it see it: never its address or secret (getRoomAppAddress). */

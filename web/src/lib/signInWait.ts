@@ -7,6 +7,8 @@ import { useEffect, useRef } from 'react'
 
 /** five minutes: enough to sign in and approve; shorter than the server's 10-minute flows */
 export const SIGN_IN_WAIT_MS = 5 * 60_000
+/** the same limit in whole minutes, for the line under a wait ("This stops by itself after 5 minutes", QA TC-2132) */
+export const SIGN_IN_WAIT_MINUTES = Math.round(SIGN_IN_WAIT_MS / 60_000)
 
 /** Call `onTimeout` once `active` has lasted `ms`. `key` names one wait: a new key (a new flow) starts the clock again. */
 export function useWaitLimit(active: boolean, key: unknown, onTimeout: () => void, ms = SIGN_IN_WAIT_MS) {

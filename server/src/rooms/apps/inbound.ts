@@ -8,6 +8,8 @@
 //      over the limit). Unknown, rotated, removed and archived-room tokens answer the same 404.
 //   2. a browser's Origin header: 403 (vendors and curl send none; a web page that learned the address must not post
 //      with its visitors' browsers).
+//   2b. the server refuses writes (the disk or the plan is full, system/storage.ts): 503 + Retry-After before the body,
+//      so the vendor can send it again later instead of counting it delivered; the app's status line says why (QA TC-2285).
 //   3. the app's own limits before the body: a burst then 1 a second, and the day's received count (429 + Retry-After).
 //      An Other app set up as a preset this build does not know: 401 with a secret, 400 without (never read as Other).
 //   4. the content type (415), then the body: the raw bytes, at most 256 KiB (GitHub 1 MiB; a preset its own; 413),
@@ -24,6 +26,7 @@
 import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM_APP_GITHUB_BODY_MAX, ROOM_APP_TOKEN_RE, type RoomAppKind } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
+import { storageRefusesWrites } from '../../system/storage'
 import { parseArrival, type Parsed } from './parse'
 import { presetOf, PRESETS } from './presets'
 import { tallyTooOld, typeformTooOld } from './presets/forms'
@@ -33,6 +36,8 @@ import { roomAppsOf, sha256, teamDay, type AppRow } from './service'
 const HEADERS = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' }
 const answer = (status: number, body: string, extra: Record<string, string> = {}) => new Response(`${body}\n`, { status, headers: { ...HEADERS, ...extra } })
 export const NOT_FOUND = () => answer(404, 'not_found')
+/** How long a service is asked to wait when the storage is full (Retry-After): a person frees the space, not soon */
+export const STORAGE_RETRY_AFTER_S = 600
 
 /** The content types each kind takes. */
 const TYPES: Record<RoomAppKind, readonly string[]> = {
@@ -102,6 +107,12 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   if (!row) return apps.limits.unknownOk(info.ip, info.strict) ? NOT_FOUND() : answer(429, 'slow_down', { 'retry-after': '60' })
   // 2. never from a web page in a visitor's browser
   if (req.headers.get('origin') !== null) return answer(403, 'forbidden')
+  // 2b. nothing can be saved now: try again later (the body is never read, no card is posted)
+  if (storageRefusesWrites()) {
+    // a full disk may refuse this small write too: the answer is the 503 all the same
+    try { apps.refused(row.id, 'storage_full') } catch (e) { ctx.log.warn('room app refusal not saved', { err: e }) }
+    return answer(503, 'storage_full', { 'retry-after': String(STORAGE_RETRY_AFTER_S) })
+  }
   const now = apps.clock()
   const { day, next } = teamDay(db, now)
   const untilMidnight = String(Math.max(1, Math.ceil((Date.parse(next) - now) / 1000)))

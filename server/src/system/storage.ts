@@ -233,6 +233,13 @@ export function assertStorageRoom(bytes: number, pending = 0): void {
   throw new HttpError('storage_full', undefined, { params: { reason: 'storage_full', freeBytes: r.freeBytes, ...(url ? { manageUrl: url } : {}) } })
 }
 
+/** A write path that must answer before it reads anything (POST /in/<token>, an app posting in a room: a vendor retries
+ * a 503): are writes refused now? The same rule as assertStorageRoom for a write of unknown, small size. */
+export function storageRefusesWrites(): boolean {
+  const r = storageRoom(0)
+  return !!r && !r.ok
+}
+
 /** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. */
 export function assertStorageRoomForAI(bytes: number): void {
   const r = storageRoom(bytes)

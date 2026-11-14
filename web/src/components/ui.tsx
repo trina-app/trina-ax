@@ -155,6 +155,20 @@ export function Spinner({ className, label }: { className?: string; label?: stri
   )
 }
 
+/** A wait people can see (QA TC-2132): the spinner, what it waits for, and under it how long it can take (`hint`: a
+ * truthful limit, from the constant that ends the wait). One `status` region for both lines. */
+export function WaitLine({ text, hint, className, testId }: { text: ReactNode; hint?: ReactNode; className?: string; testId?: string }) {
+  return (
+    <span role="status" className={clsx('flex min-w-0 items-start gap-2', className)} data-testid={testId}>
+      <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-faint" aria-hidden />
+      <span className="min-w-0">
+        <span className="block break-words">{text}</span>
+        {hint && <span className="block text-xs break-words text-faint" data-testid={testId ? `${testId}-hint` : undefined}>{hint}</span>}
+      </span>
+    </span>
+  )
+}
+
 export function Skeleton({ lines = 3, className }: { lines?: number; className?: string }) {
   return (
     <div className={clsx('space-y-2', className)} aria-hidden>

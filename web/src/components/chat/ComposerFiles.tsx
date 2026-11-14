@@ -20,7 +20,7 @@
 // In a chat shared with people and groups the file is kept with the chat (Attachment source 'chat'): the line under the
 // row says everyone who sees the chat can open it, and ✕ before sending removes it (DELETE /api/attachments/:id).
 import clsx from 'clsx'
-import { FileAudio, FileText, FolderOpen, Loader2, X } from 'lucide-react'
+import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
@@ -39,9 +39,8 @@ import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { UploadLabel } from '../UploadLabel'
-import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
-import { Tooltip } from '../Tooltip'
 
 export interface Pending {
   id: string
@@ -372,7 +371,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                 {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
                 {f.status === 'done' && `${t('composer.attached', { name: f.name })} ${f.size !== null ? formatSize(f.size, locale) : ''}`}
               </span>
-              <span className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} role="alert" title={f.error}>
+              <span className={f.status === 'failed' ? FAILED_REASON : 'sr-only'} role="alert">
                 {f.status === 'failed' && (
                   <>
                     <span className="sr-only">{f.name}: </span>
@@ -425,7 +424,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
-              <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
+              <span className={FAILED_REASON} role="alert">
                 {f.status === 'failed' && (
                   <>
                     <span className="sr-only">{f.name}: </span>
@@ -434,11 +433,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                 )}
               </span>
             </span>
-            <Tooltip label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })}>
-              <button type="button" aria-label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })} title="" onClick={() => onRemove(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                <X size={14} />
-              </button>
-            </Tooltip>
+            <ChipRemove label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })} onClick={() => onRemove(f)} />
           </li>
         )
       })}
