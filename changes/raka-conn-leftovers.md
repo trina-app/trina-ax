@@ -1,0 +1,1 @@
+- The card for a change in a connected service now says plainly what "Always allow" covers: every change in that service (send, edit, delete), in every chat, until it is turned off in Settings. What it covers is unchanged.
