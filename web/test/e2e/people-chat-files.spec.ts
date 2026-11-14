@@ -66,7 +66,7 @@ for (const [label, viewport] of [['1440', { width: 1440, height: 900 }], ['390',
       for (const c of await chip.all()) await expect(c).toHaveAttribute('data-status', 'done')
       await expect(line).toHaveText(LINE)
       await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
-      // (axe is not run here: a picture tile's ✕ is the composer's own, outside this change)
+      await audit(page, `box with a document and a picture (${label})`)
       await shot(page, `${label}-composer.png`)
       await page.getByTestId('composer-input').fill('이 메모와 영수증 확인해 줘')
       await page.getByTestId('send').click()
