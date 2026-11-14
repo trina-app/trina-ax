@@ -1,6 +1,6 @@
 # 자주 묻는 질문
 
-[English](FAQ.md) · [지원](../SUPPORT.md)
+[English](FAQ.md) · [简体中文](FAQ.zh.md) · [지원](../SUPPORT.md)
 
 ## 개발자용 제품인가요?
 

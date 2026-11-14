@@ -1,6 +1,6 @@
 # IT 담당자용 도입·운영 안내
 
-[English](for-admins.md)
+[English](for-admins.md) · [简体中文](for-admins.zh.md)
 
 자료 민감도, 서버 운영자, 허용된 AI 연결, 필요한 클라이언트, 외부 통신과 복구 담당자를 먼저 정하세요. 모델 제공사로 문맥이 전송되며 호스팅 운영자도 저장 자료를 읽을 수 있습니다. [보안 경계](security-and-permissions.ko.md).
 

@@ -1,6 +1,6 @@
 # IT handoff: deploy and operate Trina AX
 
-[한국어](for-admins.ko.md)
+[한국어](for-admins.ko.md) · [简体中文](for-admins.zh.md)
 
 Decide data sensitivity, server ownership, authorized provider connections, client needs, outbound network policy and who restores backups. Selected context leaves for the provider; hosted operators can access stored data. [Security boundaries](security-and-permissions.md).
 
