@@ -174,6 +174,8 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   // is on screen (a toast that takes the visitor there); in the room of a side-chat step, the ✦ button; else the guide
   const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
   const control = !step || end || suggest.length ? null
+    // the AI's card waits: the card is the thing to answer
+    : here && cardOpen ? '[data-testid="ask-card"]'
     : here ? step.highlight ?? null
     : inSideRoom ? '[data-testid="room-side-chat-button"]'
     : step.highlight && [...document.querySelectorAll(step.highlight)].some(visible) ? step.highlight : null
@@ -209,7 +211,11 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
       return
     }
     const el = control ? [...document.querySelectorAll<HTMLElement>(control)].reverse().find(visible) : undefined
-    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.click(); return }
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (control !== '[data-testid="ask-card"]') el.click()
+      return
+    }
     if (suggest.length === 1) { void pick(suggest[0]!); return }
     document.querySelector('[data-testid="demo-suggest"]')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 400 })
   }
@@ -392,7 +398,8 @@ function useDecorations(server: DemoServer) {
         if (!pr) continue
         const picture = pr.chats?.flatMap((c) => c.turns.flatMap((t) => t.files ?? [])).find(isPicture)
         const card = document.createElement('a')
-        card.href = a.getAttribute('href')!
+        // to the project's chat with Leo's banner big, not its page: the next step happens there
+        card.href = targetOf(server, { project: pr.id })
         card.className = 'demo-project-card'
         card.dataset.testid = 'demo-project-card'
         card.addEventListener('click', (ev) => { ev.preventDefault(); navigate(card.getAttribute('href')!) })

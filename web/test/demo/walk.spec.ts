@@ -52,7 +52,7 @@ for (const branch of step('banner').suggest!) {
     await toast.click()
     await expect(page).toHaveURL(/\/rooms\//)
     // the DM's project card
-    const card = page.getByTestId('demo-project-card').last()
+    const card = page.locator('[data-testid="demo-project-card"]:visible').first()
     await expect(card).toBeVisible()
     await shot(page, `${branch}-3-dm`)
     await card.click()

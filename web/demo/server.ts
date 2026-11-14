@@ -315,11 +315,14 @@ export class DemoServer extends MockServer {
     }
     // a hosted team's notices in the mock (maintenance tonight…) are not part of the story
     h.managedNotices = () => ({ items: [] })
-    const me = h.me!
-    h.me = async (c) => {
-      const out = (await me(c)) as { user: { id: string; title?: string } }
-      const p = this.script.people.find((x) => x.id === out.user.id)
-      return { ...out, user: { ...out.user, ...(this.avatars.has(out.user.id) ? { avatarVersion: 1 } : {}), ...(p?.title ? { title: p.title } : {}) } }
+    // the visitor's photo and title in every answer that carries Me (a read, and a change such as a preference)
+    for (const name of ['me', 'updateMe'] as const) {
+      const base = h[name]!
+      h[name] = async (c) => {
+        const out = (await base(c)) as { user: { id: string; title?: string } }
+        const p = this.script.people.find((x) => x.id === out.user.id)
+        return { ...out, user: { ...out.user, ...(this.avatars.has(out.user.id) ? { avatarVersion: 1 } : {}), ...(p?.title ? { title: p.title } : {}) } }
+      }
     }
     const people = h.listPeople!
     h.listPeople = async (c) => {

@@ -208,8 +208,8 @@
 /* answers' pictures shown big (Leo's banner) */
 [data-testid="assistant-message"] img[src*="/api/files/download"] { max-height: 520px !important; }
 
-.demo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin: 14px 0 0; }
-.demo-stats > div { padding: 10px 8px; border: 1px solid var(--c-line); border-radius: 12px; text-align: center; }
+.demo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)); gap: 6px; margin: 14px 0 0; }
+.demo-stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 10px 4px; border: 1px solid var(--c-line); border-radius: 12px; text-align: center; }
 .demo-stats dt { font-size: 11.5px; color: var(--c-muted, #8a8178); }
 .demo-stats dd { margin: 2px 0 0; font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; }
 
@@ -224,7 +224,7 @@
   background: rgb(0 0 0 / 0.35);
 }
 .demo-end {
-  width: min(420px, 100%);
+  width: min(460px, 100%);
   padding: 28px 24px 20px;
   border: 1px solid var(--c-line);
   border-radius: 20px;
