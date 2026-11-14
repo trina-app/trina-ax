@@ -382,7 +382,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   const { copy } = useCopy()
   const copyLink = async () => {
     // the team address when there is one: a link copied in the desktop app on the office network opens for the others too
-    await copy(copyLinkOf(roomId, m.id, m.threadRootId, me?.team.address, location.origin))
+    await copy(copyLinkOf(roomId, m.id, m.threadRootId, me?.team?.address, location.origin))
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   const placeLabel = usePlaceLabel()

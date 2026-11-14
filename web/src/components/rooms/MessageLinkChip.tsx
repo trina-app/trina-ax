@@ -17,7 +17,7 @@ export const useMessageLinkPreviews = () => useContext(MessageLinkPreviews)
 
 /** The hosts whose links are this team's: this page's and the team address. */
 export function useLinkHosts(): ReadonlySet<string> {
-  const address = useMe()?.team.address ?? null
+  const address = useMe()?.team?.address ?? null
   return useMemo(() => linkHosts(typeof location === 'undefined' ? null : location.host, address), [address])
 }
 
