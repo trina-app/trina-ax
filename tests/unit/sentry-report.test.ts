@@ -245,6 +245,12 @@ describe('options for the control plane: level, fingerprint, message events, kep
       expect(e).not.toHaveProperty('fingerprint')
     }
     expect(cleanFingerprint('job-failed')).toBeNull()
+    for (const data of ['kim@acme.com', '10.0.0.1', '010-1234-5678', '900101-1234567', '2026-11-14', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'AKIAIOSFODNN7EXAMPLE', '0f8e1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b', 'mor_revoke:sub_01HXYZ1234567890ABCDEFGH']) {
+      expect(cleanFingerprint(['alert', data])).toBeNull()
+    }
+    for (const code of ['job-failed', 'InvalidProviderToken', 'ops_keys_unusable', '0.4.0', 'relay-0.2.0', 'task:daily-backup', '/api/teams/:teamId']) {
+      expect(cleanFingerprint(['alert', code])).toEqual(['alert', code])
+    }
     expect(Object.keys(buildEvent({ message: 'x', fingerprint: ['a'] }, EV)).sort()).toEqual(['environment', 'event_id', 'exception', 'fingerprint', 'level', 'logger', 'platform', 'release', 'sdk', 'tags', 'timestamp'])
   })
 
@@ -264,6 +270,19 @@ describe('options for the control plane: level, fingerprint, message events, kep
     expect(out.startsWith('작업 실패 [text] [text] [email] [url] [ip] [ip] [path] [name] [id] Bearer [redacted] secret=[redacted] [number]')).toBe(true)
     // only true opts in: a truthy value from data does not
     expect(scrubText('실패', { keepText: 'yes' as unknown as boolean })).toBe('[text]')
+  })
+
+  test('keepText: emails and hosts with a Korean domain, and Korean secret labels, are still taken out', () => {
+    const k = { keepText: true }
+    expect(scrubText('예약 작업 실패: 홍길동@회사.한국', k)).toBe('예약 작업 실패: [email]')
+    expect(scrubText('mail to kim@example.한국 failed', k)).toBe('mail to [email] failed')
+    expect(scrubText('host www.회사.한국 down', k)).toBe('host [name] down')
+    for (const [msg, leak] of [['비밀번호: hunter2', 'hunter2'], ['비번=hunter2', 'hunter2'], ['암호 hunter2', 'hunter2'], ['토큰 deadbeefcafe1234', 'deadbeef'], ['인증번호는 482913', '482913'], ['토큰이 abcdef', 'abcdef']]) {
+      expect(scrubText(msg!, k)).not.toContain(leak!)
+      expect(scrubText(msg!)).not.toContain(leak!)
+    }
+    // a word that only starts like a label is not one
+    expect(scrubText('암호화 실패', k)).toBe('암호화 실패')
   })
 
   test('keepText reaches the event only when the caller sets it', () => {
@@ -290,7 +309,7 @@ describe('options for the control plane: level, fingerprint, message events, kep
     for (const real of [
       '/api/teams/123', '/api/teams/t_8f3a2b1c9d', '/t/acme.example/api', '/u/alice@example.test', '/files/Report', '/x/../etc', '//x',
       '/api/files?token=abc', '/a/b c', '/api/teams/0123456789abcdef0123456789abcdef', `/${'a'.repeat(25)}`, '/x/%2F', '/x/한글', '/api/203.0.113.7',
-      '/a1b234/x',
+      '/a1b234/x', '/:ghp_ABCDEFGH1234567890abcdefghij', '/x/:id9', '/x/:Id',
     ]) {
       expect(ROUTE_VALUE_RE.test(real)).toBe(false)
       expect(buildEvent({ message: 'x', tags: { route: real } }, EV).tags).toEqual({})
@@ -364,6 +383,8 @@ describe('check-ins from code', () => {
     const started = Date.now()
     expect(await checkIn(freshDsn(), 'cp-x', BODY, { fetch: hang, timeoutMs: 30 })).toBe('failed')
     expect(Date.now() - started).toBeLessThan(2000)
+    // a timeout that is not a number falls back to the default instead of failing
+    expect(await checkIn(freshDsn(), 'cp-x', BODY, { fetch: fakeFetch(200).fetch, timeoutMs: Number.NaN })).toBe('sent')
   })
 
   test('a monitor rate limit or a 429 pauses check-ins to that project; an error-only limit does not', async () => {

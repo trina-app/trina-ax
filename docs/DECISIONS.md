@@ -27250,17 +27250,24 @@ commit for its own reports (no SDK, same allowlist), and every new shape of repo
 - **Still the allowlist.** `buildEvent` adds only `fingerprint` and, for `kind: 'message'`, `message.formatted` (in place
   of `exception`, no frames). `level` is `warning` when asked, `error` by default, `fatal` still wins. The relay and the
   push gateway set none of these, so their events are unchanged; `TAG_VALUE_RE` is unchanged.
-- **Fingerprint:** at most 4 parts, each a code (`TAG_VALUE_RE`) or a route pattern. One part that is neither, or a fifth
+- **Fingerprint:** at most 4 parts, each a code (`TAG_VALUE_RE`, and not shaped like data: no `@`, no 7+ digits in a
+  row, no IPv4 address, no 20+ character run with a digit in it, so emails, phone and resident numbers, dates, keys,
+  UUIDs and provider ids are refused while codes and versions pass) or a route pattern. One part that is neither, or a fifth
   part, and the event goes without a fingerprint (Sentry's own grouping): a partly kept fingerprint would merge issues
   that should stay apart. Callers build it from codes (kind, step, route, error type), never from ids of payments,
   providers or people.
 - **Route tag (`ROUTE_VALUE_RE`):** only the `route` tag (and a fingerprint part) may hold `/`, and only as a router's
   pattern: `/api/teams/:id`, `/t/:slug/api/*`. Literal parts are lowercase words of at most 24 characters with at most
   two digits and no dot, `@`, capital, `%`, space or query, so a host, a file, an email, a numeric or random id and a
-  query string are refused; at most 128 characters. Left: a word-like slug (`/t/acme`) looks like a route word, so
-  callers pass the pattern (Hono's `c.req.routePath`), never the request path.
+  query string are refused; parameter names are short letters only (`:id`, `:teamId`); at most 128 characters. This
+  is not a proof: any real path whose parts look like words passes (`/u/kimminsu/files`, a token made only of
+  letters), so callers pass the router's pattern (Hono's `c.req.routePath`), never the request path, and the control
+  plane checks that in its own tests.
 - **`keepText: true` keeps Korean words, nothing else.** For alert titles written in code (`예약 작업 실패: <task>`).
-  Hangul stays; every other rule still runs, quoted text included (`"김철수"` → `[text]`), and any other non-ASCII
+  Hangul stays (not its invisible fillers); every other rule still runs, quoted text included (`"김철수"` → `[text]`),
+  emails and hosts with a Korean domain (`홍길동@회사.한국`, `www.회사.한국`: the email and host rules read letters of
+  any script), Korean secret labels (`비밀번호`, `비번`, `암호`, `토큰`, `인증번호`: the value after them goes, in both
+  modes), and any other non-ASCII
   script or symbol still becomes `[text]`. Only `true` opts in. Callers may pass it only for a message whose words
   are all written in code: never for text that can hold a name, a file name, a message or anything a person typed. A
   name in Hangul cannot be told from a Korean word, so this rests on the caller; the control plane checks its alert

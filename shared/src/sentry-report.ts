@@ -57,20 +57,24 @@ const SCRUB: readonly [RegExp, string][] = [
   [/(?<![A-Za-z0-9])'[^']*(?:'|$)|"[^"]*(?:"|$)|`[^`]*(?:`|$)/g, '[text]'],
   [/\bBearer\s+\S+/gi, 'Bearer [redacted]'],
   [new RegExp(`(?<![A-Za-z0-9])(${SECRET_NAME})(?![A-Za-z0-9])\\s*[:=]\\s*(?:Bearer \\[redacted\\]|\\S+)`, 'gi'), '$1=[redacted]'],
+  // Korean labels (password, PIN, token, code): the value after them, with or without a colon, and after a particle
+  [/(비밀번호|비번|암호|토큰|인증번호)[은는이가을를]?(?![가-힣])\s*[:=]?\s*(?:Bearer \[redacted\]|\S+)/g, '$1=[redacted]'],
   [/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]'],
-  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z]{2,}/g, '[email]'],
+  // the domain may be Korean (홍길동@회사.한국): keepText must not let it through
+  [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z가-힣]{2,}/g, '[email]'],
   [/\S*[\\/]\S*/g, '[path]'],
   [/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[ip]'],
   [/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi, '[ip]'],
-  // a host or a file of any kind: whatever has a dot inside a word (acme.trina.app, registry.db, plan.key)
-  [/\b[\w-]+(?:\.[\w-]+)+\b/g, '[name]'],
+  // a host or a file of any kind: whatever has a dot inside a word (acme.trina.app, registry.db, plan.key, 회사.한국);
+  // letters of any script, so a Korean host is caught even when keepText keeps Hangul
+  [/(?<![\p{L}\p{N}_-])[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/gu, '[name]'],
   [/\b[A-Za-z0-9_-]{20,}\b/g, '[id]'],
   [/\+?\d[\d ().-]{5,}\d/g, '[number]'],
 ]
 /** the code's own messages are English: other letters here came from a person (a team name, a file) */
 const NON_ASCII: readonly [RegExp, string] = [/[^\x00-\x7F]+/g, '[text]']
-/** keepText: Hangul (syllables, jamo, compatibility jamo) stays; any other non-ASCII letter, mark or symbol still goes */
-const NON_ASCII_BUT_HANGUL: readonly [RegExp, string] = [/[^\x00-\x7F\u1100-\u11FF\u3131-\u318E\uAC00-\uD7A3]+/g, '[text]']
+/** keepText: Hangul (syllables, jamo, compatibility jamo; not the invisible fillers) stays; any other non-ASCII letter, mark or symbol still goes */
+const NON_ASCII_BUT_HANGUL: readonly [RegExp, string] = [/[^\x00-\x7F\u1100-\u115E\u1161-\u11FF\u3131-\u3163\u3165-\u318E\uAC00-\uD7A3]+/g, '[text]']
 
 export interface ScrubOptions {
   /** Keep Korean (Hangul) words. Only for a message written in code, such as a fixed alert title ("예약 작업 실패:
@@ -149,9 +153,10 @@ const TAG_KEY_RE = /^[a-z][a-z0-9_]{0,31}$/
 export const TAG_VALUE_RE = /^[A-Za-z0-9_.:@-]{1,64}$/
 /** A route pattern as the router names it (Hono's c.req.routePath: /api/teams/:id, /t/:slug/api/*), never a real
  *  path. Literal parts are short lowercase words: no dots (hosts, files), no @ (emails), no capitals and at most two
- *  digits (ids, tokens, numbers). A word-like slug (/t/acme) cannot be told from a route word, so callers pass the
- *  pattern only. Allowed as the `route` tag and as a fingerprint part. */
-export const ROUTE_VALUE_RE = /^(?:\/(?:(?!(?:[a-z_-]*\d){3})[a-z][a-z0-9_-]{0,23}|:[A-Za-z_][A-Za-z0-9_]{0,31}\??|\*))+\/?$|^\/$/
+ *  digits (ids, tokens, numbers); parameter names are short letters only (:id, :teamId). Not a proof: a real path
+ *  whose parts look like words (/u/kimminsu/files, a token made only of letters) passes, so callers pass the router's
+ *  pattern (c.req.routePath) only, never the request path. Allowed as the `route` tag and as a fingerprint part. */
+export const ROUTE_VALUE_RE = /^(?:\/(?:(?!(?:[a-z_-]*\d){3})[a-z][a-z0-9_-]{0,23}|:[a-z][A-Za-z_]{0,23}\??|\*))+\/?$|^\/$/
 const MAX_ROUTE = 128
 const MAX_FINGERPRINT = 4
 
@@ -170,10 +175,18 @@ function cleanTags(...all: (Record<string, string> | undefined)[]): Record<strin
   return out
 }
 
+/** A code part that looks like personal data or a key: an email (@), 7+ digits in a row (a phone, a resident or order
+ *  number, a date), an IPv4 address, or a 20+ character run with a digit in it (a key, a UUID, a provider id).
+ *  Codes and versions (job-failed, InvalidProviderToken, 0.4.0) pass. */
+function looksLikeData(p: string): boolean {
+  return p.includes('@') || /\d[\d-]{5,}\d/.test(p) || /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/.test(p)
+    || (p.match(/[A-Za-z0-9_-]{20,}/g) ?? []).some((run) => /\d/.test(run))
+}
+
 /** The fingerprint as sent, or null: all parts pass, or none is sent. */
 export function cleanFingerprint(parts: unknown): string[] | null {
   if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_FINGERPRINT) return null
-  for (const p of parts) if (typeof p !== 'string' || !(TAG_VALUE_RE.test(p) || routeValue(p))) return null
+  for (const p of parts) if (typeof p !== 'string' || !((TAG_VALUE_RE.test(p) && !looksLikeData(p)) || routeValue(p))) return null
   return [...parts] as string[]
 }
 
@@ -419,7 +432,7 @@ export async function checkIn(dsn: string | undefined, slug: string, body: Check
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(clean),
-      signal: AbortSignal.timeout(Math.min(Math.max(o.timeoutMs ?? SEND_TIMEOUT_MS, 1), MAX_CHECK_IN_TIMEOUT_MS)),
+      signal: AbortSignal.timeout(Math.min(Math.max(Number.isFinite(o.timeoutMs) ? o.timeoutMs! : SEND_TIMEOUT_MS, 1), MAX_CHECK_IN_TIMEOUT_MS)),
     })
     const wait = pauseSeconds(res.headers.get('x-sentry-rate-limits'), res.status, res.headers.get('retry-after'), MONITOR_CATEGORIES)
     if (wait !== null) checkInPausedUntil.set(project, now() + Math.min(wait * 1000, MAX_PAUSE_MS))
