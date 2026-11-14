@@ -8,6 +8,8 @@
 // person's id without a foreign key (USER_COLUMNS_WITHOUT_FK): each is removed by
 // removeAccount itself, by a hook here, or named in KEPT_WITH_ACCOUNT with the reason it stays.
 import type { AppContext } from '../context'
+import { hashToken } from './passwords'
+import { authOf, readToken } from './service'
 
 export interface AccountCleanup {
   /** the area's name, for the log */
@@ -131,4 +133,39 @@ export function registerAccountsCleanup(ctx: AppContext): void {
       'guests.user_id',
     ],
   })
+}
+
+// ---------------- the sign-ins of a removed account (TC-1974) ----------------
+// A removed person's open window is sent to the sign-in page, where "you signed out elsewhere or your password changed"
+// would be untrue. The sessions rows go with the account, so removeAccount leaves a short-lived note here: the hashes
+// of the session tokens that ended with the removal. A request that still carries one of those tokens is refused with
+// reason 'account_removed'. Only the holder of that token can present it, so nobody else learns that the account was
+// removed (a wrong or unknown token gets the plain 401). Kept in memory: after a restart the plain line comes back.
+const REMOVED_SIGN_IN_TTL_MS = 24 * 60 * 60 * 1000
+const REMOVED_SIGN_IN_MAX = 5000
+const removedSignIns = new WeakMap<AppContext, Map<string, number>>()
+
+/** Before the sessions of a removed account are ended: remember their token hashes for a day. */
+export function noteRemovedSignIns(ctx: AppContext, userId: string): void {
+  const rows = ctx.db.query('SELECT token_hash FROM sessions WHERE user_id = ?').all(userId) as { token_hash: string }[]
+  if (!rows.length) return
+  let m = removedSignIns.get(ctx)
+  if (!m) { m = new Map(); removedSignIns.set(ctx, m) }
+  const now = authOf(ctx).now()
+  for (const [k, until] of m) if (until <= now) m.delete(k)
+  for (const r of rows) m.set(r.token_hash, now + REMOVED_SIGN_IN_TTL_MS)
+  // bounded: the oldest notes go first (Map keeps insertion order)
+  while (m.size > REMOVED_SIGN_IN_MAX) m.delete(m.keys().next().value as string)
+}
+
+/** 'account_removed' when the request carries a sign-in that ended because its account was removed, else null. */
+export function removedSignInReason(ctx: AppContext, req: Request): 'account_removed' | null {
+  const m = removedSignIns.get(ctx)
+  if (!m?.size) return null
+  const t = readToken(req)
+  if (!t) return null
+  const until = m.get(hashToken(t.token))
+  if (until === undefined) return null
+  if (until <= authOf(ctx).now()) { m.delete(hashToken(t.token)); return null }
+  return 'account_removed'
 }

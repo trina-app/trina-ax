@@ -212,6 +212,7 @@ export const id: Record<MessageKey, string> = {
   'auth.goGooglePlay': "Buka Google Play",
   'auth.goDownloadPage': "Buka halaman unduhan",
   'auth.sessionEnded': 'Kamu keluar karena sudah keluar di tempat lain atau kata sandi diganti.',
+  'auth.accountRemoved': 'Kamu sudah bukan anggota tim ini. Tanyakan ke pemilik tim kalau ini keliru.',
   'auth.sessionExpired': 'Sesi kamu habis. Silakan masuk lagi.',
   'auth.guestRemovedTitle': "Kamu sudah tidak ada di {team}",
   'auth.guestRemoved': "Kalau menurutmu ini keliru, tanyakan ke orang yang mengundangmu. Kamu tetap bisa masuk dengan akun lain.",

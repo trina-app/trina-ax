@@ -208,6 +208,7 @@ export const zh: Record<MessageKey, string> = {
   "auth.goGooglePlay": "前往 Google Play",
   "auth.goDownloadPage": "前往下载页面",
   "auth.sessionEnded": "你已退出登录，因为你在其他地方退出了登录或密码已更改。",
+  "auth.accountRemoved": "你已不再是这个团队的成员。如果这是误操作，请联系团队所有者。",
   "auth.sessionExpired": "登录已过期。请重新登录。",
   "auth.guestRemovedTitle": "你已不在 {team} 中",
   "auth.guestRemoved": "如果你觉得这是个错误，请询问邀请你的人。你仍可以用其他账号登录。",

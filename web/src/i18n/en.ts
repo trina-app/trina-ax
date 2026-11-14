@@ -212,6 +212,7 @@ export const en: Record<MessageKey, string> = {
   'auth.goGooglePlay': "Go to Google Play",
   'auth.goDownloadPage': "Go to the download page",
   'auth.sessionEnded': 'You were signed out because you signed out elsewhere or your password changed.',
+  'auth.accountRemoved': "You're no longer a member of this team. Ask the team owner if this is a mistake.",
   'auth.sessionExpired': 'Your sign-in expired. Please sign in again.',
   'auth.guestRemovedTitle': "You're no longer in {team}",
   'auth.guestRemoved': "If you think this is a mistake, ask the person who invited you. You can still sign in with another account.",

@@ -208,6 +208,7 @@ export const es: Record<MessageKey, string> = {
   'auth.goGooglePlay': "Ir a Google Play",
   'auth.goDownloadPage': "Ir a la página de descarga",
   'auth.sessionEnded': "Se cerró la sesión porque la cerró en otro lugar o cambió su contraseña.",
+  'auth.accountRemoved': "Ya no es miembro de este equipo. Si cree que es un error, pregunte al propietario del equipo.",
   'auth.sessionExpired': "Su sesión venció. Vuelva a iniciar sesión.",
   'auth.guestRemovedTitle': "Ya no forma parte de {team}",
   'auth.guestRemoved': "Si cree que es un error, pregunte a quien le invitó. Puede iniciar sesión con otra cuenta.",

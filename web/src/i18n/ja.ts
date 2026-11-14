@@ -208,6 +208,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.goGooglePlay': "Google Play へ",
   'auth.goDownloadPage': "ダウンロードページへ",
   'auth.sessionEnded': "別の場所でログアウトしたか、パスワードが変更されたため、ログアウトしました。",
+  'auth.accountRemoved': "このチームのメンバーではなくなりました。間違いだと思う場合は、チームのオーナーに確認してください。",
   'auth.sessionExpired': "ログインの有効期限が切れました。再度ログインしてください。",
   'auth.guestRemovedTitle': "{team}のメンバーではなくなりました",
   'auth.guestRemoved': "間違いだと思う場合は、招待してくれた人に聞いてください。別のアカウントではログインできます。",

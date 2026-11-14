@@ -211,6 +211,7 @@ export const ko = {
   'auth.goGooglePlay': "Google Play로 가기",
   'auth.goDownloadPage': "다운로드 페이지로 가기",
   'auth.sessionEnded': '다른 곳에서 로그아웃했거나 비밀번호가 바뀌어 로그인이 끝났어요.',
+  'auth.accountRemoved': '이 팀의 멤버가 아니에요. 잘못된 것 같다면 팀 소유자에게 물어보세요.',
   'auth.sessionExpired': '로그인이 만료됐어요. 다시 로그인해 주세요.',
   'auth.guestRemovedTitle': "이제 {team}에 없어요",
   'auth.guestRemoved': "잘못된 것 같다면 초대한 분께 물어봐 주세요. 다른 계정으로는 계속 로그인할 수 있어요.",
