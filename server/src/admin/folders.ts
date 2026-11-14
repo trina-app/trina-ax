@@ -552,8 +552,13 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
   checkDriveShareOwners(ctx)
   // the hooks of other areas (admin/guests.ts: a guest no longer in their one place is switched off)
-  for (const h of accessHooks) { try { h(ctx, by.actor) } catch (e) { ctx.log.warn('access change hook failed', { err: e }) } }
+  runAccessHooks(ctx, by.actor)
   return out
+}
+
+/** The other areas' access-change hooks alone (a folder trashed from Files: a project gone without a rule change). */
+export function runAccessHooks(ctx: AppContext, actor: string | null): void {
+  for (const h of accessHooks) { try { h(ctx, actor) } catch (e) { ctx.log.warn('access change hook failed', { err: e }) } }
 }
 
 type AccessHook = (ctx: AppContext, actor: string | null) => void

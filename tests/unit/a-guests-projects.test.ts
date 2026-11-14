@@ -126,4 +126,12 @@ test('removal: a save that leaves the guest out switches the account off; trashi
   expect(status(g2.id)).toBe('active')
   await mia.client.call('DELETE', `/api/projects/${other.id}`)
   expect(status(g2.id)).toBe('disabled')
+
+  // a third, whose project's folder an admin puts in the trash from Files (Delete), not through the project
+  const third = await owner.call('POST', '/api/projects', { name: 'Third', participants: [] })
+  const g3 = await addGuest(h, owner, { username: 'gwen', place: { kind: 'project', id: third.id } })
+  expect(status(g3.id)).toBe('active')
+  await owner.call("DELETE", `/api/files?path=${encodeURIComponent(third.folderPath)}`)
+  expect(status(g3.id)).toBe('disabled')
+  expect((await g3.client.try('GET', '/api/me')).status).toBe(401)
 })
