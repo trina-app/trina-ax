@@ -1,3 +1,0 @@
-- **Slack, own app**: when Slack refuses the team's own app's bot token (revoked), Admin now says so in plain words and offers "Replace tokens", instead of showing "Connected".
-- **Slack answers**: source lines written as HTML links (`<a href=...>`) now show as real Slack links, not raw text (code stays as written).
-- **AI-made Excel files**: the AI no longer says the file "holds only formulas"; the tool text now says simple formulas are saved with their results.
