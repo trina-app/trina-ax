@@ -327,6 +327,7 @@ for (const vp of SIZES) {
       await expect(page.getByTestId('apps-steps')).toContainText('“Send web request”')
       await expect(page.getByTestId('apps-step').nth(2).getByTestId('apps-copy-body')).toBeVisible()
       await page.getByTestId('apps-copy-body').click()
+      await expect(page.getByTestId('apps-copy-body')).toHaveText('Copied')
       const body = await page.evaluate(() => navigator.clipboard.readText())
       expect(body).toContain('"event":"created"')
       expect(body).toContain('"title":"{{issue.summary.jsonEncode}}"')
