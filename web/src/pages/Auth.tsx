@@ -464,9 +464,11 @@ export interface JoinValues { name: string; username: string; password: string }
  * the eye button inside the field shows what was typed (PasswordField; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
-export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
+export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initialName }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void
+  /** the Name field's start (a guest invite: the name the inviter typed, InviteInfo.guestName) */
+  initialName?: string }) {
   const t = useT()
-  const [form, setForm] = useState({ name: '', username: '', password: '' })
+  const [form, setForm] = useState({ name: initialName?.slice(0, 100) ?? '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
@@ -541,7 +543,10 @@ function OpenInApp({ path }: { path: string }) {
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
  * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
  */
-function JoinChoices({ path, children }: { path: string; children: ReactNode }) {
+function JoinChoices({ path, children, lean = false }: { path: string; children: ReactNode
+  /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
+   * has neither an account here nor the app; a used link leads to signing in anyway) */
+  lean?: boolean }) {
   const t = useT()
   const [web, setWeb] = useState(false)
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
@@ -552,8 +557,8 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
     return (
       <>
         {children}
-        <HaveAccount />
-        <OpenInApp path={path} />
+        {!lean && <HaveAccount />}
+        {!lean && <OpenInApp path={path} />}
       </>
     )
   // this page's own link (the team link's token from memory: the address bar no longer has it), for the person's own
@@ -623,7 +628,7 @@ function JoinChoices({ path, children }: { path: string; children: ReactNode }) 
           {t('auth.continueInBrowser')}
         </button>
       </p>
-      <HaveAccount />
+      {!lean && <HaveAccount />}
     </div>
   )
 }
@@ -736,9 +741,10 @@ export function AcceptInvite() {
     )
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} /> : t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <BrowserLanguageOffer />
-      <JoinChoices path={`/invite/${token}`}>
-        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
+      {!guest && <BrowserLanguageOffer />}
+      <JoinChoices path={`/invite/${token}`} lean={!!guest}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} initialName={guest ? info.guestName : undefined} />
       </JoinChoices>
     </AuthFrame>
   )

@@ -7,7 +7,7 @@ import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { createGuestInviteFor, createInvite, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
+import { createGuestInviteFor, createInvite, guestInviteLimit, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
 import { convertGuest, disablePlacelessGuests, updateGuestAi } from '../admin/guests'
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
@@ -109,6 +109,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))
     kit.handle(API.createInvite, ({ c, body }) => createInvite(c, ctx, body))
     kit.handle(API.createGuestInvite, ({ c, body }) => createGuestInviteFor(c, ctx, body))
+    kit.handle(API.guestInviteLimit, ({ c }) => guestInviteLimit(c, ctx))
     kit.handle(API.convertGuest, ({ c, params }) => convertGuest(c, ctx, params.id))
     kit.handle(API.updateGuestAi, ({ c, params, body }) => updateGuestAi(c, ctx, params.id, body))
     kit.handle(API.revokeInvite, ({ c, params }) => revokeInvite(c, ctx, params.id))

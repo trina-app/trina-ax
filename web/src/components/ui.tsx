@@ -43,7 +43,8 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
         // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
         // (a busy one, with its spinner, keeps the accent: it is working, not off)
-        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:hover:bg-hover',
+        // with an edge and muted words, so it still reads as a button that is off (QA: "Create link" vanished on a dialog)
+        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-muted dark:disabled:opacity-100 dark:disabled:ring-1 dark:disabled:ring-field-border dark:disabled:ring-inset dark:disabled:hover:bg-hover',
         // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
         variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',

@@ -18,7 +18,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { ListRow } from '../list/List'
 import { Button, ErrorNote, inputCls, Modal, Skeleton } from '../ui'
-import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf } from '../GuestInvite'
+import { elsewhereText, GuestInviteDialog, guestElsewhere, InviteGuestRow, MakeMemberButton, OnePlaceNote, onePlaceOf } from '../GuestInvite'
 import { GuestTagFor } from '../GuestTag'
 import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
@@ -211,7 +211,24 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           )}
           {shown.length > 0 && (
             <ul className={list} data-testid="people-list">
-              {shown.map((p) => (
+              {shown.map((p) => {
+                // a group chat's add list: a guest in another place already cannot be added (a guest is in one place
+                // only): greyed out with where they are, no tick; the owner and admins get "Make team member"
+                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : null
+                if (away)
+                  return (
+                    <ListRow
+                      key={p.id}
+                      face
+                      icon={<Avatar user={p} size="fill" />}
+                      name={<span className="flex min-w-0 items-baseline gap-1.5 text-muted"><span className="truncate">{p.name}</span><GuestTagFor userId={p.id} /></span>}
+                      meta={<span className="block whitespace-normal break-keep">{elsewhereText(t, away)}</span>}
+                      actions={isAdmin(me) ? <MakeMemberButton guestId={p.id} /> : undefined}
+                      li={{ 'data-testid': 'people-row-elsewhere' }}
+                      testId="people-row"
+                    />
+                  )
+                return (
                 <Fragment key={p.id}>
                 <ListRow
                   choice
@@ -225,7 +242,8 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                 {/* this guest is in another place already: the refusal right under their row */}
                 {onePlace?.guestId === p.id && <li className="list-none pr-3 pb-2 pl-[calc(0.75rem+var(--spacing-list-face)+0.75rem)]"><OnePlaceNote guestId={p.id} admin={isAdmin(me)} /></li>}
                 </Fragment>
-              ))}
+                )
+              })}
             </ul>
           )}
         </div>

@@ -1,0 +1,3 @@
+- Inviting a guest is clearer: a guest who is already in another room or project shows greyed out with where they are, a full plan says so before you fill anything in, and Copy link is the main button. Team AI's account and limit sit under Team AI, and without a team AI account it points you to add one.
+- Admin › Members & invites: Guests in the Role filter, removed guests behind "Show removed", used guest links gone, and project links name the project. Make team member checks the seats first and says the guest's AI then follows the team's settings.
+- A guest's invite page starts with the name you typed and drops the extra links; the username rule is in plain words.
