@@ -60,7 +60,8 @@ describe('a new team project folder', () => {
     const falcon = await create('alice', { name: 'Falcon', folderPath: 'projects/falcon' })
     expect(falcon.status).toBe(201)
     expect(falcon.body.folderPath).toBe('projects/falcon-2')
-    expect(rulesAt('projects/falcon')).toEqual([{ t: 'group', s: 'finance', a: 'read' }, { t: 'user', s: 'alice', a: 'write' }])
+    // (projects/falcon is limited: its legacy marker everyone: none stays with it)
+    expect(rulesAt('projects/falcon')).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'group', s: 'finance', a: 'read' }, { t: 'user', s: 'alice', a: 'write' }])
     expect(await listed('bob', falcon.body.id)).toBe(false)
   })
 

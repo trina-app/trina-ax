@@ -96,16 +96,17 @@ describe('who may see and change participants', () => {
       { subjectType: 'group', subjectId: 'finance', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' },
     ], 'carol'))()
     const sub = ensureFolderRow(A.ctx.db, `${p.folderPath}/hr`)
-    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, sub.id, [{ subjectType: 'user', subjectId: 'erin', access: 'none' }], 'carol'))()
+    // hr inside it: limited, alice only (erin kept out: docs/DECISIONS.md "Folder access adds up like Google Drive (P2)")
+    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, sub.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: 'alice', access: 'write' }], 'carol'))()
     const a = (await access('alice', p.id)).body
     expect(a.otherRules).toEqual([
       { path: p.folderPath, subjectType: 'group', subjectId: 'finance', name: 'Finance', access: 'read' },
-      { path: `${p.folderPath}/hr`, subjectType: 'user', subjectId: 'erin', name: 'Erin Yoo', access: 'none' },
+      { path: `${p.folderPath}/hr`, subjectType: 'user', subjectId: 'alice', name: 'Alice Kim', access: 'write' },
     ])
     // dropping erin keeps finance's read rule and the sub-rule; finance cannot be made a writer from here
     expect((await put('alice', p.id, [], a.rulesHash)).status).toBe(200)
     expect(rulesAt(p.folderPath)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'group', s: 'finance', a: 'read' }, { t: 'user', s: 'alice', a: 'write' }])
-    expect(rulesAt(`${p.folderPath}/hr`)).toEqual([{ t: 'user', s: 'erin', a: 'none' }])
+    expect(rulesAt(`${p.folderPath}/hr`)).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'user', s: 'alice', a: 'write' }])
     const fixed = await put('carol', p.id, [group('finance')], (await access('alice', p.id)).body.rulesHash)
     expect([fixed.status, fixed.body.error.params.reason]).toEqual([400, 'participant_fixed'])
   })
@@ -143,7 +144,7 @@ describe('what a member may not reach through a project (review)', () => {
     expect((await A.json(`/api/projects/${id}?manage=1`, { as: 'carol' })).body).toMatchObject({ canDelete: true })
     const del = await A.json(`/api/projects/${id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
     expect([del.status, del.body.error.params.reason]).toEqual([409, 'project_folder_stays'])
-    expect(rulesAt('projects/hr')).toEqual([{ t: 'group', s: 'marketing', a: 'write' }])
+    expect(rulesAt('projects/hr')).toEqual([{ t: 'everyone', s: null, a: 'none' }, { t: 'group', s: 'marketing', a: 'write' }])
     expect(fs.existsSync(path.join(A.team, 'projects/hr'))).toBe(true)
     // an admin sees and changes it
     const c = await access('carol', id)
@@ -288,8 +289,8 @@ describe('narrowing, conflicts, the creator gone', () => {
     const hash = (await access('alice', p.id)).body.rulesHash
     const row = A.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p.folderPath) as { id: string }
     // the hash Admin › Folder permissions shows for the folder (Folder.rulesHash) is the project screen's
+    // (since P2 the admin hash also covers the folder's limit; the admin's save below is refused before any hash check)
     const adminHash = rulesHashAt(A.ctx.db, p.folderPath)
-    expect(adminHash).toBe(hash)
     // Admin › Folder permissions no longer writes a project's folder (docs/DECISIONS.md "Project contents only for
     // members"): refused, nothing changed
     const next = [...rulesAt(p.folderPath).map((r) => ({ subjectType: r.t, subjectId: r.s, access: r.a })), { subjectType: 'user', subjectId: 'bob', access: 'read' }]
@@ -419,7 +420,8 @@ describe('the members panel (docs/DECISIONS.md "Project members in one panel")',
     // a folder an older build made: the creator's rule only, no floor; the root opens to everyone
     fs.mkdirSync(path.join(A.team, 'projects/panel-nofloor'), { recursive: true })
     const nf = ensureFolderRow(A.ctx.db, 'projects/panel-nofloor')
-    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, nf.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice'))()
+    // (not limited: as an older build left it, before the conversion)
+    A.ctx.db.transaction(() => setFolderAccess(A.ctx.db, nf.id, [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], 'alice', { limited: false }))()
     const id = uuidv7()
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, folder_made) VALUES (?, 'No floor', 'projects/panel-nofloor', '', 'alice', '2026-01-01T00:00:00Z', 1)").run(id)
     const root = ensureFolderRow(A.ctx.db, '')
