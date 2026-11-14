@@ -19,6 +19,7 @@ status line changes as things move on.
 3. Press **Copy** next to the Webhook URL (Google Forms: **Copy code**) and follow the numbered steps in that service.
    Nothing is added to the room until you copy, so you can look first and close the guide.
 4. The guide shows what happens live: *Waiting for the first message*, *Connected*, or why the last try wasn't shown.
+   After two minutes with nothing, **Nothing yet?** lists the usual mistakes for that service and how to send a test.
    **Show an example** shows, inside the guide, how its messages will look. Nothing is posted.
 
 ![Add an app: its messages appear in the room for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
@@ -78,7 +79,9 @@ Form answers show in the room as they were given, email addresses too; uploaded 
 and order cards show a customer's name (and city for Shopify), never their email, phone or card.
 
 Stripe, Shopify, Zendesk, Typeform and Tally can sign what they send. **Optional: make it safer** in the guide takes the
-service's signing secret (or gives you one to paste there); after that only signed messages are shown. Jira and HubSpot
+service's signing secret (or gives you one to paste there); after that only signed messages are shown. A secret Trina
+gives you (Typeform, Tally, GitHub) starts with the first message signed with it: until then, messages without it still
+show, so nothing is lost before you paste it in the service. Jira and HubSpot
 can't sign: their Webhook URL is the only key, so keep it private.
 
 ### More services
@@ -115,7 +118,8 @@ with an example to copy:
 
 - `text` is the message, and the only field you need (`content` works too).
 - `title` adds a heading, `url` one link, and messages with the same `thread` go into one thread.
-- Slack-style messages (`blocks`, `attachments`) and plain text are taken as well. An `Idempotency-Key` header makes a
+- Slack-style messages (`blocks`, `attachments`), plain text and a plain form post (`text=…`, the same fields; or Slack's
+  `payload` field) are taken as well. An `Idempotency-Key` header makes a
   retry post only once.
 
 ```bash
@@ -129,8 +133,8 @@ Per repository; you need admin access to it ([GitHub docs](https://docs.github.c
 - In the repository open **Settings › Webhooks › Add webhook**.
 - Paste the Webhook URL into **Payload URL** and choose **application/json**.
 - Choose **Send me everything** and press **Add webhook**. Trina shows only what you turn on in the app's settings.
-- *Optional, safer:* **Copy secret** in the guide and paste it into **Secret**. From then on Trina shows only what GitHub
-  signed ([validating deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)).
+- *Optional, safer:* **Copy secret** in the guide and paste it into **Secret**. From the first delivery signed with it
+  (GitHub's ping when you save), Trina shows only what GitHub signed ([validating deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)).
 
 If nothing arrives, **Recent Deliveries** on the webhook's page in GitHub shows what was sent.
 

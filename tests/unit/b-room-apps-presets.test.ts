@@ -169,13 +169,18 @@ test('Typeform: answers matched by field id, a file\'s name only, a payment\'s a
   expect(ms[0].body).not.toContain('api.typeform.com')
   expect(ms[0].body).not.toContain('4242')
   expect(ms[0].body).toContain('Card: 4.50')
-  // a secret Trina makes (Typeform's secret field): then only signed requests
+  // a secret Trina makes (Typeform's secret field): unsigned ones still shown until the first signed one, then only
+  // signed requests
   const s = (await secret(app.id, { generate: true })).body.secret as string
   const other = body.replace('01HXTESTEVENT000000000001', '01HXTESTEVENT000000000002').replace('2026-11-14T09:38:22Z', new Date().toISOString())
-  expect((await post(token, other)).status).toBe(401)
-  expect((await post(token, other, { 'typeform-signature': `sha256=${hmac('wrong-secret-0000', other).digest('base64')}` })).status).toBe(401)
-  expect((await post(token, other, { 'typeform-signature': hmac(s, other).digest('base64') })).status).toBe(401) // no prefix
+  const before = body.replace('01HXTESTEVENT000000000001', '01HXTESTEVENT000000000009')
+  expect((await post(token, before)).status).toBe(200)
   expect((await post(token, other, { 'typeform-signature': `sha256=${hmac(s, other).digest('base64')}` })).status).toBe(200)
+  const again = other.replace('01HXTESTEVENT000000000002', '01HXTESTEVENT000000000003')
+  expect((await post(token, again)).status).toBe(401)
+  expect((await post(token, again, { 'typeform-signature': `sha256=${hmac('wrong-secret-0000', again).digest('base64')}` })).status).toBe(401)
+  expect((await post(token, again, { 'typeform-signature': hmac(s, again).digest('base64') })).status).toBe(401) // no prefix
+  expect((await post(token, again, { 'typeform-signature': `sha256=${hmac(s, again).digest('base64')}` })).status).toBe(200)
   // signed without a submission time: refused (its signature has no time of its own); unsigned and unreadable: 400
   expect((await post(token, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } }), { 'typeform-signature': `sha256=${hmac(s, JSON.stringify({ event_id: 'e3', form_response: { token: 't' } })).digest('base64')}` })).status).toBe(401)
 })
@@ -189,8 +194,10 @@ test('Tally: option ids as their text, ticked boxes once, files by name; signed 
   // Tally signs JSON.stringify of the body; it sends it pretty-printed here (other bytes, same parse)
   const raw = JSON.stringify(obj, null, 2)
   const sig = (b: string) => ({ 'tally-signature': hmac(s, b).digest('base64') })
-  expect((await post(token, raw)).status).toBe(401)
+  // the secret waits for Tally: a wrongly signed request passes as unsigned until the first good one (then 401)
+  expect((await post(token, raw, sig('not the body'))).status).toBe(200)
   expect((await post(token, raw, sig(JSON.stringify(obj)))).status).toBe(200)
+  expect((await post(token, raw)).status).toBe(401)
   expect((await post(token, raw, sig(JSON.stringify(obj)))).status).toBe(200) // the same eventId: once
   await settle()
   const ms = await messages()

@@ -208,6 +208,9 @@ export const RoomApp = z.object({
   quiet: z.boolean(),
   /** a secret is set: requests must carry its signature (GitHub's X-Hub-Signature-256, Sentry's Sentry-Hook-Signature) */
   signed: z.boolean(),
+  /** a secret Trina made is saved but no signed request came yet: requests without a signature are still shown until
+   * the first signed one (then `signed`). Older servers omit it */
+  signingPending: z.literal(true).optional(),
   /** who added it (null: someone who left) */
   createdBy: UserRef.nullable(),
   createdAt: IsoTime,
@@ -274,7 +277,8 @@ export const UpdateRoomAppBody = z.object({
 }).strict()
 export type UpdateRoomAppBody = z.infer<typeof UpdateRoomAppBody>
 /** "Make it safer" (optional for GitHub and Sentry, owner decision 9): `generate` makes a secret Trina shows once here
- * (and on getRoomAppAddress), for GitHub's Secret field; `secret` saves Sentry's Client Secret (64 hex characters);
+ * (and on getRoomAppAddress), for GitHub's Secret field (it waits for the first request signed with it: `signingPending`
+ * until then, and unsigned requests are still taken); `secret` saves Sentry's Client Secret (64 hex characters);
  * `secret: null` takes the secret away (requests are then taken unsigned and their names marked "(unverified)"). */
 export const SetRoomAppSecretBody = z.union([
   z.object({ generate: z.literal(true) }).strict(),

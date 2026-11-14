@@ -75,6 +75,26 @@ export function LinkButton({ variant = 'secondary', size = 'md', className, chil
   )
 }
 
+/** A text-only action in a line or a row ("How to connect", "Show the step", "Regenerate", "Remove app"): it looks like
+ * a link but is a button, and its own box is a real tap target, at least 44 px tall on a phone and 24 px on a computer
+ * (WCAG 2.5.8), not a small box with a bigger invisible one. `tone`: accent (default) or danger (a destructive one). In a
+ * line of text it sits in the line's middle (items-center on the line), so the line grows to its height on a phone. */
+export function TextAction({ tone = 'accent', className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: 'accent' | 'danger' }) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={clsx(
+        'inline-flex min-h-6 shrink-0 items-center rounded-md text-left font-medium hover:underline disabled:cursor-not-allowed disabled:opacity-40 max-md:min-h-11',
+        tone === 'danger' ? 'text-danger' : 'text-accent-text',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** The first step of a sign-in in another tab: Open (a LinkButton) and Copy link beside it, for the browser or device
  * that is signed in to the service. `primary`: Open is the dialog's main action; the caller passes false once it was
  * used, so the next step's button (Connect) is the only primary one. */

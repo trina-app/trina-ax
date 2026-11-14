@@ -59,6 +59,16 @@ export function formEvent(L: Locale, o: { form: string; id: string; delivery: st
   } }
 }
 
+/** A reply's lines of a longer text (a Jira comment, a Zendesk update, a Channel Talk message): its first `n` lines, the
+ * last one ending in "…" when more follow. The whole text goes with the reply as its `extra` (QA TC-2413). */
+export function replyLines(text: string, n = 3): string[] {
+  const all = text.split('\n').map((x) => x.trim()).filter(Boolean)
+  if (all.length <= n) return all
+  const shown = all.slice(0, n)
+  shown[n - 1] = `${shown[n - 1]} …`
+  return shown
+}
+
 /** A file answer: its name only (the service's file address can be a public bucket's: never made a link). */
 export function fileName(u: unknown): string {
   if (typeof u !== 'string') return ''

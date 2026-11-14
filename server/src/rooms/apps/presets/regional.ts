@@ -27,7 +27,7 @@ import { line, lines } from '../card'
 import type { Arrival, Parsed } from '../parse'
 import { get, jsonOf, num, obj, sha, str } from '../read'
 import { appText, type AppTextKey } from '../text'
-import { money, type PresetDef } from './common'
+import { money, replyLines, type PresetDef } from './common'
 
 const statusOf = (L: Arrival['locale'], k: AppTextKey) => appText('status', L, { status: appText(k, L) })
 
@@ -135,7 +135,7 @@ function channel(a: Arrival): Parsed {
       switch: fromUser ? 'customer_message' : 'manager_message', delivery: `channel-message:${id}`,
       key: `chat:${chatId}`,
       card: { kind: who, title: line(text, 200) || who, details: [], unverified: !a.signed && !!(fromUser ? customer : manager) },
-      reply: { title: who, details: [text.split('\n')[0] ?? ''].filter(Boolean), unverified: !a.signed && !!(fromUser ? customer : manager) },
+      reply: { title: who, details: replyLines(text), unverified: !a.signed && !!(fromUser ? customer : manager) },
       ...(text ? { extra: text } : {}),
     } }
   }

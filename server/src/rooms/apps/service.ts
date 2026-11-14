@@ -56,6 +56,8 @@ export interface AppRow {
   events: string; alert_seen: number; quiet: number; created_by: string | null; created_at: string; updated_at: string
   paused_until: string | null; resumed_on: string | null; first_ok_at: string | null; last_ok_at: string | null; last_refusal_at: string | null; last_refusal: string | null
   rotated_at: string | null
+  /** migration 405: a secret Trina made, not yet seen on a request (older rows: 0) */
+  secret_pending?: number
 }
 
 export const sha256 = (s: string | Uint8Array) => crypto.createHash('sha256').update(s).digest('hex')
@@ -244,7 +246,8 @@ export class RoomApps {
     const preset = this.presetOf(row)
     const pausedBy = paused ? this.pausedBy(row, day) : null
     return {
-      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc,
+      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc && !row.secret_pending,
+      ...(row.secret_enc && row.secret_pending ? { signingPending: true as const } : {}),
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
       pausedUntil: paused, canResume: pausedBy === 'app' && !this.capDay(row, day).resumed,
@@ -299,7 +302,7 @@ export class RoomApps {
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })
-    this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR)
+    this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR, (minutes) => appText('addLimit', locale, { n: ROOM_APPS_PER_HOUR, minutes }))
     const id = newId(), now = nowIso(), token = newToken()
     const s = this.seal(id, token, null)
     this.db.transaction(() => {
@@ -358,7 +361,11 @@ export class RoomApps {
       // what the person pasted: Sentry's Client Secret, a service's signing secret, or (GitHub) a secret they chose there
       const v = b.secret.trim()
       if (row.kind === 'sentry' && !SENTRY_SECRET_RE.test(v)) fail('validation', appText('sentrySecretShape', locale), { fields: { 'body.secret': 'not a Sentry Client Secret' } })
-      if (preset && signing?.signing === 'paste' && signing.shape && !signing.shape.test(v)) fail('validation', appText('presetSecretShape', locale, { app: ROOM_APP_PRESET_NAMES[preset] }), { fields: { 'body.secret': `not a ${ROOM_APP_PRESET_NAMES[preset]} signing secret` } })
+      if (preset && signing?.signing === 'paste' && signing.shape && !signing.shape.test(v)) {
+        // said with the field's own name (Toss Payments' "Security key", PortOne's "Webhook secret")
+        const why = preset === 'toss_payments' ? appText('tossKeyShape', locale) : preset === 'portone' ? appText('portoneSecretShape', locale) : appText('presetSecretShape', locale, { app: ROOM_APP_PRESET_NAMES[preset] })
+        fail('validation', why, { fields: { 'body.secret': `not a ${ROOM_APP_PRESET_NAMES[preset]} signing secret` } })
+      }
       if (preset === 'zendesk' && v === ZENDESK_TEST_SECRET) fail('validation', appText('zendeskTestSecret', locale), { fields: { 'body.secret': "Zendesk's public test secret" } })
       if (v.length > 200 || /[^\x21-\x7e]/.test(v)) fail('validation', undefined, { fields: { 'body.secret': 'printable characters only' } })
       // Channel Talk's webhook token: its length is not documented (live check), so a shorter one is taken
@@ -368,8 +375,16 @@ export class RoomApps {
     }
     const token = this.tokenOf(row)
     const s = this.seal(row.id, token, secret)
+    // the first secret Trina makes for an app waits for the first request signed with it (unsigned ones are shown until
+    // then: copying it must not drop what the service sends before it is pasted there). Once a secret is enforced, a
+    // new one is enforced at once (security review of #880: making another must not let unsigned posts in again); one
+    // the person pasted is the service's own
+    const enforced = !!row.secret_enc && !row.secret_pending
+    const pending = !!secret?.made && 'generate' in b && !enforced
     this.db.transaction(() => {
-      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, nowIso(), row.id)
+      this.db.query('UPDATE room_apps SET token_enc = ?, secret_enc = ?, key_version = ?, secret_pending = ?, updated_at = ? WHERE id = ?').run(s.token_enc, s.secret_enc, s.key_version, pending ? 1 : 0, nowIso(), row.id)
+      // "…the secret didn't match" was about the secret before: not said after it changed or was taken away
+      this.db.query("UPDATE room_apps SET last_refusal = NULL, last_refusal_at = NULL WHERE id = ? AND last_refusal = 'signature'").run(row.id)
       // a new secret: the service account pinned before it (possibly by an unsigned request) is forgotten; the next
       // signed request pins it again
       if (secret) this.db.query('UPDATE room_apps SET preset_pin = NULL WHERE id = ?').run(row.id)
@@ -440,16 +455,20 @@ export class RoomApps {
 
   example(userId: string, roomId: string, appId: string): void {
     const { row } = this.mine(userId, roomId, appId)
-    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR)
     const L = this.locale()
+    this.takeHourly(this.examples, row.id, ROOM_APP_EXAMPLES_PER_HOUR, (minutes) => appText('exampleLimit', L, { n: ROOM_APP_EXAMPLES_PER_HOUR, minutes }))
     const card = cleanCard({ kind: appText('example', L), title: appText('exampleTitle', L, { app: row.name }), details: [], status: undefined })
     this.insert(row, { card, quiet: true, example: true })
   }
 
-  private takeHourly(m: Map<string, number[]>, key: string, max: number) {
+  /** `text`: the refusal in words, with the minutes to wait (the oldest of the hour's tries leaves the window then) */
+  private takeHourly(m: Map<string, number[]>, key: string, max: number, text: (minutes: number) => string) {
     const now = this.clock()
     const recent = (m.get(key) ?? []).filter((t) => now - t < HOUR)
-    if (recent.length >= max) fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((recent[0]! + HOUR - now) / 1000)) })
+    if (recent.length >= max) {
+      const wait = Math.max(1, Math.ceil((recent[0]! + HOUR - now) / 1000))
+      fail('rate_limited', text(Math.ceil(wait / 60)), { retryAfter: wait })
+    }
     recent.push(now)
     m.set(key, recent)
   }
@@ -468,6 +487,11 @@ export class RoomApps {
   /** A request the limits turned away: counted in memory and written at most once a minute per app (a flood must not
    * write a row per request). */
   private drops = new Map<string, { row: Pick<AppRow, 'id' | 'room_id' | 'kind'>; day: string; n: number; at: number }>()
+  /** The first request signed with a secret Trina made: from now on only signed requests are shown. */
+  /** `secretEnc`: the sealed secret the request was checked with; a secret set again since then is left waiting. */
+  signingSeen(appId: string, secretEnc: string) {
+    this.db.query('UPDATE room_apps SET secret_pending = 0 WHERE id = ? AND secret_enc = ?').run(appId, secretEnc)
+  }
   dropped(row: Pick<AppRow, 'id' | 'room_id' | 'kind'>, day: string) {
     const now = this.clock()
     const d = this.drops.get(row.id)
@@ -523,7 +547,12 @@ export class RoomApps {
     if (!room) return
     audit(this.db, { actor: null, action: 'room_app.paused', target: row.id, detail: { ...roomAuditRef(room), cap, team } })
     const L = this.locale()
-    try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    // the team's cap pauses every app at once: its line is said once per room that day, by the first app paused there
+    // (10 apps must not post 10 equal lines; QA TC-2067); an app's own cap keeps its own line
+    const saidInRoom = team && !!this.db.query("SELECT 1 FROM room_app_days WHERE room_id = ? AND day = ? AND paused_by = 'team' AND app_id <> ? LIMIT 1").get(row.room_id, day, row.id)
+    if (!saidInRoom) {
+      try { this.postLine(row, team ? this.teamCapText(L, until) : appText('pausedLine', L, { app: row.name, cap: appNumber(cap, L) })) } catch (e) { this.ctx.log.warn('room app paused line failed', { err: e }) }
+    }
     // who is told: the people in the room who manage it, and the person who added it while they are in it
     const members = (this.db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id) as { user_id: string }[]).map((m) => m.user_id)
     const to = members.filter((u) => u === row.created_by || mayManageApps(this.db, room, u))
@@ -575,7 +604,9 @@ export class RoomApps {
         // `onlyStatus`: no reply, the root's status line below is the whole change
         // `backFrom`: shown in the room too when the thing was in one of those states (a solved ticket opened again)
         const back = !!ev.back || (!!ev.backFrom && !!thread!.state && !!ev.state && ev.backFrom.includes(thread!.state) && !ev.backFrom.includes(ev.state))
-        id = ev.onlyStatus ? null : this.insert(row, { card, root, alsoInRoom: back, quiet: !!row.quiet, at })
+        // `extra` (a Jira comment, a Zendesk update, a Channel Talk message in full): in the reply's text too, not only
+        // the lines its card shows (QA TC-2413)
+        id = ev.onlyStatus ? null : this.insert(row, { card, root, alsoInRoom: back, quiet: !!row.quiet, at, extra: ev.extra })
         // the root's status line follows the thing's state
         if (ev.status && ev.state && ev.state !== thread!.state) {
           const stored = JSON.parse(root.app_card ?? '{}') as StoredCard

@@ -17,7 +17,8 @@
 //   5. the signature when a secret is set (signatures.ts: GitHub X-Hub-Signature-256 "sha256=<hex>", Sentry
 //      Sentry-Hook-Signature "<hex>", a preset its service's scheme (Channel Talk: its ?token= on the URL); constant
 //      time; 401; Tally's signed createdAt older
-//      than 2 days: 401). Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
+//      than 2 days: 401). A secret Trina made (GitHub, Typeform, Tally) that no request has carried yet lets unsigned
+//      requests through until the first one signed with it. Jotform's form post is read into fields here. Without a secret the token alone authenticates and the
 //      card carries `unverified` when it names someone; the app's settings say "Not signed" once (owner decision 9:
 //      optional for both; no "(unverified)" after each name since the 2026-11-14 review).
 //   6. parse (400 unreadable), the app's switch (off: 200, skipped), the day's caps (pause: 429), then one transaction
@@ -147,8 +148,9 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   // removed or given a new address while the body came: as an unknown address
   const now_ = apps.row(row.id)
   if (!now_ || now_.token_hash !== row.token_hash) return NOT_FOUND()
-  // 5. the signature, when a secret is set
-  const secret = apps.secretOf(row)
+  // 5. the signature, when a secret is set: the row as read after the body (a secret changed meanwhile is the one
+  // checked, and its pending flag goes with it)
+  const secret = apps.secretOf(now_)
   let signed = false
   let verified: unknown
   if (secret) {
@@ -156,13 +158,21 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
     // that has it anyway is refused. Part 1's kinds as before: GitHub's header, else Sentry's
     const sig = preset ? preset.signature : row.kind === 'github' ? { scheme: 'hex-body' as const, header: 'x-hub-signature-256', prefix: 'sha256=' } : { scheme: 'hex-body' as const, header: 'sentry-hook-signature' }
     const r = secret !== 'broken' && sig ? verifySignature(sig.scheme, { secret: secret.secret, raw, headers: req.headers, now, header: sig.header, prefix: sig.prefix, query: queryOf(req) }) : { ok: false as const }
-    if (!r.ok) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
-    if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
-    if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
-    verified = r.json
-    signed = true
+    // a secret Trina made that no request has carried yet (secret_pending): a request without its signature is read as
+    // if no secret were set (the person may not have pasted it in the service yet); the first one that matches turns
+    // the check on for good
+    const pending = !!now_.secret_pending && secret !== 'broken'
+    if (!r.ok && !pending) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+    if (r.ok) {
+      // Tally signs no time: a signed body older than 2 days is a replay beyond what dedupe remembers
+      if (p === 'tally' && tallyTooOld(r.json, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+      // Typeform's signature has no time either: a signed response submitted more than 2 days ago is a replay
+      if (p === 'typeform' && typeformTooOld(raw, now)) { apps.refused(row.id, 'signature'); return answer(401, 'bad_signature') }
+      // only for the secret that was checked: one set again meanwhile keeps waiting for its own first signed request
+      if (pending) apps.signingSeen(row.id, now_.secret_enc!)
+      verified = r.json
+      signed = true
+    }
   }
   let form: [string, string][] | undefined
   if (p === 'jotform') {
@@ -196,7 +206,8 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   if (!apps.switches(app)[ev.switch]) { apps.count(row, 'skipped', day); return answer(200, 'ok') }
   const paused = apps.capCheck(app)
   if (paused) { apps.count(row, 'skipped', day); return answer(429, 'slow_down', { 'retry-after': String(Math.max(1, Math.ceil((Date.parse(paused) - now) / 1000))) }) }
-  // with a secret saved, only a signed request may pin the service account (unsigned ones are refused above anyway)
+  // with a secret saved, only a signed request may pin the service account: an unsigned one gets here only while a
+  // secret Trina made still waits for its first signed request (secret_pending), and it pins nothing
   if (ev.pin && app.secret_enc && !signed) delete ev.pin
   if (!apps.post(app, ev, day)) apps.count(row, 'skipped', day)
   return answer(200, 'ok')

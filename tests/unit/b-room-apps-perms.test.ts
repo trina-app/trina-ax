@@ -150,6 +150,11 @@ test('rekeying the credentials keeps every address working and copyable', async 
   expect(after.key_version).toBe(before.key_version + 1)
   const again = await ada.client.call('GET', `/api/rooms/${team}/apps/${a.app.id}/address`)
   expect(again).toEqual({ address: a.address, secret: s.secret })
+  // the secret still checks after rekeying: GitHub's signed ping is taken (and turns the check on), unsigned is refused
+  const ping = '{"zen":"x","hook_id":1}'
+  const sig = `sha256=${crypto.createHmac('sha256', s.secret).update(ping).digest('hex')}`
+  const token = a.address.split('/in/')[1]
+  expect((await h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': 'ping', 'x-hub-signature-256': sig }, body: ping })).status).toBe(200)
   expect((await post(a.address, 'x')).status).toBe(401)
 })
 

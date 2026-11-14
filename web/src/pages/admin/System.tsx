@@ -12,7 +12,7 @@ import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, R
 import clsx from 'clsx'
 import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
@@ -161,6 +161,9 @@ export default function System() {
   const officeKnown = !!office.data || !!office.error
   const who = { owner: isOwner(me), features: me.server.features, office: officeKnown ? !!office.data?.v : undefined }
   const group = phone ? systemGroup(sub, who) : undefined
+  // a computer opened at /admin/system/<group> lands at /admin/system#system-<group> (systemRedirect): that part in view
+  const hash = useLocation().hash
+  const hashPart = hash.startsWith('#system-') ? (hash.slice('#system-'.length) as SystemGroupId) : undefined
   const list = phone && !group
   const [notes, setNotes] = useState<Partial<Record<SystemGroupId, RowNote>>>({})
   const setNote = useCallback<SetNote>((id, note) => {
@@ -196,7 +199,7 @@ export default function System() {
               </div>
             )}
             <div hidden={loads.allFailed || list} className="max-w-3xl" data-testid="system-page" data-group={group?.id}>
-              <SystemSections office={office} shown={phone ? (group?.id ?? null) : undefined} />
+              <SystemSections office={office} shown={phone ? (group?.id ?? null) : undefined} focus={phone ? undefined : hashPart} />
             </div>
           </BarTitleProvider>
         </FlatCardsProvider>
@@ -205,8 +208,37 @@ export default function System() {
   )
 }
 
-/** `shown`: a phone's group on screen (null: the list, none shown); undefined: a computer's one page, as it was. */
-function SystemSections({ office, shown }: { office: Office; shown: SystemGroupId | null | undefined }) {
+/** A computer's one page opened at /admin/system/<group> (a link such as the apps dialog's "Turn on connection"; it
+ * arrives as #system-<group>, systemRedirect): that part scrolled to the top. The parts above it load on their own and change height, so it is put in view again while
+ * they settle (about two seconds), unless the person scrolls first. */
+function useScrollToPart(focus: SystemGroupId | undefined) {
+  useEffect(() => {
+    if (!focus) return
+    let stop = false
+    const go = () => {
+      if (stop) return
+      // the part's card carries the id system-<group> (Card's scroll-mt keeps it clear of the sticky header)
+      document.getElementById(`system-${focus}`)?.scrollIntoView({ block: 'start' })
+    }
+    const timers = [0, 300, 800, 1600].map((ms) => setTimeout(go, ms))
+    const off = () => { stop = true }
+    window.addEventListener('wheel', off, { passive: true, once: true })
+    window.addEventListener('touchstart', off, { passive: true, once: true })
+    window.addEventListener('keydown', off, { once: true })
+    return () => {
+      stop = true
+      timers.forEach(clearTimeout)
+      window.removeEventListener('wheel', off)
+      window.removeEventListener('touchstart', off)
+      window.removeEventListener('keydown', off)
+    }
+  }, [focus])
+}
+
+/** `shown`: a phone's group on screen (null: the list, none shown); undefined: a computer's one page, as it was.
+ * `focus`: a computer's page opened at one group's address: that part is scrolled into view. */
+function SystemSections({ office, shown, focus }: { office: Office; shown: SystemGroupId | null | undefined; focus?: SystemGroupId }) {
+  useScrollToPart(focus)
   const me = useMeStrict()
   // a finished backup changes the health section's "last backup" line
   const [rev, setRev] = useState(0)
@@ -256,6 +288,7 @@ function Health({ rev }: { rev: number }) {
   useRowNote('health', problems === undefined ? null : problems ? { badge: { text: t('adminHome.toFix', { count: problems }), tone: 'warn' } } : { value: t('system.check.ok') })
   return (
     <Card
+      id="system-health"
       title={t('system.health')}
       testId="system-health"
       actions={
@@ -335,7 +368,7 @@ function Storage() {
   const bad = !!state.data && (state.data.level !== 'ok' || state.data.writesRefused)
   useRowNote('storage', used === null ? null : bad ? { badge: { text: used, tone: state.data!.level === 'full' || state.data!.writesRefused ? 'danger' : 'warn' } } : { value: used })
   return (
-    <Card title={t('storage.title')}>
+    <Card id="system-storage" title={t('storage.title')}>
       <Loadable state={state} lines={2}>
         {(s) => {
           const pct = Math.min(100, Math.max(0, s.percent))
@@ -500,7 +533,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   return (
     // one mode only (office mode: the office network): nothing to change
     // the hosted cloud: the team address is managed by the hosting provider (no change button)
-    <Card title={t('system.connection')} actions={changes && !phone ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
+    <Card id="system-connection" title={t('system.connection')} actions={changes && !phone ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <>
@@ -665,7 +698,7 @@ function ConnectedFolders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing])
   return (
-    <Card title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
+    <Card id="system-connected" title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
       <Loadable state={state}>
         {(list) => (
           <>
@@ -757,7 +790,7 @@ function Update() {
   const u0 = state.data
   useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
-    <Card title={t('system.updates')}>
+    <Card id="system-updates" title={t('system.updates')}>
       <Loadable state={state} lines={2}>
         {(u) => (
           <>
@@ -874,6 +907,7 @@ function Backups({ onChanged }: { onChanged: () => void }) {
   useRowNote('backups', latest ? { value: formatRelative(latest, locale) } : null)
   return (
     <Card
+      id="system-backups"
       title={t('system.backups')}
       desc={t('system.backupsDesc')}
       actions={
@@ -970,7 +1004,7 @@ function Export() {
   const [result, setResult] = useState<string | null>(null)
   useEffect(() => setResult(null), [what])
   return (
-    <Card title={t('system.export')} desc={t('system.exportDesc')}>
+    <Card id="system-export" title={t('system.export')} desc={t('system.exportDesc')}>
       <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
         <legend className="sr-only">{t('system.export')}</legend>
         {(['chats', 'memories', 'files'] as const).map((w) => (
