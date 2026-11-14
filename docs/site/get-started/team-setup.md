@@ -30,7 +30,7 @@ At the end, **You're all set** offers to try that skill yourself first. It shows
 
 ## While the deck builds
 
-The deck is an ordinary chat with Trina. On a computer you see it in **Recent** in your Trina list on the left, beside the steps; you can open it at any time. On a phone, open the **Trina** tab and press **☰**: it is in **Trina history**.
+The deck is an ordinary chat with Trina. On a computer you see it in **Trina history** in your Trina list on the left, beside the steps; you can open it at any time. On a phone, open the **Trina** tab and press **☰**: it is in **Trina history**.
 
 ## Coming back
 
