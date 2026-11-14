@@ -16,7 +16,7 @@ import { HttpError } from '../http/errors'
 import { loadOrCreateKey } from '../relay-client/registration'
 import { answerError, errorCode, postPinned, PushSendError, type PushLookup } from './push-transport'
 
-/** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
+/** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY, server.json push.gatewayUrl or the edition default; app-config.ts resolvePushGateway). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
 /** badge: the recipient's count for the app icon (push-badge.ts), a number only */

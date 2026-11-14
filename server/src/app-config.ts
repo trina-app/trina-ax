@@ -9,7 +9,8 @@
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
 // MYCEL_DEMO (a demo file, `bun run demo:company`: development servers only, refused anywhere else; readDemoFile),
-// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; unset or '' = off).
+// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; '' or off = off; unset =
+// server.json push.gatewayUrl, else the edition's default, SERVICE_HOSTS.pushGatewayUrl: resolvePushGateway).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -19,6 +20,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { AuthMode, PRODUCT, SourceCodeConfig } from '@mycel/shared'
 import { CredentialKind } from '@mycel/shared/api'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
 import { DemoFile } from '@mycel/shared/api'
 
@@ -332,7 +334,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
   const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
   const obsolete = Object.keys(OBSOLETE_KEYS).filter((k) => (f as Record<string, unknown>)[k] !== undefined)
-  const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
+  const pushGateway = resolvePushGateway(env[P + 'PUSH_GATEWAY'], f.push?.gatewayUrl, mode === 'prod' || f.office ? SERVICE_HOSTS.pushGatewayUrl : '')
   if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
   return {
@@ -388,6 +390,18 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
  * started for the demo. So the flag stops the server everywhere else (production mode, the hosted service, office mode),
  * as does a file that is missing or not a demo file. Unset or empty: no demo (null).
  */
+/** The phone push gateway: MYCEL_PUSH_GATEWAY when it is set at all, else server.json push.gatewayUrl when the key is
+ * there, else the edition's default (SERVICE_HOSTS.pushGatewayUrl: https://push.trina.app in the Trina edition, '' in
+ * the neutral core). An unset variable is not the same as an empty one: '' or "off" (and null in server.json) turn
+ * phone push off even where the edition has a default. The caller passes the default only for installed servers and
+ * office Macs, so a developer's server never reaches the real gateway. */
+export function resolvePushGateway(envValue: string | undefined, fileValue: string | null | undefined, editionDefault: string): string | null {
+  const off = (v: string) => v.trim() === '' || v.trim().toLowerCase() === 'off'
+  if (envValue !== undefined) return off(envValue) ? null : envValue.trim()
+  if (fileValue !== undefined) return fileValue === null || off(fileValue) ? null : fileValue.trim()
+  return editionDefault || null
+}
+
 export function readDemoFile(value: string | undefined, where: { mode: 'dev' | 'prod'; deployment?: 'self' | 'hosted'; office: boolean }, cwd = process.cwd()): DemoFile | null {
   if (value === undefined || value === '') return null
   const P = PRODUCT.envPrefix

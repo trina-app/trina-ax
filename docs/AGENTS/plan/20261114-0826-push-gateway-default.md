@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-14
 - Branch: `feat/push-gateway-default`
-- Status: in progress
+- Status: done
 - Where: `editions/trina/branding/service.json`, `scripts/edition-service.ts`, `shared/src/service-hosts.ts`,
   `server/src/app-config.ts`, Settings › Notifications copy. Why: edition addresses live in the edition's service.json
   and are written into `SERVICE_HOSTS` (docs/EDITION-BRANDING.md); the server reads its config in app-config.ts.
@@ -34,3 +34,7 @@ Out: a UI switch for the gateway; changes to the gateway itself.
 
 `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, tests/unit/push-native.test.ts,
 tests/unit/edition-service.test.ts.
+
+## Result
+
+Built as planned.
