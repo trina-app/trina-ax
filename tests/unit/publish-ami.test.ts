@@ -161,8 +161,8 @@ describe('the workflows', () => {
 
   test('the IAM policy docs are JSON and scope deletes to the CI\'s tag', () => {
     const p = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-iam-policy.json'), 'utf8')) as { Statement: { Sid: string; Effect: string; Action: string | string[]; Condition?: Record<string, Record<string, unknown>> }[] }
-    const trust = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-trust-policy.json'), 'utf8')) as { Statement: { Condition: Record<string, Record<string, string>> }[] }
-    expect(trust.Statement[0]!.Condition.StringLike['token.actions.githubusercontent.com:sub']).toBe('repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*')
+    const trust = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/runbooks/team-image-trust-policy.json'), 'utf8')) as { Statement: { Condition: Record<string, Record<string, string | string[]>> }[] }
+    expect(trust.Statement[0]!.Condition.StringLike['token.actions.githubusercontent.com:sub']).toEqual(['repo:trina-app/trina-ax', 'repo:trina-app@349611973/trina-ax@1436599521'].map((r) => `${r}:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`))
     const acts = (s: { Action: string | string[] }) => ([] as string[]).concat(s.Action)
     // a snapshot or image of anyone but Debian never feeds a volume or an instance
     for (const s of p.Statement.filter((s) => s.Effect === 'Allow' && /snapshot\/\*|image\/\*/.test(JSON.stringify((s as { Resource?: unknown }).Resource)))) {

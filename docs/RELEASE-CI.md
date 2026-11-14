@@ -365,23 +365,23 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 
 ### 처음 한 번 (대표)
 
-**1–3을 마치기 전에는 `AWS_ROLE_ARN`을 넣지 않는다.** 2026-11-14 현재 environment `release`에는 보호 규칙이 없고(배포 대상 제한 없음, 승인자 없음) `v*` 태그 ruleset도 없다. 그대로면 push 권한이 있는 누구나 아무 브랜치에서 `environment: release`를 쓰는 workflow로 OIDC 토큰을 받을 수 있다. 이 레포 설정은 대표만 바꾼다.
+**1–3을 마치기 전에는 `AWS_ROLE_ARN`을 넣지 않는다.** (2026-11-14 대표가 1–6을 마쳤다.) 보호가 없으면 push 권한이 있는 누구나 아무 브랜치에서 `environment: release`를 쓰는 workflow로 OIDC 토큰을 받을 수 있다. 이 레포 설정은 대표만 바꾼다.
 
 1. **environment `release` 보호**: Settings → Environments → `release`.
-   - Deployment branches and tags → **Selected branches and tags** → 태그 규칙 `v*` 하나만(브랜치는 넣지 않는다).
+   - Deployment branches and tags → **Selected branches and tags** → 태그 규칙 `v*`와 브랜치 `main`. `main`이 필요한 이유: feed.yml(배포 멈추기·promote)이 main에서 돌고 이 environment를 쓴다. 이미지 역할은 신뢰 정책이 `team-image.yml`의 `v*` 태그 run만 받으므로 `main`을 허용해도 main의 run은 역할을 받지 못한다.
    - **Required reviewers**: 대표(필요하면 한 명 더). release.yml의 prepare·publish와 이미지 run이 각각 승인을 기다린다.
    - (권장) 레포 비밀값 `RELEASE_SIGNING_KEY`·`CLOUDFLARE_API_TOKEN`을 이 environment의 비밀값으로 옮긴다. 지금은 레포 비밀값이라 environment 보호가 키를 지키지 못한다.
-2. **`v*` 태그 ruleset**: Settings → Rules → Rulesets → New tag ruleset, 대상 `v*`, Restrict creations·updates·deletions, 우회는 관리자만.
+2. **`v*` 태그 ruleset**: Settings → Rules → Rulesets → New tag ruleset, 대상 `v*`, Restrict creations·updates·deletions. 우회 목록에는 admin과 maintain 역할을 넣는다(릴리스 태그는 maintain 계정이 push한다).
 3. **OIDC subject에 workflow를 넣는다**(레포 설정, 한 번). 기본 subject `repo:…:environment:release`는 release.yml·feed.yml도 받는다. subject에 `job_workflow_ref`를 넣으면 역할이 `team-image.yml`의 `v*` 태그 run만 믿을 수 있다:
    ```sh
    gh api -X PUT repos/trina-app/trina-ax/actions/oidc/customization/sub \
      -F use_default=false -f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'
    gh api repos/trina-app/trina-ax/actions/oidc/customization/sub     # 확인
    ```
-   그 뒤 subject는 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v0.5.3` 꼴이다. 이 레포에서 OIDC를 쓰는 다른 곳은 dev-build.yml의 cosign 서명뿐이고, 그 인증서는 subject가 아니라 workflow 경로(`--certificate-identity`)로 확인하므로 영향이 없을 것이다. 바꾼 뒤 dev 빌드 한 번이 서명·확인되는지 본다. 이 설정을 안 하면 아래 신뢰 정책이 맞지 않아 역할을 받을 수 없다.
+   그 뒤 subject는 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v0.5.3` 꼴이다. **이 레포는 `use_immutable_subject=true`**라 실제 subject의 앞부분은 이름 대신 owner·repo id가 붙은 `repo:trina-app@349611973/trina-ax@1436599521:…`이다(레포나 조직 이름이 바뀌어도, 같은 이름의 다른 레포가 생겨도 subject가 바뀌지 않는다). `job_workflow_ref` 부분은 그대로 이름이다. 신뢰 정책은 두 꼴을 모두 받는다. 이 레포에서 OIDC를 쓰는 다른 곳은 dev-build.yml의 cosign 서명뿐이고, 그 인증서는 subject가 아니라 workflow 경로(`--certificate-identity`)로 확인하므로 영향이 없을 것이다. 바꾼 뒤 dev 빌드 한 번이 서명·확인되는지 본다. 이 설정을 안 하면 아래 신뢰 정책이 맞지 않아 역할을 받을 수 없다.
 4. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
 5. **역할을 만든다**(예: `trina-team-image-ci`).
-   - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
+   - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*` 또는 immutable 꼴 `repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(`StringLike`에 두 값의 목록, 3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
    - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더와 작업 볼륨은 Debian 계정(136693071363)의 이미지·스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). IAM 권한(`iam:*`, `PassRole`)은 없다.
    - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
    - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
