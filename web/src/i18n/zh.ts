@@ -3004,6 +3004,7 @@ export const zh: Record<MessageKey, string> = {
   "storage.grace": "存储空间已超出套餐上限。{date}之后，保存、上传和AI写入文件都会被拒绝。已删除的文件留在回收站中仍会计入，因此也请清空回收站。",
   "storage.overRefused": "存储空间已超出套餐上限：保存、上传和AI写入文件都会被拒绝。查看、下载和删除仍可使用。已删除的文件留在回收站中仍会计入，因此也请清空回收站。",
   "storage.howToFree": "释放空间的方法：清空回收站、缩短文件历史保留天数（管理 > 设置）、清理大文件。",
+  'storage.choosePlan': '选择套餐',
   "storage.part.team": "团队文件",
   "storage.part.history": "文件历史（旧版本）",
   "storage.part.trash": "回收站",

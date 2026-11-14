@@ -3052,6 +3052,7 @@ export const en: Record<MessageKey, string> = {
   'storage.grace': 'The storage is over the plan\'s limit. Saves, uploads and the AI\'s file writes are refused after {date}. Deleted files stay in the trash and still count, so empty the trash too.',
   'storage.overRefused': 'The storage is over the plan\'s limit: saves, uploads and the AI\'s file writes are refused. Read, download and delete keep working. Deleted files stay in the trash and still count, so empty the trash too.',
   'storage.howToFree': 'To free space: empty the trash, keep file history for fewer days (Admin > Settings), clean up large files.',
+  'storage.choosePlan': 'Choose a plan',
   'storage.part.team': 'Team files',
   'storage.part.history': 'File history (earlier versions)',
   'storage.part.trash': 'Trash',

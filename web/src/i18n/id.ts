@@ -3052,6 +3052,7 @@ export const id: Record<MessageKey, string> = {
   'storage.grace': 'Penyimpanan melewati batas paket. Penyimpanan, unggahan, dan penulisan berkas AI ditolak setelah {date}. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.',
   'storage.overRefused': 'Penyimpanan melewati batas paket: penyimpanan, unggahan, dan penulisan berkas AI ditolak. Membaca, mengunduh, dan menghapus tetap berfungsi. Berkas yang dihapus tetap ada di tempat sampah dan masih dihitung, jadi kosongkan juga tempat sampah.',
   'storage.howToFree': 'Untuk mengosongkan: kosongkan tempat sampah, simpan riwayat berkas lebih singkat (Admin > Pengaturan), rapikan berkas besar.',
+  'storage.choosePlan': 'Pilih paket',
   'storage.part.team': 'Berkas tim',
   'storage.part.history': 'Riwayat berkas (versi lama)',
   'storage.part.trash': 'Tempat sampah',

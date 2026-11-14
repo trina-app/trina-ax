@@ -42,6 +42,7 @@ import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUpload
 import { useTeamPrepared } from './TeamPrepared'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
+import { storagePlansAction } from '../StoragePlansLink'
 
 const L = TEAM_FILES_LIMITS
 const TAG = 'welcome-files' as const
@@ -242,7 +243,7 @@ function startStepRun(plan: FolderPlan, base: string): Run {
   let reported = false
   // every landed path: the folder plan sorts them once the run is done (OrganizeFiles.tsx)
   const landed: string[] = []
-  const run = startFolderUpload(plan, base, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}` }), {
+  const run = startFolderUpload(plan, base, (view) => toast({ level: 'error', text: `${errorText(view.refusal, currentLocale(), tNow('error.network'))} ${tNow('files.folderUpload.stopped', { n: view.waiting })}`, ...storagePlansAction(view.refusal) }), {
     tag: TAG,
     onLanded: (path) => {
       landed.push(path)

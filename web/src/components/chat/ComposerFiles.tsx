@@ -42,6 +42,7 @@ import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
 import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
+import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 
 export interface Pending {
   id: string
@@ -57,6 +58,8 @@ export interface Pending {
   progress: UploadProgress | null
   attachment?: Attachment
   error?: string
+  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
+  plans?: string
   abort: AbortController
 }
 
@@ -151,7 +154,7 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
-          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
+          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }),
     )
@@ -382,6 +385,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
+              {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
             </li>
           )
         return (
@@ -435,6 +439,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
                   </>
                 )}
               </span>
+              {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
             </span>
             <ChipRemove label={t(savedInProject(f) ? 'composer.removeUploadToTrash' : 'composer.removeAttachment', { name: f.name })} onClick={() => onRemove(f)} />
           </li>

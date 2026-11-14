@@ -81,6 +81,7 @@ import { newChatPath } from '../lib/newChat'
 import { PhoneFilesHome, TEAM_ROOT_ON_PHONE } from '../components/panels/FilesPanel'
 import { stackNow } from '../lib/screenHistory'
 import RecentFiles from './RecentFiles'
+import { storagePlansAction, storagePlansUrl } from '../components/StoragePlansLink'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -642,10 +643,10 @@ function Files() {
         }
         const retry = () => {
           const again = { id: item.id, abort: new AbortController() }
-          patchFileUpload(item.id, { status: 'uploading', error: undefined, progress: null, abort: again.abort, retry: undefined })
+          patchFileUpload(item.id, { status: 'uploading', error: undefined, plans: undefined, progress: null, abort: again.abort, retry: undefined })
           sendFile(file, folder, again)
         }
-        patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), retry })
+        patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e), retry })
       },
     )
   }
@@ -654,7 +655,7 @@ function Files() {
   const startFolder = (plan: FolderPlan, into?: string) => {
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     if (!plan.files.length && !plan.folders.length && !plan.unreadable.length) return toast({ level: 'info', text: t('files.folderUpload.empty') })
-    startFolderUpload(plan, into ?? path, (view) => toast({ level: 'error', text: `${errText(view.refusal)} ${t('files.folderUpload.stopped', { n: view.waiting })}` }))
+    startFolderUpload(plan, into ?? path, (view) => toast({ level: 'error', text: `${errText(view.refusal)} ${t('files.folderUpload.stopped', { n: view.waiting })}`, ...storagePlansAction(view.refusal) }))
   }
 
   /** Computer files or folders dropped here. Only a folder takes the folder path: files go up one by one, as always. */

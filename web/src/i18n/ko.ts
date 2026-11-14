@@ -3051,6 +3051,7 @@ export const ko = {
   'storage.grace': '저장 공간이 요금제 한도를 넘었어요. {date} 이후에는 저장·업로드·AI의 파일 쓰기가 거부돼요. 삭제한 파일은 휴지통에 남아 사용량에 포함되니 휴지통도 비워 주세요.',
   'storage.overRefused': '저장 공간이 요금제 한도를 넘어 저장·업로드·AI의 파일 쓰기를 받지 않고 있어요. 읽기, 내려받기, 삭제는 계속돼요. 삭제한 파일은 휴지통에 남아 사용량에 포함되니 휴지통도 비워 주세요.',
   'storage.howToFree': '줄이는 법: 휴지통 비우기, 파일 기록 보존일 줄이기(관리자 > 설정), 큰 파일 정리.',
+  'storage.choosePlan': '요금제 선택',
   'storage.part.team': '팀 파일',
   'storage.part.history': '파일 기록(이전 버전)',
   'storage.part.trash': '휴지통',

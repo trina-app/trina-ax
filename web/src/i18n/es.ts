@@ -3010,6 +3010,7 @@ export const es: Record<MessageKey, string> = {
   'storage.grace': "El almacenamiento supera el límite del plan. Después del {date} se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.",
   'storage.overRefused': "El almacenamiento supera el límite del plan: se rechazan los guardados, las cargas y las escrituras de archivos de la IA. Leer, descargar y eliminar siguen funcionando. Los archivos eliminados quedan en la papelera y siguen contando, así que vacíe también la papelera.",
   'storage.howToFree': "Para liberar espacio: vacíe la papelera, reduzca los días de historial de archivos (Administración > Configuración) y elimine archivos grandes que no necesite.",
+  'storage.choosePlan': 'Elegir un plan',
   'storage.part.team': "Archivos del equipo",
   'storage.part.history': "Historial de archivos (versiones anteriores)",
   'storage.part.trash': "Papelera",
