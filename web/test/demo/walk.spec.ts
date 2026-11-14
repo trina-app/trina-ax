@@ -270,6 +270,25 @@ test('reduced motion: the prompt is filled at once and the ring on send stands s
   expect(await ring(page).evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
 })
 
+test('a slow phone: Leo\'s prompt still types itself when the visitor arrives', async ({ page }, info) => {
+  // (one phone project is enough; the CPU six times slower, as a busy phone, so the chat mounts late)
+  test.skip(info.project.name !== '390-light', 'once, on a phone')
+  test.setTimeout(300_000)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+  await page.goto(START)
+  await follow(page, step('ask').text)
+  await expect(page.getByTestId('answer-sources')).toBeVisible({ timeout: 90_000 })
+  await follow(page)
+  await expect(page).toHaveURL(/\/rooms\//, { timeout: 30_000 })
+  await follow(page, step('project').text)
+  const leoChat = script.projects[0]!.chats![0]!.title
+  await follow(page, demoWord('openChat', L).replace('{title}', leoChat))
+  // no press of the guide line here: the arrival alone types the prompt
+  await expect(guide(page)).toHaveText(PRESS_SEND, { timeout: 60_000 })
+  await expect(page.locator('[data-testid="composer-input"]:visible').last()).toHaveValue(answer(step('banner').suggest![0]!).prompt)
+})
+
 // DEMO_OTHER: the other language's demo on the same server (test/demo/serve.ts DEMO_MOUNTS), e.g. /demo/ko/ for /demo/
 test('the other language\'s demo next to this one: its own worker, its link in the guide line', async ({ page, context }) => {
   const other = process.env.DEMO_OTHER
